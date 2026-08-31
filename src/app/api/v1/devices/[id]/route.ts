@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
 import { deviceApiError } from '@/lib/device-api'
 import { deleteDevice, getDevice, updateDevice } from '@/lib/device-store'
 
@@ -17,7 +18,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = await request.json()
-    return NextResponse.json({ data: await updateDevice(id, body) })
+    const session = await auth.api.getSession({ headers: request.headers })
+    return NextResponse.json({ data: await updateDevice(id, body, session?.user.id ?? null) })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
