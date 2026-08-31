@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
   policyFindFirst: vi.fn(),
   policyCount: vi.fn(),
   lifecycleCount: vi.fn(),
+  auditFindMany: vi.fn(),
+  auditCreate: vi.fn(),
   auditCount: vi.fn(),
+  transaction: vi.fn(),
   assertSiteBelongsToCustomer: vi.fn(),
 }))
 
@@ -31,7 +34,8 @@ vi.mock('@/lib/prisma', () => ({
     },
     firmwarePolicy: { findFirst: mocks.policyFindFirst, count: mocks.policyCount },
     firmwareLifecycleRecord: { count: mocks.lifecycleCount },
-    auditEvent: { count: mocks.auditCount },
+    auditEvent: { findMany: mocks.auditFindMany, create: mocks.auditCreate, count: mocks.auditCount },
+    $transaction: mocks.transaction,
   },
 }))
 
@@ -148,7 +152,13 @@ describe('device inventory persistence rules', () => {
     mocks.modelFindUnique.mockResolvedValue(rawModel)
     mocks.deviceFindMany.mockResolvedValue([])
     mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.auditFindMany.mockResolvedValue([])
+    mocks.auditCreate.mockResolvedValue({ id: 'audit-1' })
     mocks.assertSiteBelongsToCustomer.mockResolvedValue(null)
+    mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
+      device: { create: mocks.deviceCreate, update: mocks.deviceUpdate },
+      auditEvent: { create: mocks.auditCreate },
+    }))
   })
 
   it('creates a minimal manual device without site or external identity', async () => {
@@ -156,6 +166,7 @@ describe('device inventory persistence rules', () => {
     const result = await createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01' })
     expect(mocks.deviceCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ customerId: 'customer-1', siteId: null, deviceModelId: 'model-1', name: 'HQ-SW-01', source: 'MANUAL', externalProvider: null, externalId: null }) }))
     expect(result).toMatchObject({ id: 'device-1', source: 'MANUAL', currentFirmwareRelease: null, effectiveContractType: customerContract, contractSource: 'CUSTOMER' })
+    expect(mocks.auditCreate).not.toHaveBeenCalled()
   })
 
   it('validates optional site assignment against the selected customer', async () => {
@@ -170,6 +181,7 @@ describe('device inventory persistence rules', () => {
     expect(result.effectiveContractType).toEqual(siteContract)
     expect(result.contractSource).toBe('SITE')
     expect(result.customer.contractType).toEqual(customerContract)
+    expect(result.auditHistory).toEqual([])
   })
 
   it('rejects current firmware from a different vendor', async () => {
@@ -189,11 +201,49 @@ describe('device inventory persistence rules', () => {
     expect(mocks.deviceCreate).not.toHaveBeenCalled()
   })
 
-  it('supports archive-only updates without wiping device identity', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, customer: undefined, site: undefined, deviceModel: undefined, currentFirmwareRelease: undefined, lifecycle: undefined })
+  it('supports archive-only updates without creating irrelevant audit noise', async () => {
+    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, customer: undefined, site: undefined, deviceModel: undefined, currentFirmwareRelease: null, lifecycle: undefined })
     mocks.deviceUpdate.mockResolvedValue({ ...storedDevice, isActive: false })
     await updateDevice('device-1', { isActive: false })
     expect(mocks.deviceUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'device-1' }, data: expect.objectContaining({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', isActive: false }) }))
+    expect(mocks.auditCreate).not.toHaveBeenCalled()
+  })
+
+  it('audits a manual current-firmware change with previous/new values and actor', async () => {
+    const newerRelease = { ...release, id: 'release-2', version: '17.15.5', firmwareTrain: { id: 'train-new', name: '17.15.x' } }
+    const oldObservedAt = new Date('2026-08-30T20:00:00Z')
+    const newObservedAt = new Date('2026-09-01T00:15:00Z')
+    mocks.deviceFindUnique.mockResolvedValue({
+      ...storedDevice,
+      currentFirmwareReleaseId: release.id,
+      currentFirmwareObservedAt: oldObservedAt,
+      currentFirmwareRelease: { id: release.id, version: release.version, platform: release.platform },
+    })
+    mocks.firmwareFindUnique.mockResolvedValue({ id: newerRelease.id, vendorId: 'vendor-1', platform: 'IOS XE' })
+    mocks.deviceUpdate.mockResolvedValue({
+      ...storedDevice,
+      currentFirmwareReleaseId: newerRelease.id,
+      currentFirmwareObservedAt: newObservedAt,
+      currentFirmwareRelease: newerRelease,
+    })
+
+    await updateDevice('device-1', {
+      currentFirmwareReleaseId: newerRelease.id,
+      currentFirmwareObservedAt: newObservedAt.toISOString(),
+      currentFirmwareSource: 'MANUAL',
+    }, 'user-1')
+
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorUserId: 'user-1',
+        customerId: 'customer-1',
+        action: 'CURRENT_FIRMWARE_CHANGED',
+        entityType: 'Device',
+        entityId: 'device-1',
+        before: expect.objectContaining({ firmwareReleaseId: 'release-1', version: '17.12.5' }),
+        after: expect.objectContaining({ firmwareReleaseId: 'release-2', version: '17.15.5' }),
+      }),
+    }))
   })
 
   it('resolves ACTION_REQUIRED when current and desired exact releases differ', async () => {
