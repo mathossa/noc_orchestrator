@@ -1,9 +1,27 @@
 export type SiteSource = 'MANUAL' | 'API' | 'IMPORT'
 
+export type SiteContractReference = {
+  id: string
+  code: string
+  name: string
+  firmwareManagementEnabled: boolean
+  isActive: boolean
+}
+
 export type SiteRecord = {
   id: string
   customerId: string
-  customer: { id: string; code: string | null; name: string; isActive: boolean }
+  contractTypeId: string | null
+  customer: {
+    id: string
+    code: string | null
+    name: string
+    isActive: boolean
+    contractType: SiteContractReference | null
+  }
+  contractType: SiteContractReference | null
+  effectiveContractType: SiteContractReference | null
+  contractSource: 'SITE' | 'CUSTOMER' | 'NONE'
   name: string
   code: string | null
   addressLine1: string | null
@@ -63,6 +81,7 @@ export function parseSiteInput(input: unknown) {
   const body = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const name = cleanSiteName(body.name)
   const code = cleanSiteCode(body.code)
+  const contractTypeId = optionalText(body.contractTypeId)
   const addressLine1 = optionalText(body.addressLine1)
   const addressLine2 = optionalText(body.addressLine2)
   const postalCode = optionalText(body.postalCode)
@@ -105,6 +124,7 @@ export function parseSiteInput(input: unknown) {
   return {
     name,
     code,
+    contractTypeId,
     addressLine1,
     addressLine2,
     postalCode,
