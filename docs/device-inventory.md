@@ -98,11 +98,23 @@ The device list understands the existing customer/site entry links:
 
 Issue #13 later provides the reusable cross-dimensional filtering/grouping system; the Issue #8 filters are intentionally local inventory conveniences. Effective contract should become a reusable filter/grouping dimension there as well.
 
+A useful contract-inheritance smoke test is:
+
+```text
+Customer default: Fully Managed
+├── HQ           → inherit customer default
+└── Datacenter   → Firmware Management override
+```
+
+Devices placed at HQ should resolve `Fully Managed / Customer default`; devices placed at Datacenter should resolve `Firmware Management / Site override` in both list and detail views.
+
 ## Deletion and history
 
 Archiving is the normal safe removal path.
 
 Permanent deletion is blocked when device-scoped firmware policy, lifecycle state, or audit history exists. This prevents cleanup from silently destroying firmware lifecycle decisions.
+
+Contract types are also protected from destructive deletion while referenced by a customer, site override, or firmware policy.
 
 ## Deliberate non-goals
 
