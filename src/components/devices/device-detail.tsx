@@ -96,7 +96,9 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Customer" value={<Link href={`/customers/${device.customerId}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.customer.name}</Link>} />
             <DetailRow label="Site" value={device.site ? <Link href={`/customers/${device.customerId}/sites/${device.site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.site.name}</Link> : 'Unassigned'} />
-            <DetailRow label="Contract" value={device.customer.contractType?.name ?? 'No contract type'} />
+            <DetailRow label="Contract" value={device.effectiveContractType?.name ?? 'No contract type'} />
+            <DetailRow label="Contract source" value={device.contractSource === 'SITE' ? 'Site override' : device.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'} />
+            {device.contractSource === 'SITE' ? <DetailRow label="Customer default" value={device.customer.contractType?.name ?? 'No customer default'} /> : null}
             <DetailRow label="Vendor" value={device.deviceModel.vendor.name} />
             <DetailRow label="Model" value={<Link href={`/models/${device.deviceModel.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.deviceModel.model}</Link>} />
             <DetailRow label="Device type" value={device.deviceModel.deviceType.name} />
