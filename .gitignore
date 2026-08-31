@@ -1,0 +1,32 @@
+# dependencies
+/node_modules
+
+# Next.js
+/.next
+/out
+next-env.d.ts
+
+# production
+/build
+
+# local environment
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Prisma generated client
+/src/generated/prisma
+
+# tests / coverage
+/coverage
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
