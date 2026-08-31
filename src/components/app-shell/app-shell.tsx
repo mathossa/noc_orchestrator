@@ -76,6 +76,13 @@ function Brand() {
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="min-h-screen bg-[var(--background)]">
+      <a
+        href="#main-content"
+        className="fixed left-3 top-3 z-50 -translate-y-20 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[#07111d] transition-transform focus:translate-y-0"
+      >
+        Skip to content
+      </a>
+
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col">
         <div className="border-b border-[var(--border)] px-5 py-5">
           <Brand />
@@ -94,7 +101,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[color:color-mix(in_srgb,var(--surface)_94%,transparent)] backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)] lg:hidden">
           <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
             <Brand />
             <span className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
@@ -104,7 +111,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           <NavigationLinks compact />
         </header>
 
-        <main id="main-content" className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 sm:py-7 xl:px-8">
+        <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 sm:py-7 xl:px-8">
           {children}
         </main>
       </div>
