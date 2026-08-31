@@ -29,9 +29,9 @@ Optional context includes:
 - inventory provenance
 - external provider / external ID
 
-The customer's contract type is derived from the customer relationship rather than duplicated onto the device.
+Contract context is derived rather than duplicated onto the device.
 
-## Customer and site ownership
+## Customer, site, and contract ownership
 
 A device belongs to exactly one customer.
 
@@ -41,6 +41,20 @@ Changing a device's customer therefore requires either:
 
 - no site assignment, or
 - a site belonging to the new customer.
+
+The customer contract is the default, but a site may have an optional contract override. The device's effective contract resolves as:
+
+```text
+site.contractType
+    ↓ when present
+customer.contractType
+    ↓ otherwise
+no contract
+```
+
+This supports customers whose locations have different service agreements without copying contract state onto every device.
+
+The device list, create/edit form, and device detail page show the effective contract and whether it came from a site override or the customer default.
 
 ## Model and firmware integrity
 
@@ -82,7 +96,7 @@ The device list understands the existing customer/site entry links:
 - `/devices?customer=<customer-id>`
 - `/devices?customer=<customer-id>&site=<site-id>`
 
-Issue #13 later provides the reusable cross-dimensional filtering/grouping system; the Issue #8 filters are intentionally local inventory conveniences.
+Issue #13 later provides the reusable cross-dimensional filtering/grouping system; the Issue #8 filters are intentionally local inventory conveniences. Effective contract should become a reusable filter/grouping dimension there as well.
 
 ## Deletion and history
 
