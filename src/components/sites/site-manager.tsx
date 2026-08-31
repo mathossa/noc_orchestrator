@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
@@ -55,7 +55,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
   const [search, setSearch] = useState('')
   const [archiveFilter, setArchiveFilter] = useState('active')
 
-  async function load() {
+  const load = useCallback(async () => {
     const [customerResponse, siteResponse] = await Promise.all([
       fetch(`/api/v1/customers/${customerId}`, { cache: 'no-store' }),
       fetch(`/api/v1/customers/${customerId}/sites`, { cache: 'no-store' }),
@@ -65,7 +65,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
     if (!customerResponse.ok) throw new Error(customerPayload.error?.message ?? 'Customer could not be loaded.')
     if (!siteResponse.ok) throw new Error(sitePayload.error?.message ?? 'Sites could not be loaded.')
     return { customer: customerPayload.data ?? null, sites: sitePayload.data ?? [] }
-  }
+  }, [customerId])
 
   useEffect(() => {
     let cancelled = false
@@ -84,7 +84,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
     return () => {
       cancelled = true
     }
-  }, [customerId])
+  }, [load])
 
   async function reload() {
     const payload = await load()
