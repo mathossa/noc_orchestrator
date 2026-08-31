@@ -1,6 +1,5 @@
 -- Issue #4: configurable reference data.
--- Name uniqueness is normalized as Unicode-normalized in application code,
--- trimmed/collapsed whitespace, and case-insensitive in PostgreSQL.
+-- Name uniqueness trims/collapses whitespace and compares case-insensitively.
 
 ALTER TABLE "ContractType"
 ADD COLUMN "firmwareManagementEnabled" BOOLEAN NOT NULL DEFAULT true;
