@@ -30,6 +30,7 @@ import {
   assertSiteBelongsToCustomer,
   createSite,
   deleteSite,
+  listSites,
   SiteConflictError,
   SiteCustomerError,
   SiteInUseError,
@@ -63,6 +64,22 @@ describe('site persistence rules', () => {
     vi.clearAllMocks()
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
     mocks.siteFindMany.mockResolvedValue([])
+  })
+
+  it('lists sites across customers for the global navigation overview', async () => {
+    mocks.siteFindMany.mockResolvedValue([storedSite])
+
+    const result = await listSites()
+
+    expect(mocks.siteFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ isActive: 'desc' }, { customer: { name: 'asc' } }, { name: 'asc' }],
+    }))
+    expect(result).toEqual([expect.objectContaining({
+      id: 'site-1',
+      customerId: 'customer-1',
+      customer: expect.objectContaining({ name: 'Acme' }),
+      deviceCount: 0,
+    })])
   })
 
   it('creates multiple customer-scoped site records without external identity', async () => {
