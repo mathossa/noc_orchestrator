@@ -135,6 +135,17 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
+  const availableReleases = record.platform
+    ? await prisma.firmwareRelease.findMany({
+        where: {
+          vendorId: record.vendorId,
+          platform: { equals: record.platform, mode: 'insensitive' },
+        },
+        orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
+        select: { id: true, version: true, platform: true, status: true, isActive: true, releasedAt: true },
+      })
+    : []
+
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<
     string,
@@ -192,8 +203,13 @@ export async function getDeviceModel(id: string) {
     workflowCounts,
     // Issue #9 owns desired-firmware policy resolution for models.
     desiredFirmware: { available: false as const, release: null },
-    // Issue #7 owns the firmware catalog and model/platform release presentation.
-    availableFirmware: { available: false as const, releases: [] },
+    availableFirmware: {
+      available: true as const,
+      releases: availableReleases.map((release) => ({
+        ...release,
+        releasedAt: release.releasedAt?.toISOString() ?? null,
+      })),
+    },
   }
 }
 
