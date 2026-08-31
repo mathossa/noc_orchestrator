@@ -17,9 +17,19 @@ export type FirmwareReleaseReference = {
   isActive: boolean
 }
 
+export type FirmwareReleaseTrainReference = {
+  id: string
+  vendorId: string
+  platform: string
+  name: string
+  isActive: boolean
+}
+
 export type FirmwareReleaseRecord = {
   id: string
   vendorId: string
+  firmwareTrainId: string | null
+  firmwareTrain: FirmwareReleaseTrainReference | null
   vendor: FirmwareReleaseReference
   platform: string
   version: string
@@ -124,6 +134,7 @@ function validateHttpUrl(value: string | null, field: string, errors: FirmwareRe
 export function parseFirmwareReleaseInput(input: unknown) {
   const body = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const vendorId = optionalText(body.vendorId) ?? ''
+  const firmwareTrainId = optionalText(body.firmwareTrainId)
   const platform = cleanFirmwarePlatform(body.platform)
   const version = cleanFirmwareVersion(body.version)
   const filename = optionalText(body.filename, false)
@@ -161,6 +172,7 @@ export function parseFirmwareReleaseInput(input: unknown) {
 
   return {
     vendorId,
+    firmwareTrainId,
     platform,
     version,
     filename,
