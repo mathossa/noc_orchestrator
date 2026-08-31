@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   customerDelete: vi.fn(),
   contractFindUnique: vi.fn(),
   contractFindMany: vi.fn(),
+  siteFindMany: vi.fn(),
+  siteCount: vi.fn(),
   deviceFindMany: vi.fn(),
   deviceCount: vi.fn(),
   policyCount: vi.fn(),
@@ -26,6 +28,10 @@ vi.mock('@/lib/prisma', () => ({
     contractType: {
       findUnique: mocks.contractFindUnique,
       findMany: mocks.contractFindMany,
+    },
+    site: {
+      findMany: mocks.siteFindMany,
+      count: mocks.siteCount,
     },
     device: {
       findMany: mocks.deviceFindMany,
@@ -59,7 +65,7 @@ function storedCustomer(overrides: Record<string, unknown> = {}) {
     isActive: true,
     createdAt: new Date('2026-08-31T18:00:00Z'),
     updatedAt: new Date('2026-08-31T18:00:00Z'),
-    _count: { devices: 0 },
+    _count: { devices: 0, sites: 0 },
     ...overrides,
   }
 }
@@ -67,6 +73,8 @@ function storedCustomer(overrides: Record<string, unknown> = {}) {
 describe('customer persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.siteFindMany.mockResolvedValue([])
+    mocks.siteCount.mockResolvedValue(0)
   })
 
   it('creates a manual customer without external identity fields', async () => {
@@ -87,7 +95,7 @@ describe('customer persistence rules', () => {
         },
       }),
     )
-    expect(result).toMatchObject({ id: 'customer-1', deviceCount: 0, source: 'MANUAL' })
+    expect(result).toMatchObject({ id: 'customer-1', deviceCount: 0, siteCount: 0, source: 'MANUAL' })
   })
 
   it('rejects a contract type that does not exist', async () => {
@@ -130,24 +138,32 @@ describe('customer persistence rules', () => {
     expect(result.isActive).toBe(false)
   })
 
-  it('returns real workflow counts without inventing technical compliance state', async () => {
-    mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4 } }))
+  it('returns site summaries and real workflow counts without inventing technical compliance state', async () => {
+    mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1 } }))
     mocks.deviceFindMany.mockResolvedValue([
       { lifecycle: { state: 'PLANNED' } },
       { lifecycle: { state: 'DONE' } },
       { lifecycle: { state: 'DONE' } },
       { lifecycle: null },
     ])
+    mocks.siteFindMany.mockResolvedValue([
+      { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, _count: { devices: 3 } },
+    ])
 
     const result = await getCustomer('customer-1')
 
+    expect(result.siteCount).toBe(1)
+    expect(result.sites).toEqual([
+      { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, deviceCount: 3 },
+    ])
     expect(result.workflowCounts).toEqual({ planned: 1, ignored: 0, customerDeclined: 0, done: 2 })
     expect(result.desiredStateSummary).toEqual({ available: false, current: null, actionRequired: null })
   })
 
-  it('blocks permanent deletion when customer history is referenced', async () => {
+  it('blocks permanent deletion when customer sites or history are referenced', async () => {
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1', name: 'Customer' })
-    mocks.deviceCount.mockResolvedValue(1)
+    mocks.siteCount.mockResolvedValue(1)
+    mocks.deviceCount.mockResolvedValue(0)
     mocks.policyCount.mockResolvedValue(0)
     mocks.auditCount.mockResolvedValue(0)
 
@@ -157,6 +173,7 @@ describe('customer persistence rules', () => {
 
   it('deletes an unreferenced customer', async () => {
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1', name: 'Unused Customer' })
+    mocks.siteCount.mockResolvedValue(0)
     mocks.deviceCount.mockResolvedValue(0)
     mocks.policyCount.mockResolvedValue(0)
     mocks.auditCount.mockResolvedValue(0)

@@ -147,6 +147,7 @@ model Customer {
   sourceMetadata     Json?
 
   contractType     ContractType?   @relation(fields: [contractTypeId], references: [id], onDelete: Restrict)
+  sites            Site[]
   devices          Device[]
   firmwarePolicies FirmwarePolicy[]
   auditEvents      AuditEvent[]
@@ -159,6 +160,42 @@ model Customer {
   @@index([source])
   @@index([isActive])
   @@index([name])
+}
+
+model Site {
+  id         String  @id @default(uuid())
+  customerId String
+  name       String
+  code       String?
+
+  addressLine1 String?
+  addressLine2 String?
+  postalCode   String?
+  city         String?
+  region       String?
+  country      String?
+  notes        String?
+  isActive     Boolean @default(true)
+
+  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
+  source             String   @default("MANUAL")
+  externalProvider   String?
+  externalId         String?
+  lastSynchronizedAt DateTime?
+  sourceMetadata     Json?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  devices  Device[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([customerId, code])
+  @@index([customerId])
+  @@index([name])
+  @@index([source])
+  @@index([isActive])
+  @@index([externalProvider, externalId])
 }
 
 model DeviceModel {
@@ -266,6 +303,7 @@ model FirmwareRelease {
 model Device {
   id                        String   @id @default(uuid())
   customerId                String
+  siteId                    String?
   deviceModelId             String
   name                      String
   hostname                  String?
@@ -284,6 +322,7 @@ model Device {
   sourceMetadata     Json?
 
   customer               Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  site                   Site?            @relation(fields: [siteId], references: [id], onDelete: Restrict)
   deviceModel            DeviceModel      @relation(fields: [deviceModelId], references: [id], onDelete: Restrict)
   currentFirmwareRelease FirmwareRelease? @relation("DeviceCurrentFirmware", fields: [currentFirmwareReleaseId], references: [id], onDelete: Restrict)
   lifecycle              FirmwareLifecycleRecord?
@@ -296,6 +335,7 @@ model Device {
   @@index([customerId, serialNumber])
   @@index([externalProvider, externalId])
   @@index([customerId])
+  @@index([siteId])
   @@index([deviceModelId])
   @@index([currentFirmwareReleaseId])
   @@index([currentFirmwareSource])

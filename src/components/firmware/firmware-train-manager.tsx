@@ -196,7 +196,7 @@ export function FirmwareTrainManager() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{editingId ? 'Edit release train' : 'Add release train'}</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Use the vendor's own train/family label; examples are illustrative, not parsed conventions.</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Use the train/family label supplied by the vendor; examples are illustrative, not parsed conventions.</p>
           </div>
           {editingId ? <Button type="button" variant="ghost" onClick={resetForm}>Cancel edit</Button> : null}
         </div>
