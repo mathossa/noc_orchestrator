@@ -154,4 +154,15 @@ describe('customer persistence rules', () => {
     await expect(deleteCustomer('customer-1')).rejects.toBeInstanceOf(CustomerInUseError)
     expect(mocks.customerDelete).not.toHaveBeenCalled()
   })
+
+  it('deletes an unreferenced customer', async () => {
+    mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1', name: 'Unused Customer' })
+    mocks.deviceCount.mockResolvedValue(0)
+    mocks.policyCount.mockResolvedValue(0)
+    mocks.auditCount.mockResolvedValue(0)
+    mocks.customerDelete.mockResolvedValue({ id: 'customer-1' })
+
+    await expect(deleteCustomer('customer-1')).resolves.toEqual({ id: 'customer-1' })
+    expect(mocks.customerDelete).toHaveBeenCalledWith({ where: { id: 'customer-1' } })
+  })
 })
