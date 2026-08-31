@@ -7,6 +7,14 @@ export type DeviceReference = {
   isActive: boolean
 }
 
+export type DeviceContractReference = {
+  id: string
+  code: string
+  name: string
+  firmwareManagementEnabled: boolean
+  isActive: boolean
+}
+
 export type DeviceModelReference = {
   id: string
   model: string
@@ -50,15 +58,17 @@ export type DeviceRecord = {
     code: string | null
     name: string
     isActive: boolean
-    contractType: {
-      id: string
-      code: string
-      name: string
-      firmwareManagementEnabled: boolean
-      isActive: boolean
-    } | null
+    contractType: DeviceContractReference | null
   }
-  site: { id: string; code: string | null; name: string; isActive: boolean } | null
+  site: {
+    id: string
+    code: string | null
+    name: string
+    isActive: boolean
+    contractType: DeviceContractReference | null
+  } | null
+  effectiveContractType: DeviceContractReference | null
+  contractSource: 'SITE' | 'CUSTOMER' | 'NONE'
   deviceModel: DeviceModelReference
   currentFirmwareRelease: (DeviceFirmwareReference & { releasedAt: string | null }) | null
   lifecycle: {
@@ -80,15 +90,16 @@ export type DeviceReferenceData = {
     code: string | null
     name: string
     isActive: boolean
-    contractType: {
-      id: string
-      code: string
-      name: string
-      firmwareManagementEnabled: boolean
-      isActive: boolean
-    } | null
+    contractType: DeviceContractReference | null
   }>
-  sites: Array<{ id: string; customerId: string; code: string | null; name: string; isActive: boolean }>
+  sites: Array<{
+    id: string
+    customerId: string
+    code: string | null
+    name: string
+    isActive: boolean
+    contractType: DeviceContractReference | null
+  }>
   models: DeviceModelReference[]
   firmwareReleases: DeviceFirmwareReference[]
 }
