@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
+import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
-import { parseFirmwareLifecycleInput } from '@/lib/firmware-lifecycle'
+import { parseFirmwareLifecycleInput, type FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
 
 export class FirmwareLifecycleNotFoundError extends Error {
   constructor(message: string) {
@@ -30,6 +31,19 @@ const lifecycleInclude = {
   },
   decidedBy: { select: { id: true, name: true, email: true } },
 } as const
+
+function auditActionForState(state: FirmwareWorkflowState) {
+  switch (state) {
+    case 'PLANNED':
+      return AUDIT_ACTIONS.lifecyclePlanned
+    case 'IGNORED':
+      return AUDIT_ACTIONS.lifecycleIgnored
+    case 'CUSTOMER_DECLINED':
+      return AUDIT_ACTIONS.lifecycleCustomerDeclined
+    case 'DONE':
+      return AUDIT_ACTIONS.lifecycleDone
+  }
+}
 
 function serializeLifecycle(record: {
   id: string
@@ -83,7 +97,7 @@ export async function setFirmwareLifecycleDecision(
   const input = parseFirmwareLifecycleInput(rawInput)
   const device = await prisma.device.findUnique({
     where: { id: deviceId },
-    select: { id: true, deviceModelId: true },
+    select: { id: true, deviceModelId: true, customerId: true },
   })
   if (!device) throw new FirmwareLifecycleNotFoundError('Device was not found.')
 
@@ -94,43 +108,94 @@ export async function setFirmwareLifecycleDecision(
     )
   }
 
-  const current = await prisma.firmwareLifecycleRecord.findUnique({
-    where: { deviceId },
-    select: { completedAt: true, state: true },
-  })
   const now = new Date()
-  const completedAt = input.state === 'DONE'
-    ? current?.state === 'DONE' && current.completedAt
-      ? current.completedAt
-      : now
-    : null
+  const record = await prisma.$transaction(async (tx) => {
+    const current = await tx.firmwareLifecycleRecord.findUnique({
+      where: { deviceId },
+      select: {
+        id: true,
+        targetFirmwareReleaseId: true,
+        state: true,
+        reason: true,
+        notes: true,
+        plannedFor: true,
+        reviewAt: true,
+        decidedAt: true,
+        completedAt: true,
+        targetFirmwareRelease: { select: { version: true } },
+      },
+    })
 
-  const record = await prisma.firmwareLifecycleRecord.upsert({
-    where: { deviceId },
-    create: {
-      deviceId,
-      targetFirmwareReleaseId: desiredPolicy.release.id,
-      state: input.state,
-      reason: input.reason,
-      notes: input.notes,
-      plannedFor: input.plannedFor,
-      reviewAt: input.reviewAt,
-      decidedAt: now,
-      decidedByUserId: actorUserId,
-      completedAt,
-    },
-    update: {
-      targetFirmwareReleaseId: desiredPolicy.release.id,
-      state: input.state,
-      reason: input.reason,
-      notes: input.notes,
-      plannedFor: input.plannedFor,
-      reviewAt: input.reviewAt,
-      decidedAt: now,
-      decidedByUserId: actorUserId,
-      completedAt,
-    },
-    include: lifecycleInclude,
+    const completedAt = input.state === 'DONE'
+      ? current?.state === 'DONE' && current.completedAt
+        ? current.completedAt
+        : now
+      : null
+
+    const next = await tx.firmwareLifecycleRecord.upsert({
+      where: { deviceId },
+      create: {
+        deviceId,
+        targetFirmwareReleaseId: desiredPolicy.release.id,
+        state: input.state,
+        reason: input.reason,
+        notes: input.notes,
+        plannedFor: input.plannedFor,
+        reviewAt: input.reviewAt,
+        decidedAt: now,
+        decidedByUserId: actorUserId,
+        completedAt,
+      },
+      update: {
+        targetFirmwareReleaseId: desiredPolicy.release.id,
+        state: input.state,
+        reason: input.reason,
+        notes: input.notes,
+        plannedFor: input.plannedFor,
+        reviewAt: input.reviewAt,
+        decidedAt: now,
+        decidedByUserId: actorUserId,
+        completedAt,
+      },
+      include: lifecycleInclude,
+    })
+
+    await tx.auditEvent.create({
+      data: {
+        actorUserId,
+        customerId: device.customerId,
+        action: auditActionForState(input.state),
+        entityType: 'Device',
+        entityId: device.id,
+        before: {
+          lifecycleRecordId: current?.id ?? null,
+          state: current?.state ?? null,
+          targetFirmwareReleaseId: current?.targetFirmwareReleaseId ?? null,
+          targetVersion: current?.targetFirmwareRelease.version ?? null,
+          reason: current?.reason ?? null,
+          notes: current?.notes ?? null,
+          plannedFor: current?.plannedFor?.toISOString() ?? null,
+          reviewAt: current?.reviewAt?.toISOString() ?? null,
+          completedAt: current?.completedAt?.toISOString() ?? null,
+        },
+        after: {
+          lifecycleRecordId: next.id,
+          state: next.state,
+          targetFirmwareReleaseId: next.targetFirmwareReleaseId,
+          targetVersion: next.targetFirmwareRelease.version,
+          reason: next.reason,
+          notes: next.notes,
+          plannedFor: next.plannedFor?.toISOString() ?? null,
+          reviewAt: next.reviewAt?.toISOString() ?? null,
+          completedAt: next.completedAt?.toISOString() ?? null,
+        },
+        metadata: {
+          deviceModelId: device.deviceModelId,
+          desiredPolicyId: desiredPolicy.id,
+        },
+      },
+    })
+    return next
   })
 
   return serializeLifecycle(record)
