@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   policyFindFirst: vi.fn(),
   deviceCount: vi.fn(),
   policyCount: vi.fn(),
+  auditFindMany: vi.fn(),
   auditCount: vi.fn(),
 }))
 
@@ -37,7 +38,7 @@ vi.mock('@/lib/prisma', () => ({
     firmwareRelease: { findMany: mocks.firmwareReleaseFindMany },
     device: { count: mocks.deviceCount },
     firmwarePolicy: { findFirst: mocks.policyFindFirst, count: mocks.policyCount },
-    auditEvent: { count: mocks.auditCount },
+    auditEvent: { findMany: mocks.auditFindMany, count: mocks.auditCount },
   },
 }))
 
@@ -76,6 +77,7 @@ describe('device model persistence rules', () => {
     mocks.deviceModelFindMany.mockResolvedValue([])
     mocks.firmwareReleaseFindMany.mockResolvedValue([])
     mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.auditFindMany.mockResolvedValue([])
   })
 
   it('creates a manual model with valid vendor and device type references', async () => {
@@ -115,7 +117,7 @@ describe('device model persistence rules', () => {
     expect(mocks.deviceModelUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'model-1' }, data: expect.objectContaining({ vendorId: 'vendor-1', deviceTypeId: 'type-1', model: 'C9300-24P', isActive: false }) }))
   })
 
-  it('aggregates usage, resolves desired policy, and marks normal catalog choices', async () => {
+  it('aggregates usage, resolves desired policy, and returns audit history', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
     mocks.deviceModelFindUnique.mockResolvedValue({
       ...baseRecord,
@@ -132,6 +134,9 @@ describe('device model persistence rules', () => {
     mocks.policyFindFirst.mockResolvedValue({
       id: 'policy-1', targetFirmwareReleaseId: 'fw-1', isActive: true, notes: null, deviceModelId: 'model-1', createdAt: now, updatedAt: now, targetFirmwareRelease: release,
     })
+    mocks.auditFindMany.mockResolvedValue([{
+      id: 'audit-1', action: 'DESIRED_FIRMWARE_CHANGED', entityType: 'DeviceModel', entityId: 'model-1', customerId: null, actorUserId: null, before: null, after: { version: '17.15.5' }, metadata: null, createdAt: now, actor: null,
+    }])
 
     const result = await getDeviceModel('model-1')
 
@@ -143,6 +148,7 @@ describe('device model persistence rules', () => {
     })
     expect(result.workflowCounts.planned).toBe(1)
     expect(result.customers).toEqual([{ id: 'c1', name: 'Customer A', deviceCount: 2 }])
+    expect(result.auditHistory).toEqual([expect.objectContaining({ id: 'audit-1', action: 'DESIRED_FIRMWARE_CHANGED' })])
   })
 
   it('normalizes platform/family matching for catalog choices', async () => {
