@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
 import { getDeviceModel } from '@/lib/device-model-store'
 import { firmwarePolicyApiError } from '@/lib/firmware-policy-api'
 import { clearModelDesiredFirmwarePolicy, setModelDesiredFirmwarePolicy } from '@/lib/firmware-policy-store'
@@ -9,7 +10,8 @@ export async function PUT(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = (await request.json()) as { firmwareReleaseId?: unknown }
-    await setModelDesiredFirmwarePolicy(id, body.firmwareReleaseId)
+    const session = await auth.api.getSession({ headers: request.headers })
+    await setModelDesiredFirmwarePolicy(id, body.firmwareReleaseId, session?.user.id ?? null)
     return NextResponse.json({ data: await getDeviceModel(id) })
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -22,10 +24,11 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
-    await clearModelDesiredFirmwarePolicy(id)
+    const session = await auth.api.getSession({ headers: request.headers })
+    await clearModelDesiredFirmwarePolicy(id, session?.user.id ?? null)
     return NextResponse.json({ data: await getDeviceModel(id) })
   } catch (error) {
     return firmwarePolicyApiError(error)
