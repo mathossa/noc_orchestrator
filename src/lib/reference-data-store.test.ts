@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   vendorFindMany: vi.fn(),
   vendorCreate: vi.fn(),
   vendorFindUnique: vi.fn(),
+  vendorUpdate: vi.fn(),
   vendorDelete: vi.fn(),
   deviceModelCount: vi.fn(),
   firmwareReleaseCount: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: mocks.vendorFindMany,
       create: mocks.vendorCreate,
       findUnique: mocks.vendorFindUnique,
+      update: mocks.vendorUpdate,
       delete: mocks.vendorDelete,
     },
     deviceType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -32,6 +34,7 @@ import {
   deleteReferenceRecord,
   ReferenceConflictError,
   ReferenceInUseError,
+  updateReferenceRecord,
 } from '@/lib/reference-data-store'
 
 describe('reference-data persistence rules', () => {
@@ -67,6 +70,26 @@ describe('reference-data persistence rules', () => {
       createReferenceRecord('vendors', { code: 'OTHER', name: '  CISCO   SYSTEMS  ' }),
     ).rejects.toBeInstanceOf(ReferenceConflictError)
     expect(mocks.vendorCreate).not.toHaveBeenCalled()
+  })
+
+  it('supports a partial PATCH for archive/reactivate', async () => {
+    mocks.vendorFindUnique.mockResolvedValue({
+      id: 'vendor-1',
+      code: 'CISCO',
+      name: 'Cisco',
+      websiteUrl: null,
+      isActive: true,
+    })
+    mocks.vendorFindMany.mockResolvedValue([{ id: 'vendor-1', code: 'CISCO', name: 'Cisco' }])
+    mocks.vendorUpdate.mockImplementation(async ({ data }) => ({ id: 'vendor-1', ...data }))
+
+    const result = await updateReferenceRecord('vendors', 'vendor-1', { isActive: false })
+
+    expect(mocks.vendorUpdate).toHaveBeenCalledWith({
+      where: { id: 'vendor-1' },
+      data: { code: 'CISCO', name: 'Cisco', websiteUrl: null, isActive: false },
+    })
+    expect(result).toMatchObject({ id: 'vendor-1', isActive: false })
   })
 
   it('blocks deletion of a referenced vendor', async () => {
