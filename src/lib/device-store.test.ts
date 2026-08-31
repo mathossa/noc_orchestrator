@@ -49,12 +49,26 @@ import {
   updateDevice,
 } from '@/lib/device-store'
 
+const customerContract = {
+  id: 'contract-1',
+  code: 'FULL',
+  name: 'Fully Managed',
+  firmwareManagementEnabled: true,
+  isActive: true,
+}
+const siteContract = {
+  id: 'contract-2',
+  code: 'FW',
+  name: 'Firmware Management',
+  firmwareManagementEnabled: true,
+  isActive: true,
+}
 const customer = {
   id: 'customer-1',
   code: 'ACME',
   name: 'Acme',
   isActive: true,
-  contractType: { id: 'contract-1', code: 'FULL', name: 'Fully Managed', firmwareManagementEnabled: true, isActive: true },
+  contractType: customerContract,
 }
 const model = {
   id: 'model-1',
@@ -127,15 +141,39 @@ describe('device inventory persistence rules', () => {
         externalId: null,
       }),
     }))
-    expect(result).toMatchObject({ id: 'device-1', source: 'MANUAL', currentFirmwareRelease: null })
+    expect(result).toMatchObject({
+      id: 'device-1',
+      source: 'MANUAL',
+      currentFirmwareRelease: null,
+      effectiveContractType: customerContract,
+      contractSource: 'CUSTOMER',
+    })
   })
 
   it('validates optional site assignment against the selected customer', async () => {
-    mocks.deviceCreate.mockResolvedValue({ ...storedDevice, siteId: 'site-1' })
+    mocks.deviceCreate.mockResolvedValue({
+      ...storedDevice,
+      siteId: 'site-1',
+      site: { id: 'site-1', code: 'BRANCH', name: 'Branch', isActive: true, contractType: null },
+    })
 
     await createDevice({ customerId: 'customer-1', siteId: 'site-1', deviceModelId: 'model-1', name: 'HQ-SW-01' })
 
     expect(mocks.assertSiteBelongsToCustomer).toHaveBeenCalledWith('site-1', 'customer-1')
+  })
+
+  it('uses a site contract override before the customer default', async () => {
+    mocks.deviceFindUnique.mockResolvedValue({
+      ...storedDevice,
+      siteId: 'site-1',
+      site: { id: 'site-1', code: 'BRANCH', name: 'Branch', isActive: true, contractType: siteContract },
+    })
+
+    const result = await getDevice('device-1')
+
+    expect(result.effectiveContractType).toEqual(siteContract)
+    expect(result.contractSource).toBe('SITE')
+    expect(result.customer.contractType).toEqual(customerContract)
   })
 
   it('rejects current firmware from a different vendor', async () => {
