@@ -8,10 +8,13 @@ The interface is desktop-first and optimized for engineering work:
 
 - dense, readable information rather than oversized dashboard chrome
 - clear page hierarchy and restrained surfaces
-- dark neutral palette with blue as the primary interaction accent
+- dark charcoal / graphite palette with orange as the primary brand and interaction accent
 - color is semantic, not decorative
 - red is reserved for errors, destructive confirmation, blocked/invalid states, or other genuinely exceptional conditions
+- green remains available for current/success states and amber for firmware attention/warning states
 - common laptop widths remain the primary working target while navigation and data containers degrade sensibly on narrower screens
+
+The canonical product icon and branding guidance live in `docs/branding.md`.
 
 No general network-health, bandwidth, interface, CPU, memory, topology, or monitoring widgets are introduced by the shell.
 
@@ -26,6 +29,8 @@ Primary navigation currently reserves:
 - Devices
 - Models
 - Vendors
+- Device types
+- Contract types
 - Firmware
 - Planning
 - Reports
@@ -72,7 +77,7 @@ Workflow state uses a compact outlined rectangular badge:
 - `CUSTOMER_DECLINED`
 - `DONE`
 
-This prevents a planned upgrade from being visually mistaken for the device's technical firmware status.
+Orange may identify a planned workflow item because it is the application's primary brand/action color, but technical warning/success/error semantics remain distinct. This prevents a planned upgrade from being visually mistaken for the device's technical firmware status.
 
 ## Accessibility baseline
 
