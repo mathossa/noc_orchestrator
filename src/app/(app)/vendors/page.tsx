@@ -1,12 +1,11 @@
-import { SectionPlaceholder } from '@/components/ui/section-placeholder'
+import { ReferenceDataManager } from '@/components/reference-data/reference-data-manager'
 
 export default function VendorsPage() {
   return (
-    <SectionPlaceholder
+    <ReferenceDataManager
+      kind="vendors"
       title="Vendors"
-      description="Configurable network vendors and their firmware catalog context."
-      emptyTitle="Vendor management is not connected yet"
-      emptyDescription="Vendor reference data will be implemented without changing the application shell."
+      description="Configure network vendors used by device models, firmware releases, policies, and product-wide filtering."
     />
   )
 }
