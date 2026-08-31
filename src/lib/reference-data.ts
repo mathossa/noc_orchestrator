@@ -23,7 +23,7 @@ export class ReferenceValidationError extends Error {
 }
 
 export function cleanReferenceName(value: unknown) {
-  return typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/g, ' ') : ''
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
 }
 
 export function normalizeReferenceName(value: unknown) {
@@ -33,11 +33,7 @@ export function normalizeReferenceName(value: unknown) {
 export function cleanReferenceCode(value: unknown) {
   if (typeof value !== 'string') return ''
 
-  return value
-    .normalize('NFKC')
-    .trim()
-    .toUpperCase()
-    .replace(/[\s_]+/g, '-')
+  return value.trim().toUpperCase().replace(/[\s_]+/g, '-')
 }
 
 function optionalText(value: unknown) {
