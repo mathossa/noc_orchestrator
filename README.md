@@ -25,7 +25,7 @@ The MVP intentionally uses a small single-application stack:
 
 PostgreSQL runs through Docker Compose for local development; Next.js runs natively for fast reload and debugging.
 
-See [docs/architecture.md](docs/architecture.md) for the architectural boundaries and [docs/development.md](docs/development.md) for local setup.
+See [docs/architecture.md](docs/architecture.md) for the architectural boundaries, [docs/domain-model.md](docs/domain-model.md) for the core firmware data model, and [docs/development.md](docs/development.md) for local setup.
 
 ## Quick start
 

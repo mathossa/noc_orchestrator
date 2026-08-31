@@ -44,7 +44,27 @@ npm run prisma:migrate
 npm run prisma:deploy
 ```
 
-The committed baseline migration contains only the authentication foundation. Issue #2 introduces the NOC Orchestrator domain schema.
+The migration history is additive:
+
+- `20260831130000_baseline`: authentication foundation from Issue #1
+- `20260831135000_core_domain_model`: NOC Orchestrator MVP domain tables from Issue #2
+
+The core relationships, ownership boundaries, provenance strategy, policy evolution path, and migration/rebuild rules are documented in [domain-model.md](domain-model.md).
+
+### Clean local migration rebuild
+
+To test all committed migrations from an empty **disposable local** database:
+
+```bash
+docker compose down -v
+npm run db:up
+npm run prisma:generate
+npm run prisma:deploy
+```
+
+`docker compose down -v` permanently deletes the local PostgreSQL volume. Do not use this procedure on an environment whose data must be retained.
+
+Applied migration files are immutable. Make future database changes through new forward migrations. Production rollback should use a backup/restore plan or a deliberate compensating forward migration rather than editing or deleting an applied migration.
 
 ## Authentication bootstrap
 
