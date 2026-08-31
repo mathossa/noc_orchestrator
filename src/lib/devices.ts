@@ -38,6 +38,7 @@ export type DeviceRecord = {
   notes: string | null
   currentFirmwareReleaseId: string | null
   currentFirmwareObservedAt: string | null
+  currentFirmwareAgeDays: number | null
   currentFirmwareSource: string
   isActive: boolean
   source: string
