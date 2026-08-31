@@ -1,3 +1,5 @@
+import type { AuditEventRecord } from '@/lib/audit-events'
+
 export type DeviceModelSource = 'MANUAL' | 'API' | 'IMPORT'
 
 export type DeviceModelReference = {
@@ -67,6 +69,7 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     available: true
     releases: Array<DeviceModelFirmwareReference & { selectable: boolean }>
   }
+  auditHistory: AuditEventRecord[]
 }
 
 export type DeviceModelFieldErrors = Record<string, string>
