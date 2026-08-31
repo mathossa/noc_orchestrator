@@ -18,7 +18,7 @@ A device's `siteId` is optional so manual or not-yet-classified inventory can ex
 
 ## Contract inheritance
 
-`Customer.contractTypeId` is the customer-level default contract. `Site.contractTypeId` is optional and only exists when a location has a different agreement.
+`Customer.contractTypeId` is the customer-level **default contract**. `Site.contractTypeId` is optional and only exists when a location has a different agreement.
 
 Effective contract resolution is deliberately simple:
 
