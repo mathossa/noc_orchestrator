@@ -4,6 +4,7 @@ import {
   normalizedDeviceName,
   normalizedPlatform,
   parseDeviceInput,
+  type DeviceContractReference,
   type DeviceDetailRecord,
   type DeviceRecord,
   type DeviceReferenceData,
@@ -37,6 +38,14 @@ export class DeviceInUseError extends Error {
   }
 }
 
+const contractSelect = {
+  id: true,
+  code: true,
+  name: true,
+  firmwareManagementEnabled: true,
+  isActive: true,
+} as const
+
 const deviceInclude = {
   customer: {
     select: {
@@ -44,18 +53,18 @@ const deviceInclude = {
       code: true,
       name: true,
       isActive: true,
-      contractType: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          firmwareManagementEnabled: true,
-          isActive: true,
-        },
-      },
+      contractType: { select: contractSelect },
     },
   },
-  site: { select: { id: true, code: true, name: true, isActive: true } },
+  site: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+      contractType: { select: contractSelect },
+    },
+  },
   deviceModel: {
     select: {
       id: true,
@@ -109,15 +118,15 @@ type IncludedDevice = {
     code: string | null
     name: string
     isActive: boolean
-    contractType: {
-      id: string
-      code: string
-      name: string
-      firmwareManagementEnabled: boolean
-      isActive: boolean
-    } | null
+    contractType: DeviceContractReference | null
   }
-  site: { id: string; code: string | null; name: string; isActive: boolean } | null
+  site: {
+    id: string
+    code: string | null
+    name: string
+    isActive: boolean
+    contractType: DeviceContractReference | null
+  } | null
   deviceModel: {
     id: string
     model: string
@@ -148,6 +157,7 @@ function firmwareAgeDays(observedAt: Date | null) {
 }
 
 function serializeDevice(record: IncludedDevice): DeviceRecord {
+  const effectiveContractType = record.site?.contractType ?? record.customer.contractType
   return {
     id: record.id,
     customerId: record.customerId,
@@ -169,6 +179,8 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
     lastSynchronizedAt: record.lastSynchronizedAt?.toISOString() ?? null,
     customer: record.customer,
     site: record.site,
+    effectiveContractType,
+    contractSource: record.site?.contractType ? 'SITE' : record.customer.contractType ? 'CUSTOMER' : 'NONE',
     deviceModel: record.deviceModel,
     currentFirmwareRelease: record.currentFirmwareRelease
       ? {
@@ -238,20 +250,19 @@ export async function listDeviceReferences(): Promise<DeviceReferenceData> {
         code: true,
         name: true,
         isActive: true,
-        contractType: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            firmwareManagementEnabled: true,
-            isActive: true,
-          },
-        },
+        contractType: { select: contractSelect },
       },
     }),
     prisma.site.findMany({
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: { id: true, customerId: true, code: true, name: true, isActive: true },
+      select: {
+        id: true,
+        customerId: true,
+        code: true,
+        name: true,
+        isActive: true,
+        contractType: { select: contractSelect },
+      },
     }),
     prisma.deviceModel.findMany({
       orderBy: [{ isActive: 'desc' }, { model: 'asc' }],
