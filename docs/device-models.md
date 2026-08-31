@@ -52,11 +52,12 @@ Archived models remain visible so historical inventory and lifecycle references 
 - customers using the model
 - recorded current firmware distribution
 - workflow-state distribution
+- catalog releases matching the same vendor and platform/firmware family
 - provenance/synchronization context
 
 Desired firmware is deliberately left unresolved until Issue #9 implements model-level desired firmware policy.
 
-Available/compatible firmware presentation is deliberately left unresolved until Issue #7 implements the firmware catalog workflow.
+Catalog releases are informational only. Their presence, status, or release date does not make a release desired automatically.
 
 No generic monitoring/health data is introduced.
 
