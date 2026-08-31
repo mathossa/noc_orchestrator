@@ -135,10 +135,3 @@ export async function setFirmwareLifecycleDecision(
 
   return serializeLifecycle(record)
 }
-
-export async function clearFirmwareLifecycleDecision(deviceId: string) {
-  const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { id: true } })
-  if (!device) throw new FirmwareLifecycleNotFoundError('Device was not found.')
-  const result = await prisma.firmwareLifecycleRecord.deleteMany({ where: { deviceId } })
-  return { cleared: result.count > 0 }
-}
