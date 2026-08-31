@@ -6,10 +6,14 @@ const mocks = vi.hoisted(() => ({
   vendorFindUnique: vi.fn(),
   vendorUpdate: vi.fn(),
   vendorDelete: vi.fn(),
+  contractFindUnique: vi.fn(),
+  contractDelete: vi.fn(),
   deviceModelCount: vi.fn(),
   firmwareTrainCount: vi.fn(),
   firmwareReleaseCount: vi.fn(),
   firmwarePolicyCount: vi.fn(),
+  customerCount: vi.fn(),
+  siteCount: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -22,12 +26,19 @@ vi.mock('@/lib/prisma', () => ({
       delete: mocks.vendorDelete,
     },
     deviceType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    contractType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    contractType: {
+      findMany: vi.fn(),
+      findUnique: mocks.contractFindUnique,
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: mocks.contractDelete,
+    },
     deviceModel: { count: mocks.deviceModelCount },
     firmwareTrain: { count: mocks.firmwareTrainCount },
     firmwareRelease: { count: mocks.firmwareReleaseCount },
     firmwarePolicy: { count: mocks.firmwarePolicyCount },
-    customer: { count: vi.fn() },
+    customer: { count: mocks.customerCount },
+    site: { count: mocks.siteCount },
   },
 }))
 
@@ -115,5 +126,15 @@ describe('reference-data persistence rules', () => {
 
     await expect(deleteReferenceRecord('vendors', 'vendor-1')).resolves.toEqual({ id: 'vendor-1' })
     expect(mocks.vendorDelete).toHaveBeenCalledWith({ where: { id: 'vendor-1' } })
+  })
+
+  it('blocks deletion of a contract type used as a site override', async () => {
+    mocks.contractFindUnique.mockResolvedValue({ id: 'contract-1', name: 'Firmware Management' })
+    mocks.customerCount.mockResolvedValue(0)
+    mocks.siteCount.mockResolvedValue(1)
+    mocks.firmwarePolicyCount.mockResolvedValue(0)
+
+    await expect(deleteReferenceRecord('contract-types', 'contract-1')).rejects.toBeInstanceOf(ReferenceInUseError)
+    expect(mocks.contractDelete).not.toHaveBeenCalled()
   })
 })
