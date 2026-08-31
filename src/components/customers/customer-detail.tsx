@@ -50,7 +50,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer"
         title={customer.name}
-        description="Firmware lifecycle context for this customer. The customer contract is the default; individual sites may override it."
+        description="Firmware lifecycle context for this customer. Technical desired-state compliance and operational workflow decisions are shown independently."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage customers</Link>
@@ -63,9 +63,9 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryStat label="Devices" value={customer.deviceCount} detail="Inventory records assigned to this customer." />
         <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations; sites may override the default contract." />
-        <SummaryStat label="Desired state current" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
-        <SummaryStat label="Needs attention" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
-        <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Devices with a current planned lifecycle decision." />
+        <SummaryStat label="Desired state current" value={customer.desiredStateSummary.current} detail="Devices on the exact desired firmware release." />
+        <SummaryStat label="Needs attention" value={customer.desiredStateSummary.actionRequired} detail="Recorded current release differs from desired." />
+        <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Operational workflow state, separate from compliance." />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -85,11 +85,31 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
                       <Link href={`/customers/${customer.id}/sites/${site.id}`} className="font-medium text-[var(--foreground)] hover:text-[var(--accent-light)]">{site.name}</Link>
                       <div className="mt-1 text-xs text-[var(--muted)]">{[site.code, site.city, site.country].filter(Boolean).join(' · ') || 'No code or location details'}</div>
                     </div>
-                    <span className="shrink-0 text-sm tabular-nums text-[var(--muted)]">{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</span>
+                    <Link href={`/devices?customer=${encodeURIComponent(customer.id)}&site=${encodeURIComponent(site.id)}`} className="shrink-0 text-sm tabular-nums text-[var(--accent-light)] hover:underline">{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</Link>
                   </div>
                 ))}
               </div>
             )}
+          </section>
+
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <h2 className="text-sm font-semibold">Technical firmware state</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">Exact current-versus-desired comparison. Version strings are never treated as SemVer or ordered implicitly.</p>
+            </div>
+            <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ['Current', customer.desiredStateSummary.current],
+                ['Action required', customer.desiredStateSummary.actionRequired],
+                ['Unknown current', customer.desiredStateSummary.unknown],
+                ['No policy', customer.desiredStateSummary.noPolicy],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-[var(--surface)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</div>
+                  <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -110,9 +130,6 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
                 </div>
               ))}
             </div>
-            {!customer.desiredStateSummary.available ? (
-              <div className="border-t border-[var(--border)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">Desired-state compliant vs action-required totals are deliberately not approximated here. Issue #10 will provide the single canonical resolver used across customers, devices, filters, and dashboards.</div>
-            ) : null}
           </section>
         </div>
 

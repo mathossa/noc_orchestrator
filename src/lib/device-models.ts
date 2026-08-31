@@ -52,6 +52,12 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     done: number
     undecided: number
   }
+  technicalStateCounts: {
+    current: number
+    actionRequired: number
+    unknown: number
+    noPolicy: number
+  }
   desiredFirmware: {
     available: true
     policyId: string | null

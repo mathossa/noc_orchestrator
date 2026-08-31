@@ -1,6 +1,11 @@
 import { prisma } from '@/lib/prisma'
 import { normalizedDeviceModelName, parseDeviceModelInput } from '@/lib/device-models'
 import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
+import {
+  emptyTechnicalFirmwareStateCounts,
+  incrementTechnicalFirmwareStateCount,
+  resolveTechnicalFirmwareState,
+} from '@/lib/firmware-state'
 
 export class DeviceModelConflictError extends Error {
   constructor(message: string) {
@@ -176,6 +181,7 @@ export async function getDeviceModel(id: string) {
     done: 0,
     undecided: 0,
   }
+  const technicalStateCounts = emptyTechnicalFirmwareStateCounts()
 
   for (const device of record.devices) {
     const customer = customerMap.get(device.customer.id)
@@ -193,6 +199,14 @@ export async function getDeviceModel(id: string) {
         deviceCount: 1,
       })
     }
+
+    incrementTechnicalFirmwareStateCount(
+      technicalStateCounts,
+      resolveTechnicalFirmwareState({
+        currentFirmwareReleaseId: device.currentFirmwareReleaseId,
+        desiredFirmwareReleaseId: desiredPolicy?.release.id,
+      }),
+    )
 
     switch (device.lifecycle?.state) {
       case 'PLANNED':
@@ -219,6 +233,7 @@ export async function getDeviceModel(id: string) {
     customers: [...customerMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
     firmwareDistribution: [...firmwareMap.values()].sort((a, b) => b.deviceCount - a.deviceCount),
     workflowCounts,
+    technicalStateCounts,
     desiredFirmware: {
       available: true as const,
       policyId: desiredPolicy?.id ?? null,

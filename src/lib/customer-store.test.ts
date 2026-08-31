@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   siteCount: vi.fn(),
   deviceFindMany: vi.fn(),
   deviceCount: vi.fn(),
+  policyFindFirst: vi.fn(),
   policyCount: vi.fn(),
   auditCount: vi.fn(),
 }))
@@ -37,7 +38,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: mocks.deviceFindMany,
       count: mocks.deviceCount,
     },
-    firmwarePolicy: { count: mocks.policyCount },
+    firmwarePolicy: { findFirst: mocks.policyFindFirst, count: mocks.policyCount },
     auditEvent: { count: mocks.auditCount },
   },
 }))
@@ -70,11 +71,34 @@ function storedCustomer(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function desiredPolicy(modelId: string, releaseId: string) {
+  return {
+    id: `policy-${modelId}`,
+    targetFirmwareReleaseId: releaseId,
+    isActive: true,
+    notes: null,
+    deviceModelId: modelId,
+    createdAt: new Date('2026-09-01T00:00:00Z'),
+    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    targetFirmwareRelease: {
+      id: releaseId,
+      vendorId: 'vendor-1',
+      platform: 'IOS XE',
+      version: releaseId,
+      status: 'APPROVED',
+      isActive: true,
+      releasedAt: null,
+      firmwareTrain: null,
+    },
+  }
+}
+
 describe('customer persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.siteFindMany.mockResolvedValue([])
     mocks.siteCount.mockResolvedValue(0)
+    mocks.policyFindFirst.mockResolvedValue(null)
   })
 
   it('creates a manual customer without external identity fields', async () => {
@@ -138,14 +162,18 @@ describe('customer persistence rules', () => {
     expect(result.isActive).toBe(false)
   })
 
-  it('returns site summaries and real workflow counts without inventing technical compliance state', async () => {
+  it('returns site, workflow, and canonical technical firmware summaries', async () => {
     mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1 } }))
     mocks.deviceFindMany.mockResolvedValue([
-      { lifecycle: { state: 'PLANNED' } },
-      { lifecycle: { state: 'DONE' } },
-      { lifecycle: { state: 'DONE' } },
-      { lifecycle: null },
+      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
+      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },
+      { deviceModelId: 'model-1', currentFirmwareReleaseId: null, lifecycle: { state: 'DONE' } },
+      { deviceModelId: 'model-2', currentFirmwareReleaseId: 'release-x', lifecycle: null },
     ])
+    mocks.policyFindFirst.mockImplementation(({ where }: { where: { deviceModelId: string } }) => {
+      if (where.deviceModelId === 'model-1') return Promise.resolve(desiredPolicy('model-1', 'release-a'))
+      return Promise.resolve(null)
+    })
     mocks.siteFindMany.mockResolvedValue([
       { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, _count: { devices: 3 } },
     ])
@@ -157,7 +185,13 @@ describe('customer persistence rules', () => {
       { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, deviceCount: 3 },
     ])
     expect(result.workflowCounts).toEqual({ planned: 1, ignored: 0, customerDeclined: 0, done: 2 })
-    expect(result.desiredStateSummary).toEqual({ available: false, current: null, actionRequired: null })
+    expect(result.desiredStateSummary).toEqual({
+      available: true,
+      current: 1,
+      actionRequired: 1,
+      unknown: 1,
+      noPolicy: 1,
+    })
   })
 
   it('blocks permanent deletion when customer sites or history are referenced', async () => {

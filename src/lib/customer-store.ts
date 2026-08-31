@@ -1,5 +1,11 @@
 import { prisma } from '@/lib/prisma'
 import { parseCustomerInput } from '@/lib/customers'
+import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
+import {
+  emptyTechnicalFirmwareStateCounts,
+  incrementTechnicalFirmwareStateCount,
+  resolveTechnicalFirmwareState,
+} from '@/lib/firmware-state'
 
 export class CustomerConflictError extends Error {
   constructor(message: string) {
@@ -114,7 +120,11 @@ export async function getCustomer(id: string) {
   const [devices, sites] = await Promise.all([
     prisma.device.findMany({
       where: { customerId: id },
-      select: { lifecycle: { select: { state: true } } },
+      select: {
+        deviceModelId: true,
+        currentFirmwareReleaseId: true,
+        lifecycle: { select: { state: true } },
+      },
     }),
     prisma.site.findMany({
       where: { customerId: id },
@@ -131,14 +141,30 @@ export async function getCustomer(id: string) {
     }),
   ])
 
+  const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
+  const desiredPolicies = await Promise.all(
+    modelIds.map(async (modelId) => [modelId, await getActiveModelDesiredPolicy(modelId)] as const),
+  )
+  const desiredByModel = new Map(desiredPolicies)
+
   const workflowCounts = {
     planned: 0,
     ignored: 0,
     customerDeclined: 0,
     done: 0,
   }
+  const desiredStateSummary = emptyTechnicalFirmwareStateCounts()
 
   for (const device of devices) {
+    const desiredPolicy = desiredByModel.get(device.deviceModelId)
+    incrementTechnicalFirmwareStateCount(
+      desiredStateSummary,
+      resolveTechnicalFirmwareState({
+        currentFirmwareReleaseId: device.currentFirmwareReleaseId,
+        desiredFirmwareReleaseId: desiredPolicy?.release.id,
+      }),
+    )
+
     switch (device.lifecycle?.state) {
       case 'PLANNED':
         workflowCounts.planned += 1
@@ -169,12 +195,9 @@ export async function getCustomer(id: string) {
       deviceCount: site._count.devices,
     })),
     workflowCounts,
-    // Issue #10 owns canonical desired-state resolution. Do not duplicate that
-    // comparison logic here; the detail API exposes a stable summary shape now.
     desiredStateSummary: {
-      available: false as const,
-      current: null,
-      actionRequired: null,
+      available: true as const,
+      ...desiredStateSummary,
     },
   }
 }
