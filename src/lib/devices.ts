@@ -80,8 +80,8 @@ export type DeviceRecord = {
 export type DeviceDetailRecord = DeviceRecord & {
   createdAt: string
   updatedAt: string
-  desiredFirmware: { available: boolean; release: DeviceFirmwareReference | null }
-  technicalState: { available: boolean; state: string | null }
+  desiredFirmware: { available: true; release: DeviceFirmwareReference | null }
+  technicalState: { available: false; state: null }
 }
 
 export type DeviceReferenceData = {
