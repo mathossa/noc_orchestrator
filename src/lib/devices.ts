@@ -1,3 +1,5 @@
+import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+
 export type DeviceSource = 'MANUAL' | 'API' | 'IMPORT'
 
 export type DeviceReference = {
@@ -81,7 +83,7 @@ export type DeviceDetailRecord = DeviceRecord & {
   createdAt: string
   updatedAt: string
   desiredFirmware: { available: true; release: DeviceFirmwareReference | null }
-  technicalState: { available: false; state: null }
+  technicalState: { available: true; state: TechnicalFirmwareState }
 }
 
 export type DeviceReferenceData = {
