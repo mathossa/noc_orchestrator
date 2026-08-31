@@ -309,6 +309,7 @@ model Device {
   hostname                  String?
   serialNumber              String?
   managementAddress         String?
+  notes                     String?
   currentFirmwareReleaseId  String?
   currentFirmwareObservedAt DateTime?
   currentFirmwareSource     String   @default("MANUAL")
