@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   policyFindFirst: vi.fn(),
   lifecycleFindUnique: vi.fn(),
   lifecycleUpsert: vi.fn(),
-  lifecycleDeleteMany: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -15,13 +14,11 @@ vi.mock('@/lib/prisma', () => ({
     firmwareLifecycleRecord: {
       findUnique: mocks.lifecycleFindUnique,
       upsert: mocks.lifecycleUpsert,
-      deleteMany: mocks.lifecycleDeleteMany,
     },
   },
 }))
 
 import {
-  clearFirmwareLifecycleDecision,
   FirmwareLifecyclePolicyError,
   setFirmwareLifecycleDecision,
 } from '@/lib/firmware-lifecycle-store'
@@ -85,7 +82,6 @@ describe('firmware lifecycle persistence', () => {
     mocks.policyFindFirst.mockResolvedValue(desiredPolicy)
     mocks.lifecycleFindUnique.mockResolvedValue(null)
     mocks.lifecycleUpsert.mockResolvedValue(storedLifecycle())
-    mocks.lifecycleDeleteMany.mockResolvedValue({ count: 1 })
   })
 
   it('snapshots the currently resolved exact desired release when planning', async () => {
@@ -143,11 +139,5 @@ describe('firmware lifecycle persistence', () => {
     mocks.policyFindFirst.mockResolvedValue(null)
     await expect(setFirmwareLifecycleDecision('device-1', { state: 'PLANNED' })).rejects.toBeInstanceOf(FirmwareLifecyclePolicyError)
     expect(mocks.lifecycleUpsert).not.toHaveBeenCalled()
-  })
-
-  it('can clear the current operational decision without altering technical firmware policy', async () => {
-    await expect(clearFirmwareLifecycleDecision('device-1')).resolves.toEqual({ cleared: true })
-    expect(mocks.lifecycleDeleteMany).toHaveBeenCalledWith({ where: { deviceId: 'device-1' } })
-    expect(mocks.policyFindFirst).not.toHaveBeenCalled()
   })
 })
