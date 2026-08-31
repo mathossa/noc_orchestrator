@@ -52,60 +52,77 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
         title={customer.name}
         description="Firmware lifecycle context for this customer. Monitoring and unrelated operational health data are intentionally excluded."
         actions={
-          <div className="flex gap-2">
-            <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">
-              Manage customers
-            </Link>
-            <Link href={`/devices?customer=${encodeURIComponent(customer.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">
-              Customer devices
-            </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage customers</Link>
+            <Link href={`/customers/${customer.id}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage sites</Link>
+            <Link href={`/devices?customer=${encodeURIComponent(customer.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer devices</Link>
           </div>
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryStat label="Devices" value={customer.deviceCount} detail="Inventory records assigned to this customer." />
+        <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations available for device assignment." />
         <SummaryStat label="Desired state current" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
         <SummaryStat label="Needs attention" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
         <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Devices with a current planned lifecycle decision." />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <h2 className="text-sm font-semibold">Lifecycle summary</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">Workflow decisions remain separate from technical firmware compliance.</p>
-          </div>
-          <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ['Planned', customer.workflowCounts.planned],
-              ['Ignored', customer.workflowCounts.ignored],
-              ['Customer declined', customer.workflowCounts.customerDeclined],
-              ['Done', customer.workflowCounts.done],
-            ].map(([label, value]) => (
-              <div key={label} className="bg-[var(--surface)] p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</div>
-                <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
-              </div>
-            ))}
-          </div>
-          {!customer.desiredStateSummary.available ? (
-            <div className="border-t border-[var(--border)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">
-              Desired-state compliant vs action-required totals are deliberately not approximated here. Issue #10 will provide the single canonical resolver used across customers, devices, filters, and dashboards.
+        <div className="min-w-0 space-y-5">
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+              <div><h2 className="text-sm font-semibold">Sites</h2><p className="mt-1 text-xs text-[var(--muted)]">Customer locations used to place devices in the correct site context.</p></div>
+              <Link href={`/customers/${customer.id}/sites`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Manage sites</Link>
             </div>
-          ) : null}
-        </section>
+            {customer.sites.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-[var(--muted)]">No sites configured. Devices may remain unassigned to a site until one is known.</div>
+            ) : (
+              <div className="divide-y divide-[var(--border)]">
+                {customer.sites.map((site) => (
+                  <div key={site.id} className={`flex items-center justify-between gap-4 px-4 py-3 ${site.isActive ? '' : 'opacity-60'}`}>
+                    <div className="min-w-0">
+                      <Link href={`/customers/${customer.id}/sites/${site.id}`} className="font-medium text-[var(--foreground)] hover:text-[var(--accent-light)]">{site.name}</Link>
+                      <div className="mt-1 text-xs text-[var(--muted)]">{[site.code, site.city, site.country].filter(Boolean).join(' · ') || 'No code or location details'}</div>
+                    </div>
+                    <span className="shrink-0 text-sm tabular-nums text-[var(--muted)]">{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <h2 className="text-sm font-semibold">Lifecycle summary</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">Workflow decisions remain separate from technical firmware compliance.</p>
+            </div>
+            <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ['Planned', customer.workflowCounts.planned],
+                ['Ignored', customer.workflowCounts.ignored],
+                ['Customer declined', customer.workflowCounts.customerDeclined],
+                ['Done', customer.workflowCounts.done],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-[var(--surface)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</div>
+                  <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
+                </div>
+              ))}
+            </div>
+            {!customer.desiredStateSummary.available ? (
+              <div className="border-t border-[var(--border)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">Desired-state compliant vs action-required totals are deliberately not approximated here. Issue #10 will provide the single canonical resolver used across customers, devices, filters, and dashboards.</div>
+            ) : null}
+          </section>
+        </div>
+
+        <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <h2 className="text-sm font-semibold">Customer information</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Code" value={customer.code ?? '—'} />
             <DetailRow label="Status" value={customer.isActive ? 'Active' : 'Archived'} />
             <DetailRow label="Contract" value={customer.contractType?.name ?? 'No contract type'} />
-            <DetailRow
-              label="Firmware management"
-              value={customer.contractType ? (customer.contractType.firmwareManagementEnabled ? 'Enabled by contract' : 'Disabled by contract') : 'No contract capability set'}
-            />
+            <DetailRow label="Firmware management" value={customer.contractType ? (customer.contractType.firmwareManagementEnabled ? 'Enabled by contract' : 'Disabled by contract') : 'No contract capability set'} />
             <DetailRow label="Source" value={customer.source} />
             <DetailRow label="External provider" value={customer.externalProvider ?? '—'} />
             <DetailRow label="External ID" value={customer.externalId ?? '—'} />
@@ -118,10 +135,5 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
 }
 
 function DetailRow({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0">
-      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt>
-      <dd className="min-w-0 break-words text-[var(--muted-strong)]">{value}</dd>
-    </div>
-  )
+  return <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0"><dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt><dd className="min-w-0 break-words text-[var(--muted-strong)]">{value}</dd></div>
 }
