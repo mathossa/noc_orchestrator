@@ -64,6 +64,7 @@ export function SiteOverview() {
         site.city ?? '',
         site.region ?? '',
         site.country ?? '',
+        site.effectiveContractType?.name ?? '',
       ]
         .join(' ')
         .toLocaleLowerCase('en-US')
@@ -76,7 +77,7 @@ export function SiteOverview() {
       <PageHeader
         eyebrow="Customer inventory"
         title="Sites"
-        description="Browse customer locations across the organization. Create and edit sites from the owning customer context."
+        description="Browse customer locations, effective contracts, and device counts across the organization."
       />
 
       {error ? (
@@ -90,7 +91,7 @@ export function SiteOverview() {
           <TextInput
             type="search"
             aria-label="Search sites"
-            placeholder="Search customer, site, city, country…"
+            placeholder="Search customer, site, city, contract…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -123,12 +124,13 @@ export function SiteOverview() {
           <EmptyState title="No sites match" description="Adjust the filters or add sites from a customer page." />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[940px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3">Site</th>
                   <th className="px-4 py-3">Customer</th>
                   <th className="px-4 py-3">Location</th>
+                  <th className="px-4 py-3">Contract</th>
                   <th className="px-4 py-3">Devices</th>
                   <th className="px-4 py-3">Source</th>
                   <th className="px-4 py-3">State</th>
@@ -154,6 +156,7 @@ export function SiteOverview() {
                     <td className="px-4 py-3 text-[var(--muted-strong)]">
                       {[site.city, site.region, site.country].filter(Boolean).join(', ') || '—'}
                     </td>
+                    <td className="px-4 py-3"><div>{site.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                     <td className="px-4 py-3 tabular-nums">{site.deviceCount}</td>
                     <td className="px-4 py-3 text-xs">{site.source}</td>
                     <td className="px-4 py-3 text-xs">{site.isActive ? 'Active' : 'Archived'}</td>
