@@ -10,6 +10,8 @@ const navigation = [
   { label: 'Devices', href: '/devices' },
   { label: 'Models', href: '/models' },
   { label: 'Vendors', href: '/vendors' },
+  { label: 'Device types', href: '/device-types' },
+  { label: 'Contract types', href: '/contracts' },
   { label: 'Firmware', href: '/firmware' },
   { label: 'Planning', href: '/planning' },
   { label: 'Reports', href: '/reports' },
@@ -87,7 +89,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
         <div className="border-b border-[var(--border)] px-5 py-5">
           <Brand />
         </div>
-        <div className="flex-1 px-3 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4">
           <NavigationLinks />
         </div>
         <div className="border-t border-[var(--border)] px-5 py-4">

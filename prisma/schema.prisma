@@ -82,11 +82,12 @@ model AuthVerification {
 }
 
 model ContractType {
-  id          String  @id @default(uuid())
-  code        String  @unique
-  name        String  @unique
-  description String?
-  isActive    Boolean @default(true)
+  id                        String  @id @default(uuid())
+  code                      String  @unique
+  name                      String  @unique
+  description               String?
+  firmwareManagementEnabled Boolean @default(true)
+  isActive                  Boolean @default(true)
 
   customers        Customer[]
   firmwarePolicies FirmwarePolicy[]
