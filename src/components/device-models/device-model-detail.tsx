@@ -90,14 +90,14 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
       <PageHeader
         eyebrow={`${model.vendor.name} · ${model.deviceType.name}`}
         title={model.model}
-        description="Model-level firmware lifecycle context: inventory usage, exact desired firmware policy, current firmware distribution, catalog releases, and workflow decisions."
+        description="Model-level firmware lifecycle context: inventory usage, exact desired firmware policy, technical state, current firmware distribution, catalog releases, and workflow decisions."
         actions={<div className="flex flex-wrap gap-2"><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Devices" value={<Link href={devicesHref} className="text-[var(--accent-light)] hover:underline">{model.deviceCount}</Link>} detail="Inventory records using this model. Click the count to list them." />
-        <SummaryStat label="Customers" value={model.customers.length} detail="Customers with at least one device using this model." />
-        <SummaryStat label="Catalog releases" value={model.availableFirmware.releases.length} detail="Releases matching vendor and platform/family when defined." />
+        <SummaryStat label="Current" value={model.technicalStateCounts.current} detail="Devices recorded on the exact desired release." />
+        <SummaryStat label="Action required" value={model.technicalStateCounts.actionRequired} detail="Devices with a different exact recorded release." />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Exact model baseline · ${desired.status}` : 'No model-level desired policy.'} />
       </div>
 
@@ -176,6 +176,16 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <SectionHeading title="Technical firmware state" description="Exact desired-state compliance. No vendor version ordering or SemVer assumptions are used." />
+            <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-4">{[
+              ['Current', model.technicalStateCounts.current],
+              ['Action required', model.technicalStateCounts.actionRequired],
+              ['Unknown current', model.technicalStateCounts.unknown],
+              ['No policy', model.technicalStateCounts.noPolicy],
+            ].map(([label, value]) => <div key={label} className="bg-[var(--surface)] p-4"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</div><div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div></div>)}</div>
+          </section>
+
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <SectionHeading title="Workflow distribution" description="Lifecycle decisions remain separate from technical firmware compliance." />
             <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-5">{[
               ['Planned', model.workflowCounts.planned], ['Ignored', model.workflowCounts.ignored], ['Customer declined', model.workflowCounts.customerDeclined], ['Done', model.workflowCounts.done], ['No decision', model.workflowCounts.undecided],
@@ -194,7 +204,7 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
             <Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Edit model</Link>
           </div>
           <dl className="mt-4 space-y-3 text-sm">
-            <DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Platform" value={model.platform ?? '—'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
+            <DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Platform" value={model.platform ?? '—'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Catalog releases" value={model.availableFirmware.releases.length} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
           </dl>
           {model.notes ? <div className="mt-5 border-t border-[var(--border)] pt-4"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Notes</div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{model.notes}</p></div> : null}
         </section>
