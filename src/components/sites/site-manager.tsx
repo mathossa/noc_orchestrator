@@ -7,12 +7,14 @@ import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/for
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import type { CustomerDetailRecord } from '@/lib/customers'
-import type { SiteFieldErrors, SiteRecord } from '@/lib/sites'
+import type { SiteContractReference, SiteFieldErrors, SiteRecord } from '@/lib/sites'
 
 type ApiError = { error?: { message?: string; fields?: SiteFieldErrors } }
+type SitePayload = { data?: SiteRecord[]; contractTypes?: SiteContractReference[] } & ApiError
 type FormState = {
   name: string
   code: string
+  contractTypeId: string
   addressLine1: string
   addressLine2: string
   postalCode: string
@@ -29,6 +31,7 @@ type FormState = {
 const initialForm: FormState = {
   name: '',
   code: '',
+  contractTypeId: '',
   addressLine1: '',
   addressLine2: '',
   postalCode: '',
@@ -45,6 +48,7 @@ const initialForm: FormState = {
 export function SiteManager({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<CustomerDetailRecord | null>(null)
   const [sites, setSites] = useState<SiteRecord[]>([])
+  const [contractTypes, setContractTypes] = useState<SiteContractReference[]>([])
   const [form, setForm] = useState<FormState>(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -61,10 +65,14 @@ export function SiteManager({ customerId }: { customerId: string }) {
       fetch(`/api/v1/customers/${customerId}/sites`, { cache: 'no-store' }),
     ])
     const customerPayload = (await customerResponse.json()) as { data?: CustomerDetailRecord } & ApiError
-    const sitePayload = (await siteResponse.json()) as { data?: SiteRecord[] } & ApiError
+    const sitePayload = (await siteResponse.json()) as SitePayload
     if (!customerResponse.ok) throw new Error(customerPayload.error?.message ?? 'Customer could not be loaded.')
     if (!siteResponse.ok) throw new Error(sitePayload.error?.message ?? 'Sites could not be loaded.')
-    return { customer: customerPayload.data ?? null, sites: sitePayload.data ?? [] }
+    return {
+      customer: customerPayload.data ?? null,
+      sites: sitePayload.data ?? [],
+      contractTypes: sitePayload.contractTypes ?? [],
+    }
   }, [customerId])
 
   useEffect(() => {
@@ -74,6 +82,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
         if (cancelled) return
         setCustomer(payload.customer)
         setSites(payload.sites)
+        setContractTypes(payload.contractTypes)
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Sites could not be loaded.')
@@ -90,6 +99,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
     const payload = await load()
     setCustomer(payload.customer)
     setSites(payload.sites)
+    setContractTypes(payload.contractTypes)
   }
 
   function resetForm() {
@@ -103,6 +113,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
     setForm({
       name: site.name,
       code: site.code ?? '',
+      contractTypeId: site.contractTypeId ?? '',
       addressLine1: site.addressLine1 ?? '',
       addressLine2: site.addressLine2 ?? '',
       postalCode: site.postalCode ?? '',
@@ -187,7 +198,14 @@ export function SiteManager({ customerId }: { customerId: string }) {
       if (archiveFilter === 'active' && !site.isActive) return false
       if (archiveFilter === 'archived' && site.isActive) return false
       if (!needle) return true
-      return [site.name, site.code ?? '', site.city ?? '', site.region ?? '', site.country ?? '']
+      return [
+        site.name,
+        site.code ?? '',
+        site.city ?? '',
+        site.region ?? '',
+        site.country ?? '',
+        site.effectiveContractType?.name ?? '',
+      ]
         .join(' ')
         .toLocaleLowerCase('en-US')
         .includes(needle)
@@ -196,12 +214,16 @@ export function SiteManager({ customerId }: { customerId: string }) {
 
   if (loading) return <LoadingState title="Loading customer sites" description="Reading customer location records…" />
 
+  const inheritedContractLabel = customer?.contractType?.name
+    ? `Inherit customer default — ${customer.contractType.name}`
+    : 'Inherit customer default — no contract assigned'
+
   return (
     <>
       <PageHeader
         eyebrow="Customer sites"
         title={customer ? `${customer.name} sites` : 'Customer sites'}
-        description="Manage physical or logical customer locations used to place devices in the correct customer context."
+        description="Manage customer locations and optionally override the customer default contract for sites covered differently."
         actions={<Link href={`/customers/${customerId}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Back to customer</Link>}
       />
 
@@ -212,7 +234,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{editingId ? 'Edit site' : 'Add site'}</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">Only a name is required. Address details can stay partial when the source does not provide a full postal address.</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">Only a name is required. Leave contract on inherit unless this site has a different service agreement.</p>
           </div>
           {editingId ? <Button type="button" variant="ghost" onClick={resetForm}>Cancel edit</Button> : null}
         </div>
@@ -223,6 +245,16 @@ export function SiteManager({ customerId }: { customerId: string }) {
           </FormField>
           <FormField label="Code" htmlFor="site-code" error={fieldErrors.code}>
             <TextInput id="site-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="HQ" />
+          </FormField>
+          <FormField label="Contract" htmlFor="site-contract" description="Optional site override; otherwise the customer contract is inherited." error={fieldErrors.contractTypeId}>
+            <SelectInput id="site-contract" value={form.contractTypeId} onChange={(e) => setForm({ ...form, contractTypeId: e.target.value })}>
+              <option value="">{inheritedContractLabel}</option>
+              {contractTypes.map((contract) => (
+                <option key={contract.id} value={contract.id} disabled={!contract.isActive && contract.id !== form.contractTypeId}>
+                  {contract.name}{contract.isActive ? '' : ' (archived)'}
+                </option>
+              ))}
+            </SelectInput>
           </FormField>
           <FormField label="City" htmlFor="site-city" error={fieldErrors.city}>
             <TextInput id="site-city" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
@@ -271,18 +303,19 @@ export function SiteManager({ customerId }: { customerId: string }) {
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="grid gap-3 border-b border-[var(--border)] p-4 md:grid-cols-[minmax(0,1fr)_220px]">
-          <TextInput type="search" aria-label="Search sites" placeholder="Search name, code, city, region, country…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <TextInput type="search" aria-label="Search sites" placeholder="Search name, code, location, contract…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <SelectInput aria-label="Filter by archive state" value={archiveFilter} onChange={(e) => setArchiveFilter(e.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></SelectInput>
         </div>
         {filtered.length === 0 ? <EmptyState title="No sites match" description="Add a customer site or adjust the filters." /> : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Site</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Devices</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">State</th><th className="px-4 py-3 text-right">Actions</th></tr></thead>
+            <table className="w-full min-w-[1040px] text-left text-sm">
+              <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Site</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Devices</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">State</th><th className="px-4 py-3 text-right">Actions</th></tr></thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {filtered.map((site) => (
                   <tr key={site.id} className={site.isActive ? '' : 'opacity-60'}>
                     <td className="px-4 py-3"><Link href={`/customers/${customerId}/sites/${site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{site.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{site.code ?? 'No code'}</div></td>
                     <td className="px-4 py-3 text-[var(--muted-strong)]">{[site.city, site.region, site.country].filter(Boolean).join(', ') || '—'}</td>
+                    <td className="px-4 py-3"><div>{site.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                     <td className="px-4 py-3 tabular-nums">{site.deviceCount}</td>
                     <td className="px-4 py-3 text-xs">{site.source}</td>
                     <td className="px-4 py-3 text-xs">{site.isActive ? 'Active' : 'Archived'}</td>
