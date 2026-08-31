@@ -87,7 +87,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
               <DetailRow label="Workflow target" value={device.lifecycle ? `${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}` : '—'} />
             </dl>
-            {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The model's desired release is archived in the catalog. It remains the explicit desired target until the model policy is changed or cleared.</div> : null}
+            {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The model&apos;s desired release is archived in the catalog. It remains the explicit desired target until the model policy is changed or cleared.</div> : null}
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
