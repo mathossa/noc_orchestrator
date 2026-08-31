@@ -60,7 +60,7 @@ model AuthAccount {
   idToken               String?
   accessTokenExpiresAt  DateTime?
   refreshTokenExpiresAt DateTime?
-  scope                  String?
+  scope                 String?
   password               String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @default(now()) @updatedAt
@@ -205,6 +205,7 @@ model FirmwareRelease {
   status          String  @default("AVAILABLE")
   notes           String?
   releasedAt      DateTime?
+  isActive        Boolean @default(true)
 
   // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
@@ -227,6 +228,7 @@ model FirmwareRelease {
   @@index([version])
   @@index([status])
   @@index([source])
+  @@index([isActive])
 }
 
 model Device {
