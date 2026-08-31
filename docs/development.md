@@ -72,6 +72,42 @@ http://localhost:3000/api/auth/callback/microsoft
 
 MFA must be enforced by the organization's Entra Conditional Access/authentication policy.
 
+## Production containers
+
+Normal development intentionally runs Next.js natively and only PostgreSQL in Docker for the fastest feedback loop.
+
+Production uses separate application and PostgreSQL containers. The database is not published to a host port by `compose.production.yml`; it is only reachable on the internal Compose network.
+
+Create a production environment file from the example and replace every placeholder/secret:
+
+```bash
+cp .env.production.example .env.production
+```
+
+`DATABASE_URL` must use the Compose service name `postgres` as its hostname, for example:
+
+```text
+postgresql://noc_orchestrator:<url-encoded-password>@postgres:5432/noc_orchestrator
+```
+
+Start the production stack with:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml up -d --build
+```
+
+The production stack contains three roles:
+
+- `postgres`: persistent PostgreSQL database
+- `migrate`: one-shot Prisma migration job that must succeed before the application starts
+- `app`: small Next.js standalone runtime container
+
+Check status with:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml ps
+```
+
 ## Useful checks
 
 These commands exist to catch breakage, but early MVP work intentionally avoids a large mandatory validation pipeline:
