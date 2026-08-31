@@ -52,11 +52,23 @@ is valid, while two normalized `Head Office` records under Customer A are reject
 
 ## UI and API
 
-Customer site management is intentionally customer-scoped:
+The primary navigation groups customer inventory as:
 
+```text
+Customers
+├── Overview
+└── Sites
+```
+
+`/sites` is a global cross-customer site overview with customer, search, and archive filters. It provides direct links to the owning customer and site detail so engineers do not need to drill through a customer first for routine browsing.
+
+Creation and editing remain customer-scoped because a site cannot exist without an owning customer:
+
+- `/sites` browses all sites across customers
 - `/customers/[id]` shows site count and site summaries
-- `/customers/[id]/sites` manages sites
+- `/customers/[id]/sites` manages sites for one customer
 - `/customers/[id]/sites/[siteId]` shows site details
+- `/api/v1/sites` lists all sites
 - `/api/v1/customers/[id]/sites`
 - `/api/v1/customers/[id]/sites/[siteId]`
 
