@@ -45,13 +45,13 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
       <PageHeader
         eyebrow={`${site.customer.name} · Site`}
         title={site.name}
-        description="Customer location context used to place inventory at the correct site. Site records do not contain monitoring or health data."
+        description="Customer location context used to place inventory at the correct site. A site may override the customer's default contract when its service agreement differs."
         actions={<div className="flex flex-wrap gap-2"><Link href={`/customers/${customerId}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage sites</Link><Link href={`/devices?customer=${encodeURIComponent(customerId)}&site=${encodeURIComponent(site.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Site devices</Link></div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Devices" value={site.deviceCount} detail="Inventory records currently assigned to this site." />
-        <SummaryStat label="Site code" value={site.code ?? '—'} detail="Optional customer-scoped site identifier." />
+        <SummaryStat label="Contract" value={site.effectiveContractType?.name ?? '—'} detail={site.contractSource === 'SITE' ? 'Site override.' : site.contractSource === 'CUSTOMER' ? 'Inherited from customer.' : 'No contract assigned.'} />
         <SummaryStat label="State" value={site.isActive ? 'Active' : 'Archived'} detail="Archiving preserves device and history references." />
         <SummaryStat label="Source" value={site.source} detail="Manual, imported, or synchronized provenance." />
       </div>
@@ -68,6 +68,9 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Customer" value={site.customer.name} />
             <DetailRow label="Code" value={site.code ?? '—'} />
+            <DetailRow label="Contract" value={site.effectiveContractType?.name ?? '—'} />
+            <DetailRow label="Contract source" value={site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'} />
+            {site.contractSource === 'SITE' ? <DetailRow label="Customer default" value={site.customer.contractType?.name ?? 'No customer default'} /> : null}
             <DetailRow label="Status" value={site.isActive ? 'Active' : 'Archived'} />
             <DetailRow label="Source" value={site.source} />
             <DetailRow label="External provider" value={site.externalProvider ?? '—'} />
