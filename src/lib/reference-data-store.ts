@@ -127,12 +127,13 @@ export async function deleteReferenceRecord(kind: ReferenceKind, id: string) {
   if (kind === 'vendors') {
     const current = await prisma.vendor.findUnique({ where: { id } })
     if (!current) throw new ReferenceNotFoundError()
-    const [models, releases, policies] = await Promise.all([
+    const [models, trains, releases, policies] = await Promise.all([
       prisma.deviceModel.count({ where: { vendorId: id } }),
+      prisma.firmwareTrain.count({ where: { vendorId: id } }),
       prisma.firmwareRelease.count({ where: { vendorId: id } }),
       prisma.firmwarePolicy.count({ where: { vendorId: id } }),
     ])
-    const message = referencedRecordMessage(kind, models + releases + policies)
+    const message = referencedRecordMessage(kind, models + trains + releases + policies)
     if (message) throw new ReferenceInUseError(message)
     return prisma.vendor.delete({ where: { id } })
   }
