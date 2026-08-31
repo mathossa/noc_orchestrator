@@ -1,3 +1,4 @@
+import type { AuditEventRecord } from '@/lib/audit-events'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
 export type DeviceSource = 'MANUAL' | 'API' | 'IMPORT'
@@ -94,6 +95,7 @@ export type DeviceDetailRecord = DeviceRecord & {
   updatedAt: string
   desiredFirmware: { available: true; release: DeviceFirmwareReference | null }
   technicalState: { available: true; state: TechnicalFirmwareState }
+  auditHistory: AuditEventRecord[]
 }
 
 export type DeviceReferenceData = {
