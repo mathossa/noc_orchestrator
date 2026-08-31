@@ -1,6 +1,6 @@
 # Core domain model
 
-This document defines the v0.1.0 persistence boundaries introduced by Issue #2.
+This document defines the v0.1.0 persistence boundaries of NOC Orchestrator.
 
 ## Core principle
 
@@ -21,17 +21,23 @@ Workflow state is a separate concern and is persisted in `FirmwareLifecycleRecor
 ## Relationships
 
 ```text
-ContractType 1 ---- * Customer 1 ---- * Device * ---- 1 DeviceModel
-                                           |                  |   |
-                                           |                  |   +---- 1 DeviceType
-                                           |                  +-------- 1 Vendor
-                                           |
-                                           +---- 0..1 current FirmwareRelease
-                                           +---- 0..1 FirmwareLifecycleRecord
+ContractType 1 ---- * Customer 1 ---- * Site
+                         |              |
+                         |              +---- * Device (optional site assignment)
+                         |
+                         +---- * Device * ---- 1 DeviceModel
+                                      |                  |   |
+                                      |                  |   +---- 1 DeviceType
+                                      |                  +-------- 1 Vendor
+                                      |
+                                      +---- 0..1 current FirmwareRelease
+                                      +---- 0..1 FirmwareLifecycleRecord
 
-Vendor 1 ---- * FirmwareRelease
+Vendor 1 ---- * FirmwareTrain 1 ---- * FirmwareRelease
+   |                                  ^
+   +----------------------------------+
 
-FirmwarePolicy ---- 1 target FirmwareRelease
+FirmwarePolicy ---- 1 exact target FirmwareRelease
        |
        +---- optional scope references reserved for:
              DeviceModel / Customer / ContractType / Device / Vendor / DeviceType
@@ -43,29 +49,49 @@ A customer may reference one configurable `ContractType`. Contract types are rec
 
 A customer can exist without an external system. Manual ownership is a first-class state.
 
+A customer may have zero, one, or many `Site` records.
+
+### Site / customer location
+
+A `Site` belongs to exactly one customer and represents a physical or logical customer location.
+
+Only the site name is required. Optional address fields support partial information such as a city, campus, branch, datacenter, or region without requiring a complete postal address.
+
+Site names are normalized for duplicate prevention within one customer. Optional site codes are also customer-scoped.
+
+A device may have no site. When `Device.siteId` is present, application code must verify that the selected site belongs to the same customer as the device. The shared `assertSiteBelongsToCustomer()` guard is the canonical ownership check for device create/update workflows.
+
+Site archival never moves or detaches devices. Permanent deletion is blocked when devices or audit history depend on the site.
+
 ### Vendor, device type, and device model
 
 `Vendor` and `DeviceType` are configurable reference data.
 
-A `DeviceModel` belongs to exactly one vendor and one device type. The pair `(vendorId, model)` is unique.
+A `DeviceModel` belongs to exactly one vendor and one device type. Device-model identity is vendor-scoped.
 
 ### Device
 
-A device belongs to one customer and one device model. `currentFirmwareReleaseId` is optional so a manually entered or newly synchronized device can exist before its current firmware is known.
+A device belongs to one customer and one device model. `siteId` is optional so a manually entered or newly synchronized device can exist before its customer location is known.
+
+`currentFirmwareReleaseId` is also optional so inventory can exist before current firmware is known.
 
 Current firmware points at a `FirmwareRelease` record instead of duplicating the version string on the device. If a future API reports a version that is not yet in the catalog, synchronization can create/upsert the corresponding firmware-release record and then reference it.
 
 `currentFirmwareObservedAt` and `currentFirmwareSource` describe the current-firmware observation separately from the provenance of the device inventory record itself.
 
-### Firmware release
+### Firmware train and release
 
-A firmware release belongs to a vendor and is uniquely identified in the initial catalog by `(vendorId, platform, version)`. The schema already has fields for filename, SHA-256, file size, release-notes reference, status, notes, and release date so Issue #7 can build the catalog without replacing the underlying model.
+A firmware train/release family is an explicitly managed grouping such as `8.13.x` or `17.15.x`. A train belongs to one vendor and platform/family.
+
+A firmware release belongs to a vendor and may belong to zero or one compatible train. Release versions remain opaque vendor strings; NOC Orchestrator does not infer train membership or semantic-version ordering from the version text.
+
+Catalog status, archive state, and desired-state policy remain separate concepts.
 
 ### Desired firmware policy
 
-`FirmwarePolicy.targetFirmwareReleaseId` is the desired target. It is never stored on `Device.currentFirmwareReleaseId`.
+`FirmwarePolicy.targetFirmwareReleaseId` is an **exact desired release**. It is never stored on `Device.currentFirmwareReleaseId` and is never moved automatically because a newer release appears in a train.
 
-Issue #9 initially creates **model-level** policies by setting only `deviceModelId` as the policy scope.
+Issue #9 initially creates model-level policies by setting only `deviceModelId` as the policy scope.
 
 The nullable scope references intentionally reserve a compatible path for later precedence rules without replacing the table:
 
@@ -75,7 +101,7 @@ The nullable scope references intentionally reserve a compatible path for later 
 4. model baseline
 5. future vendor/device-type defaults if required
 
-Issue #2 does not implement this precedence resolver. Until a later issue explicitly adds override behavior, application code should only create model-level policies.
+Until a later issue explicitly adds override behavior, application code should only create model-level policies.
 
 ### Firmware lifecycle record
 
@@ -94,7 +120,7 @@ Changes to lifecycle decisions are intended to be written to `AuditEvent`, allow
 
 ### Audit event
 
-`AuditEvent` is append-oriented history for domain changes. `entityType` + `entityId` support multiple domain entities without a destructive schema change every time a new auditable entity is introduced.
+`AuditEvent` is append-oriented history for domain changes. `entityType` + `entityId` support multiple domain entities, including sites, without a destructive schema change every time a new auditable entity is introduced.
 
 `before`, `after`, and `metadata` are JSON snapshots/context. `actorUserId` and `customerId` are optional so system/import operations and deleted actors can still leave durable history.
 
@@ -108,7 +134,7 @@ The initial conceptual source values are:
 - `API`
 - `IMPORT`
 
-They are stored as strings rather than a PostgreSQL enum. This keeps the persistence model extensible for later provider/source categories.
+They are stored as strings rather than a PostgreSQL enum so later provider/source categories remain extensible.
 
 Synced-capable records expose:
 
@@ -118,35 +144,39 @@ Synced-capable records expose:
 - `lastSynchronizedAt`
 - `sourceMetadata`
 
-Manual records require neither `externalProvider` nor `externalId`. The provider/ID pair is indexed for future synchronization lookup, but Issue #2 deliberately does not make the nullable pair a Prisma compound unique constraint because Prisma requires every field in `@@unique` to be mandatory. A future concrete provider integration can enforce provider-specific identity semantics without making manual inventory depend on an external key.
+Manual records require neither `externalProvider` nor `externalId`. Provider/ID pairs are indexed for future synchronization lookup.
 
-Provenance is present on `Customer`, `DeviceModel`, `Device`, and `FirmwareRelease`, which are the records most likely to be discovered or enriched by a future source-of-truth/inventory/network-management integration.
+Provenance is present on `Customer`, `Site`, `DeviceModel`, `Device`, `FirmwareTrain`, and `FirmwareRelease`, which are the records most likely to be discovered or enriched by future source-of-truth/inventory/network-management integrations.
 
-NOC Orchestrator-owned state such as desired policy, lifecycle decisions, and audit history is deliberately separate from those synchronized inventory fields so a future sync does not need to overwrite orchestration decisions.
+NOC Orchestrator-owned state such as desired policy, lifecycle decisions, and audit history is deliberately separate from synchronized inventory fields so a future sync does not overwrite orchestration decisions.
 
 ## Ownership and deletion
 
-Reference/domain relationships generally use restrictive deletion. Records should normally be deactivated rather than hard-deleted once referenced. This protects firmware history and policy integrity.
+Reference/domain relationships generally use restrictive deletion. Records should normally be deactivated rather than hard-deleted once referenced. This protects inventory, firmware history, and policy integrity.
+
+A customer cannot be permanently deleted while sites, devices, policies, or customer audit history reference it. A site cannot be permanently deleted while devices or site audit history reference it.
 
 Deleting a device cascades only its current `FirmwareLifecycleRecord`; generic `AuditEvent` history remains append-oriented and is not cascade-deleted.
 
 ## Filtering/index strategy
 
-Indexes are present for the dimensions expected by later MVP filtering:
+Indexes are present for dimensions expected by later MVP filtering:
 
 - customer
+- site/location
 - contract type
 - vendor
 - device type
 - device model
 - current firmware release
+- firmware train
 - firmware release version/status
 - provenance/source and external provider/ID lookup
 - active/inactive state
 - lifecycle workflow state
 - planned/review dates
 
-Uniqueness constraints protect canonical reference values, model identity, release identity, per-customer device name, and the one-current-lifecycle-record-per-device rule. Optional serial numbers and optional external provider/ID values remain indexed rather than incorrectly modeled as nullable Prisma compound unique constraints.
+Uniqueness constraints protect canonical reference values, customer-scoped site identity, model identity, release/train identity, per-customer device name, and the one-current-lifecycle-record-per-device rule.
 
 ## Migration strategy
 
