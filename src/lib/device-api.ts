@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { DeviceQueryValidationError } from '@/lib/device-query'
 import { DeviceValidationError } from '@/lib/devices'
 import {
   DeviceConflictError,
@@ -9,7 +10,7 @@ import {
 import { SiteCustomerError } from '@/lib/site-store'
 
 export function deviceApiError(error: unknown) {
-  if (error instanceof DeviceValidationError) {
+  if (error instanceof DeviceValidationError || error instanceof DeviceQueryValidationError) {
     return NextResponse.json(
       { error: { code: 'VALIDATION_ERROR', message: error.message, fields: error.fields } },
       { status: 400 },
