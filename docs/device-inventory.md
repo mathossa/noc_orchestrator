@@ -1,6 +1,6 @@
 # Manual device inventory
 
-Issue #8 turns `Device` into usable first-class MVP inventory without requiring any external integration or live device access.
+Issue #8 turns `Device` into usable first-class MVP inventory without requiring any external integration or live device access. Issue #9 adds desired firmware resolution through the device model while keeping it separate from recorded current state.
 
 ## Core rule
 
@@ -68,7 +68,9 @@ Recorded current firmware is optional. When a firmware release is selected:
 
 Archived/deprecated catalog releases may still be recorded as **current** firmware because inventory must be able to describe old devices accurately.
 
-Current firmware is not desired firmware. Issue #9 owns desired policy and Issue #10 owns technical state resolution.
+Current firmware is not desired firmware. Desired firmware is resolved independently from the model's exact active baseline policy. It may therefore be absent even when current firmware is recorded, and changing desired firmware never changes the recorded current release.
+
+Issue #10 owns technical state resolution and will eventually compare these layers into states such as CURRENT, ACTION REQUIRED, AHEAD, UNKNOWN, and NO POLICY.
 
 ## Firmware observation age
 
@@ -87,7 +89,7 @@ The same device name may be used by a different customer.
 Routes:
 
 - `/devices` — list/create/edit/archive/reactivate/delete inventory
-- `/devices/[id]` — firmware-lifecycle-focused device detail
+- `/devices/[id]` — firmware-lifecycle-focused device detail including resolved model desired firmware
 - `/api/v1/devices`
 - `/api/v1/devices/[id]`
 
@@ -118,7 +120,7 @@ Contract types are also protected from destructive deletion while referenced by 
 
 ## Deliberate non-goals
 
-Issue #8 does not add:
+The inventory and Issue #9 policy work do not add:
 
 - live discovery
 - SSH/SNMP polling
@@ -126,7 +128,6 @@ Issue #8 does not add:
 - bandwidth graphs
 - CPU/memory/uptime health
 - topology
-- desired firmware assignment
 - technical compliance calculation
 - lifecycle decision editing
 

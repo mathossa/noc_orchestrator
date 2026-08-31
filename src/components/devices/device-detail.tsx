@@ -46,12 +46,14 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     return <ErrorState title="Device could not be loaded" description={error ?? 'The inventory record is unavailable.'} action={<Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to devices</Link>} />
   }
 
+  const desired = device.desiredFirmware.release
+
   return (
     <>
       <PageHeader
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Recorded firmware lifecycle context for this device. No generic NMS health, performance graphs, or live polling are included."
+        description="Recorded firmware lifecycle context for this device. Current and desired firmware are separate; technical compliance remains deferred to Issue #10."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
@@ -62,8 +64,8 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
-        <SummaryStat label="Desired firmware" value="—" detail="Exact desired release arrives with model policy in Issue #9." />
-        <SummaryStat label="Technical state" value="—" detail="Canonical current/action-required resolution arrives in Issue #10." />
+        <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Model policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No desired model policy.'} />
+        <SummaryStat label="Technical state" value="—" detail="CURRENT / ACTION REQUIRED / AHEAD / UNKNOWN / NO POLICY arrives in Issue #10." />
         <SummaryStat label="Workflow" value={device.lifecycle?.state.replaceAll('_', ' ') ?? 'No decision'} detail="Workflow decisions remain independent from technical firmware state." />
       </div>
 
@@ -73,21 +75,25 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             <h2 className="text-sm font-semibold">Firmware state</h2>
             <dl className="mt-4 space-y-3 text-sm">
               <DetailRow label="Current release" value={device.currentFirmwareRelease ? <Link href={`/firmware/${device.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{device.currentFirmwareRelease.version}</Link> : 'Unknown'} />
+              <DetailRow label="Current train" value={device.currentFirmwareRelease?.firmwareTrain?.name ?? '—'} />
               <DetailRow label="Platform" value={device.currentFirmwareRelease?.platform ?? device.deviceModel.platform ?? '—'} />
               <DetailRow label="Firmware source" value={device.currentFirmwareRelease ? device.currentFirmwareSource : '—'} />
               <DetailRow label="Observed / reported" value={device.currentFirmwareObservedAt ? new Date(device.currentFirmwareObservedAt).toLocaleString() : 'Unknown'} />
               <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />
-              <DetailRow label="Desired release" value="Not resolved yet (#9)" />
-              <DetailRow label="Technical state" value="Not resolved yet (#10)" />
+              <DetailRow label="Desired release" value={desired ? <Link href={`/firmware/${desired.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{desired.version}</Link> : 'No model policy'} />
+              <DetailRow label="Desired train" value={desired?.firmwareTrain?.name ?? '—'} />
+              <DetailRow label="Desired status" value={desired ? `${desired.status}${desired.isActive ? '' : ' · archived'}` : '—'} />
+              <DetailRow label="Technical state" value="— (Issue #10)" />
               <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
               <DetailRow label="Workflow target" value={device.lifecycle ? `${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}` : '—'} />
             </dl>
+            {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The model's desired release is archived in the catalog. It remains the explicit desired target until the model policy is changed or cleared.</div> : null}
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Inventory notes</h2>
             {device.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{device.notes}</p> : <p className="mt-3 text-sm text-[var(--muted)]">No device notes recorded.</p>}
-            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Audit/history entry points will become active when Issue #12 introduces append-only audit behavior.</div>
+            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Policy rows preserve historical targets; append-only actor/audit event behavior remains owned by Issue #12.</div>
           </section>
         </div>
 
