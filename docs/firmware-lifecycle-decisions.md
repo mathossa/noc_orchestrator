@@ -15,9 +15,9 @@ All states may carry optional notes. The API records the authenticated user as t
 
 A lifecycle decision is about a concrete exact firmware target. When a decision is saved, NOC Orchestrator resolves the device's current model-level desired firmware policy and copies that exact `FirmwareRelease` into `FirmwareLifecycleRecord.targetFirmwareReleaseId`.
 
-This snapshot is intentional. If the model's desired policy later changes from release A to release B, an existing historical lifecycle record still shows that it targeted release A until an engineer explicitly edits/saves the decision again.
+This snapshot is intentional. If the model's desired policy later changes from release A to release B, an existing lifecycle record still shows that it targeted release A until an engineer explicitly changes/saves the decision again.
 
-Creating or updating a lifecycle decision therefore requires the device to resolve an explicit desired firmware release. Clearing a lifecycle decision does not change desired firmware.
+Creating or updating a lifecycle decision therefore requires the device to resolve an explicit desired firmware release. Lifecycle records are not destructively cleared in this issue; engineers transition the record among the four explicit workflow states. Issue #12 will add append-only transition/audit history around these changes.
 
 ## Technical state remains independent
 
@@ -32,7 +32,7 @@ For example, an `IGNORED` device can still be technically `ACTION_REQUIRED`, and
 
 ## API
 
-`PUT /api/v1/devices/:id/lifecycle` sets or changes the current lifecycle decision.
+`PUT /api/v1/devices/:id/lifecycle` creates or changes the current lifecycle decision.
 
 Example body:
 
@@ -45,6 +45,6 @@ Example body:
 }
 ```
 
-`DELETE /api/v1/devices/:id/lifecycle` clears the current operational decision. It does not alter current firmware, desired firmware, or technical firmware state.
+The endpoint never modifies current firmware, desired firmware, or technical firmware state.
 
 Issue #12 owns append-only audit/change-history behavior beyond the current structured lifecycle record.
