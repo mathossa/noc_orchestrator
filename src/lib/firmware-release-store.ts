@@ -35,11 +35,14 @@ export class FirmwareReleaseInUseError extends Error {
 
 const releaseInclude = {
   vendor: { select: { id: true, code: true, name: true, isActive: true } },
+  firmwareTrain: { select: { id: true, vendorId: true, platform: true, name: true, isActive: true } },
 } as const
 
 function serializeRelease(record: {
   id: string
   vendorId: string
+  firmwareTrainId: string | null
+  firmwareTrain: { id: string; vendorId: string; platform: string; name: string; isActive: boolean } | null
   vendor: { id: string; code: string; name: string; isActive: boolean }
   platform: string
   version: string
@@ -59,6 +62,8 @@ function serializeRelease(record: {
   return {
     id: record.id,
     vendorId: record.vendorId,
+    firmwareTrainId: record.firmwareTrainId,
+    firmwareTrain: record.firmwareTrain,
     vendor: record.vendor,
     platform: record.platform,
     version: record.version,
@@ -80,6 +85,21 @@ function serializeRelease(record: {
 async function assertVendor(vendorId: string) {
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } })
   if (!vendor) throw new FirmwareReleaseReferenceError('The selected vendor does not exist.')
+}
+
+async function assertTrainAssignment(firmwareTrainId: string | null, vendorId: string, platform: string) {
+  if (!firmwareTrainId) return
+  const train = await prisma.firmwareTrain.findUnique({
+    where: { id: firmwareTrainId },
+    select: { id: true, vendorId: true, platform: true },
+  })
+  if (!train) throw new FirmwareReleaseReferenceError('The selected firmware train does not exist.')
+  if (train.vendorId !== vendorId) {
+    throw new FirmwareReleaseReferenceError('The selected firmware train belongs to a different vendor.')
+  }
+  if (normalizedFirmwarePlatform(train.platform) !== normalizedFirmwarePlatform(platform)) {
+    throw new FirmwareReleaseReferenceError('The selected firmware train belongs to a different platform/family.')
+  }
 }
 
 async function assertUnique(vendorId: string, platform: string, version: string, excludeId?: string) {
@@ -108,6 +128,13 @@ export async function listFirmwareVendors() {
   return prisma.vendor.findMany({
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     select: { id: true, code: true, name: true, isActive: true },
+  })
+}
+
+export async function listFirmwareTrainReferences() {
+  return prisma.firmwareTrain.findMany({
+    orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { platform: 'asc' }, { name: 'asc' }],
+    select: { id: true, vendorId: true, platform: true, name: true, isActive: true },
   })
 }
 
@@ -156,6 +183,7 @@ export async function getFirmwareRelease(id: string) {
 export async function createFirmwareRelease(rawInput: unknown) {
   const input = parseFirmwareReleaseInput(rawInput)
   await assertVendor(input.vendorId)
+  await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version)
   const created = await prisma.firmwareRelease.create({ data: input, include: releaseInclude })
   return serializeRelease(created)
@@ -167,6 +195,7 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
   const input = parseFirmwareReleaseInput({
     vendorId: current.vendorId,
+    firmwareTrainId: current.firmwareTrainId,
     platform: current.platform,
     version: current.version,
     filename: current.filename,
@@ -183,6 +212,7 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
     ...patch,
   })
   await assertVendor(input.vendorId)
+  await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version, id)
   const updated = await prisma.firmwareRelease.update({ where: { id }, data: input, include: releaseInclude })
   return serializeRelease(updated)
