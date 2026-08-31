@@ -91,7 +91,15 @@ const deviceInclude = {
   },
   lifecycle: {
     select: {
+      id: true,
       state: true,
+      reason: true,
+      notes: true,
+      plannedFor: true,
+      reviewAt: true,
+      decidedAt: true,
+      completedAt: true,
+      decidedBy: { select: { id: true, name: true, email: true } },
       targetFirmwareRelease: { select: { id: true, version: true, platform: true } },
     },
   },
@@ -148,7 +156,15 @@ type IncludedDevice = {
     firmwareTrain: { id: string; name: string } | null
   } | null
   lifecycle: {
+    id: string
     state: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
+    reason: string | null
+    notes: string | null
+    plannedFor: Date | null
+    reviewAt: Date | null
+    decidedAt: Date
+    completedAt: Date | null
+    decidedBy: { id: string; name: string; email: string } | null
     targetFirmwareRelease: { id: string; version: string; platform: string }
   } | null
 }
@@ -190,7 +206,15 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
           releasedAt: record.currentFirmwareRelease.releasedAt?.toISOString() ?? null,
         }
       : null,
-    lifecycle: record.lifecycle,
+    lifecycle: record.lifecycle
+      ? {
+          ...record.lifecycle,
+          plannedFor: record.lifecycle.plannedFor?.toISOString() ?? null,
+          reviewAt: record.lifecycle.reviewAt?.toISOString() ?? null,
+          decidedAt: record.lifecycle.decidedAt.toISOString(),
+          completedAt: record.lifecycle.completedAt?.toISOString() ?? null,
+        }
+      : null,
   }
 }
 
