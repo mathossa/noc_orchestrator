@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -10,11 +10,8 @@ import type { DeviceDetailRecord } from '@/lib/devices'
 
 type ApiError = { error?: { message?: string } }
 
-function firmwareAge(value: string | null) {
-  if (!value) return 'Age unknown'
-  const observed = new Date(value)
-  if (Number.isNaN(observed.getTime())) return 'Age unknown'
-  const days = Math.max(0, Math.floor((Date.now() - observed.getTime()) / 86_400_000))
+function firmwareAge(days: number | null) {
+  if (days === null) return 'Age unknown'
   if (days === 0) return 'Observed today'
   if (days === 1) return 'Observed 1 day ago'
   return `Observed ${days} days ago`
@@ -64,7 +61,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareObservedAt)}` : 'No recorded current firmware release.'} />
+        <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
         <SummaryStat label="Desired firmware" value="—" detail="Exact desired release arrives with model policy in Issue #9." />
         <SummaryStat label="Technical state" value="—" detail="Canonical current/action-required resolution arrives in Issue #10." />
         <SummaryStat label="Workflow" value={device.lifecycle?.state.replaceAll('_', ' ') ?? 'No decision'} detail="Workflow decisions remain independent from technical firmware state." />
@@ -79,7 +76,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               <DetailRow label="Platform" value={device.currentFirmwareRelease?.platform ?? device.deviceModel.platform ?? '—'} />
               <DetailRow label="Firmware source" value={device.currentFirmwareRelease ? device.currentFirmwareSource : '—'} />
               <DetailRow label="Observed / reported" value={device.currentFirmwareObservedAt ? new Date(device.currentFirmwareObservedAt).toLocaleString() : 'Unknown'} />
-              <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareObservedAt) : '—'} />
+              <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />
               <DetailRow label="Desired release" value="Not resolved yet (#9)" />
               <DetailRow label="Technical state" value="Not resolved yet (#10)" />
               <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
@@ -120,6 +117,6 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return <div className="grid grid-cols-[145px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0"><dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt><dd className="min-w-0 break-words text-[var(--muted-strong)]">{value}</dd></div>
 }
