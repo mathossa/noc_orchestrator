@@ -29,6 +29,8 @@ GET http://localhost:3000/api/v1/health
 
 PostgreSQL is the only service container required for normal local MVP development.
 
+The NOC Orchestrator PostgreSQL container listens on port `5432` internally and is exposed as `localhost:5433` for local development. This avoids collisions with other local projects that may already use host port `5432`.
+
 ```bash
 npm run db:up
 npm run db:down
