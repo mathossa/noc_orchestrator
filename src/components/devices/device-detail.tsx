@@ -98,24 +98,6 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     }
   }
 
-  async function clearLifecycleDecision() {
-    setSavingLifecycle(true)
-    setLifecycleError(null)
-    setLifecycleMessage(null)
-    try {
-      const response = await fetch(`/api/v1/devices/${deviceId}/lifecycle`, { method: 'DELETE' })
-      const payload = (await response.json()) as { data?: DeviceDetailRecord } & ApiError
-      if (!response.ok) throw new Error(payload.error?.message ?? 'Lifecycle decision could not be cleared.')
-      if (!payload.data) throw new Error('Lifecycle decision was cleared, but the refreshed device was unavailable.')
-      applyDevice(payload.data)
-      setLifecycleMessage('Lifecycle decision cleared.')
-    } catch (clearError: unknown) {
-      setLifecycleError(clearError instanceof Error ? clearError.message : 'Lifecycle decision could not be cleared.')
-    } finally {
-      setSavingLifecycle(false)
-    }
-  }
-
   if (loading) return <LoadingState title="Loading device" description="Reading recorded inventory and firmware lifecycle context…" />
   if (error || !device) {
     return <ErrorState title="Device could not be loaded" description={error ?? 'The inventory record is unavailable.'} action={<Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to devices</Link>} />
@@ -176,9 +158,9 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             </div>
 
             {!desired ? (
-              <div className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">Set an exact desired firmware policy on the model before creating a lifecycle decision. An existing historical decision remains visible and can still be cleared.</div>
+              <div className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">Set an exact desired firmware policy on the model before creating or changing a lifecycle decision. Any existing decision remains visible as historical operational context.</div>
             ) : (
-              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted-strong)]">A new save snapshots target <strong className="font-mono text-[var(--foreground)]">{desired.version}</strong>. Later model-policy changes will not rewrite the target stored on this decision.</div>
+              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted-strong)]">Saving snapshots target <strong className="font-mono text-[var(--foreground)]">{desired.version}</strong>. Later model-policy changes do not silently rewrite this decision.</div>
             )}
 
             {device.lifecycle ? (
@@ -238,17 +220,14 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
                 {lifecycleError ? <span className="text-red-300">{lifecycleError}</span> : null}
                 {lifecycleMessage ? <span className="text-emerald-300">{lifecycleMessage}</span> : null}
               </div>
-              <div className="flex gap-2">
-                {device.lifecycle ? <button type="button" disabled={savingLifecycle} onClick={() => void clearLifecycleDecision()} className="rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--surface-raised)] disabled:opacity-50">Clear decision</button> : null}
-                <button type="button" disabled={savingLifecycle || !desired} onClick={() => void saveLifecycleDecision()} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">{savingLifecycle ? 'Saving…' : 'Save decision'}</button>
-              </div>
+              <button type="button" disabled={savingLifecycle || !desired} onClick={() => void saveLifecycleDecision()} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">{savingLifecycle ? 'Saving…' : device.lifecycle ? 'Update decision' : 'Save decision'}</button>
             </div>
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Inventory notes</h2>
             {device.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{device.notes}</p> : <p className="mt-3 text-sm text-[var(--muted)]">No device notes recorded.</p>}
-            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">The current lifecycle record stores operational context; append-only change history and broader audit events remain owned by Issue #12.</div>
+            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">The current lifecycle record stores operational context; append-only transition history and broader audit events remain owned by Issue #12.</div>
           </section>
         </div>
 
