@@ -36,6 +36,10 @@ const deviceModelInclude = {
   _count: { select: { devices: true } },
 } as const
 
+function normalizedFirmwarePlatform(value: string | null | undefined) {
+  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
+
 function serializeDeviceModel(record: {
   id: string
   vendorId: string
@@ -136,14 +140,10 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
-  const releaseWhere = record.platform
-    ? { vendorId: record.vendorId, platform: { equals: record.platform, mode: 'insensitive' as const } }
-    : { vendorId: record.vendorId }
-
-  const [desiredPolicy, availableReleases] = await Promise.all([
+  const [desiredPolicy, vendorReleases] = await Promise.all([
     getActiveModelDesiredPolicy(record.id),
     prisma.firmwareRelease.findMany({
-      where: releaseWhere,
+      where: { vendorId: record.vendorId },
       orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
       select: {
         id: true,
@@ -157,6 +157,12 @@ export async function getDeviceModel(id: string) {
       },
     }),
   ])
+
+  const availableReleases = record.platform
+    ? vendorReleases.filter(
+        (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform),
+      )
+    : vendorReleases
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<

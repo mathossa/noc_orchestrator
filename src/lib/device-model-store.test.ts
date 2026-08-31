@@ -145,6 +145,26 @@ describe('device model persistence rules', () => {
     expect(result.customers).toEqual([{ id: 'c1', name: 'Customer A', deviceCount: 2 }])
   })
 
+  it('normalizes platform/family matching for catalog choices', async () => {
+    const now = new Date('2026-08-31T19:00:00Z')
+    mocks.deviceModelFindUnique.mockResolvedValue({
+      ...baseRecord,
+      platform: '  Catalyst   9300 ',
+      createdAt: now,
+      updatedAt: now,
+      devices: [],
+    })
+    mocks.firmwareReleaseFindMany.mockResolvedValue([
+      { id: 'match', vendorId: 'vendor-1', version: '17.15.5', platform: 'catalyst 9300', status: 'APPROVED', isActive: true, releasedAt: now, firmwareTrain: null },
+      { id: 'other', vendorId: 'vendor-1', version: '7.11.2', platform: 'IOS XR', status: 'APPROVED', isActive: true, releasedAt: now, firmwareTrain: null },
+    ])
+
+    const result = await getDeviceModel('model-1')
+
+    expect(mocks.firmwareReleaseFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { vendorId: 'vendor-1' } }))
+    expect(result.availableFirmware.releases.map((release) => release.id)).toEqual(['match'])
+  })
+
   it('returns vendor releases when the model does not define a platform/family', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
     mocks.deviceModelFindUnique.mockResolvedValue({ ...baseRecord, platform: null, createdAt: now, updatedAt: now, devices: [] })
