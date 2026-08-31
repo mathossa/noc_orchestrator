@@ -102,6 +102,14 @@ async function assertUniqueWithinCustomer(customerId: string, name: string, code
   }
 }
 
+export async function listSites() {
+  const records = await prisma.site.findMany({
+    orderBy: [{ isActive: 'desc' }, { customer: { name: 'asc' } }, { name: 'asc' }],
+    include: siteInclude,
+  })
+  return records.map(serializeSite)
+}
+
 export async function listSitesForCustomer(customerId: string) {
   await assertCustomer(customerId)
   const records = await prisma.site.findMany({
