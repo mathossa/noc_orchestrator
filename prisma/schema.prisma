@@ -88,7 +88,7 @@ model ContractType {
   description String?
   isActive    Boolean @default(true)
 
-  customers       Customer[]
+  customers        Customer[]
   firmwarePolicies FirmwarePolicy[]
 
   createdAt DateTime @default(now())
@@ -98,11 +98,11 @@ model ContractType {
 }
 
 model Vendor {
-  id        String  @id @default(uuid())
-  code      String  @unique
-  name      String  @unique
+  id         String  @id @default(uuid())
+  code       String  @unique
+  name       String  @unique
   websiteUrl String?
-  isActive  Boolean @default(true)
+  isActive   Boolean @default(true)
 
   deviceModels     DeviceModel[]
   firmwareReleases FirmwareRelease[]
@@ -144,7 +144,7 @@ model Customer {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  contractType     ContractType?    @relation(fields: [contractTypeId], references: [id], onDelete: Restrict)
+  contractType     ContractType?   @relation(fields: [contractTypeId], references: [id], onDelete: Restrict)
   devices          Device[]
   firmwarePolicies FirmwarePolicy[]
   auditEvents      AuditEvent[]
@@ -152,7 +152,7 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  @@unique([externalProvider, externalId])
+  @@index([externalProvider, externalId])
   @@index([contractTypeId])
   @@index([source])
   @@index([isActive])
@@ -184,7 +184,7 @@ model DeviceModel {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([vendorId, model])
-  @@unique([externalProvider, externalId])
+  @@index([externalProvider, externalId])
   @@index([vendorId])
   @@index([deviceTypeId])
   @@index([platform])
@@ -221,7 +221,7 @@ model FirmwareRelease {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([vendorId, platform, version])
-  @@unique([externalProvider, externalId])
+  @@index([externalProvider, externalId])
   @@index([vendorId])
   @@index([version])
   @@index([status])
@@ -229,17 +229,17 @@ model FirmwareRelease {
 }
 
 model Device {
-  id                       String   @id @default(uuid())
-  customerId               String
-  deviceModelId            String
-  name                     String
-  hostname                 String?
-  serialNumber             String?
-  managementAddress        String?
-  currentFirmwareReleaseId String?
+  id                        String   @id @default(uuid())
+  customerId                String
+  deviceModelId             String
+  name                      String
+  hostname                  String?
+  serialNumber              String?
+  managementAddress         String?
+  currentFirmwareReleaseId  String?
   currentFirmwareObservedAt DateTime?
-  currentFirmwareSource    String   @default("MANUAL")
-  isActive                 Boolean  @default(true)
+  currentFirmwareSource     String   @default("MANUAL")
+  isActive                  Boolean  @default(true)
 
   // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
@@ -258,8 +258,8 @@ model Device {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([customerId, name])
-  @@unique([customerId, serialNumber])
-  @@unique([externalProvider, externalId])
+  @@index([customerId, serialNumber])
+  @@index([externalProvider, externalId])
   @@index([customerId])
   @@index([deviceModelId])
   @@index([currentFirmwareReleaseId])
@@ -318,9 +318,9 @@ model FirmwareLifecycleRecord {
   decidedByUserId         String?
   completedAt             DateTime?
 
-  device                Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  targetFirmwareRelease FirmwareRelease  @relation("LifecycleTargetFirmware", fields: [targetFirmwareReleaseId], references: [id], onDelete: Restrict)
-  decidedBy             User?            @relation("LifecycleDecisionActor", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  device                Device          @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  targetFirmwareRelease FirmwareRelease @relation("LifecycleTargetFirmware", fields: [targetFirmwareReleaseId], references: [id], onDelete: Restrict)
+  decidedBy             User?           @relation("LifecycleDecisionActor", fields: [decidedByUserId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
