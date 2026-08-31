@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
+import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import {
   normalizedDeviceName,
   normalizedPlatform,
@@ -308,14 +309,17 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
         firmwareTrain: desiredPolicy.release.firmwareTrain,
       }
     : null
+  const technicalState = resolveTechnicalFirmwareState({
+    currentFirmwareReleaseId: record.currentFirmwareReleaseId,
+    desiredFirmwareReleaseId: desiredRelease?.id,
+  })
 
   return {
     ...serializeDevice(record as IncludedDevice),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     desiredFirmware: { available: true, release: desiredRelease },
-    // Issue #10 owns canonical CURRENT/ACTION REQUIRED/etc. resolution.
-    technicalState: { available: false, state: null },
+    technicalState: { available: true, state: technicalState },
   }
 }
 
