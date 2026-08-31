@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
-import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
 import type { DeviceDetailRecord } from '@/lib/devices'
 
 type ApiError = { error?: { message?: string } }
@@ -53,7 +53,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <PageHeader
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Recorded firmware lifecycle context for this device. Current and desired firmware are separate; technical compliance remains deferred to Issue #10."
+        description="Recorded firmware lifecycle context for this device. Current firmware, desired firmware, technical state, and workflow decisions remain distinct."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
@@ -65,7 +65,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Model policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No desired model policy.'} />
-        <SummaryStat label="Technical state" value="—" detail="CURRENT / ACTION REQUIRED / AHEAD / UNKNOWN / NO POLICY arrives in Issue #10." />
+        <SummaryStat label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} detail="Exact release equality only; vendor version strings are not ordered." />
         <SummaryStat label="Workflow" value={device.lifecycle?.state.replaceAll('_', ' ') ?? 'No decision'} detail="Workflow decisions remain independent from technical firmware state." />
       </div>
 
@@ -83,7 +83,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               <DetailRow label="Desired release" value={desired ? <Link href={`/firmware/${desired.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{desired.version}</Link> : 'No model policy'} />
               <DetailRow label="Desired train" value={desired?.firmwareTrain?.name ?? '—'} />
               <DetailRow label="Desired status" value={desired ? `${desired.status}${desired.isActive ? '' : ' · archived'}` : '—'} />
-              <DetailRow label="Technical state" value="— (Issue #10)" />
+              <DetailRow label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} />
               <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
               <DetailRow label="Workflow target" value={device.lifecycle ? `${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}` : '—'} />
             </dl>
