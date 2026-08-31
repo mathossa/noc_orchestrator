@@ -106,6 +106,7 @@ model Vendor {
   isActive   Boolean @default(true)
 
   deviceModels     DeviceModel[]
+  firmwareTrains   FirmwareTrain[]
   firmwareReleases FirmwareRelease[]
   firmwarePolicies FirmwarePolicy[]
 
@@ -193,9 +194,38 @@ model DeviceModel {
   @@index([isActive])
 }
 
+model FirmwareTrain {
+  id       String @id @default(uuid())
+  vendorId String
+  platform String
+  name     String
+  notes    String?
+  isActive Boolean @default(true)
+
+  // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
+  source             String   @default("MANUAL")
+  externalProvider   String?
+  externalId         String?
+  lastSynchronizedAt DateTime?
+  sourceMetadata     Json?
+
+  vendor   Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  releases FirmwareRelease[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([vendorId])
+  @@index([platform])
+  @@index([source])
+  @@index([isActive])
+  @@index([externalProvider, externalId])
+}
+
 model FirmwareRelease {
   id              String  @id @default(uuid())
   vendorId        String
+  firmwareTrainId String?
   platform        String
   version         String
   filename        String?
@@ -205,6 +235,7 @@ model FirmwareRelease {
   status          String  @default("AVAILABLE")
   notes           String?
   releasedAt      DateTime?
+  isActive        Boolean @default(true)
 
   // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
@@ -214,6 +245,7 @@ model FirmwareRelease {
   sourceMetadata     Json?
 
   vendor             Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  firmwareTrain      FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
   currentOnDevices   Device[]                  @relation("DeviceCurrentFirmware")
   targetedByPolicies FirmwarePolicy[]          @relation("PolicyTargetFirmware")
   lifecycleTargets   FirmwareLifecycleRecord[] @relation("LifecycleTargetFirmware")
@@ -224,9 +256,11 @@ model FirmwareRelease {
   @@unique([vendorId, platform, version])
   @@index([externalProvider, externalId])
   @@index([vendorId])
+  @@index([firmwareTrainId])
   @@index([version])
   @@index([status])
   @@index([source])
+  @@index([isActive])
 }
 
 model Device {

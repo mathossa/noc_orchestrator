@@ -46,8 +46,15 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     release: null
   }
   availableFirmware: {
-    available: false
-    releases: []
+    available: true
+    releases: Array<{
+      id: string
+      version: string
+      platform: string
+      status: string
+      isActive: boolean
+      releasedAt: string | null
+    }>
   }
 }
 

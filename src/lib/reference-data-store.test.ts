@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   vendorUpdate: vi.fn(),
   vendorDelete: vi.fn(),
   deviceModelCount: vi.fn(),
+  firmwareTrainCount: vi.fn(),
   firmwareReleaseCount: vi.fn(),
   firmwarePolicyCount: vi.fn(),
 }))
@@ -23,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
     deviceType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     contractType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     deviceModel: { count: mocks.deviceModelCount },
+    firmwareTrain: { count: mocks.firmwareTrainCount },
     firmwareRelease: { count: mocks.firmwareReleaseCount },
     firmwarePolicy: { count: mocks.firmwarePolicyCount },
     customer: { count: vi.fn() },
@@ -92,9 +94,10 @@ describe('reference-data persistence rules', () => {
     expect(result).toMatchObject({ id: 'vendor-1', isActive: false })
   })
 
-  it('blocks deletion of a referenced vendor', async () => {
+  it('blocks deletion of a vendor referenced by models, trains, releases, or policies', async () => {
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1', name: 'Cisco' })
-    mocks.deviceModelCount.mockResolvedValue(1)
+    mocks.deviceModelCount.mockResolvedValue(0)
+    mocks.firmwareTrainCount.mockResolvedValue(1)
     mocks.firmwareReleaseCount.mockResolvedValue(0)
     mocks.firmwarePolicyCount.mockResolvedValue(0)
 
@@ -105,6 +108,7 @@ describe('reference-data persistence rules', () => {
   it('permanently deletes an unreferenced vendor', async () => {
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1', name: 'Unused vendor' })
     mocks.deviceModelCount.mockResolvedValue(0)
+    mocks.firmwareTrainCount.mockResolvedValue(0)
     mocks.firmwareReleaseCount.mockResolvedValue(0)
     mocks.firmwarePolicyCount.mockResolvedValue(0)
     mocks.vendorDelete.mockResolvedValue({ id: 'vendor-1' })
