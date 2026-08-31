@@ -51,6 +51,20 @@ const initialForm: FormState = {
   isActive: true,
 }
 
+function formForRecord(record: DeviceModelRecord): FormState {
+  return {
+    vendorId: record.vendorId,
+    deviceTypeId: record.deviceTypeId,
+    model: record.model,
+    platform: record.platform ?? '',
+    notes: record.notes ?? '',
+    source: record.source,
+    externalProvider: record.externalProvider ?? '',
+    externalId: record.externalId ?? '',
+    isActive: record.isActive,
+  }
+}
+
 async function fetchModels() {
   const response = await fetch('/api/v1/models', { cache: 'no-store' })
   const payload = (await response.json()) as {
@@ -65,7 +79,7 @@ async function fetchModels() {
   }
 }
 
-export function DeviceModelManager() {
+export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: string }) {
   const [records, setRecords] = useState<DeviceModelRecord[]>([])
   const [references, setReferences] = useState<ReferenceData>({ vendors: [], deviceTypes: [] })
   const [form, setForm] = useState<FormState>(initialForm)
@@ -89,6 +103,14 @@ export function DeviceModelManager() {
         setRecords(result.records)
         setReferences(result.references)
         setError(null)
+
+        if (initialEditId) {
+          const initialEditRecord = result.records.find((record) => record.id === initialEditId)
+          if (initialEditRecord) {
+            setEditingId(initialEditRecord.id)
+            setForm(formForRecord(initialEditRecord))
+          }
+        }
       })
       .catch((loadError: unknown) => {
         if (cancelled) return
@@ -101,7 +123,7 @@ export function DeviceModelManager() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [initialEditId])
 
   async function reloadModels() {
     try {
@@ -122,17 +144,7 @@ export function DeviceModelManager() {
 
   function beginEdit(record: DeviceModelRecord) {
     setEditingId(record.id)
-    setForm({
-      vendorId: record.vendorId,
-      deviceTypeId: record.deviceTypeId,
-      model: record.model,
-      platform: record.platform ?? '',
-      notes: record.notes ?? '',
-      source: record.source,
-      externalProvider: record.externalProvider ?? '',
-      externalId: record.externalId ?? '',
-      isActive: record.isActive,
-    })
+    setForm(formForRecord(record))
     setFieldErrors({})
     setError(null)
     setMessage(null)
@@ -360,6 +372,18 @@ export function DeviceModelManager() {
             </div>
           ) : null}
 
+          {editingId ? (
+            <div className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Desired firmware</div>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
+                Desired firmware is an explicit policy, separate from model metadata, so editing this record cannot silently change the desired release.
+              </p>
+              <Link href={`/models/${editingId}#desired-firmware-policy`} className="mt-2 inline-flex text-sm font-semibold text-[var(--accent-light)] hover:underline">
+                Configure desired firmware →
+              </Link>
+            </div>
+          ) : null}
+
           <form onSubmit={(event) => void saveModel(event)} className="space-y-4">
             <FormField label="Vendor" htmlFor="model-vendor" error={fieldErrors.vendorId}>
               <SelectInput
@@ -538,7 +562,11 @@ function ModelTable({
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.vendor.name}</td>
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.deviceType.name}</td>
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.platform ?? '—'}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-[var(--muted-strong)]">{record.deviceCount}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">
+                <Link href={`/devices?model=${encodeURIComponent(record.id)}`} className="font-semibold text-[var(--accent-light)] hover:underline">
+                  {record.deviceCount}
+                </Link>
+              </td>
               <td className="px-3 py-2.5">
                 <span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs text-[var(--muted-strong)]">
                   {record.isActive ? 'Active' : 'Archived'}
@@ -551,6 +579,12 @@ function ModelTable({
                     className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]"
                   >
                     View
+                  </Link>
+                  <Link
+                    href={`/models/${record.id}#desired-firmware-policy`}
+                    className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]"
+                  >
+                    Desired
                   </Link>
                   <Button variant="ghost" onClick={() => onEdit(record)}>Edit</Button>
                   <Button variant="ghost" onClick={() => onToggleArchive(record)}>

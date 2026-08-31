@@ -83,17 +83,19 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
     }
   }
 
+  const devicesHref = `/devices?model=${encodeURIComponent(model.id)}`
+
   return (
     <>
       <PageHeader
         eyebrow={`${model.vendor.name} · ${model.deviceType.name}`}
         title={model.model}
         description="Model-level firmware lifecycle context: inventory usage, exact desired firmware policy, current firmware distribution, catalog releases, and workflow decisions."
-        actions={<div className="flex flex-wrap gap-2"><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/devices?model=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
+        actions={<div className="flex flex-wrap gap-2"><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Devices" value={model.deviceCount} detail="Inventory records using this model." />
+        <SummaryStat label="Devices" value={<Link href={devicesHref} className="text-[var(--accent-light)] hover:underline">{model.deviceCount}</Link>} detail="Inventory records using this model. Click the count to list them." />
         <SummaryStat label="Customers" value={model.customers.length} detail="Customers with at least one device using this model." />
         <SummaryStat label="Catalog releases" value={model.availableFirmware.releases.length} detail="Releases matching vendor and platform/family when defined." />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Exact model baseline · ${desired.status}` : 'No model-level desired policy.'} />
@@ -101,7 +103,7 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-5">
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+          <section id="desired-firmware-policy" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <SectionHeading title="Desired firmware policy" description="Desired state is an explicit exact release. Adding a newer release to the same train never changes this policy automatically." />
             <div className="grid gap-px bg-[var(--border)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
               <div className="bg-[var(--surface)] p-4">
@@ -182,12 +184,15 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <SectionHeading title="Customers using this model" description="Derived from device inventory assignments." />
-            {model.customers.length === 0 ? <div className="px-4 py-6 text-sm text-[var(--muted)]">No customer devices use this model yet.</div> : <div className="divide-y divide-[var(--border)]">{model.customers.map((customer) => <div key={customer.id} className="flex items-center justify-between gap-4 px-4 py-3"><Link href={`/customers/${customer.id}`} className="font-medium text-[var(--foreground)] hover:text-[var(--accent-light)]">{customer.name}</Link><span className="text-sm tabular-nums text-[var(--muted)]">{customer.deviceCount} device{customer.deviceCount === 1 ? '' : 's'}</span></div>)}</div>}
+            {model.customers.length === 0 ? <div className="px-4 py-6 text-sm text-[var(--muted)]">No customer devices use this model yet.</div> : <div className="divide-y divide-[var(--border)]">{model.customers.map((customer) => <div key={customer.id} className="flex items-center justify-between gap-4 px-4 py-3"><Link href={`/customers/${customer.id}`} className="font-medium text-[var(--foreground)] hover:text-[var(--accent-light)]">{customer.name}</Link><Link href={`/devices?model=${encodeURIComponent(model.id)}&customer=${encodeURIComponent(customer.id)}`} className="text-sm tabular-nums text-[var(--accent-light)] hover:underline">{customer.deviceCount} device{customer.deviceCount === 1 ? '' : 's'}</Link></div>)}</div>}
           </section>
         </div>
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Model information</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Model information</h2>
+            <Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Edit model</Link>
+          </div>
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Platform" value={model.platform ?? '—'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
           </dl>

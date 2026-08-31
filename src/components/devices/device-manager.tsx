@@ -75,9 +75,11 @@ function toLocalDateTimeInput(value: string | null) {
 export function DeviceManager({
   initialCustomerId = '',
   initialSiteId = '',
+  initialModelId = '',
 }: {
   initialCustomerId?: string
   initialSiteId?: string
+  initialModelId?: string
 }) {
   const [records, setRecords] = useState<DeviceRecord[]>([])
   const [references, setReferences] = useState<DeviceReferenceData>({ customers: [], sites: [], models: [], firmwareReleases: [] })
@@ -91,7 +93,7 @@ export function DeviceManager({
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState(initialCustomerId)
   const [siteFilter, setSiteFilter] = useState(initialSiteId)
-  const [modelFilter, setModelFilter] = useState('')
+  const [modelFilter, setModelFilter] = useState(initialModelId)
   const [archiveFilter, setArchiveFilter] = useState('active')
 
   const applyPayload = useCallback((payload: Payload) => {
