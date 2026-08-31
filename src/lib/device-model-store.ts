@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { normalizedDeviceModelName, parseDeviceModelInput } from '@/lib/device-models'
 import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
 import {
@@ -145,7 +146,7 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
-  const [desiredPolicy, vendorReleases] = await Promise.all([
+  const [desiredPolicy, vendorReleases, auditHistory] = await Promise.all([
     getActiveModelDesiredPolicy(record.id),
     prisma.firmwareRelease.findMany({
       where: { vendorId: record.vendorId },
@@ -161,6 +162,7 @@ export async function getDeviceModel(id: string) {
         firmwareTrain: { select: { id: true, name: true } },
       },
     }),
+    listAuditEventsForEntity('DeviceModel', id),
   ])
 
   const availableReleases = record.platform
@@ -251,6 +253,7 @@ export async function getDeviceModel(id: string) {
           ),
       })),
     },
+    auditHistory,
   }
 }
 
