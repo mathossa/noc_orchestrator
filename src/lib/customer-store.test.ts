@@ -45,15 +45,34 @@ import {
   updateCustomer,
 } from '@/lib/customer-store'
 
+function storedCustomer(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'customer-1',
+    name: 'Example Customer',
+    code: 'EXAMPLE',
+    contractTypeId: null,
+    contractType: null,
+    source: 'MANUAL',
+    externalProvider: null,
+    externalId: null,
+    lastSynchronizedAt: null,
+    isActive: true,
+    createdAt: new Date('2026-08-31T18:00:00Z'),
+    updatedAt: new Date('2026-08-31T18:00:00Z'),
+    _count: { devices: 0 },
+    ...overrides,
+  }
+}
+
 describe('customer persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('creates a manual customer without external identity fields', async () => {
-    mocks.customerCreate.mockResolvedValue({ id: 'customer-1' })
+    mocks.customerCreate.mockResolvedValue(storedCustomer())
 
-    await createCustomer({ name: 'Example Customer', code: 'example' })
+    const result = await createCustomer({ name: 'Example Customer', code: 'example' })
 
     expect(mocks.customerCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -68,6 +87,7 @@ describe('customer persistence rules', () => {
         },
       }),
     )
+    expect(result).toMatchObject({ id: 'customer-1', deviceCount: 0, source: 'MANUAL' })
   })
 
   it('rejects a contract type that does not exist', async () => {
@@ -90,9 +110,11 @@ describe('customer persistence rules', () => {
       externalId: null,
       isActive: true,
     })
-    mocks.customerUpdate.mockResolvedValue({ id: 'customer-1', isActive: false })
+    mocks.customerUpdate.mockResolvedValue(
+      storedCustomer({ name: 'Existing Customer', code: 'EXISTING', isActive: false }),
+    )
 
-    await updateCustomer('customer-1', { isActive: false })
+    const result = await updateCustomer('customer-1', { isActive: false })
 
     expect(mocks.customerUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -105,25 +127,11 @@ describe('customer persistence rules', () => {
         }),
       }),
     )
+    expect(result.isActive).toBe(false)
   })
 
   it('returns real workflow counts without inventing technical compliance state', async () => {
-    const now = new Date('2026-08-31T18:00:00Z')
-    mocks.customerFindUnique.mockResolvedValue({
-      id: 'customer-1',
-      name: 'Customer',
-      code: null,
-      contractTypeId: null,
-      contractType: null,
-      source: 'MANUAL',
-      externalProvider: null,
-      externalId: null,
-      lastSynchronizedAt: null,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-      _count: { devices: 4 },
-    })
+    mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4 } }))
     mocks.deviceFindMany.mockResolvedValue([
       { lifecycle: { state: 'PLANNED' } },
       { lifecycle: { state: 'DONE' } },
