@@ -1,4 +1,5 @@
-export type TechnicalFirmwareState = 'CURRENT' | 'ACTION_REQUIRED' | 'UNKNOWN' | 'NO_POLICY'
+import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+
 export type WorkflowState = 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
 
 const technicalStyles: Record<TechnicalFirmwareState, { label: string; className: string; dot: string }> = {
