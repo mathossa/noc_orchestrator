@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { assertSiteBelongsToCustomer, SiteCustomerError } from '@/lib/site-store'
+import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import {
   normalizedDeviceName,
   normalizedPlatform,
@@ -142,6 +142,11 @@ type IncludedDevice = {
   } | null
 }
 
+function firmwareAgeDays(observedAt: Date | null) {
+  if (!observedAt) return null
+  return Math.max(0, Math.floor((Date.now() - observedAt.getTime()) / 86_400_000))
+}
+
 function serializeDevice(record: IncludedDevice): DeviceRecord {
   return {
     id: record.id,
@@ -155,6 +160,7 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
     notes: record.notes,
     currentFirmwareReleaseId: record.currentFirmwareReleaseId,
     currentFirmwareObservedAt: record.currentFirmwareObservedAt?.toISOString() ?? null,
+    currentFirmwareAgeDays: firmwareAgeDays(record.currentFirmwareObservedAt),
     currentFirmwareSource: record.currentFirmwareSource,
     isActive: record.isActive,
     source: record.source,
@@ -198,12 +204,7 @@ async function assertReferences(input: ReturnType<typeof parseDeviceInput>) {
   if (!customer) throw new DeviceReferenceError('The selected customer does not exist.')
   if (!model) throw new DeviceReferenceError('The selected device model does not exist.')
 
-  try {
-    await assertSiteBelongsToCustomer(input.siteId, input.customerId)
-  } catch (error) {
-    if (error instanceof SiteCustomerError) throw error
-    throw error
-  }
+  await assertSiteBelongsToCustomer(input.siteId, input.customerId)
 
   if (!input.currentFirmwareReleaseId) return
 
