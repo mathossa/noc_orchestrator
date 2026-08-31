@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { FormField, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
@@ -32,6 +32,13 @@ const initialForm: FormState = {
   isActive: true,
 }
 
+async function fetchReferenceRecords(endpoint: string) {
+  const response = await fetch(endpoint, { cache: 'no-store' })
+  const payload = (await response.json()) as { data?: ReferenceRecord[] } & ApiError
+  if (!response.ok) throw new Error(payload.error?.message ?? 'Reference data could not be loaded.')
+  return payload.data ?? []
+}
+
 export function ReferenceDataManager({
   kind,
   title,
@@ -52,24 +59,37 @@ export function ReferenceDataManager({
 
   const endpoint = `/api/v1/reference-data/${kind}`
 
-  const loadRecords = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await fetch(endpoint, { cache: 'no-store' })
-      const payload = (await response.json()) as { data?: ReferenceRecord[] } & ApiError
-      if (!response.ok) throw new Error(payload.error?.message ?? 'Reference data could not be loaded.')
-      setRecords(payload.data ?? [])
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Reference data could not be loaded.')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let cancelled = false
+
+    void fetchReferenceRecords(endpoint)
+      .then((nextRecords) => {
+        if (cancelled) return
+        setRecords(nextRecords)
+        setError(null)
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return
+        setError(loadError instanceof Error ? loadError.message : 'Reference data could not be loaded.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [endpoint])
 
-  useEffect(() => {
-    void loadRecords()
-  }, [loadRecords])
+  async function reloadRecords() {
+    try {
+      const nextRecords = await fetchReferenceRecords(endpoint)
+      setRecords(nextRecords)
+      setError(null)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Reference data could not be loaded.')
+    }
+  }
 
   function resetForm() {
     setForm(initialForm)
@@ -114,7 +134,7 @@ export function ReferenceDataManager({
 
       setMessage(editingId ? 'Reference record updated.' : 'Reference record created.')
       resetForm()
-      await loadRecords()
+      await reloadRecords()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'The record could not be saved.')
     } finally {
@@ -136,7 +156,7 @@ export function ReferenceDataManager({
       return
     }
     setMessage(record.isActive ? 'Record archived.' : 'Record reactivated.')
-    await loadRecords()
+    await reloadRecords()
   }
 
   async function deleteRecord(record: ReferenceRecord) {
@@ -152,7 +172,7 @@ export function ReferenceDataManager({
     }
     setMessage('Reference record deleted.')
     if (editingId === record.id) resetForm()
-    await loadRecords()
+    await reloadRecords()
   }
 
   const noun = kind === 'vendors' ? 'vendor' : kind === 'device-types' ? 'device type' : 'contract type'
