@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { deviceApiError } from '@/lib/device-api'
-import { createDevice, listDeviceReferences, listDevices } from '@/lib/device-store'
+import { parseDeviceQuery } from '@/lib/device-query'
+import { queryDevices } from '@/lib/device-query-store'
+import { createDevice } from '@/lib/device-store'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const [data, meta] = await Promise.all([listDevices(), listDeviceReferences()])
-    return NextResponse.json({ data, meta })
+    const query = parseDeviceQuery(new URL(request.url).searchParams)
+    return NextResponse.json(await queryDevices(query))
   } catch (error) {
     return deviceApiError(error)
   }
