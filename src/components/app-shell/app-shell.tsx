@@ -91,7 +91,7 @@ function Brand() {
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <div className="min-h-screen bg-[var(--background)]">
+    <div className="noc-app-background">
       <a
         href="#main-content"
         className="fixed left-3 top-3 z-50 -translate-y-20 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] transition-transform focus:translate-y-0"
