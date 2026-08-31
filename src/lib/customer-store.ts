@@ -52,7 +52,7 @@ function serializeCustomer(record: {
   externalProvider: string | null
   externalId: string | null
   lastSynchronizedAt: Date | null
-  _count: { devices: number }
+  _count: { devices: number; sites: number }
 }) {
   return {
     id: record.id,
@@ -66,6 +66,7 @@ function serializeCustomer(record: {
     externalId: record.externalId,
     lastSynchronizedAt: record.lastSynchronizedAt?.toISOString() ?? null,
     deviceCount: record._count.devices,
+    siteCount: record._count.sites,
   }
 }
 
@@ -79,7 +80,7 @@ const customerInclude = {
       isActive: true,
     },
   },
-  _count: { select: { devices: true } },
+  _count: { select: { devices: true, sites: true } },
 } as const
 
 export async function listCustomers() {
@@ -110,10 +111,25 @@ export async function getCustomer(id: string) {
   })
   if (!record) throw new CustomerNotFoundError()
 
-  const devices = await prisma.device.findMany({
-    where: { customerId: id },
-    select: { lifecycle: { select: { state: true } } },
-  })
+  const [devices, sites] = await Promise.all([
+    prisma.device.findMany({
+      where: { customerId: id },
+      select: { lifecycle: { select: { state: true } } },
+    }),
+    prisma.site.findMany({
+      where: { customerId: id },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        city: true,
+        country: true,
+        isActive: true,
+        _count: { select: { devices: true } },
+      },
+    }),
+  ])
 
   const workflowCounts = {
     planned: 0,
@@ -143,6 +159,15 @@ export async function getCustomer(id: string) {
     ...serializeCustomer(record),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    sites: sites.map((site) => ({
+      id: site.id,
+      name: site.name,
+      code: site.code,
+      city: site.city,
+      country: site.country,
+      isActive: site.isActive,
+      deviceCount: site._count.devices,
+    })),
     workflowCounts,
     // Issue #10 owns canonical desired-state resolution. Do not duplicate that
     // comparison logic here; the detail API exposes a stable summary shape now.
@@ -185,16 +210,17 @@ export async function deleteCustomer(id: string) {
   const current = await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true } })
   if (!current) throw new CustomerNotFoundError()
 
-  const [devices, policies, auditEvents] = await Promise.all([
+  const [sites, devices, policies, auditEvents] = await Promise.all([
+    prisma.site.count({ where: { customerId: id } }),
     prisma.device.count({ where: { customerId: id } }),
     prisma.firmwarePolicy.count({ where: { customerId: id } }),
     prisma.auditEvent.count({ where: { customerId: id } }),
   ])
 
-  const references = devices + policies + auditEvents
+  const references = sites + devices + policies + auditEvents
   if (references > 0) {
     throw new CustomerInUseError(
-      `This customer is referenced by ${references} device, policy, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
+      `This customer is referenced by ${references} site, device, policy, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
     )
   }
 
