@@ -1,3 +1,4 @@
+import type { DeviceContractReference, DeviceFirmwareReference, DeviceRecord, DeviceReferenceData } from '@/lib/devices'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
 export const DEVICE_GROUP_BY = ['none', 'customer', 'site', 'deviceType', 'model'] as const
@@ -32,6 +33,42 @@ export type DeviceQuery = {
   pageSize: number
   sort: DeviceSortField
   direction: 'asc' | 'desc'
+}
+
+export type DeviceQueryRecord = DeviceRecord & {
+  desiredFirmwareRelease: DeviceFirmwareReference | null
+  technicalState: TechnicalFirmwareState
+  groupKey: string | null
+  groupLabel: string | null
+}
+
+export type DeviceQueryGroup = {
+  key: string
+  label: string
+  count: number
+}
+
+export type DeviceQueryReferenceData = DeviceReferenceData & {
+  vendors: Array<{ id: string; code: string; name: string; isActive: boolean }>
+  deviceTypes: Array<{ id: string; code: string; name: string; isActive: boolean }>
+  contractTypes: DeviceContractReference[]
+}
+
+export type DeviceQueryMeta = DeviceQueryReferenceData & {
+  query: DeviceQuery
+  pagination: {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
+    inventoryTotal: number
+  }
+  groups: DeviceQueryGroup[]
+}
+
+export type DeviceQueryPayload = {
+  data: DeviceQueryRecord[]
+  meta: DeviceQueryMeta
 }
 
 export type DeviceQueryFieldErrors = Record<string, string>
