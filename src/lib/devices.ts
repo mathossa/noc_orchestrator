@@ -36,6 +36,19 @@ export type DeviceFirmwareReference = {
   firmwareTrain: { id: string; name: string } | null
 }
 
+export type DeviceLifecycleRecord = {
+  id: string
+  state: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
+  reason: string | null
+  notes: string | null
+  plannedFor: string | null
+  reviewAt: string | null
+  decidedAt: string
+  completedAt: string | null
+  decidedBy: { id: string; name: string; email: string } | null
+  targetFirmwareRelease: { id: string; version: string; platform: string }
+}
+
 export type DeviceRecord = {
   id: string
   customerId: string
@@ -73,10 +86,7 @@ export type DeviceRecord = {
   contractSource: 'SITE' | 'CUSTOMER' | 'NONE'
   deviceModel: DeviceModelReference
   currentFirmwareRelease: (DeviceFirmwareReference & { releasedAt: string | null }) | null
-  lifecycle: {
-    state: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
-    targetFirmwareRelease: { id: string; version: string; platform: string }
-  } | null
+  lifecycle: DeviceLifecycleRecord | null
 }
 
 export type DeviceDetailRecord = DeviceRecord & {
