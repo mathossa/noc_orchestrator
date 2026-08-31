@@ -24,9 +24,9 @@ export type CustomerDetailRecord = CustomerRecord & {
     done: number
   }
   desiredStateSummary: {
-    available: false
-    current: null
-    actionRequired: null
+    available: boolean
+    current: number | null
+    actionRequired: number | null
   }
 }
 
