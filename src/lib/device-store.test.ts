@@ -117,6 +117,30 @@ const storedDevice = {
   updatedAt: new Date('2026-08-31T20:00:00Z'),
 }
 
+const desiredRelease = {
+  id: 'desired-1',
+  vendorId: 'vendor-1',
+  platform: 'IOS XE',
+  version: '17.15.5',
+  status: 'APPROVED',
+  isActive: true,
+  releasedAt: new Date('2026-08-20T00:00:00Z'),
+  firmwareTrain: { id: 'train-new', name: '17.15.x' },
+}
+
+function desiredPolicy(target = desiredRelease) {
+  return {
+    id: 'policy-1',
+    targetFirmwareReleaseId: target.id,
+    isActive: true,
+    notes: null,
+    deviceModelId: 'model-1',
+    createdAt: new Date('2026-09-01T00:00:00Z'),
+    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    targetFirmwareRelease: target,
+  }
+}
+
 describe('device inventory persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -172,28 +196,36 @@ describe('device inventory persistence rules', () => {
     expect(mocks.deviceUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'device-1' }, data: expect.objectContaining({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', isActive: false }) }))
   })
 
-  it('resolves desired firmware through the device model while leaving technical state unavailable', async () => {
-    const desiredRelease = {
-      id: 'desired-1', vendorId: 'vendor-1', platform: 'IOS XE', version: '17.15.5', status: 'APPROVED', isActive: true, releasedAt: new Date('2026-08-20T00:00:00Z'), firmwareTrain: { id: 'train-new', name: '17.15.x' },
-    }
+  it('resolves ACTION_REQUIRED when current and desired exact releases differ', async () => {
     mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release, currentFirmwareObservedAt: new Date('2026-08-30T20:00:00Z') })
-    mocks.policyFindFirst.mockResolvedValue({ id: 'policy-1', targetFirmwareReleaseId: 'desired-1', isActive: true, notes: null, deviceModelId: 'model-1', createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-09-01T00:00:00Z'), targetFirmwareRelease: desiredRelease })
+    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
 
     const result = await getDevice('device-1')
 
     expect(result.currentFirmwareRelease?.version).toBe('17.12.5')
-    expect(result.desiredFirmware).toEqual({
-      available: true,
-      release: { id: 'desired-1', vendorId: 'vendor-1', platform: 'IOS XE', version: '17.15.5', status: 'APPROVED', isActive: true, firmwareTrain: { id: 'train-new', name: '17.15.x' } },
-    })
-    expect(result.technicalState).toEqual({ available: false, state: null })
+    expect(result.desiredFirmware.release?.version).toBe('17.15.5')
+    expect(result.technicalState).toEqual({ available: true, state: 'ACTION_REQUIRED' })
   })
 
-  it('returns no desired release when the model has no active policy', async () => {
+  it('resolves CURRENT when the exact current release is the desired release', async () => {
+    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release })
+    mocks.policyFindFirst.mockResolvedValue(desiredPolicy(release))
+    const result = await getDevice('device-1')
+    expect(result.technicalState).toEqual({ available: true, state: 'CURRENT' })
+  })
+
+  it('resolves UNKNOWN when a desired policy exists but current firmware is not recorded', async () => {
+    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
+    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
+    const result = await getDevice('device-1')
+    expect(result.technicalState).toEqual({ available: true, state: 'UNKNOWN' })
+  })
+
+  it('resolves NO_POLICY when the model has no active desired policy', async () => {
     mocks.deviceFindUnique.mockResolvedValue(storedDevice)
     const result = await getDevice('device-1')
     expect(result.desiredFirmware).toEqual({ available: true, release: null })
-    expect(result.technicalState).toEqual({ available: false, state: null })
+    expect(result.technicalState).toEqual({ available: true, state: 'NO_POLICY' })
   })
 
   it('blocks destructive deletion when lifecycle or history references exist', async () => {
