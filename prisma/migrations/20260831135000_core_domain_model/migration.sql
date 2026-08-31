@@ -173,14 +173,14 @@ CREATE UNIQUE INDEX "DeviceType_name_key" ON "DeviceType"("name");
 CREATE INDEX "DeviceType_isActive_idx" ON "DeviceType"("isActive");
 
 CREATE UNIQUE INDEX "Customer_code_key" ON "Customer"("code");
-CREATE UNIQUE INDEX "Customer_externalProvider_externalId_key" ON "Customer"("externalProvider", "externalId");
+CREATE INDEX "Customer_externalProvider_externalId_idx" ON "Customer"("externalProvider", "externalId");
 CREATE INDEX "Customer_contractTypeId_idx" ON "Customer"("contractTypeId");
 CREATE INDEX "Customer_source_idx" ON "Customer"("source");
 CREATE INDEX "Customer_isActive_idx" ON "Customer"("isActive");
 CREATE INDEX "Customer_name_idx" ON "Customer"("name");
 
 CREATE UNIQUE INDEX "DeviceModel_vendorId_model_key" ON "DeviceModel"("vendorId", "model");
-CREATE UNIQUE INDEX "DeviceModel_externalProvider_externalId_key" ON "DeviceModel"("externalProvider", "externalId");
+CREATE INDEX "DeviceModel_externalProvider_externalId_idx" ON "DeviceModel"("externalProvider", "externalId");
 CREATE INDEX "DeviceModel_vendorId_idx" ON "DeviceModel"("vendorId");
 CREATE INDEX "DeviceModel_deviceTypeId_idx" ON "DeviceModel"("deviceTypeId");
 CREATE INDEX "DeviceModel_platform_idx" ON "DeviceModel"("platform");
@@ -188,15 +188,15 @@ CREATE INDEX "DeviceModel_source_idx" ON "DeviceModel"("source");
 CREATE INDEX "DeviceModel_isActive_idx" ON "DeviceModel"("isActive");
 
 CREATE UNIQUE INDEX "FirmwareRelease_vendorId_platform_version_key" ON "FirmwareRelease"("vendorId", "platform", "version");
-CREATE UNIQUE INDEX "FirmwareRelease_externalProvider_externalId_key" ON "FirmwareRelease"("externalProvider", "externalId");
+CREATE INDEX "FirmwareRelease_externalProvider_externalId_idx" ON "FirmwareRelease"("externalProvider", "externalId");
 CREATE INDEX "FirmwareRelease_vendorId_idx" ON "FirmwareRelease"("vendorId");
 CREATE INDEX "FirmwareRelease_version_idx" ON "FirmwareRelease"("version");
 CREATE INDEX "FirmwareRelease_status_idx" ON "FirmwareRelease"("status");
 CREATE INDEX "FirmwareRelease_source_idx" ON "FirmwareRelease"("source");
 
 CREATE UNIQUE INDEX "Device_customerId_name_key" ON "Device"("customerId", "name");
-CREATE UNIQUE INDEX "Device_customerId_serialNumber_key" ON "Device"("customerId", "serialNumber");
-CREATE UNIQUE INDEX "Device_externalProvider_externalId_key" ON "Device"("externalProvider", "externalId");
+CREATE INDEX "Device_customerId_serialNumber_idx" ON "Device"("customerId", "serialNumber");
+CREATE INDEX "Device_externalProvider_externalId_idx" ON "Device"("externalProvider", "externalId");
 CREATE INDEX "Device_customerId_idx" ON "Device"("customerId");
 CREATE INDEX "Device_deviceModelId_idx" ON "Device"("deviceModelId");
 CREATE INDEX "Device_currentFirmwareReleaseId_idx" ON "Device"("currentFirmwareReleaseId");
