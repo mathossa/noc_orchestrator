@@ -12,12 +12,11 @@ The application therefore does not treat examples such as `Switch`, `Firewall`, 
 
 Reference names are cleaned before persistence using the following explicit normalization rule:
 
-1. Unicode NFKC normalization
-2. trim leading/trailing whitespace
-3. collapse internal whitespace runs to one space
-4. compare case-insensitively for uniqueness
+1. trim leading/trailing whitespace
+2. collapse internal whitespace runs to one space
+3. compare case-insensitively for uniqueness
 
-The display casing supplied by the operator is retained. PostgreSQL also has normalized unique indexes so concurrent API writes cannot bypass the uniqueness rule.
+The display casing supplied by the operator is retained. PostgreSQL also has matching normalized unique indexes so concurrent API writes cannot bypass the uniqueness rule.
 
 Codes are canonicalized to uppercase and whitespace/underscores become hyphens. Codes accept letters, numbers, dots, and hyphens.
 
@@ -61,6 +60,6 @@ PATCH  /api/v1/reference-data/{kind}/{id}
 DELETE /api/v1/reference-data/{kind}/{id}
 ```
 
-PATCH is also used for archive/reactivate through `isActive`.
+PATCH supports partial updates and is also used for archive/reactivate through `isActive`.
 
 Validation failures use HTTP 400 with field-level errors where applicable. Duplicate code/name and referenced-delete conflicts use HTTP 409.
