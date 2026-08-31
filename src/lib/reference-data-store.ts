@@ -31,6 +31,11 @@ export function parseReferenceKind(value: string): ReferenceKind | null {
   return value === 'vendors' || value === 'device-types' || value === 'contract-types' ? value : null
 }
 
+function mergePatch(current: object, rawInput: unknown) {
+  const patch = typeof rawInput === 'object' && rawInput !== null ? rawInput : {}
+  return { ...current, ...patch }
+}
+
 async function assertUnique(kind: ReferenceKind, code: string, name: string, excludeId?: string) {
   const records =
     kind === 'vendors'
@@ -98,7 +103,7 @@ export async function updateReferenceRecord(kind: ReferenceKind, id: string, raw
   if (kind === 'vendors') {
     const current = await prisma.vendor.findUnique({ where: { id } })
     if (!current) throw new ReferenceNotFoundError()
-    const input = parseReferenceInput('vendors', rawInput)
+    const input = parseReferenceInput('vendors', mergePatch(current, rawInput))
     await assertUnique(kind, input.code, input.name, id)
     return prisma.vendor.update({ where: { id }, data: input })
   }
@@ -106,14 +111,14 @@ export async function updateReferenceRecord(kind: ReferenceKind, id: string, raw
   if (kind === 'device-types') {
     const current = await prisma.deviceType.findUnique({ where: { id } })
     if (!current) throw new ReferenceNotFoundError()
-    const input = parseReferenceInput('device-types', rawInput)
+    const input = parseReferenceInput('device-types', mergePatch(current, rawInput))
     await assertUnique(kind, input.code, input.name, id)
     return prisma.deviceType.update({ where: { id }, data: input })
   }
 
   const current = await prisma.contractType.findUnique({ where: { id } })
   if (!current) throw new ReferenceNotFoundError()
-  const input = parseReferenceInput('contract-types', rawInput)
+  const input = parseReferenceInput('contract-types', mergePatch(current, rawInput))
   await assertUnique(kind, input.code, input.name, id)
   return prisma.contractType.update({ where: { id }, data: input })
 }
