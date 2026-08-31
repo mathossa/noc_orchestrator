@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server'
 import { siteApiError } from '@/lib/site-api'
-import { createSite, listSitesForCustomer } from '@/lib/site-store'
+import { createSite, listSiteContractTypes, listSitesForCustomer } from '@/lib/site-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
 export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
-    return NextResponse.json({ data: await listSitesForCustomer(id) })
+    const [sites, contractTypes] = await Promise.all([
+      listSitesForCustomer(id),
+      listSiteContractTypes(),
+    ])
+    return NextResponse.json({ data: sites, contractTypes })
   } catch (error) {
     return siteApiError(error)
   }

@@ -22,8 +22,9 @@ Workflow state is a separate concern and is persisted in `FirmwareLifecycleRecor
 
 ```text
 ContractType 1 ---- * Customer 1 ---- * Site
-                         |              |
-                         |              +---- * Device (optional site assignment)
+   ^                     |              |   |
+   |                     |              |   +---- * Device (optional site assignment)
+   +---------------------|--------------+         site may override customer contract
                          |
                          +---- * Device * ---- 1 DeviceModel
                                       |                  |   |
@@ -45,7 +46,7 @@ FirmwarePolicy ---- 1 exact target FirmwareRelease
 
 ### Customer
 
-A customer may reference one configurable `ContractType`. Contract types are records, not a fixed application enum, so organizations can define their own commercial/service categories.
+A customer may reference one configurable `ContractType`. This is the **default contract** for the customer's sites and devices unless a site explicitly overrides it. Contract types are records, not a fixed application enum, so organizations can define their own commercial/service categories.
 
 A customer can exist without an external system. Manual ownership is a first-class state.
 
@@ -56,6 +57,16 @@ A customer may have zero, one, or many `Site` records.
 A `Site` belongs to exactly one customer and represents a physical or logical customer location.
 
 Only the site name is required. Optional address fields support partial information such as a city, campus, branch, datacenter, or region without requiring a complete postal address.
+
+`Site.contractTypeId` is optional. When set, it overrides the customer default contract for devices assigned to that site. When absent, the site inherits `Customer.contractTypeId`.
+
+Effective contract resolution is:
+
+1. site contract override, when present;
+2. customer default contract;
+3. no contract.
+
+The effective contract is derived and is not copied onto each device, so changing a site contract automatically changes the contract context of devices assigned to that site without rewriting inventory rows.
 
 Site names are normalized for duplicate prevention within one customer. Optional site codes are also customer-scoped.
 
@@ -72,6 +83,8 @@ A `DeviceModel` belongs to exactly one vendor and one device type. Device-model 
 ### Device
 
 A device belongs to one customer and one device model. `siteId` is optional so a manually entered or newly synchronized device can exist before its customer location is known.
+
+A device's effective contract is resolved from its site's optional contract override first and the customer default second. Contract state is not duplicated on the device row.
 
 `currentFirmwareReleaseId` is also optional so inventory can exist before current firmware is known.
 
@@ -100,6 +113,8 @@ The nullable scope references intentionally reserve a compatible path for later 
 3. contract + model override
 4. model baseline
 5. future vendor/device-type defaults if required
+
+When contract-scoped policies are implemented later, `Contract + Model` must use the device's **effective contract** (site override first, then customer default), not blindly the customer default.
 
 Until a later issue explicitly adds override behavior, application code should only create model-level policies.
 
@@ -154,7 +169,7 @@ NOC Orchestrator-owned state such as desired policy, lifecycle decisions, and au
 
 Reference/domain relationships generally use restrictive deletion. Records should normally be deactivated rather than hard-deleted once referenced. This protects inventory, firmware history, and policy integrity.
 
-A customer cannot be permanently deleted while sites, devices, policies, or customer audit history reference it. A site cannot be permanently deleted while devices or site audit history reference it.
+A customer cannot be permanently deleted while sites, devices, policies, or customer audit history reference it. A site cannot be permanently deleted while devices or site audit history reference it. A contract type cannot be permanently deleted while a customer, site override, or firmware policy references it.
 
 Deleting a device cascades only its current `FirmwareLifecycleRecord`; generic `AuditEvent` history remains append-oriented and is not cascade-deleted.
 
@@ -164,7 +179,7 @@ Indexes are present for dimensions expected by later MVP filtering:
 
 - customer
 - site/location
-- contract type
+- contract type, including site override lookup
 - vendor
 - device type
 - device model

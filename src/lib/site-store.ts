@@ -22,6 +22,13 @@ export class SiteCustomerError extends Error {
   }
 }
 
+export class SiteContractError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SiteContractError'
+  }
+}
+
 export class SiteInUseError extends Error {
   constructor(message: string) {
     super(message)
@@ -29,15 +36,48 @@ export class SiteInUseError extends Error {
   }
 }
 
+const contractSelect = {
+  id: true,
+  code: true,
+  name: true,
+  firmwareManagementEnabled: true,
+  isActive: true,
+} as const
+
 const siteInclude = {
-  customer: { select: { id: true, code: true, name: true, isActive: true } },
+  customer: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+      contractType: { select: contractSelect },
+    },
+  },
+  contractType: { select: contractSelect },
   _count: { select: { devices: true } },
 } as const
+
+type ContractReference = {
+  id: string
+  code: string
+  name: string
+  firmwareManagementEnabled: boolean
+  isActive: boolean
+}
 
 function serializeSite(record: {
   id: string
   customerId: string
-  customer: { id: string; code: string | null; name: string; isActive: boolean }
+  contractTypeId: string | null
+  customer: {
+    id: string
+    code: string | null
+    name: string
+    isActive: boolean
+    contractType: ContractReference | null
+  }
+  contractType: ContractReference | null
   name: string
   code: string | null
   addressLine1: string | null
@@ -54,10 +94,15 @@ function serializeSite(record: {
   lastSynchronizedAt: Date | null
   _count: { devices: number }
 }): SiteRecord {
+  const effectiveContractType = record.contractType ?? record.customer.contractType
   return {
     id: record.id,
     customerId: record.customerId,
+    contractTypeId: record.contractTypeId,
     customer: record.customer,
+    contractType: record.contractType,
+    effectiveContractType,
+    contractSource: record.contractType ? 'SITE' : record.customer.contractType ? 'CUSTOMER' : 'NONE',
     name: record.name,
     code: record.code,
     addressLine1: record.addressLine1,
@@ -81,6 +126,15 @@ async function assertCustomer(customerId: string) {
   if (!customer) throw new SiteCustomerError('The selected customer does not exist.')
 }
 
+async function assertContractType(contractTypeId: string | null) {
+  if (!contractTypeId) return
+  const contractType = await prisma.contractType.findUnique({
+    where: { id: contractTypeId },
+    select: { id: true },
+  })
+  if (!contractType) throw new SiteContractError('The selected site contract type does not exist.')
+}
+
 async function assertUniqueWithinCustomer(customerId: string, name: string, code: string | null, excludeId?: string) {
   const records = await prisma.site.findMany({
     where: { customerId },
@@ -100,6 +154,13 @@ async function assertUniqueWithinCustomer(customerId: string, name: string, code
     )
     if (codeConflict) throw new SiteConflictError(`Site code ${canonicalCode} is already in use for this customer.`)
   }
+}
+
+export async function listSiteContractTypes() {
+  return prisma.contractType.findMany({
+    orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+    select: contractSelect,
+  })
 }
 
 export async function listSites() {
@@ -137,7 +198,10 @@ export async function getSite(customerId: string, siteId: string) {
 export async function createSite(customerId: string, rawInput: unknown) {
   await assertCustomer(customerId)
   const input = parseSiteInput(rawInput)
-  await assertUniqueWithinCustomer(customerId, input.name, input.code)
+  await Promise.all([
+    assertContractType(input.contractTypeId),
+    assertUniqueWithinCustomer(customerId, input.name, input.code),
+  ])
   const created = await prisma.site.create({
     data: { customerId, ...input },
     include: siteInclude,
@@ -153,6 +217,7 @@ export async function updateSite(customerId: string, siteId: string, rawInput: u
   const input = parseSiteInput({
     name: current.name,
     code: current.code,
+    contractTypeId: current.contractTypeId,
     addressLine1: current.addressLine1,
     addressLine2: current.addressLine2,
     postalCode: current.postalCode,
@@ -167,7 +232,10 @@ export async function updateSite(customerId: string, siteId: string, rawInput: u
     ...patch,
   })
 
-  await assertUniqueWithinCustomer(customerId, input.name, input.code, siteId)
+  await Promise.all([
+    assertContractType(input.contractTypeId),
+    assertUniqueWithinCustomer(customerId, input.name, input.code, siteId),
+  ])
   const updated = await prisma.site.update({ where: { id: siteId }, data: input, include: siteInclude })
   return serializeSite(updated)
 }
@@ -200,8 +268,19 @@ export async function assertSiteBelongsToCustomer(siteId: string | null | undefi
   if (!siteId) return null
   const site = await prisma.site.findFirst({
     where: { id: siteId, customerId },
-    select: { id: true, customerId: true, name: true, isActive: true },
+    select: {
+      id: true,
+      customerId: true,
+      name: true,
+      isActive: true,
+      contractTypeId: true,
+      contractType: { select: contractSelect },
+      customer: { select: { contractType: { select: contractSelect } } },
+    },
   })
   if (!site) throw new SiteCustomerError('The selected site does not belong to this customer.')
-  return site
+  return {
+    ...site,
+    effectiveContractType: site.contractType ?? site.customer.contractType,
+  }
 }

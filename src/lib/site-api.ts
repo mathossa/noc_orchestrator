@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
 import { SiteValidationError } from '@/lib/sites'
-import { SiteConflictError, SiteCustomerError, SiteInUseError, SiteNotFoundError } from '@/lib/site-store'
+import {
+  SiteConflictError,
+  SiteContractError,
+  SiteCustomerError,
+  SiteInUseError,
+  SiteNotFoundError,
+} from '@/lib/site-store'
 
 export function siteApiError(error: unknown) {
   if (error instanceof SiteValidationError) {
@@ -13,6 +19,13 @@ export function siteApiError(error: unknown) {
   if (error instanceof SiteCustomerError) {
     return NextResponse.json(
       { error: { code: 'INVALID_CUSTOMER', message: error.message } },
+      { status: 400 },
+    )
+  }
+
+  if (error instanceof SiteContractError) {
+    return NextResponse.json(
+      { error: { code: 'INVALID_CONTRACT', message: error.message, fields: { contractTypeId: error.message } } },
       { status: 400 },
     )
   }

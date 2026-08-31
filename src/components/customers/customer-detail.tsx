@@ -50,7 +50,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer"
         title={customer.name}
-        description="Firmware lifecycle context for this customer. Monitoring and unrelated operational health data are intentionally excluded."
+        description="Firmware lifecycle context for this customer. The customer contract is the default; individual sites may override it."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage customers</Link>
@@ -62,7 +62,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryStat label="Devices" value={customer.deviceCount} detail="Inventory records assigned to this customer." />
-        <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations available for device assignment." />
+        <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations; sites may override the default contract." />
         <SummaryStat label="Desired state current" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
         <SummaryStat label="Needs attention" value="—" detail="Canonical compliance resolution arrives in Issue #10." />
         <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Devices with a current planned lifecycle decision." />
@@ -72,7 +72,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
         <div className="min-w-0 space-y-5">
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-              <div><h2 className="text-sm font-semibold">Sites</h2><p className="mt-1 text-xs text-[var(--muted)]">Customer locations used to place devices in the correct site context.</p></div>
+              <div><h2 className="text-sm font-semibold">Sites</h2><p className="mt-1 text-xs text-[var(--muted)]">Customer locations used to place devices and optionally override the customer default contract.</p></div>
               <Link href={`/customers/${customer.id}/sites`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Manage sites</Link>
             </div>
             {customer.sites.length === 0 ? (
@@ -121,8 +121,8 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Code" value={customer.code ?? '—'} />
             <DetailRow label="Status" value={customer.isActive ? 'Active' : 'Archived'} />
-            <DetailRow label="Contract" value={customer.contractType?.name ?? 'No contract type'} />
-            <DetailRow label="Firmware management" value={customer.contractType ? (customer.contractType.firmwareManagementEnabled ? 'Enabled by contract' : 'Disabled by contract') : 'No contract capability set'} />
+            <DetailRow label="Default contract" value={customer.contractType?.name ?? 'No default contract'} />
+            <DetailRow label="Default firmware management" value={customer.contractType ? (customer.contractType.firmwareManagementEnabled ? 'Enabled by contract' : 'Disabled by contract') : 'No default contract capability set'} />
             <DetailRow label="Source" value={customer.source} />
             <DetailRow label="External provider" value={customer.externalProvider ?? '—'} />
             <DetailRow label="External ID" value={customer.externalId ?? '—'} />

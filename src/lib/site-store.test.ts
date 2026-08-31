@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   customerFindUnique: vi.fn(),
+  contractFindUnique: vi.fn(),
+  contractFindMany: vi.fn(),
   siteFindMany: vi.fn(),
   siteFindFirst: vi.fn(),
   siteCreate: vi.fn(),
@@ -14,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     customer: { findUnique: mocks.customerFindUnique },
+    contractType: { findUnique: mocks.contractFindUnique, findMany: mocks.contractFindMany },
     site: {
       findMany: mocks.siteFindMany,
       findFirst: mocks.siteFindFirst,
@@ -32,16 +35,39 @@ import {
   deleteSite,
   listSites,
   SiteConflictError,
+  SiteContractError,
   SiteCustomerError,
   SiteInUseError,
   updateSite,
 } from '@/lib/site-store'
 
-const customer = { id: 'customer-1', code: 'ACME', name: 'Acme', isActive: true }
+const customerContract = {
+  id: 'contract-customer',
+  code: 'FULL',
+  name: 'Fully Managed',
+  firmwareManagementEnabled: true,
+  isActive: true,
+}
+const siteContract = {
+  id: 'contract-site',
+  code: 'FW',
+  name: 'Firmware Management',
+  firmwareManagementEnabled: true,
+  isActive: true,
+}
+const customer = {
+  id: 'customer-1',
+  code: 'ACME',
+  name: 'Acme',
+  isActive: true,
+  contractType: customerContract,
+}
 const storedSite = {
   id: 'site-1',
   customerId: 'customer-1',
+  contractTypeId: null,
   customer,
+  contractType: null,
   name: 'Head office',
   code: 'HQ',
   addressLine1: null,
@@ -63,10 +89,11 @@ describe('site persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
+    mocks.contractFindUnique.mockResolvedValue({ id: 'contract-site' })
     mocks.siteFindMany.mockResolvedValue([])
   })
 
-  it('lists sites across customers for the global navigation overview', async () => {
+  it('lists sites across customers and resolves the inherited customer contract', async () => {
     mocks.siteFindMany.mockResolvedValue([storedSite])
 
     const result = await listSites()
@@ -78,11 +105,13 @@ describe('site persistence rules', () => {
       id: 'site-1',
       customerId: 'customer-1',
       customer: expect.objectContaining({ name: 'Acme' }),
+      effectiveContractType: customerContract,
+      contractSource: 'CUSTOMER',
       deviceCount: 0,
     })])
   })
 
-  it('creates multiple customer-scoped site records without external identity', async () => {
+  it('creates customer-scoped site records without external identity or contract override', async () => {
     mocks.siteCreate.mockResolvedValue(storedSite)
 
     const result = await createSite('customer-1', { name: 'Head office', code: 'hq', city: 'Zwolle' })
@@ -90,12 +119,42 @@ describe('site persistence rules', () => {
     expect(mocks.siteCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         customerId: 'customer-1',
+        contractTypeId: null,
         name: 'Head office',
         code: 'HQ',
         source: 'MANUAL',
       }),
     }))
-    expect(result).toMatchObject({ id: 'site-1', customerId: 'customer-1', deviceCount: 0 })
+    expect(result).toMatchObject({ id: 'site-1', customerId: 'customer-1', contractSource: 'CUSTOMER' })
+  })
+
+  it('allows a site to override the customer default contract', async () => {
+    mocks.siteCreate.mockResolvedValue({
+      ...storedSite,
+      contractTypeId: 'contract-site',
+      contractType: siteContract,
+    })
+
+    const result = await createSite('customer-1', {
+      name: 'Branch',
+      contractTypeId: 'contract-site',
+    })
+
+    expect(mocks.contractFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'contract-site' } }))
+    expect(result).toMatchObject({
+      contractTypeId: 'contract-site',
+      effectiveContractType: siteContract,
+      contractSource: 'SITE',
+    })
+  })
+
+  it('rejects an unknown site contract override', async () => {
+    mocks.contractFindUnique.mockResolvedValue(null)
+
+    await expect(createSite('customer-1', {
+      name: 'Branch',
+      contractTypeId: 'missing-contract',
+    })).rejects.toBeInstanceOf(SiteContractError)
   })
 
   it('rejects normalized duplicate names and duplicate codes within one customer', async () => {
@@ -109,7 +168,12 @@ describe('site persistence rules', () => {
   it('allows the same site name for a different customer', async () => {
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-2' })
     mocks.siteFindMany.mockResolvedValue([])
-    mocks.siteCreate.mockResolvedValue({ ...storedSite, id: 'site-2', customerId: 'customer-2', customer: { ...customer, id: 'customer-2' } })
+    mocks.siteCreate.mockResolvedValue({
+      ...storedSite,
+      id: 'site-2',
+      customerId: 'customer-2',
+      customer: { ...customer, id: 'customer-2' },
+    })
 
     await createSite('customer-2', { name: 'Head office', code: 'HQ' })
 
@@ -117,8 +181,13 @@ describe('site persistence rules', () => {
     expect(mocks.siteCreate).toHaveBeenCalled()
   })
 
-  it('supports archive-only updates without changing site identity', async () => {
-    mocks.siteFindFirst.mockResolvedValue({ ...storedSite, customer: undefined, _count: undefined })
+  it('supports archive-only updates without changing site identity or contract', async () => {
+    mocks.siteFindFirst.mockResolvedValue({
+      ...storedSite,
+      customer: undefined,
+      contractType: undefined,
+      _count: undefined,
+    })
     mocks.siteFindMany.mockResolvedValue([{ id: 'site-1', name: 'Head office', code: 'HQ' }])
     mocks.siteUpdate.mockResolvedValue({ ...storedSite, isActive: false })
 
@@ -126,7 +195,7 @@ describe('site persistence rules', () => {
 
     expect(mocks.siteUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'site-1' },
-      data: expect.objectContaining({ name: 'Head office', code: 'HQ', isActive: false }),
+      data: expect.objectContaining({ name: 'Head office', code: 'HQ', contractTypeId: null, isActive: false }),
     }))
   })
 

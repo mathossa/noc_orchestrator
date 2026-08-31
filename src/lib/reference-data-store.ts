@@ -152,11 +152,12 @@ export async function deleteReferenceRecord(kind: ReferenceKind, id: string) {
 
   const current = await prisma.contractType.findUnique({ where: { id } })
   if (!current) throw new ReferenceNotFoundError()
-  const [customers, policies] = await Promise.all([
+  const [customers, sites, policies] = await Promise.all([
     prisma.customer.count({ where: { contractTypeId: id } }),
+    prisma.site.count({ where: { contractTypeId: id } }),
     prisma.firmwarePolicy.count({ where: { contractTypeId: id } }),
   ])
-  const message = referencedRecordMessage(kind, customers + policies)
+  const message = referencedRecordMessage(kind, customers + sites + policies)
   if (message) throw new ReferenceInUseError(message)
   return prisma.contractType.delete({ where: { id } })
 }

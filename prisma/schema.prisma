@@ -90,6 +90,7 @@ model ContractType {
   isActive                  Boolean @default(true)
 
   customers        Customer[]
+  sites            Site[]
   firmwarePolicies FirmwarePolicy[]
 
   createdAt DateTime @default(now())
@@ -163,10 +164,11 @@ model Customer {
 }
 
 model Site {
-  id         String  @id @default(uuid())
-  customerId String
-  name       String
-  code       String?
+  id             String  @id @default(uuid())
+  customerId     String
+  contractTypeId String?
+  name           String
+  code           String?
 
   addressLine1 String?
   addressLine2 String?
@@ -184,14 +186,16 @@ model Site {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  devices  Device[]
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contractType ContractType? @relation(fields: [contractTypeId], references: [id], onDelete: Restrict)
+  devices      Device[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([customerId, code])
   @@index([customerId])
+  @@index([contractTypeId])
   @@index([name])
   @@index([source])
   @@index([isActive])
@@ -309,6 +313,7 @@ model Device {
   hostname                  String?
   serialNumber              String?
   managementAddress         String?
+  notes                     String?
   currentFirmwareReleaseId  String?
   currentFirmwareObservedAt DateTime?
   currentFirmwareSource     String   @default("MANUAL")
