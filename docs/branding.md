@@ -6,7 +6,13 @@ The canonical application icon is:
 public/brand/noc-orchestrator-icon.png
 ```
 
-The PNG is used directly by the application shell and browser metadata. Keep this path stable so there is one source of truth for the product mark.
+The canonical application background is:
+
+```text
+public/brand/noc-orchestrator-background.png
+```
+
+The icon PNG is used directly by the application shell and browser metadata. The background PNG is used by the shared application shell behind page content with a dark graphite overlay so dense engineering tables and forms remain readable. Keep these paths stable so there is one source of truth for the product branding assets.
 
 ## Asset guidance
 
@@ -14,12 +20,13 @@ The PNG is used directly by the application shell and browser metadata. Keep thi
 - Keep the original high-resolution source rather than upscaling a smaller export.
 - A genuine vector SVG may be added later if an original vector source exists, but do not auto-trace the PNG solely to obtain SVG.
 - Do not create separate manually maintained favicon artwork unless a future platform requirement makes that necessary.
+- Application backgrounds should remain subtle behind UI surfaces and must not reduce text/table contrast.
 
 ## Theme
 
 The application uses a dark charcoal / graphite foundation with orange as the primary brand and interaction color.
 
-Shared theme tokens live in `src/app/globals.css`. Feature UI should prefer those tokens instead of introducing unrelated primary colors.
+Shared theme tokens and the app-wide background treatment live in `src/app/globals.css`. Feature UI should prefer those tokens instead of introducing unrelated primary colors.
 
 Orange is used for:
 
