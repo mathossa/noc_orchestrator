@@ -118,7 +118,7 @@ Synced-capable records expose:
 - `lastSynchronizedAt`
 - `sourceMetadata`
 
-The `(externalProvider, externalId)` pair is unique per entity table when populated. Manual records require neither field.
+Manual records require neither `externalProvider` nor `externalId`. The provider/ID pair is indexed for future synchronization lookup, but Issue #2 deliberately does not make the nullable pair a Prisma compound unique constraint because Prisma requires every field in `@@unique` to be mandatory. A future concrete provider integration can enforce provider-specific identity semantics without making manual inventory depend on an external key.
 
 Provenance is present on `Customer`, `DeviceModel`, `Device`, and `FirmwareRelease`, which are the records most likely to be discovered or enriched by a future source-of-truth/inventory/network-management integration.
 
@@ -141,12 +141,12 @@ Indexes are present for the dimensions expected by later MVP filtering:
 - device model
 - current firmware release
 - firmware release version/status
-- provenance/source
+- provenance/source and external provider/ID lookup
 - active/inactive state
 - lifecycle workflow state
 - planned/review dates
 
-Uniqueness constraints protect canonical reference values, model identity, release identity, per-customer device identity, external identities, and the one-current-lifecycle-record-per-device rule.
+Uniqueness constraints protect canonical reference values, model identity, release identity, per-customer device name, and the one-current-lifecycle-record-per-device rule. Optional serial numbers and optional external provider/ID values remain indexed rather than incorrectly modeled as nullable Prisma compound unique constraints.
 
 ## Migration strategy
 
