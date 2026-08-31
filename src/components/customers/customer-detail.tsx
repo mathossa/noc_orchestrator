@@ -56,7 +56,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
             <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">
               Manage customers
             </Link>
-            <Link href={`/devices?customer=${encodeURIComponent(customer.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)]">
+            <Link href={`/devices?customer=${encodeURIComponent(customer.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">
               Customer devices
             </Link>
           </div>
