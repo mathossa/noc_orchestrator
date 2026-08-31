@@ -1,12 +1,10 @@
-import { SectionPlaceholder } from '@/components/ui/section-placeholder'
+import { DeviceManager } from '@/components/devices/device-manager'
 
-export default function DevicesPage() {
-  return (
-    <SectionPlaceholder
-      title="Devices"
-      description="Manual and synchronized device inventory with recorded current firmware state."
-      emptyTitle="Device inventory is not connected yet"
-      emptyDescription="This route is reserved and uses the shared shell. Manual inventory arrives in the dedicated device issue."
-    />
-  )
+type DevicesPageProps = {
+  searchParams: Promise<{ customer?: string; site?: string }>
+}
+
+export default async function DevicesPage({ searchParams }: DevicesPageProps) {
+  const params = await searchParams
+  return <DeviceManager initialCustomerId={params.customer ?? ''} initialSiteId={params.site ?? ''} />
 }
