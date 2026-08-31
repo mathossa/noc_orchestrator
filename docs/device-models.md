@@ -1,6 +1,6 @@
 # Device model management
 
-Issue #6 implements the v0.1.0 device-model catalog used to connect inventory to vendor, device type, firmware releases, and desired-state policy.
+Issue #6 implements the v0.1.0 device-model catalog used to connect inventory to vendor, device type, firmware releases, and desired-state policy. Issue #9 adds the first model-level desired firmware baseline.
 
 ## Identity
 
@@ -45,19 +45,22 @@ Archived models remain visible so historical inventory and lifecycle references 
 
 ## Model detail
 
-`/models/[id]` is firmware-lifecycle focused and shows real data when it exists:
+`/models/[id]` is firmware-lifecycle focused and shows:
 
 - vendor and device type
 - devices using the model
 - customers using the model
+- exact desired firmware baseline when configured
 - recorded current firmware distribution
 - workflow-state distribution
-- catalog releases matching the same vendor and platform/firmware family
+- catalog releases matching the same vendor and platform/firmware family when defined
 - provenance/synchronization context
 
-Desired firmware is deliberately left unresolved until Issue #9 implements model-level desired firmware policy.
+Desired firmware is an explicit exact release, never inferred from the newest catalog release or newest release in a train. Normal new choices are active `APPROVED` and `RECOMMENDED` releases. Existing archived/reclassified targets remain visible until deliberately changed or cleared.
 
-Catalog releases are informational only. Their presence, status, or release date does not make a release desired automatically.
+See `docs/desired-firmware-policy.md` for policy semantics and future-scope constraints.
+
+Catalog releases remain informational until an engineer explicitly saves one as desired.
 
 No generic monitoring/health data is introduced.
 

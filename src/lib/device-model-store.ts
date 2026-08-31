@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { normalizedDeviceModelName, parseDeviceModelInput } from '@/lib/device-models'
+import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
 
 export class DeviceModelConflictError extends Error {
   constructor(message: string) {
@@ -34,6 +35,10 @@ const deviceModelInclude = {
   deviceType: { select: { id: true, code: true, name: true, isActive: true } },
   _count: { select: { devices: true } },
 } as const
+
+function normalizedFirmwarePlatform(value: string | null | undefined) {
+  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
 
 function serializeDeviceModel(record: {
   id: string
@@ -135,16 +140,29 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
+  const [desiredPolicy, vendorReleases] = await Promise.all([
+    getActiveModelDesiredPolicy(record.id),
+    prisma.firmwareRelease.findMany({
+      where: { vendorId: record.vendorId },
+      orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
+      select: {
+        id: true,
+        vendorId: true,
+        version: true,
+        platform: true,
+        status: true,
+        isActive: true,
+        releasedAt: true,
+        firmwareTrain: { select: { id: true, name: true } },
+      },
+    }),
+  ])
+
   const availableReleases = record.platform
-    ? await prisma.firmwareRelease.findMany({
-        where: {
-          vendorId: record.vendorId,
-          platform: { equals: record.platform, mode: 'insensitive' },
-        },
-        orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
-        select: { id: true, version: true, platform: true, status: true, isActive: true, releasedAt: true },
-      })
-    : []
+    ? vendorReleases.filter(
+        (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform),
+      )
+    : vendorReleases
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<
@@ -201,13 +219,21 @@ export async function getDeviceModel(id: string) {
     customers: [...customerMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
     firmwareDistribution: [...firmwareMap.values()].sort((a, b) => b.deviceCount - a.deviceCount),
     workflowCounts,
-    // Issue #9 owns desired-firmware policy resolution for models.
-    desiredFirmware: { available: false as const, release: null },
+    desiredFirmware: {
+      available: true as const,
+      policyId: desiredPolicy?.id ?? null,
+      release: desiredPolicy?.release ?? null,
+    },
     availableFirmware: {
       available: true as const,
       releases: availableReleases.map((release) => ({
         ...release,
         releasedAt: release.releasedAt?.toISOString() ?? null,
+        selectable:
+          release.isActive &&
+          NORMAL_DESIRED_FIRMWARE_STATUSES.includes(
+            release.status.toUpperCase() as (typeof NORMAL_DESIRED_FIRMWARE_STATUSES)[number],
+          ),
       })),
     },
   }

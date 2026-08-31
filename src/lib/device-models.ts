@@ -7,6 +7,17 @@ export type DeviceModelReference = {
   isActive: boolean
 }
 
+export type DeviceModelFirmwareReference = {
+  id: string
+  vendorId: string
+  version: string
+  platform: string
+  status: string
+  isActive: boolean
+  releasedAt: string | null
+  firmwareTrain: { id: string; name: string } | null
+}
+
 export type DeviceModelRecord = {
   id: string
   vendorId: string
@@ -42,19 +53,13 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     undecided: number
   }
   desiredFirmware: {
-    available: false
-    release: null
+    available: true
+    policyId: string | null
+    release: DeviceModelFirmwareReference | null
   }
   availableFirmware: {
     available: true
-    releases: Array<{
-      id: string
-      version: string
-      platform: string
-      status: string
-      isActive: boolean
-      releasedAt: string | null
-    }>
+    releases: Array<DeviceModelFirmwareReference & { selectable: boolean }>
   }
 }
 

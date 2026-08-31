@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
+import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
 import {
   normalizedDeviceName,
   normalizedPlatform,
@@ -295,12 +296,24 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
+  const desiredPolicy = await getActiveModelDesiredPolicy(record.deviceModelId)
+  const desiredRelease = desiredPolicy
+    ? {
+        id: desiredPolicy.release.id,
+        vendorId: desiredPolicy.release.vendorId,
+        platform: desiredPolicy.release.platform,
+        version: desiredPolicy.release.version,
+        status: desiredPolicy.release.status,
+        isActive: desiredPolicy.release.isActive,
+        firmwareTrain: desiredPolicy.release.firmwareTrain,
+      }
+    : null
+
   return {
     ...serializeDevice(record as IncludedDevice),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-    // Issue #9 owns exact desired-firmware policy resolution.
-    desiredFirmware: { available: false, release: null },
+    desiredFirmware: { available: true, release: desiredRelease },
     // Issue #10 owns canonical CURRENT/ACTION REQUIRED/etc. resolution.
     technicalState: { available: false, state: null },
   }

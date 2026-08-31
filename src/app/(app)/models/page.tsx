@@ -1,5 +1,10 @@
 import { DeviceModelManager } from '@/components/device-models/device-model-manager'
 
-export default function ModelsPage() {
-  return <DeviceModelManager />
+type ModelsPageProps = {
+  searchParams: Promise<{ edit?: string }>
+}
+
+export default async function ModelsPage({ searchParams }: ModelsPageProps) {
+  const params = await searchParams
+  return <DeviceModelManager initialEditId={params.edit ?? ''} />
 }
