@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -52,13 +52,18 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
       <PageHeader
         eyebrow="Firmware release"
         title={`${release.vendor.name} ${release.version}`}
-        description={`${release.platform} catalog entry. Catalog status is descriptive and does not make this release desired firmware.`}
-        actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage firmware</Link>}
+        description={`${release.platform} catalog entry. Catalog status, train membership, and recency do not make this release desired firmware.`}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {release.firmwareTrain ? <Link href={`/firmware/trains/${release.firmwareTrain.id}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">View {release.firmwareTrain.name}</Link> : null}
+            <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage firmware</Link>
+          </div>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Current on devices" value={release.usage.currentDevices} detail="Devices whose recorded current firmware points to this release." />
-        <SummaryStat label="Policy targets" value={release.usage.targetPolicies} detail="Policies that explicitly target this release." />
+        <SummaryStat label="Policy targets" value={release.usage.targetPolicies} detail="Policies that explicitly target this exact release." />
         <SummaryStat label="Lifecycle targets" value={release.usage.lifecycleTargets} detail="Current lifecycle decisions targeting this release." />
         <SummaryStat label="Matching models" value={release.matchingModels.length} detail="Models sharing this vendor and platform/family." />
       </div>
@@ -88,6 +93,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Vendor" value={release.vendor.name} />
             <DetailRow label="Platform" value={release.platform} />
+            <DetailRow label="Train" value={release.firmwareTrain ? <Link href={`/firmware/trains/${release.firmwareTrain.id}`} className="text-[var(--accent-light)] hover:underline">{release.firmwareTrain.name}</Link> : '—'} />
             <DetailRow label="Version" value={release.version} />
             <DetailRow label="Catalog status" value={release.status} />
             <DetailRow label="Record state" value={release.isActive ? 'Active' : 'Archived'} />
@@ -107,6 +113,6 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
   )
 }
 
-function DetailRow({ label, value, mono = false }: { label: string; value: string | number; mono?: boolean }) {
+function DetailRow({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
   return <div className="grid grid-cols-[130px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0"><dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt><dd className={`min-w-0 break-words text-[var(--muted-strong)] ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd></div>
 }
