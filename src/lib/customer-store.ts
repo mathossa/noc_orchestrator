@@ -157,7 +157,8 @@ export async function getCustomer(id: string) {
 export async function createCustomer(rawInput: unknown) {
   const input = parseCustomerInput(rawInput)
   await assertContractType(input.contractTypeId)
-  return prisma.customer.create({ data: input, include: customerInclude })
+  const record = await prisma.customer.create({ data: input, include: customerInclude })
+  return serializeCustomer(record)
 }
 
 export async function updateCustomer(id: string, rawInput: unknown) {
@@ -176,7 +177,8 @@ export async function updateCustomer(id: string, rawInput: unknown) {
     ...patch,
   })
   await assertContractType(input.contractTypeId)
-  return prisma.customer.update({ where: { id }, data: input, include: customerInclude })
+  const record = await prisma.customer.update({ where: { id }, data: input, include: customerInclude })
+  return serializeCustomer(record)
 }
 
 export async function deleteCustomer(id: string) {
