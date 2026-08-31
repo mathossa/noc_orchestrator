@@ -63,7 +63,25 @@ a {
   outline-offset: 2px;
 }
 
+.noc-app-background {
+  min-height: 100vh;
+  background-color: var(--background);
+  background-image:
+    linear-gradient(rgba(13, 13, 12, 0.78), rgba(13, 13, 12, 0.9)),
+    url('/brand/noc-orchestrator-background.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+}
+
 .noc-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (max-width: 768px) {
+  .noc-app-background {
+    background-attachment: scroll;
+  }
 }
