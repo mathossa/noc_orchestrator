@@ -243,6 +243,14 @@ export function DeviceManager({
   }
 
   const selectedModel = references.models.find((model) => model.id === form.deviceModelId)
+  const selectedCustomer = references.customers.find((customer) => customer.id === form.customerId)
+  const selectedSite = references.sites.find((site) => site.id === form.siteId)
+  const effectiveFormContract = selectedSite?.contractType ?? selectedCustomer?.contractType ?? null
+  const effectiveFormContractSource = selectedSite?.contractType
+    ? 'Site override'
+    : selectedCustomer?.contractType
+      ? 'Customer default'
+      : 'No contract'
   const formSites = references.sites.filter((site) => site.customerId === form.customerId)
   const formReleases = references.firmwareReleases.filter((release) => releaseMatchesModel(release, selectedModel))
   const filterSites = references.sites.filter((site) => !customerFilter || site.customerId === customerFilter)
@@ -266,6 +274,7 @@ export function DeviceManager({
         record.deviceModel.vendor.name,
         record.deviceModel.model,
         record.currentFirmwareRelease?.version ?? '',
+        record.effectiveContractType?.name ?? '',
       ]
         .join(' ')
         .toLocaleLowerCase('en-US')
@@ -304,8 +313,13 @@ export function DeviceManager({
           <FormField label="Site" htmlFor="device-site" description="Optional; only sites belonging to the selected customer are shown." error={fieldErrors.siteId}>
             <SelectInput id="device-site" value={form.siteId} onChange={(event) => setForm({ ...form, siteId: event.target.value })} disabled={!form.customerId}>
               <option value="">No site / unassigned</option>
-              {formSites.map((site) => <option key={site.id} value={site.id} disabled={!site.isActive && site.id !== form.siteId}>{site.name}{site.code ? ` (${site.code})` : ''}{site.isActive ? '' : ' — archived'}</option>)}
+              {formSites.map((site) => <option key={site.id} value={site.id} disabled={!site.isActive && site.id !== form.siteId}>{site.name}{site.code ? ` (${site.code})` : ''}{site.contractType ? ` · ${site.contractType.name}` : ''}{site.isActive ? '' : ' — archived'}</option>)}
             </SelectInput>
+          </FormField>
+          <FormField label="Effective contract" htmlFor="device-effective-contract" description={effectiveFormContractSource}>
+            <div id="device-effective-contract" className="flex min-h-10 items-center rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--muted-strong)]">
+              {effectiveFormContract?.name ?? 'No contract assigned'}
+            </div>
           </FormField>
           <FormField label="Device model" htmlFor="device-model" error={fieldErrors.deviceModelId}>
             <SelectInput id="device-model" value={form.deviceModelId} onChange={(event) => changeModel(event.target.value)} required>
@@ -386,7 +400,7 @@ export function DeviceManager({
                     <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? record.site.name : 'No site'}</div></td>
                     <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name}{record.deviceModel.platform ? ` · ${record.deviceModel.platform}` : ''}</div></td>
                     <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
-                    <td className="px-4 py-3">{record.customer.contractType?.name ?? '—'}</td>
+                    <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                     <td className="px-4 py-3 text-xs">{record.source}</td>
                     <td className="px-4 py-3 text-xs">{record.isActive ? 'Active' : 'Archived'}</td>
                     <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
