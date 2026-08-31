@@ -19,15 +19,15 @@ const technicalStyles: Record<TechnicalFirmwareState, { label: string; className
   },
   NO_POLICY: {
     label: 'No policy',
-    className: 'border-[#345978] bg-[#172d40] text-[#a9d6f3]',
-    dot: 'bg-[#74b7e7]',
+    className: 'border-[#506269] bg-[#1b2528] text-[#b9c8cd]',
+    dot: 'bg-[var(--info)]',
   },
 }
 
 const workflowStyles: Record<WorkflowState, { label: string; className: string }> = {
   PLANNED: {
     label: 'Planned',
-    className: 'border-[#37699c] bg-transparent text-[#9dc8f5]',
+    className: 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]',
   },
   IGNORED: {
     label: 'Ignored',
