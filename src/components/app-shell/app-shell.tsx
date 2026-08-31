@@ -27,7 +27,7 @@ const navigation: readonly NavigationItem[] = [
   { label: 'Planning', href: '/planning' },
   { label: 'Reports', href: '/reports' },
   { label: 'Settings', href: '/settings' },
-] as const
+]
 
 function isCustomerSitePath(pathname: string) {
   return pathname === '/sites' || pathname.startsWith('/sites/') || /^\/customers\/[^/]+\/sites(?:\/|$)/.test(pathname)
@@ -75,13 +75,19 @@ function NavigationLinkItem({ item, compact = false, nested = false }: { item: N
 
 function NavigationLinks({ compact = false }: { compact?: boolean }) {
   if (compact) {
-    const compactLinks = navigation.flatMap((item) => {
-      if ('href' in item) return [item]
-      return item.children.map((child) => ({
-        ...child,
-        label: child.href === '/customers' ? item.label : child.label,
-      }))
-    })
+    const compactLinks: NavigationLink[] = []
+    for (const item of navigation) {
+      if ('href' in item) {
+        compactLinks.push(item)
+        continue
+      }
+      for (const child of item.children) {
+        compactLinks.push({
+          ...child,
+          label: child.href === '/customers' ? item.label : child.label,
+        })
+      }
+    }
 
     return (
       <nav aria-label="Primary navigation" className="noc-scrollbar overflow-x-auto">
@@ -113,7 +119,7 @@ function NavigationLinks({ compact = false }: { compact?: boolean }) {
               <div className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                 {item.label}
               </div>
-              <ul className="space-y-0.5 border-l border-[var(--border)] ml-3">
+              <ul className="ml-3 space-y-0.5 border-l border-[var(--border)]">
                 {item.children.map((child) => (
                   <li key={child.href}>
                     <NavigationLinkItem item={child} nested />
