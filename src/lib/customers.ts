@@ -12,11 +12,21 @@ export type CustomerRecord = {
   externalId: string | null
   lastSynchronizedAt: string | null
   deviceCount: number
+  siteCount: number
 }
 
 export type CustomerDetailRecord = CustomerRecord & {
   createdAt: string
   updatedAt: string
+  sites: Array<{
+    id: string
+    name: string
+    code: string | null
+    city: string | null
+    country: string | null
+    isActive: boolean
+    deviceCount: number
+  }>
   workflowCounts: {
     planned: number
     ignored: number
