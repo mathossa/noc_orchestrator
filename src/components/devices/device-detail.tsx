@@ -7,8 +7,9 @@ import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
 import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
 import type { DeviceDetailRecord } from '@/lib/devices'
+import type { FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
 
-type ApiError = { error?: { message?: string } }
+type ApiError = { error?: { message?: string; fields?: Record<string, string> } }
 
 function firmwareAge(days: number | null) {
   if (days === null) return 'Age unknown'
@@ -17,10 +18,35 @@ function firmwareAge(days: number | null) {
   return `Observed ${days} days ago`
 }
 
+function localDateTime(value: string | null | undefined) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const [device, setDevice] = useState<DeviceDetailRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [workflowState, setWorkflowState] = useState<FirmwareWorkflowState>('PLANNED')
+  const [reason, setReason] = useState('')
+  const [lifecycleNotes, setLifecycleNotes] = useState('')
+  const [plannedFor, setPlannedFor] = useState('')
+  const [reviewAt, setReviewAt] = useState('')
+  const [savingLifecycle, setSavingLifecycle] = useState(false)
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null)
+
+  function applyDevice(loaded: DeviceDetailRecord) {
+    setDevice(loaded)
+    setWorkflowState(loaded.lifecycle?.state ?? 'PLANNED')
+    setReason(loaded.lifecycle?.reason ?? '')
+    setLifecycleNotes(loaded.lifecycle?.notes ?? '')
+    setPlannedFor(localDateTime(loaded.lifecycle?.plannedFor))
+    setReviewAt(localDateTime(loaded.lifecycle?.reviewAt))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -28,7 +54,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       .then(async (response) => {
         const payload = (await response.json()) as { data?: DeviceDetailRecord } & ApiError
         if (!response.ok) throw new Error(payload.error?.message ?? 'Device could not be loaded.')
-        if (!cancelled) setDevice(payload.data ?? null)
+        if (!cancelled && payload.data) applyDevice(payload.data)
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Device could not be loaded.')
@@ -41,19 +67,69 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     }
   }, [deviceId])
 
+  async function saveLifecycleDecision() {
+    setSavingLifecycle(true)
+    setLifecycleError(null)
+    setLifecycleMessage(null)
+    try {
+      const response = await fetch(`/api/v1/devices/${deviceId}/lifecycle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: workflowState,
+          reason,
+          notes: lifecycleNotes,
+          plannedFor: plannedFor || null,
+          reviewAt: reviewAt || null,
+        }),
+      })
+      const payload = (await response.json()) as { data?: DeviceDetailRecord } & ApiError
+      if (!response.ok) {
+        const fieldMessage = payload.error?.fields ? Object.values(payload.error.fields)[0] : null
+        throw new Error(fieldMessage ?? payload.error?.message ?? 'Lifecycle decision could not be saved.')
+      }
+      if (!payload.data) throw new Error('Lifecycle decision was saved, but the refreshed device was unavailable.')
+      applyDevice(payload.data)
+      setLifecycleMessage('Lifecycle decision saved.')
+    } catch (saveError: unknown) {
+      setLifecycleError(saveError instanceof Error ? saveError.message : 'Lifecycle decision could not be saved.')
+    } finally {
+      setSavingLifecycle(false)
+    }
+  }
+
+  async function clearLifecycleDecision() {
+    setSavingLifecycle(true)
+    setLifecycleError(null)
+    setLifecycleMessage(null)
+    try {
+      const response = await fetch(`/api/v1/devices/${deviceId}/lifecycle`, { method: 'DELETE' })
+      const payload = (await response.json()) as { data?: DeviceDetailRecord } & ApiError
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Lifecycle decision could not be cleared.')
+      if (!payload.data) throw new Error('Lifecycle decision was cleared, but the refreshed device was unavailable.')
+      applyDevice(payload.data)
+      setLifecycleMessage('Lifecycle decision cleared.')
+    } catch (clearError: unknown) {
+      setLifecycleError(clearError instanceof Error ? clearError.message : 'Lifecycle decision could not be cleared.')
+    } finally {
+      setSavingLifecycle(false)
+    }
+  }
+
   if (loading) return <LoadingState title="Loading device" description="Reading recorded inventory and firmware lifecycle context…" />
   if (error || !device) {
     return <ErrorState title="Device could not be loaded" description={error ?? 'The inventory record is unavailable.'} action={<Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to devices</Link>} />
   }
 
   const desired = device.desiredFirmware.release
+  const needsReason = workflowState === 'IGNORED' || workflowState === 'CUSTOMER_DECLINED'
 
   return (
     <>
       <PageHeader
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Recorded firmware lifecycle context for this device. Current firmware, desired firmware, technical state, and workflow decisions remain distinct."
+        description="Current firmware, desired firmware, technical state, and operational lifecycle decisions are separate pieces of state."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
@@ -65,8 +141,8 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Model policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No desired model policy.'} />
-        <SummaryStat label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} detail="Exact release equality only; vendor version strings are not ordered." />
-        <SummaryStat label="Workflow" value={device.lifecycle?.state.replaceAll('_', ' ') ?? 'No decision'} detail="Workflow decisions remain independent from technical firmware state." />
+        <SummaryStat label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} detail="Exact current-versus-desired comparison." />
+        <SummaryStat label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No decision'} detail="Operational decision; it never changes technical compliance." />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -90,10 +166,89 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The model&apos;s desired release is archived in the catalog. It remains the explicit desired target until the model policy is changed or cleared.</div> : null}
           </section>
 
+          <section id="lifecycle-decision" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Lifecycle decision</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Record what the NOC intends to do. Saving here does not modify current firmware, desired firmware, or technical state.</p>
+              </div>
+              {device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : null}
+            </div>
+
+            {!desired ? (
+              <div className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">Set an exact desired firmware policy on the model before creating a lifecycle decision. An existing historical decision remains visible and can still be cleared.</div>
+            ) : (
+              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted-strong)]">A new save snapshots target <strong className="font-mono text-[var(--foreground)]">{desired.version}</strong>. Later model-policy changes will not rewrite the target stored on this decision.</div>
+            )}
+
+            {device.lifecycle ? (
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <DetailRow label="Stored target" value={`${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}`} />
+                <DetailRow label="Decided" value={new Date(device.lifecycle.decidedAt).toLocaleString()} />
+                <DetailRow label="Decided by" value={device.lifecycle.decidedBy?.name ?? 'Actor unavailable'} />
+                <DetailRow label="Completed" value={device.lifecycle.completedAt ? new Date(device.lifecycle.completedAt).toLocaleString() : '—'} />
+              </dl>
+            ) : null}
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-medium text-[var(--muted-strong)]">
+                Workflow state
+                <select value={workflowState} onChange={(event) => { setWorkflowState(event.target.value as FirmwareWorkflowState); setLifecycleError(null); setLifecycleMessage(null) }} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]">
+                  <option value="PLANNED">Planned</option>
+                  <option value="IGNORED">Ignored</option>
+                  <option value="CUSTOMER_DECLINED">Customer declined</option>
+                  <option value="DONE">Done</option>
+                </select>
+              </label>
+
+              {workflowState === 'PLANNED' ? (
+                <label className="text-sm font-medium text-[var(--muted-strong)]">
+                  Planned for
+                  <input type="datetime-local" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
+                </label>
+              ) : null}
+
+              {needsReason ? (
+                <label className="text-sm font-medium text-[var(--muted-strong)] sm:col-span-2">
+                  Reason <span className="text-[var(--warning)]">*</span>
+                  <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={workflowState === 'CUSTOMER_DECLINED' ? 'Why did the customer decline?' : 'Why is no action being taken now?'} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
+                </label>
+              ) : (
+                <label className="text-sm font-medium text-[var(--muted-strong)] sm:col-span-2">
+                  Reason <span className="font-normal text-[var(--muted)]">(optional)</span>
+                  <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional decision context" className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
+                </label>
+              )}
+
+              {needsReason ? (
+                <label className="text-sm font-medium text-[var(--muted-strong)]">
+                  Review at <span className="font-normal text-[var(--muted)]">(optional)</span>
+                  <input type="datetime-local" value={reviewAt} onChange={(event) => setReviewAt(event.target.value)} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
+                </label>
+              ) : null}
+
+              <label className={`text-sm font-medium text-[var(--muted-strong)] ${needsReason ? '' : 'sm:col-span-2'}`}>
+                Notes <span className="font-normal text-[var(--muted)]">(optional)</span>
+                <textarea value={lifecycleNotes} onChange={(event) => setLifecycleNotes(event.target.value)} rows={3} placeholder="Operational context, maintenance details, customer communication…" className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <div className="min-h-5 text-sm">
+                {lifecycleError ? <span className="text-red-300">{lifecycleError}</span> : null}
+                {lifecycleMessage ? <span className="text-emerald-300">{lifecycleMessage}</span> : null}
+              </div>
+              <div className="flex gap-2">
+                {device.lifecycle ? <button type="button" disabled={savingLifecycle} onClick={() => void clearLifecycleDecision()} className="rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--surface-raised)] disabled:opacity-50">Clear decision</button> : null}
+                <button type="button" disabled={savingLifecycle || !desired} onClick={() => void saveLifecycleDecision()} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">{savingLifecycle ? 'Saving…' : 'Save decision'}</button>
+              </div>
+            </div>
+          </section>
+
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Inventory notes</h2>
             {device.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{device.notes}</p> : <p className="mt-3 text-sm text-[var(--muted)]">No device notes recorded.</p>}
-            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Policy rows preserve historical targets; append-only actor/audit event behavior remains owned by Issue #12.</div>
+            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">The current lifecycle record stores operational context; append-only change history and broader audit events remain owned by Issue #12.</div>
           </section>
         </div>
 
