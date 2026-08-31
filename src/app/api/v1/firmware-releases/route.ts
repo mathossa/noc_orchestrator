@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server'
 import { firmwareReleaseApiError } from '@/lib/firmware-release-api'
-import { createFirmwareRelease, listFirmwareReleases, listFirmwareVendors } from '@/lib/firmware-release-store'
+import {
+  createFirmwareRelease,
+  listFirmwareReleases,
+  listFirmwareTrainReferences,
+  listFirmwareVendors,
+} from '@/lib/firmware-release-store'
 
 export async function GET() {
   try {
-    const [releases, vendors] = await Promise.all([listFirmwareReleases(), listFirmwareVendors()])
-    return NextResponse.json({ data: releases, meta: { vendors } })
+    const [releases, vendors, trains] = await Promise.all([
+      listFirmwareReleases(),
+      listFirmwareVendors(),
+      listFirmwareTrainReferences(),
+    ])
+    return NextResponse.json({ data: releases, meta: { vendors, trains } })
   } catch (error) {
     return firmwareReleaseApiError(error)
   }
