@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { cleanSiteCode, normalizedSiteName, parseSiteInput, SiteValidationError } from '@/lib/sites'
 
 describe('site validation', () => {
-  it('cleans site identity without requiring integration metadata', () => {
+  it('cleans site identity without requiring integration metadata or a contract override', () => {
     const parsed = parseSiteInput({ name: '  Head   Office ', code: ' hq_main ' })
     expect(parsed.name).toBe('Head Office')
     expect(parsed.code).toBe('HQ-MAIN')
+    expect(parsed.contractTypeId).toBeNull()
     expect(parsed.source).toBe('MANUAL')
     expect(parsed.externalProvider).toBeNull()
     expect(parsed.externalId).toBeNull()
+  })
+
+  it('preserves an explicit site contract override identifier', () => {
+    const parsed = parseSiteInput({ name: 'Datacenter', contractTypeId: ' contract-2 ' })
+    expect(parsed.contractTypeId).toBe('contract-2')
   })
 
   it('normalizes names for customer-scoped duplicate detection', () => {
