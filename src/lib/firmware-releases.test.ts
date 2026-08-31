@@ -35,7 +35,7 @@ describe('firmware release validation', () => {
       releaseNotesUrl: 'https://example.invalid/release-notes',
       source: 'MANUAL',
     })
-    expect(parsed.fileSizeBytes).toBe(123456789n)
+    expect(parsed.fileSizeBytes?.toString()).toBe('123456789')
     expect(parsed.externalProvider).toBeNull()
     expect(parsed.externalId).toBeNull()
   })
