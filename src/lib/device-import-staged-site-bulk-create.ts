@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
+import { nextAvailableImportSiteCode, suggestedImportSiteCode } from '@/lib/device-import-site-code'
 import { getDeviceImportBatchWorkspace, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
 
 const MAX_BULK_SITES = 250
-const MAX_SITE_CODE_LENGTH = 40
 
 type StagedSiteReference = {
   id: string
@@ -15,25 +15,6 @@ type StagedSiteReference = {
 
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
-}
-
-export function suggestedBulkSiteCode(sourceValue: string) {
-  const code = sourceValue
-    .normalize('NFKC')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return (code || 'SITE').slice(0, MAX_SITE_CODE_LENGTH).replace(/-+$/g, '') || 'SITE'
-}
-
-export function nextAvailableSiteCode(baseCode: string, usedCodes: Set<string>) {
-  if (!usedCodes.has(baseCode)) return baseCode
-  for (let suffix = 2; suffix < 10_000; suffix += 1) {
-    const suffixText = `-${suffix}`
-    const candidate = `${baseCode.slice(0, Math.max(1, MAX_SITE_CODE_LENGTH - suffixText.length)).replace(/-+$/g, '')}${suffixText}`
-    if (!usedCodes.has(candidate)) return candidate
-  }
-  throw new DeviceImportStagingError(`Could not generate a unique Site code for ${baseCode}.`)
 }
 
 export async function bulkCreateDeviceImportSites(rawInput: unknown) {
@@ -103,7 +84,7 @@ export async function bulkCreateDeviceImportSites(rawInput: unknown) {
     }
 
     const usedCodes = usedCodesByCustomer.get(customerId) ?? new Set<string>()
-    const code = nextAvailableSiteCode(suggestedBulkSiteCode(reference.sourceValue), usedCodes)
+    const code = nextAvailableImportSiteCode(suggestedImportSiteCode(reference.sourceValue), usedCodes)
     usedCodes.add(code)
     usedCodesByCustomer.set(customerId, usedCodes)
     created.push({
