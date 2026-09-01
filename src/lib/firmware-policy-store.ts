@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { AUDIT_ACTIONS } from '@/lib/audit-events'
 
 export const NORMAL_DESIRED_FIRMWARE_STATUSES = ['APPROVED', 'RECOMMENDED'] as const
 
@@ -105,7 +106,11 @@ export async function getActiveModelDesiredPolicy(deviceModelId: string) {
   return record ? serializePolicy(record) : null
 }
 
-export async function setModelDesiredFirmwarePolicy(deviceModelIdValue: unknown, firmwareReleaseIdValue: unknown) {
+export async function setModelDesiredFirmwarePolicy(
+  deviceModelIdValue: unknown,
+  firmwareReleaseIdValue: unknown,
+  actorUserId: string | null = null,
+) {
   const deviceModelId = cleanId(deviceModelIdValue)
   const firmwareReleaseId = cleanId(firmwareReleaseIdValue)
   if (!deviceModelId) throw new FirmwarePolicyValidationError('Device model is required.')
@@ -151,7 +156,7 @@ export async function setModelDesiredFirmwarePolicy(deviceModelIdValue: unknown,
       where: modelBaselineWhere(deviceModelId),
       data: { isActive: false },
     })
-    return tx.firmwarePolicy.create({
+    const next = await tx.firmwarePolicy.create({
       data: {
         deviceModelId,
         targetFirmwareReleaseId: firmwareReleaseId,
@@ -159,21 +164,75 @@ export async function setModelDesiredFirmwarePolicy(deviceModelIdValue: unknown,
       },
       include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
     })
+    await tx.auditEvent.create({
+      data: {
+        actorUserId,
+        action: AUDIT_ACTIONS.desiredFirmwareChanged,
+        entityType: 'DeviceModel',
+        entityId: deviceModelId,
+        before: {
+          policyId: current?.id ?? null,
+          firmwareReleaseId: current?.targetFirmwareReleaseId ?? null,
+          version: current?.targetFirmwareRelease.version ?? null,
+          status: current?.targetFirmwareRelease.status ?? null,
+        },
+        after: {
+          policyId: next.id,
+          firmwareReleaseId: next.targetFirmwareReleaseId,
+          version: next.targetFirmwareRelease.version,
+          status: next.targetFirmwareRelease.status,
+        },
+        metadata: { platform: model.platform ?? release.platform },
+      },
+    })
+    return next
   })
 
   return serializePolicy(created)
 }
 
-export async function clearModelDesiredFirmwarePolicy(deviceModelIdValue: unknown) {
+export async function clearModelDesiredFirmwarePolicy(
+  deviceModelIdValue: unknown,
+  actorUserId: string | null = null,
+) {
   const deviceModelId = cleanId(deviceModelIdValue)
   if (!deviceModelId) throw new FirmwarePolicyValidationError('Device model is required.')
 
   const model = await prisma.deviceModel.findUnique({ where: { id: deviceModelId }, select: { id: true } })
   if (!model) throw new FirmwarePolicyNotFoundError('Device model was not found.')
 
-  const result = await prisma.firmwarePolicy.updateMany({
+  const current = await prisma.firmwarePolicy.findFirst({
     where: modelBaselineWhere(deviceModelId),
-    data: { isActive: false },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
   })
-  return { cleared: result.count > 0 }
+  if (!current) return { cleared: false }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.firmwarePolicy.updateMany({
+      where: modelBaselineWhere(deviceModelId),
+      data: { isActive: false },
+    })
+    await tx.auditEvent.create({
+      data: {
+        actorUserId,
+        action: AUDIT_ACTIONS.desiredFirmwareCleared,
+        entityType: 'DeviceModel',
+        entityId: deviceModelId,
+        before: {
+          policyId: current.id,
+          firmwareReleaseId: current.targetFirmwareReleaseId,
+          version: current.targetFirmwareRelease.version,
+          status: current.targetFirmwareRelease.status,
+        },
+        after: {
+          policyId: null,
+          firmwareReleaseId: null,
+          version: null,
+          status: null,
+        },
+      },
+    })
+  })
+  return { cleared: true }
 }

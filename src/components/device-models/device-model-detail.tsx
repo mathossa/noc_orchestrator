@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { AuditHistory } from '@/components/ui/audit-history'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -148,6 +149,11 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
                 {policyMessage ? <p className="mt-3 text-sm text-emerald-300">{policyMessage}</p> : null}
               </div>
             </div>
+          </section>
+
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <SectionHeading title="Desired firmware history" description="Append-oriented history of explicit desired-firmware changes for this model." />
+            <AuditHistory events={model.auditHistory} emptyText="No desired-firmware policy changes have been recorded yet." />
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">

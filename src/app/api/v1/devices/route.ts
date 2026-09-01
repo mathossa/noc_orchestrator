@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
 import { deviceApiError } from '@/lib/device-api'
 import { createDevice, listDeviceReferences, listDevices } from '@/lib/device-store'
 
@@ -14,7 +15,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    return NextResponse.json({ data: await createDevice(body) }, { status: 201 })
+    const session = await auth.api.getSession({ headers: request.headers })
+    return NextResponse.json({ data: await createDevice(body, session?.user.id ?? null) }, { status: 201 })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(

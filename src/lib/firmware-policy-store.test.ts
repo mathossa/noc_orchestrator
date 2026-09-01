@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   policyFindFirst: vi.fn(),
   policyUpdateMany: vi.fn(),
   policyCreate: vi.fn(),
+  auditCreate: vi.fn(),
   transaction: vi.fn(),
 }))
 
@@ -18,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
       updateMany: mocks.policyUpdateMany,
       create: mocks.policyCreate,
     },
+    auditEvent: { create: mocks.auditCreate },
     $transaction: mocks.transaction,
   },
 }))
@@ -63,16 +65,18 @@ describe('model desired firmware policy persistence', () => {
     mocks.policyFindFirst.mockResolvedValue(null)
     mocks.policyUpdateMany.mockResolvedValue({ count: 0 })
     mocks.policyCreate.mockResolvedValue(policyRecord())
+    mocks.auditCreate.mockResolvedValue({ id: 'audit-1' })
     mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
       firmwarePolicy: {
         updateMany: mocks.policyUpdateMany,
         create: mocks.policyCreate,
       },
+      auditEvent: { create: mocks.auditCreate },
     }))
   })
 
-  it('creates an exact active model-baseline policy', async () => {
-    const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1')
+  it('creates an exact active model-baseline policy and appends an audit event', async () => {
+    const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1', 'user-1')
 
     expect(mocks.policyUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ deviceModelId: 'model-1', isActive: true, customerId: null, contractTypeId: null, deviceId: null, vendorId: null, deviceTypeId: null }),
@@ -80,6 +84,15 @@ describe('model desired firmware policy persistence', () => {
     }))
     expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: { deviceModelId: 'model-1', targetFirmwareReleaseId: 'fw-1', isActive: true },
+    }))
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorUserId: 'user-1',
+        action: 'DESIRED_FIRMWARE_CHANGED',
+        entityType: 'DeviceModel',
+        entityId: 'model-1',
+        after: expect.objectContaining({ version: '17.15.5' }),
+      }),
     }))
     expect(result.release.version).toBe('17.15.5')
   })
@@ -93,16 +106,23 @@ describe('model desired firmware policy persistence', () => {
 
     expect(mocks.policyUpdateMany).toHaveBeenCalledTimes(1)
     expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ targetFirmwareReleaseId: 'fw-1' }) }))
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        before: expect.objectContaining({ version: '17.15.3' }),
+        after: expect.objectContaining({ version: '17.15.5' }),
+      }),
+    }))
     expect(result.id).toBe('policy-new')
   })
 
-  it('does not create a new row when the exact desired release is already active', async () => {
+  it('does not create a new row or audit event when the exact desired release is already active', async () => {
     mocks.policyFindFirst.mockResolvedValue(policyRecord())
 
     const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1')
 
     expect(result.id).toBe('policy-1')
     expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.auditCreate).not.toHaveBeenCalled()
   })
 
   it('accepts RECOMMENDED as a normal desired target', async () => {
@@ -140,12 +160,21 @@ describe('model desired firmware policy persistence', () => {
     await expect(setModelDesiredFirmwarePolicy('model-1', 'fw-1')).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
   })
 
-  it('clears the active model policy without deleting historical rows', async () => {
+  it('clears the active model policy without deleting historical rows and audits the clear', async () => {
+    mocks.policyFindFirst.mockResolvedValue(policyRecord())
     mocks.policyUpdateMany.mockResolvedValue({ count: 1 })
-    const result = await clearModelDesiredFirmwarePolicy('model-1')
+    const result = await clearModelDesiredFirmwarePolicy('model-1', 'user-1')
 
     expect(result).toEqual({ cleared: true })
     expect(mocks.policyUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { isActive: false } }))
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorUserId: 'user-1',
+        action: 'DESIRED_FIRMWARE_CLEARED',
+        before: expect.objectContaining({ version: '17.15.5' }),
+        after: expect.objectContaining({ version: null }),
+      }),
+    }))
   })
 
   it('continues resolving an existing archived target for historical integrity', async () => {

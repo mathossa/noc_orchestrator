@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma'
+import { AUDIT_ACTIONS } from '@/lib/audit-events'
+import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
@@ -321,7 +323,10 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
-  const desiredPolicy = await getActiveModelDesiredPolicy(record.deviceModelId)
+  const [desiredPolicy, auditHistory] = await Promise.all([
+    getActiveModelDesiredPolicy(record.deviceModelId),
+    listAuditEventsForEntity('Device', id),
+  ])
   const desiredRelease = desiredPolicy
     ? {
         id: desiredPolicy.release.id,
@@ -344,19 +349,56 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     updatedAt: record.updatedAt.toISOString(),
     desiredFirmware: { available: true, release: desiredRelease },
     technicalState: { available: true, state: technicalState },
+    auditHistory,
   }
 }
 
-export async function createDevice(rawInput: unknown) {
+export async function createDevice(rawInput: unknown, actorUserId: string | null = null) {
   const input = parseDeviceInput(rawInput)
   await assertReferences(input)
   await assertUniqueWithinCustomer(input.customerId, input.name)
-  const record = await prisma.device.create({ data: input, include: deviceInclude })
+
+  if (!input.currentFirmwareReleaseId) {
+    const record = await prisma.device.create({ data: input, include: deviceInclude })
+    return serializeDevice(record as IncludedDevice)
+  }
+
+  const record = await prisma.$transaction(async (tx) => {
+    const next = await tx.device.create({ data: input, include: deviceInclude })
+    await tx.auditEvent.create({
+      data: {
+        actorUserId,
+        customerId: input.customerId,
+        action: AUDIT_ACTIONS.currentFirmwareChanged,
+        entityType: 'Device',
+        entityId: next.id,
+        before: {
+          firmwareReleaseId: null,
+          version: null,
+          observedAt: null,
+          source: null,
+        },
+        after: {
+          firmwareReleaseId: next.currentFirmwareReleaseId,
+          version: next.currentFirmwareRelease?.version ?? null,
+          observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
+          source: next.currentFirmwareSource,
+        },
+        metadata: { context: 'DEVICE_CREATED' },
+      },
+    })
+    return next
+  })
   return serializeDevice(record as IncludedDevice)
 }
 
-export async function updateDevice(id: string, rawInput: unknown) {
-  const current = await prisma.device.findUnique({ where: { id } })
+export async function updateDevice(id: string, rawInput: unknown, actorUserId: string | null = null) {
+  const current = await prisma.device.findUnique({
+    where: { id },
+    include: {
+      currentFirmwareRelease: { select: { id: true, version: true, platform: true } },
+    },
+  })
   if (!current) throw new DeviceNotFoundError()
 
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
@@ -381,7 +423,45 @@ export async function updateDevice(id: string, rawInput: unknown) {
 
   await assertReferences(input)
   await assertUniqueWithinCustomer(input.customerId, input.name, id)
-  const record = await prisma.device.update({ where: { id }, data: input, include: deviceInclude })
+
+  const currentObservedAt = current.currentFirmwareObservedAt?.getTime() ?? null
+  const nextObservedAt = input.currentFirmwareObservedAt?.getTime() ?? null
+  const firmwareChanged =
+    current.currentFirmwareReleaseId !== input.currentFirmwareReleaseId ||
+    currentObservedAt !== nextObservedAt ||
+    current.currentFirmwareSource !== input.currentFirmwareSource
+
+  if (!firmwareChanged) {
+    const record = await prisma.device.update({ where: { id }, data: input, include: deviceInclude })
+    return serializeDevice(record as IncludedDevice)
+  }
+
+  const record = await prisma.$transaction(async (tx) => {
+    const next = await tx.device.update({ where: { id }, data: input, include: deviceInclude })
+    await tx.auditEvent.create({
+      data: {
+        actorUserId,
+        customerId: input.customerId,
+        action: AUDIT_ACTIONS.currentFirmwareChanged,
+        entityType: 'Device',
+        entityId: id,
+        before: {
+          firmwareReleaseId: current.currentFirmwareReleaseId,
+          version: current.currentFirmwareRelease?.version ?? null,
+          observedAt: current.currentFirmwareObservedAt?.toISOString() ?? null,
+          source: current.currentFirmwareSource,
+        },
+        after: {
+          firmwareReleaseId: next.currentFirmwareReleaseId,
+          version: next.currentFirmwareRelease?.version ?? null,
+          observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
+          source: next.currentFirmwareSource,
+        },
+        metadata: { context: 'DEVICE_UPDATED' },
+      },
+    })
+    return next
+  })
   return serializeDevice(record as IncludedDevice)
 }
 

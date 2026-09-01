@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
+import { AuditHistory } from '@/components/ui/audit-history'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -224,10 +225,18 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             </div>
           </section>
 
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <h2 className="text-sm font-semibold">Firmware lifecycle history</h2>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Append-oriented history of current-firmware recordings and operational lifecycle decisions for this device.</p>
+            </div>
+            <AuditHistory events={device.auditHistory} />
+          </section>
+
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Inventory notes</h2>
             {device.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{device.notes}</p> : <p className="mt-3 text-sm text-[var(--muted)]">No device notes recorded.</p>}
-            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">The current lifecycle record stores operational context; append-only transition history and broader audit events remain owned by Issue #12.</div>
+            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Lifecycle-significant changes are retained in the audit history above; generic inventory CRUD noise is intentionally not logged.</div>
           </section>
         </div>
 
