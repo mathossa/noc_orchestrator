@@ -145,7 +145,10 @@ function extractEntry(data: Buffer, entry: ZipEntry) {
   return content
 }
 
-function readEntryText(data: Buffer, entries: Map<string, ZipEntry>, name: string, required = true) {
+function readEntryText(data: Buffer, entries: Map<string, ZipEntry>, name: string): string
+function readEntryText(data: Buffer, entries: Map<string, ZipEntry>, name: string, required: true): string
+function readEntryText(data: Buffer, entries: Map<string, ZipEntry>, name: string, required: false): string | null
+function readEntryText(data: Buffer, entries: Map<string, ZipEntry>, name: string, required = true): string | null {
   const entry = entries.get(name)
   if (!entry) {
     if (!required) return null
