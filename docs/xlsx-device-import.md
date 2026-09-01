@@ -1,197 +1,193 @@
 # XLSX device inventory import
 
-Issue #38 adds a guided spreadsheet import for recorded device inventory. It is an inventory/state input path, not a discovery mechanism and not a firmware-policy import.
+Issue #38 adds a guided spreadsheet import for recorded device inventory. It is an inventory/current-state input path, not a monitoring or device-discovery mechanism and not a desired-firmware/lifecycle import.
 
-## Scope
+## Import workflow
 
-The first spreadsheet format is `.xlsx`.
+The workspace lives at `/devices/import` and uses three server-validated stages:
 
-The importer is deliberately not tied to one customer workbook layout. Engineers select the worksheet/header and explicitly map source columns to NOC Orchestrator fields.
+1. **Inspect** — parse the XLSX, select worksheet/header, inspect a sample, and choose or create an import profile.
+2. **Preview / resolve** — map columns, resolve reference values, review CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR rows, and choose rows to import. Preview does not write device inventory.
+3. **Commit** — reparse and revalidate the original workbook against the current database, then write selected CREATE/UPDATE rows in one Prisma transaction.
+
+The browser retains the original `File` and resends it for each stage; no temporary uploaded workbook record is required.
+
+## Reusable import profiles
+
+Exports from products such as Auvik normally keep the same layout between runs. `DeviceImportProfile` stores those structural choices so they do not need to be recreated on every import.
+
+A profile stores:
+
+- profile/export name, e.g. `AUVIK EXPORT`;
+- external provider, e.g. `Auvik`;
+- worksheet name;
+- header row;
+- column mapping;
+- optional Customer/Site defaults;
+- Organization/Site split delimiter.
+
+The import page exposes saved profiles through a dropdown near the external-provider/default settings. Selecting a profile restores its mapping. Updating the profile persists later layout changes.
+
+Reference aliases remembered with **Always match** are scoped to the selected profile. This means an Auvik-specific name does not silently become a rule for an unrelated CMDB export. Existing legacy/global aliases remain supported when no profile is selected.
+
+## Column mapping
 
 Supported destination fields are:
 
-- Customer
-- Site / location
-- Device name
-- Hostname
-- Serial number
-- Vendor
-- Concrete device model
-- Device type
-- Management address
-- Current firmware
-- Contract context
-- External provider
-- External/source ID
-- Notes
+- combined Organization + Site;
+- Customer;
+- Site / location;
+- Device name;
+- Hostname;
+- Serial number;
+- Vendor;
+- concrete Device model;
+- Device type;
+- Management address;
+- Current firmware (generic);
+- Firmware Version;
+- Software Version;
+- Contract context;
+- External provider;
+- External/source ID;
+- Notes.
 
-Customer, Site and external provider can also be supplied as file-level defaults.
+Scalar fields such as hostname, IP address, serial number and notes do not need a reference-link decision. Their source column is remembered by the import profile.
 
-## Three-stage workflow
+Reference-valued fields can be resolved explicitly when source text does not match configured NOC Orchestrator data.
 
-### 1. Inspect
+## Auvik Organization Name: `<Organization> - <Site>`
 
-`POST /api/v1/device-import/xlsx/inspect`
+Auvik-style `Organization Name` is suggested as **Organization + site (split one column)**.
 
-The original workbook is parsed without writing device inventory. The response includes worksheet/header samples, suggested mappings, Customer/Site defaults, and configured Vendor/Device Type/Device Model/family choices used by the resolution UI.
+The default delimiter is ` - `. The importer splits on the final occurrence. For example:
 
-The browser retains the original `File`; no temporary import file is persisted by NOC Orchestrator.
+`Unica Groep - UICTS Working Spirit Deventer`
 
-### 2. Preview and resolve
+becomes:
 
-`POST /api/v1/device-import/xlsx/preview`
+- Customer: `Unica Groep`
+- Site: `UICTS Working Spirit Deventer`
 
-The browser resends the original workbook with the selected worksheet, header row, column mapping, defaults, and any one-time reference resolutions.
+Resolution is dependency-aware:
 
-Every non-empty data row is resolved against current NOC Orchestrator reference data and classified as:
+1. Customer is resolved first.
+2. Site is resolved only inside that Customer.
+3. If Customer is not yet known, resolve/create the Customer and re-run preview.
+4. The Site can then be linked or created under that Customer.
+5. When both choices are remembered for the selected profile, future exports resolve them automatically.
 
-- `CREATE`
-- `UPDATE`
-- `UNCHANGED`
-- `CONFLICT`
-- `ERROR`
+A Site alias is always Customer-scoped and can never assign a Site across Customers.
 
-Unknown Device Type and concrete Device Model values are grouped by raw spreadsheet value. Instead of editing every row, an engineer can choose one of three deliberate actions:
+## Explicit reference resolution
 
-1. **Use once** — map the spreadsheet value to an existing configured record for this import only.
-2. **Always match** — persist the mapping as an import alias so future XLSX imports automatically make the same match.
-3. **Create new** — explicitly create the missing Device Type or concrete Device Model from inside the import workspace, then use it once or remember the match.
+The preview aggregates repeated unresolved values so one decision applies to every matching row.
 
-Preview itself does not write device inventory. Explicitly creating reference data or choosing **Always match** is a separate deliberate configuration write initiated by the engineer.
+Reference kinds currently supported by the resolver are:
 
-After resolutions are selected, the preview is run again before any device rows can be imported.
+- Customer;
+- Site;
+- Vendor;
+- Device Type;
+- concrete Device Model;
+- Contract Type;
+- Firmware Release.
 
-### 3. Commit
+For a reference value an engineer may choose:
 
-`POST /api/v1/device-import/xlsx/commit`
+- **Use once** — map the raw value for the current preview/import only;
+- **Always match** — save the mapping for the selected import profile;
+- **Create new** — deliberately create the missing reference using the normal application validation, then use it once or remember it.
 
-The browser resends the workbook, mapping/defaults/resolutions and explicit selected spreadsheet row numbers.
+Creation is always explicit. The importer never creates arbitrary reference records unattended merely because spreadsheet text was not recognized.
 
-The server reparses and revalidates the workbook against the current database. Selected rows must still be importable. All selected creates/updates are then executed inside one Prisma transaction.
+Mappings that need context keep that context in their alias key:
 
-A batch therefore does not report partial success when the transaction fails.
+- Site → Customer;
+- Device Model → Vendor;
+- Firmware Release → Vendor + platform.
 
-## Reference resolution
+Device inventory always points at a concrete `DeviceModel`; a family/series is never substituted for the concrete model.
 
-The importer uses the normal application relationships.
+## Firmware Version vs Software Version
 
-### Customer and Site
+Exports may contain both fields. When both are mapped:
 
-A row Customer is resolved by configured name or code. If a mapped Customer cell is absent/blank, the file-level Customer default may be used.
+1. **Firmware Version** is the preferred source for `Device.currentFirmwareRelease`.
+2. **Software Version** is a fallback only when Firmware Version is absent/blank.
 
-Site/location is resolved only inside the resolved Customer. A file-level Site default is rejected if it belongs to another Customer.
+For verbose Software Version strings the importer extracts the dotted version when possible. Examples:
 
-Customer and Site creation is not part of the inline resolver in this version.
+- `FortiGate-100F v7.4.12,build2902,...` → `7.4.12`
+- `S424EF-v7.4.9-build946,260122 (GA)` → `7.4.9`
+- `FP231G-v7.4.7-build0802` → `7.4.7`
 
-### Vendor
+The resulting version still has to resolve to a Firmware Release compatible with the concrete model's Vendor/platform. An engineer may link, remember, or explicitly create a missing Firmware Release from the resolver.
 
-Vendor remains a configured reference and must resolve by configured name/code when mapped. Inline Vendor creation is not included in this iteration.
+## Customer, Site and contract semantics
 
-### Device type
-
-A spreadsheet type such as `Switch`, `Firewall`, or `Access Point` can be linked to an existing configured type even when its spelling/name does not match exactly (for example `Switch` -> `Switches`).
-
-One-time mappings live only in the current import options. **Always match** stores a normalized `ImportReferenceAlias` so later imports reuse the decision.
-
-If the correct Device Type does not yet exist, it can be explicitly created from the resolution panel using the normal reference-data validation rules.
-
-### Concrete device model
-
-Device inventory always resolves to a concrete `DeviceModel`. Family/series names introduced by Issue #30 are organizational context and are not used as inventory model substitutes.
-
-Raw model notation is preserved. For example, a workbook value such as `Fortinet FortiGate-100F` is not silently shortened to `FortiGate-100F`. The engineer can:
-
-- map that exact spreadsheet notation to an existing concrete model;
-- remember that mapping for later imports; or
-- create a new concrete model with the raw notation prefilled and edit it before saving.
-
-Saved model aliases are vendor-scoped. This prevents the same raw model value from being accidentally mapped across vendors. A model created from the import still requires an explicit Vendor and Device Type and may optionally be placed in an existing model family/series and given a concrete firmware platform.
-
-### Persistent import aliases
-
-Persistent aliases are stored separately from the actual Vendor/Device Type/Device Model records. They do not rename or duplicate the target record.
-
-The current alias kinds are:
-
-- `DEVICE_TYPE`
-- `DEVICE_MODEL`
-
-Device Type aliases are global. Device Model aliases are scoped to the target Vendor. Updating an existing alias is an explicit **Always match** action.
-
-### Current firmware
-
-A mapped current-firmware value must resolve to an existing catalog release with the same Vendor as the concrete model and a matching concrete `DeviceModel.platform` when the model defines one.
-
-Unknown firmware text is still surfaced as an error; inline FirmwareRelease creation is not part of this issue.
-
-### Contract context
+Site assignment is always scoped to the resolved Customer.
 
 Device does not own a contract field. Effective contract remains:
 
 `Site override -> Customer default -> none`
 
-A mapped Contract column is validation-only. If supplied, it must match the effective contract for the resolved Customer/Site. XLSX device import never edits Customer/Site contract assignments.
+A mapped Contract column is validation context. A Contract Type may be linked/created as reference data, but device import does **not** automatically change Customer/Site contract assignment. The resolved Contract must still equal the effective contract.
 
 ## Existing-device matching
 
-Matching is deterministic and intentionally conservative.
+Matching is deterministic and conservative:
 
-1. If both external provider and external ID are available, that pair is the strongest identity.
-2. Otherwise, after Customer resolution, the importer checks customer-scoped normalized device name and hostname.
-3. Multiple possible matches are a conflict.
-4. Multiple spreadsheet rows targeting the same existing device are conflicts.
-5. Multiple create rows producing the same customer-scoped device name are conflicts.
-6. Duplicate external provider + external ID values inside the selected workbook rows are conflicts.
+1. external provider + external ID when both are available;
+2. otherwise Customer-scoped normalized Device name and/or hostname;
+3. multiple possible matches are conflicts;
+4. multiple spreadsheet rows targeting the same existing Device are conflicts;
+5. multiple create rows producing the same Customer-scoped Device name are conflicts;
+6. duplicate provider + external ID pairs inside the workbook are conflicts.
 
-A clear match is previewed as `UPDATE`, not silently created as a duplicate.
-
-## Update semantics
-
-Spreadsheet cells that are not mapped (or mapped optional cells that are blank) do not automatically clear existing optional inventory values. This makes customer exports usable when they omit fields that NOC Orchestrator already knows.
-
-An existing row with no material inventory difference is `UNCHANGED` and is skipped.
-
-When a current-firmware value is explicitly mapped, its observation timestamp is the import time and its source is `IMPORT`.
+A clear match becomes UPDATE instead of silently creating a duplicate. Blank/unmapped optional cells do not automatically clear existing optional inventory values.
 
 ## Provenance and ownership boundaries
 
-Created/updated inventory records use:
+Created/updated Devices use `source = IMPORT` and update `lastSynchronizedAt`.
 
-- `Device.source = IMPORT`
-- `lastSynchronizedAt = import time`
-- `currentFirmwareSource = IMPORT` when current firmware is supplied by the workbook
+When current firmware is supplied by the workbook:
 
-Concrete Device Models deliberately created from the import resolver use `DeviceModel.source = IMPORT`.
+- `currentFirmwareSource = IMPORT`;
+- observation time is the import time;
+- the normal current-firmware audit event includes workbook sheet/row context and selected import-profile ID.
 
-Import can update the normal device inventory/current-state fields only. It does **not** import or overwrite desired firmware policies, lifecycle workflow decisions, planning data, or existing audit history.
+XLSX import never overwrites:
 
-When imported current firmware is written, the normal current-firmware audit action is appended with XLSX file/sheet/row context.
+- desired firmware policies;
+- lifecycle workflow state;
+- PLANNED / IGNORED / CUSTOMER_DECLINED / DONE decisions;
+- planning/review dates or reasons;
+- existing audit history.
 
 ## XLSX safety limits
 
-The server uses a bounded OOXML reader for values needed by inventory import rather than executing spreadsheet macros or embedded content.
+There is no artificial 5,000-row application limit anymore. Worksheets are accepted up to the XLSX/Excel row-coordinate maximum (1,048,576 rows), subject to workbook-size safeguards.
 
-Current limits:
+Current safeguards remain:
 
 - maximum uploaded `.xlsx`: 8 MB;
 - maximum worksheets: 20;
-- maximum worksheet row coordinate: 5,000;
-- maximum columns: 100;
+- maximum columns parsed per worksheet: 100;
 - maximum total uncompressed ZIP content: 40 MB;
 - worksheet sample returned to the mapping UI: first 30 non-empty rows.
 
-Encrypted workbooks and unsupported ZIP compression methods are rejected. ZIP entry paths are normalized/validated before extraction.
+Encrypted workbooks, unsupported compression, unsafe ZIP paths and malformed archives are rejected. Embedded scripts/macros, external links and formula code are not executed.
 
-Only ordinary cached cell values, shared strings and inline strings are needed for this import. Embedded scripts/macros, external links, formulas as executable logic, drawings and other workbook features are not executed.
+For very large exports, compressed/uncompressed size limits remain the controlling resource boundary instead of a fixed device-row count.
 
-## UX
+## Database additions
 
-The import workspace lives at `/devices/import`.
+Issue #38 uses two migrations:
 
-The Devices page links to it as a separate inventory-input workflow so XLSX cleanup/mapping does not crowd the normal device inventory table.
+1. `ImportReferenceAlias` for the original explicit remembered mappings.
+2. `DeviceImportProfile` + `DeviceImportProfileAlias` for reusable exporter layouts and profile-scoped remembered choices.
 
-The preview supports automatic header/mapping suggestions, manual mapping/defaults, grouped unresolved reference decisions, one-time or persistent aliases, inline Device Type/Device Model creation, per-row action/error/change detail, action filtering, subset selection, and final created/updated/skipped/failed totals.
+## Non-goals
 
-## Explicit non-goals
-
-Issue #38 still does not add CSV import, API synchronization providers, live discovery, SSH/SNMP interrogation, automatic/unattended creation of reference data, inline Customer/Site/Vendor/Firmware creation, desired firmware import, lifecycle/planning import, or firmware execution.
+Issue #38 does not add CSV import, API synchronization providers, live discovery, SSH/SNMP interrogation, unattended reference creation, desired-firmware import, lifecycle/planning import, or firmware execution.
