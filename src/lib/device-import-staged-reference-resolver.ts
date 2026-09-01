@@ -161,7 +161,7 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
   }
 }
 
-function exactNameOrCode(value: string, records: Array<{ name: string; code?: string | null }>) {
+function exactNameOrCode<T extends { id: string; name: string; code?: string | null }>(value: string, records: T[]): T[] {
   const normalized = normalizeImportText(value)
   return records.filter((record) =>
     normalizeImportText(record.name) === normalized || normalizeImportText(record.code) === normalized,
