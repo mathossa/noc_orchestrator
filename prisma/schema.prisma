@@ -53,7 +53,7 @@ model AuthAccount {
   id                    String    @id @default(uuid())
   issuer                String
   accountId             String
-  providerId             String
+  providerId            String
   userId                 String
   accessToken            String?
   refreshToken           String?
@@ -159,7 +159,6 @@ model Customer {
   contractTypeId String?
   isActive       Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -198,7 +197,6 @@ model Site {
   notes        String?
   isActive     Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -231,7 +229,6 @@ model DeviceModel {
   notes        String?
   isActive     Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -257,8 +254,23 @@ model DeviceModel {
   @@index([isActive])
 }
 
+model DeviceImportProfile {
+  id               String  @id @default(uuid())
+  name             String  @unique
+  externalProvider String?
+  settings         Json
+  isActive         Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([isActive])
+  @@index([externalProvider])
+}
+
 model ImportReferenceAlias {
   id                    String @id @default(uuid())
+  profileScope          String @default("GLOBAL")
   kind                  String
   sourceValue           String
   normalizedSourceValue String
@@ -268,7 +280,8 @@ model ImportReferenceAlias {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  @@unique([kind, normalizedSourceValue, contextKey])
+  @@unique([profileScope, kind, normalizedSourceValue, contextKey])
+  @@index([profileScope])
   @@index([kind, targetId])
 }
 
@@ -280,7 +293,6 @@ model FirmwareTrain {
   notes    String?
   isActive Boolean @default(true)
 
-  // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -315,7 +327,6 @@ model FirmwareRelease {
   releasedAt      DateTime?
   isActive        Boolean @default(true)
 
-  // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -356,7 +367,6 @@ model Device {
   currentFirmwareSource     String   @default("MANUAL")
   isActive                  Boolean  @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -392,9 +402,6 @@ model FirmwarePolicy {
   isActive                Boolean @default(true)
   notes                   String?
 
-  // v0.1.0 creates model-level policies. Nullable scope references reserve a
-  // non-destructive path for later device, customer/model, contract/model,
-  // vendor, and device-type overrides without implementing precedence here.
   deviceModelId  String?
   customerId     String?
   contractTypeId String?
