@@ -1,11 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { DeviceFilterBar } from '@/components/devices/device-filter-bar'
 import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
+import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
+import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
   DeviceFieldErrors,
   DeviceFirmwareReference,
@@ -15,7 +19,7 @@ import type {
 } from '@/lib/devices'
 
 type ApiError = { error?: { message?: string; fields?: DeviceFieldErrors } }
-type Payload = { data?: DeviceRecord[]; meta?: DeviceReferenceData } & ApiError
+type Payload = { data?: DeviceQueryRecord[]; meta?: DeviceQueryMeta } & ApiError
 
 type FormState = {
   customerId: string
@@ -34,6 +38,8 @@ type FormState = {
   externalId: string
   isActive: boolean
 }
+
+const EMPTY_REFERENCES: DeviceReferenceData = { customers: [], sites: [], models: [], firmwareReleases: [] }
 
 function emptyForm(customerId = '', siteId = ''): FormState {
   return {
@@ -75,14 +81,16 @@ function toLocalDateTimeInput(value: string | null) {
 export function DeviceManager({
   initialCustomerId = '',
   initialSiteId = '',
-  initialModelId = '',
 }: {
   initialCustomerId?: string
   initialSiteId?: string
   initialModelId?: string
 }) {
-  const [records, setRecords] = useState<DeviceRecord[]>([])
-  const [references, setReferences] = useState<DeviceReferenceData>({ customers: [], sites: [], models: [], firmwareReleases: [] })
+  const searchParams = useSearchParams()
+  const queryString = searchParams.toString()
+  const [records, setRecords] = useState<DeviceQueryRecord[]>([])
+  const [references, setReferences] = useState<DeviceReferenceData>(EMPTY_REFERENCES)
+  const [meta, setMeta] = useState<DeviceQueryMeta | null>(null)
   const [form, setForm] = useState<FormState>(() => emptyForm(initialCustomerId, initialSiteId))
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -90,23 +98,19 @@ export function DeviceManager({
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<DeviceFieldErrors>({})
-  const [search, setSearch] = useState('')
-  const [customerFilter, setCustomerFilter] = useState(initialCustomerId)
-  const [siteFilter, setSiteFilter] = useState(initialSiteId)
-  const [modelFilter, setModelFilter] = useState(initialModelId)
-  const [archiveFilter, setArchiveFilter] = useState('active')
 
   const applyPayload = useCallback((payload: Payload) => {
     setRecords(payload.data ?? [])
-    setReferences(payload.meta ?? { customers: [], sites: [], models: [], firmwareReleases: [] })
+    setMeta(payload.meta ?? null)
+    setReferences(payload.meta ?? EMPTY_REFERENCES)
   }, [])
 
   const load = useCallback(async () => {
-    const response = await fetch('/api/v1/devices', { cache: 'no-store' })
+    const response = await fetch(`/api/v1/devices${queryString ? `?${queryString}` : ''}`, { cache: 'no-store' })
     const payload = (await response.json()) as Payload
     if (!response.ok) throw new Error(payload.error?.message ?? 'Devices could not be loaded.')
     return payload
-  }, [])
+  }, [queryString])
 
   useEffect(() => {
     let cancelled = false
@@ -255,41 +259,33 @@ export function DeviceManager({
       : 'No contract'
   const formSites = references.sites.filter((site) => site.customerId === form.customerId)
   const formReleases = references.firmwareReleases.filter((release) => releaseMatchesModel(release, selectedModel))
-  const filterSites = references.sites.filter((site) => !customerFilter || site.customerId === customerFilter)
 
-  const filteredRecords = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase('en-US')
-    return records.filter((record) => {
-      if (archiveFilter === 'active' && !record.isActive) return false
-      if (archiveFilter === 'archived' && record.isActive) return false
-      if (customerFilter && record.customerId !== customerFilter) return false
-      if (siteFilter && record.siteId !== siteFilter) return false
-      if (modelFilter && record.deviceModelId !== modelFilter) return false
-      if (!needle) return true
-      return [
-        record.name,
-        record.hostname ?? '',
-        record.serialNumber ?? '',
-        record.managementAddress ?? '',
-        record.customer.name,
-        record.site?.name ?? '',
-        record.deviceModel.vendor.name,
-        record.deviceModel.model,
-        record.currentFirmwareRelease?.version ?? '',
-        record.effectiveContractType?.name ?? '',
-      ]
-        .join(' ')
-        .toLocaleLowerCase('en-US')
-        .includes(needle)
-    })
-  }, [records, search, archiveFilter, customerFilter, siteFilter, modelFilter])
+  const pageGroups = useMemo(() => {
+    if (!meta || meta.query.groupBy === 'none') return [{ key: 'all', label: null as string | null, records }]
+    const groups = new Map<string, { key: string; label: string | null; records: DeviceQueryRecord[] }>()
+    for (const record of records) {
+      const key = record.groupKey ?? 'none'
+      const current = groups.get(key)
+      if (current) current.records.push(record)
+      else groups.set(key, { key, label: record.groupLabel, records: [record] })
+    }
+    return [...groups.values()]
+  }, [meta, records])
+
+  function pageHref(page: number) {
+    const params = new URLSearchParams(queryString)
+    if (page <= 1) params.delete('page')
+    else params.set('page', String(page))
+    const serialized = params.toString()
+    return serialized ? `/devices?${serialized}` : '/devices'
+  }
 
   return (
     <>
       <PageHeader
         eyebrow="Recorded inventory"
         title="Devices"
-        description="Manual device inventory and recorded firmware state. No live SSH, SNMP, API polling, or generic monitoring is performed here."
+        description="Filter and group recorded inventory across customer, site, vendor, model, type, effective contract, firmware state, workflow, and provenance."
         actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>}
       />
 
@@ -381,37 +377,61 @@ export function DeviceManager({
       </form>
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-        <div className="grid gap-3 border-b border-[var(--border)] p-4 md:grid-cols-2 xl:grid-cols-5">
-          <TextInput type="search" aria-label="Search devices" placeholder="Name, hostname, serial, address, firmware…" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <SelectInput aria-label="Filter devices by customer" value={customerFilter} onChange={(event) => { const customerId = event.target.value; setCustomerFilter(customerId); if (siteFilter && !references.sites.some((site) => site.id === siteFilter && site.customerId === customerId)) setSiteFilter('') }}><option value="">All customers</option>{references.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter devices by site" value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)}><option value="">All sites</option>{filterSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter devices by model" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)}><option value="">All models</option>{references.models.map((model) => <option key={model.id} value={model.id}>{model.vendor.name} · {model.model}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter devices by archive state" value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></SelectInput>
-        </div>
+        {meta ? <DeviceFilterBar meta={meta} /> : null}
 
-        {loading ? <LoadingState title="Loading devices" description="Reading recorded inventory and firmware state…" /> : filteredRecords.length === 0 ? <EmptyState title="No devices match" description="Add a manual device or adjust the current filters." /> : (
+        {meta ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-xs text-[var(--muted)]">
+            <span>{meta.pagination.total} matching device{meta.pagination.total === 1 ? '' : 's'} · {meta.pagination.inventoryTotal} total inventory records</span>
+            {meta.query.groupBy !== 'none' ? <span>{meta.groups.length} group{meta.groups.length === 1 ? '' : 's'} across the full filtered result</span> : null}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <LoadingState title="Loading devices" description="Applying backend inventory filters and firmware state resolution…" />
+        ) : meta?.pagination.inventoryTotal === 0 ? (
+          <EmptyState title="No devices yet" description="Add a manual device to start the inventory." />
+        ) : records.length === 0 ? (
+          <EmptyState title="No devices match" description="The inventory contains devices, but none match the current URL-backed filters." />
+        ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1220px] text-left text-sm">
+            <table className="w-full min-w-[1540px] text-left text-sm">
               <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
-                <tr><th className="px-4 py-3">Device</th><th className="px-4 py-3">Customer / site</th><th className="px-4 py-3">Model / type</th><th className="px-4 py-3">Current firmware</th><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">State</th><th className="px-4 py-3 text-right">Actions</th></tr>
+                <tr><th className="px-4 py-3">Device</th><th className="px-4 py-3">Customer / site</th><th className="px-4 py-3">Model / type</th><th className="px-4 py-3">Current</th><th className="px-4 py-3">Desired</th><th className="px-4 py-3">Technical</th><th className="px-4 py-3">Workflow</th><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Source</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {filteredRecords.map((record) => (
-                  <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
-                    <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
-                    <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? record.site.name : 'No site'}</div></td>
-                    <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name}{record.deviceModel.platform ? ` · ${record.deviceModel.platform}` : ''}</div></td>
-                    <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
-                    <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
-                    <td className="px-4 py-3 text-xs">{record.source}</td>
-                    <td className="px-4 py-3 text-xs">{record.isActive ? 'Active' : 'Archived'}</td>
-                    <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
-                  </tr>
+                {pageGroups.map((group) => (
+                  <Fragment key={group.key}>
+                    {group.label ? <tr className="bg-[var(--surface-raised)]"><td colSpan={10} className="px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">{group.label} · {meta?.groups.find((item) => item.key === group.key)?.count ?? group.records.length} matching</td></tr> : null}
+                    {group.records.map((record) => (
+                      <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
+                        <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
+                        <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? record.site.name : 'No site'}</div></td>
+                        <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name}{record.deviceModel.platform ? ` · ${record.deviceModel.platform}` : ''}</div></td>
+                        <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
+                        <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
+                        <td className="px-4 py-3"><TechnicalStatusBadge state={record.technicalState} /></td>
+                        <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No decision</span>}</td>
+                        <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
+                        <td className="px-4 py-3 text-xs">{record.source}<div className="mt-1 text-[var(--muted)]">{record.isActive ? 'Active' : 'Archived'}</div></td>
+                        <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+
+        {meta && meta.pagination.total > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 text-sm">
+            <div className="text-xs text-[var(--muted)]">Page {meta.pagination.page} of {meta.pagination.totalPages} · up to {meta.pagination.pageSize} records per page</div>
+            <div className="flex gap-2">
+              <Link href={pageHref(Math.max(1, meta.pagination.page - 1))} aria-disabled={meta.pagination.page <= 1} className={`rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs font-semibold ${meta.pagination.page <= 1 ? 'pointer-events-none opacity-40' : 'hover:bg-[var(--surface-raised)]'}`}>Previous</Link>
+              <Link href={pageHref(Math.min(meta.pagination.totalPages, meta.pagination.page + 1))} aria-disabled={meta.pagination.page >= meta.pagination.totalPages} className={`rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-xs font-semibold ${meta.pagination.page >= meta.pagination.totalPages ? 'pointer-events-none opacity-40' : 'hover:bg-[var(--surface-raised)]'}`}>Next</Link>
+            </div>
+          </div>
+        ) : null}
       </section>
     </>
   )
