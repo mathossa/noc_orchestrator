@@ -106,10 +106,11 @@ model Vendor {
   websiteUrl String?
   isActive   Boolean @default(true)
 
-  deviceModels     DeviceModel[]
-  firmwareTrains   FirmwareTrain[]
-  firmwareReleases FirmwareRelease[]
-  firmwarePolicies FirmwarePolicy[]
+  deviceModelFamilies DeviceModelFamily[]
+  deviceModels        DeviceModel[]
+  firmwareTrains      FirmwareTrain[]
+  firmwareReleases    FirmwareRelease[]
+  firmwarePolicies    FirmwarePolicy[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -130,6 +131,24 @@ model DeviceType {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
+  @@index([isActive])
+}
+
+model DeviceModelFamily {
+  id       String  @id @default(uuid())
+  vendorId String
+  name     String
+  notes    String?
+  isActive Boolean @default(true)
+
+  vendor Vendor        @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  models DeviceModel[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([vendorId, name])
+  @@index([vendorId])
   @@index([isActive])
 }
 
@@ -206,6 +225,7 @@ model DeviceModel {
   id           String  @id @default(uuid())
   vendorId     String
   deviceTypeId String
+  familyId     String?
   model        String
   platform     String?
   notes        String?
@@ -218,8 +238,9 @@ model DeviceModel {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor           Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  deviceType       DeviceType       @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
+  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  deviceType       DeviceType         @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
+  family           DeviceModelFamily? @relation(fields: [familyId], references: [id], onDelete: Restrict)
   devices          Device[]
   firmwarePolicies FirmwarePolicy[]
 
@@ -230,6 +251,7 @@ model DeviceModel {
   @@index([externalProvider, externalId])
   @@index([vendorId])
   @@index([deviceTypeId])
+  @@index([familyId])
   @@index([platform])
   @@index([source])
   @@index([isActive])

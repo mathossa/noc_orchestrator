@@ -22,6 +22,7 @@ describe('device model validation', () => {
     ).toEqual({
       vendorId: 'vendor-1',
       deviceTypeId: 'type-1',
+      familyId: null,
       model: 'C9300-24P',
       platform: null,
       notes: null,
