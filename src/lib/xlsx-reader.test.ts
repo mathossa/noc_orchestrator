@@ -56,13 +56,17 @@ function storedZip(files: Record<string, string>) {
   return Buffer.concat([locals, centralDirectory, end])
 }
 
-function sampleWorkbook() {
+function workbookWithSheet(sheetXml: string) {
   return storedZip({
     'xl/workbook.xml': `<?xml version="1.0"?><workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Devices" sheetId="1" r:id="rId1"/></sheets></workbook>`,
     'xl/_rels/workbook.xml.rels': `<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
     'xl/sharedStrings.xml': `<?xml version="1.0"?><sst><si><t>Hostname</t></si><si><t>Model</t></si><si><t>sw-01</t></si><si><t>2530-24G</t></si></sst>`,
-    'xl/worksheets/sheet1.xml': `<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c><c r="C2" t="inlineStr"><is><t>16.11.0031</t></is></c></row></sheetData></worksheet>`,
+    'xl/worksheets/sheet1.xml': sheetXml,
   })
+}
+
+function sampleWorkbook() {
+  return workbookWithSheet(`<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c><c r="C2" t="inlineStr"><is><t>16.11.0031</t></is></c></row></sheetData></worksheet>`)
 }
 
 describe('bounded XLSX reader', () => {
@@ -75,6 +79,15 @@ describe('bounded XLSX reader', () => {
       { rowNumber: 1, values: ['Hostname', 'Model', ''] },
       { rowNumber: 2, values: ['sw-01', '2530-24G', '16.11.0031'] },
     ])
+  })
+
+  it('accepts worksheet row coordinates beyond the former 5,000-row application cap', () => {
+    const workbook = readXlsxWorkbook(workbookWithSheet(
+      `<?xml version="1.0"?><worksheet><sheetData><row r="6001"><c r="A6001" t="inlineStr"><is><t>sw-6001</t></is></c></row></sheetData></worksheet>`,
+    ))
+
+    expect(workbook.sheets[0]).toMatchObject({ rowCount: 6001, columnCount: 1 })
+    expect(workbook.sheets[0].rows[0]).toEqual({ rowNumber: 6001, values: ['sw-6001'] })
   })
 
   it('rejects malformed non-ZIP/XLSX input cleanly', () => {
