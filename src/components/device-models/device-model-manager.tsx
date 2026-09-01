@@ -282,6 +282,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
 
     setMessage('Device model deleted.')
     if (editingId === record.id) resetForm()
+    setBulkReleaseId('')
     setSelectedIds((current) => current.filter((id) => id !== record.id))
     await reloadModels()
   }
@@ -388,18 +389,15 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
     [references.firmwareReleases, selectedModels],
   )
   const mixedVendors = new Set(selectedModels.map((model) => model.vendorId)).size > 1
-
-  useEffect(() => {
-    if (bulkReleaseId && !commonReleases.some((release) => release.id === bulkReleaseId)) {
-      setBulkReleaseId('')
-    }
-  }, [bulkReleaseId, commonReleases])
+  const validBulkReleaseId = commonReleases.some((release) => release.id === bulkReleaseId) ? bulkReleaseId : ''
 
   function toggleSelection(id: string) {
+    setBulkReleaseId('')
     setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   }
 
   function setSelection(ids: string[], selected: boolean) {
+    setBulkReleaseId('')
     setSelectedIds((current) => {
       const set = new Set(current)
       for (const id of ids) {
@@ -420,8 +418,8 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
   }
 
   async function applyBulkDesired() {
-    if (!bulkReleaseId || selectedIds.length === 0) return
-    const release = commonReleases.find((item) => item.id === bulkReleaseId)
+    if (!validBulkReleaseId || selectedIds.length === 0) return
+    const release = commonReleases.find((item) => item.id === validBulkReleaseId)
     if (!release) return
     if (!window.confirm(`Set exact desired firmware ${release.version} on ${selectedIds.length} selected model${selectedIds.length === 1 ? '' : 's'}?`)) return
 
@@ -432,7 +430,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       const response = await fetch('/api/v1/models/bulk-desired-firmware', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ modelIds: selectedIds, firmwareReleaseId: bulkReleaseId }),
+        body: JSON.stringify({ modelIds: selectedIds, firmwareReleaseId: validBulkReleaseId }),
       })
       const payload = (await response.json()) as { data?: { changed: number; unchanged: number } } & ApiError
       if (!response.ok) throw new Error(payload.error?.message ?? 'Bulk desired firmware could not be applied.')
@@ -563,12 +561,12 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
               </div>
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
                 <FormField label="Exact desired release" htmlFor="bulk-desired-release" description={mixedVendors ? 'Mixed vendors cannot share a firmware target. Clear is still available.' : commonReleases.length === 0 ? 'No APPROVED/RECOMMENDED release is compatible with every selected model.' : 'Only releases compatible with every selected concrete model are offered.'}>
-                  <SelectInput id="bulk-desired-release" value={bulkReleaseId} onChange={(event) => setBulkReleaseId(event.target.value)} disabled={mixedVendors || commonReleases.length === 0 || bulkSaving}>
+                  <SelectInput id="bulk-desired-release" value={validBulkReleaseId} onChange={(event) => setBulkReleaseId(event.target.value)} disabled={mixedVendors || commonReleases.length === 0 || bulkSaving}>
                     <option value="">Select exact release</option>
                     {commonReleases.map((release) => <option key={release.id} value={release.id}>{release.version} · {release.platform} · {release.status}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''}</option>)}
                   </SelectInput>
                 </FormField>
-                <Button variant="primary" onClick={() => void applyBulkDesired()} disabled={!bulkReleaseId || bulkSaving || mixedVendors}>{bulkSaving ? 'Saving…' : 'Apply desired'}</Button>
+                <Button variant="primary" onClick={() => void applyBulkDesired()} disabled={!validBulkReleaseId || bulkSaving || mixedVendors}>{bulkSaving ? 'Saving…' : 'Apply desired'}</Button>
                 <Button variant="ghost" onClick={() => void clearBulkDesired()} disabled={bulkSaving}>{bulkSaving ? 'Saving…' : 'Clear desired'}</Button>
               </div>
             </section>
