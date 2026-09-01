@@ -29,6 +29,7 @@ import {
   deleteDeviceModelFamily,
   DeviceModelFamilyConflictError,
   DeviceModelFamilyInUseError,
+  getDeviceModelFamily,
   updateDeviceModelFamily,
 } from '@/lib/model-family-store'
 
@@ -51,6 +52,8 @@ describe('device model family persistence', () => {
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-aruba' })
     mocks.familyFindMany.mockResolvedValue([])
     mocks.familyCreate.mockResolvedValue(baseFamily)
+    mocks.familyUpdate.mockResolvedValue(baseFamily)
+    mocks.familyDelete.mockResolvedValue({ id: 'family-2530' })
     mocks.modelCount.mockResolvedValue(0)
   })
 
@@ -61,6 +64,57 @@ describe('device model family persistence', () => {
       data: { vendorId: 'vendor-aruba', name: '2530', notes: null, isActive: true },
     }))
     expect(result).toMatchObject({ id: 'family-2530', name: '2530', modelCount: 0 })
+  })
+
+  it('reads a family with all explicitly assigned concrete variants', async () => {
+    mocks.familyFindUnique.mockResolvedValue({
+      ...baseFamily,
+      _count: { models: 2 },
+      models: [
+        {
+          id: 'model-24', model: '2530-24G', platform: 'AOS-S', isActive: true,
+          deviceType: { id: 'type-switch', code: 'SWITCH', name: 'Switches', isActive: true },
+          _count: { devices: 3 },
+        },
+        {
+          id: 'model-48', model: '2530-48G', platform: 'AOS-S', isActive: true,
+          deviceType: { id: 'type-switch', code: 'SWITCH', name: 'Switches', isActive: true },
+          _count: { devices: 5 },
+        },
+      ],
+    })
+
+    const result = await getDeviceModelFamily('family-2530')
+
+    expect(result.modelCount).toBe(2)
+    expect(result.models).toEqual([
+      expect.objectContaining({ id: 'model-24', model: '2530-24G', deviceCount: 3 }),
+      expect.objectContaining({ id: 'model-48', model: '2530-48G', deviceCount: 5 }),
+    ])
+  })
+
+  it('updates family metadata while retaining vendor scope', async () => {
+    mocks.familyFindUnique.mockResolvedValue({
+      id: 'family-2530', vendorId: 'vendor-aruba', name: '2530', notes: null, isActive: true,
+    })
+    mocks.familyUpdate.mockResolvedValue({ ...baseFamily, notes: 'Classic AOS-S access range.' })
+
+    const result = await updateDeviceModelFamily('family-2530', { notes: 'Classic AOS-S access range.' })
+
+    expect(mocks.familyUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'family-2530' },
+      data: expect.objectContaining({ vendorId: 'vendor-aruba', name: '2530', notes: 'Classic AOS-S access range.' }),
+    }))
+    expect(result.notes).toBe('Classic AOS-S access range.')
+  })
+
+  it('deletes an unreferenced family', async () => {
+    mocks.familyFindUnique.mockResolvedValue({ id: 'family-2530', name: '2530' })
+    mocks.modelCount.mockResolvedValue(0)
+
+    await deleteDeviceModelFamily('family-2530')
+
+    expect(mocks.familyDelete).toHaveBeenCalledWith({ where: { id: 'family-2530' } })
   })
 
   it('rejects normalized duplicate family names within the same vendor', async () => {
