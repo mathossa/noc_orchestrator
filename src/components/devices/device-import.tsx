@@ -256,7 +256,10 @@ export function DeviceImportWorkspace() {
     const visible = new Set(allVisibleImportable.map((row) => row.rowNumber))
     setSelectedRows((current) => {
       const next = new Set(current)
-      for (const rowNumber of visible) selected ? next.add(rowNumber) : next.delete(rowNumber)
+      for (const rowNumber of visible) {
+        if (selected) next.add(rowNumber)
+        else next.delete(rowNumber)
+      }
       return [...next]
     })
   }
