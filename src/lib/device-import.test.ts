@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectHeaderRow,
+  extractFirmwareVersion,
   headersFromRow,
   importResolutionKey,
   mappedRows,
   parseDeviceImportOptions,
+  splitOrganizationSite,
   suggestColumnMapping,
   DeviceImportValidationError,
 } from '@/lib/device-import'
@@ -33,6 +35,71 @@ describe('device XLSX import mapping', () => {
       '3': 'managementAddress',
       '4': 'currentFirmware',
     })
+  })
+
+  it('recognizes Auvik organization, firmware, and software version columns independently', () => {
+    expect(suggestColumnMapping(['Organization Name', 'Firmware Version', 'Software Version'])).toEqual({
+      '0': 'organizationSite',
+      '1': 'firmwareVersion',
+      '2': 'softwareVersion',
+    })
+  })
+
+  it('splits an Organization - Site value using the final delimiter', () => {
+    expect(splitOrganizationSite('Unica Groep - UICTS Working Spirit Deventer')).toEqual({
+      customer: 'Unica Groep',
+      site: 'UICTS Working Spirit Deventer',
+    })
+  })
+
+  it('extracts firmware versions from verbose Auvik software strings', () => {
+    expect(extractFirmwareVersion('FortiGate-100F v7.4.12,build2902,250701 (GA.M)')).toBe('7.4.12')
+    expect(extractFirmwareVersion('S424EF-v7.4.9-build946,260122 (GA)')).toBe('7.4.9')
+    expect(extractFirmwareVersion('FP231G-v7.4.7-build0802')).toBe('7.4.7')
+  })
+
+  it('prefers Firmware Version over Software Version when both are mapped', () => {
+    const auvikSheet: XlsxSheet = {
+      name: 'Inventory',
+      rowCount: 2,
+      columnCount: 3,
+      rows: [
+        { rowNumber: 1, values: ['Organization Name', 'Firmware Version', 'Software Version'] },
+        { rowNumber: 2, values: ['Acme - Amsterdam', '7.4.12', 'FortiGate-100F v7.4.11,build1234'] },
+      ],
+    }
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 1,
+      mapping: { '0': 'organizationSite', '1': 'firmwareVersion', '2': 'softwareVersion' },
+      defaults: {},
+    })
+
+    expect(mappedRows(auvikSheet, options)[0].values).toMatchObject({
+      customer: 'Acme',
+      site: 'Amsterdam',
+      currentFirmware: '7.4.12',
+    })
+  })
+
+  it('uses Software Version as firmware fallback when Firmware Version is absent', () => {
+    const auvikSheet: XlsxSheet = {
+      name: 'Inventory',
+      rowCount: 2,
+      columnCount: 2,
+      rows: [
+        { rowNumber: 1, values: ['Hostname', 'Software Version'] },
+        { rowNumber: 2, values: ['fw-01', 'S448EN-v7.4.9-build946,260122 (GA)'] },
+      ],
+    }
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 1,
+      mapping: { '0': 'hostname', '1': 'softwareVersion' },
+      defaults: {},
+    })
+
+    expect(mappedRows(auvikSheet, options)[0].values.currentFirmware).toBe('7.4.9')
   })
 
   it('extracts mapped non-empty data rows after the selected header', () => {
@@ -66,6 +133,16 @@ describe('device XLSX import mapping', () => {
     })
 
     expect(options.resolutions).toEqual({ [key]: 'model-100f' })
+  })
+
+  it('accepts header rows beyond the former 5,000-row application cap', () => {
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 6000,
+      mapping: { '0': 'hostname' },
+      defaults: {},
+    })
+    expect(options.headerRow).toBe(6000)
   })
 
   it('rejects mapping the same destination field more than once', () => {
