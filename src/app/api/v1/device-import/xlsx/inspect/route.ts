@@ -12,14 +12,14 @@ export async function POST(request: Request) {
   try {
     const { file, buffer } = await xlsxFileFromRequest(request)
     const [workbook, references, resolutionReferences, profiles] = await Promise.all([
-      Promise.resolve(readXlsxWorkbook(buffer)),
+      Promise.resolve(readXlsxWorkbook(buffer, { maxMaterializedRowsPerSheet: XLSX_LIMITS.previewRows })),
       listDeviceReferences(),
       listDeviceImportReferenceOptions(),
       listDeviceImportProfiles(),
     ])
 
     const sheets = workbook.sheets.map((sheet) => {
-      const previewRows = sheet.rows.slice(0, XLSX_LIMITS.previewRows)
+      const previewRows = sheet.rows
       const detectedHeaderRow = detectHeaderRow(previewRows)
       const header = previewRows.find((row) => row.rowNumber === detectedHeaderRow)
       const headers = headersFromRow(header, sheet.columnCount)
