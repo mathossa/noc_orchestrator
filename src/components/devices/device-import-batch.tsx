@@ -168,8 +168,31 @@ export function DeviceImportBatchWorkspace({ batchId }: { batchId: string }) {
   }, [batchId])
 
   useEffect(() => {
-    void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'The staged import could not be loaded.'))
-  }, [loadWorkspace])
+    let cancelled = false
+
+    void fetch(`/api/v1/device-import/batches/${batchId}`)
+      .then(async (response) => {
+        const payload = (await response.json()) as WorkspacePayload
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error?.message ?? 'The staged import could not be loaded.')
+        }
+        return payload.data
+      })
+      .then(
+        (data) => {
+          if (!cancelled) setWorkspace(data)
+        },
+        (loadError) => {
+          if (!cancelled) {
+            setError(loadError instanceof Error ? loadError.message : 'The staged import could not be loaded.')
+          }
+        },
+      )
+
+    return () => {
+      cancelled = true
+    }
+  }, [batchId])
 
   const unresolvedKinds = useMemo(() => {
     if (!workspace) return []
