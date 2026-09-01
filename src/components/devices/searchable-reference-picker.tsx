@@ -36,14 +36,15 @@ export function SearchableReferencePicker({
   disabled?: boolean
 }) {
   const selected = options.find((option) => option.id === value) ?? null
-  const [query, setQuery] = useState(selected?.label ?? '')
+  const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const displayValue = open ? query : selected?.label ?? query
 
   const filtered = useMemo(() => options.filter((option) => matches(option, query)).slice(0, 20), [options, query])
 
   function choose(option: SearchableReferenceOption) {
     onChange(option.id)
-    setQuery(option.label)
+    setQuery('')
     setOpen(false)
   }
 
@@ -62,10 +63,13 @@ export function SearchableReferencePicker({
       aria-autocomplete="list"
       autoComplete="off"
       disabled={disabled}
-      value={query}
+      value={displayValue}
       placeholder={placeholder}
       className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-      onFocus={() => setOpen(true)}
+      onFocus={() => {
+        setOpen(true)
+        if (selected) setQuery('')
+      }}
       onBlur={() => window.setTimeout(() => setOpen(false), 100)}
       onChange={(event) => handleChange(event.target.value)}
       onKeyDown={(event) => {
