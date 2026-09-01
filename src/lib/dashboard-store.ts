@@ -1,17 +1,16 @@
-import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { listDevices } from '@/lib/device-store'
 import {
   emptyTechnicalFirmwareStateCounts,
   incrementTechnicalFirmwareStateCount,
   resolveTechnicalFirmwareState,
+  type TechnicalFirmwareState,
 } from '@/lib/firmware-state'
 import { prisma } from '@/lib/prisma'
 import type {
-  DashboardAttentionRow,
-  DashboardFirmwareDistributionRow,
-  DashboardRecentDecision,
-  DashboardTechnicalCounts,
-  DashboardVendorComplianceRow,
+  DashboardCustomerAttentionRow,
+  DashboardDimensionAttentionRow,
+  DashboardFirmwareAttentionRow,
+  DashboardSiteAttentionRow,
   DashboardWorkflowCounts,
   DashboardWorkflowState,
   FirmwareLifecycleDashboard,
@@ -26,25 +25,24 @@ const MODEL_POLICY_SCOPE = {
   deviceTypeId: null,
 } as const
 
-const LIFECYCLE_AUDIT_ACTIONS = [
-  AUDIT_ACTIONS.lifecyclePlanned,
-  AUDIT_ACTIONS.lifecycleIgnored,
-  AUDIT_ACTIONS.lifecycleCustomerDeclined,
-  AUDIT_ACTIONS.lifecycleDone,
-] as const
-
-type TechnicalBucket = DashboardTechnicalCounts & { devices: number }
-
-type AttentionBucket = TechnicalBucket & {
-  id: string
-  name: string
-  context: string
+type PriorityCounts = {
+  actionRequired: number
+  unknown: number
+  noPolicy: number
 }
 
-type VendorBucket = TechnicalBucket & {
-  id: string
+type SiteBucket = PriorityCounts & {
+  id: string | null
   name: string
 }
+
+type CustomerBucket = PriorityCounts & {
+  id: string
+  name: string
+  sites: Map<string, SiteBucket>
+}
+
+type DimensionBucket = DashboardDimensionAttentionRow
 
 function emptyWorkflowCounts(): DashboardWorkflowCounts {
   return {
@@ -56,11 +54,8 @@ function emptyWorkflowCounts(): DashboardWorkflowCounts {
   }
 }
 
-function createTechnicalBucket(): TechnicalBucket {
-  return {
-    devices: 0,
-    ...emptyTechnicalFirmwareStateCounts(),
-  }
+function emptyPriorityCounts(): PriorityCounts {
+  return { actionRequired: 0, unknown: 0, noPolicy: 0 }
 }
 
 function incrementWorkflow(counts: DashboardWorkflowCounts, state: DashboardWorkflowState | null) {
@@ -83,119 +78,112 @@ function incrementWorkflow(counts: DashboardWorkflowCounts, state: DashboardWork
   }
 }
 
-function ensureAttentionBucket(
-  buckets: Map<string, AttentionBucket>,
-  id: string,
-  name: string,
-  context: string,
-) {
-  const existing = buckets.get(id)
-  if (existing) return existing
-  const created = { id, name, context, ...createTechnicalBucket() }
-  buckets.set(id, created)
-  return created
+function incrementPriority(counts: PriorityCounts, state: TechnicalFirmwareState) {
+  switch (state) {
+    case 'ACTION_REQUIRED':
+      counts.actionRequired += 1
+      break
+    case 'UNKNOWN':
+      counts.unknown += 1
+      break
+    case 'NO_POLICY':
+      counts.noPolicy += 1
+      break
+    case 'CURRENT':
+      break
+  }
 }
 
-function ensureVendorBucket(buckets: Map<string, VendorBucket>, id: string, name: string) {
-  const existing = buckets.get(id)
-  if (existing) return existing
-  const created = { id, name, ...createTechnicalBucket() }
-  buckets.set(id, created)
-  return created
+function priorityScore(row: PriorityCounts) {
+  return row.actionRequired * 1_000_000 + row.unknown * 1_000 + row.noPolicy
 }
 
-function recordTechnicalState(bucket: TechnicalBucket, state: Parameters<typeof incrementTechnicalFirmwareStateCount>[1]) {
-  bucket.devices += 1
-  incrementTechnicalFirmwareStateCount(bucket, state)
+function hasPriorityAttention(row: PriorityCounts) {
+  return row.actionRequired > 0 || row.unknown > 0 || row.noPolicy > 0
 }
 
-function attentionRows(buckets: Map<string, AttentionBucket>): DashboardAttentionRow[] {
-  return [...buckets.values()]
-    .filter((row) => row.actionRequired > 0)
-    .sort((a, b) =>
-      b.actionRequired - a.actionRequired ||
-      b.devices - a.devices ||
+function sortPriorityRows<T extends PriorityCounts & { name: string }>(rows: T[]) {
+  return rows.sort(
+    (a, b) =>
+      priorityScore(b) - priorityScore(a) ||
       a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }),
-    )
+  )
+}
+
+function customerRows(buckets: Map<string, CustomerBucket>): DashboardCustomerAttentionRow[] {
+  return sortPriorityRows([...buckets.values()].filter(hasPriorityAttention))
     .slice(0, 8)
-    .map(({ id, name, context, devices, current, actionRequired, unknown, noPolicy }) => ({
-      id,
-      name,
-      context,
-      devices,
-      current,
-      actionRequired,
-      unknown,
-      noPolicy,
+    .map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      actionRequired: customer.actionRequired,
+      unknown: customer.unknown,
+      noPolicy: customer.noPolicy,
+      sites: sortPriorityRows([...customer.sites.values()].filter(hasPriorityAttention)).map(
+        (site): DashboardSiteAttentionRow => ({
+          id: site.id,
+          name: site.name,
+          actionRequired: site.actionRequired,
+          unknown: site.unknown,
+          noPolicy: site.noPolicy,
+        }),
+      ),
     }))
 }
 
-function vendorRows(buckets: Map<string, VendorBucket>): DashboardVendorComplianceRow[] {
-  return [...buckets.values()]
-    .sort((a, b) =>
-      b.actionRequired - a.actionRequired ||
-      b.devices - a.devices ||
+function ensureCustomerBucket(buckets: Map<string, CustomerBucket>, id: string, name: string) {
+  const existing = buckets.get(id)
+  if (existing) return existing
+  const created: CustomerBucket = { id, name, ...emptyPriorityCounts(), sites: new Map() }
+  buckets.set(id, created)
+  return created
+}
+
+function ensureSiteBucket(customer: CustomerBucket, id: string | null, name: string) {
+  const key = id ?? 'none'
+  const existing = customer.sites.get(key)
+  if (existing) return existing
+  const created: SiteBucket = { id, name, ...emptyPriorityCounts() }
+  customer.sites.set(key, created)
+  return created
+}
+
+function ensureDimensionBucket(
+  buckets: Map<string, DimensionBucket>,
+  key: string,
+  id: string | null,
+  name: string,
+) {
+  const existing = buckets.get(key)
+  if (existing) return existing
+  const created: DimensionBucket = {
+    id,
+    name,
+    devices: 0,
+    actionRequired: 0,
+    unknown: 0,
+    noPolicy: 0,
+    blocked: 0,
+  }
+  buckets.set(key, created)
+  return created
+}
+
+function dimensionRows(buckets: Map<string, DimensionBucket>) {
+  return sortPriorityRows(
+    [...buckets.values()].filter(
+      (row) => hasPriorityAttention(row) || row.blocked > 0,
+    ),
+  ).sort(
+    (a, b) =>
+      priorityScore(b) - priorityScore(a) ||
+      b.blocked - a.blocked ||
       a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }),
-    )
-    .map(({ id, name, devices, current, actionRequired, unknown, noPolicy }) => ({
-      id,
-      name,
-      devices,
-      current,
-      actionRequired,
-      unknown,
-      noPolicy,
-    }))
-}
-
-function objectValue(value: unknown) {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
-  return value as Record<string, unknown>
-}
-
-function optionalText(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function workflowStateFromEvent(action: string, after: unknown): DashboardWorkflowState {
-  const state = optionalText(objectValue(after).state)
-  if (state === 'PLANNED' || state === 'IGNORED' || state === 'CUSTOMER_DECLINED' || state === 'DONE') {
-    return state
-  }
-  switch (action) {
-    case AUDIT_ACTIONS.lifecycleIgnored:
-      return 'IGNORED'
-    case AUDIT_ACTIONS.lifecycleCustomerDeclined:
-      return 'CUSTOMER_DECLINED'
-    case AUDIT_ACTIONS.lifecycleDone:
-      return 'DONE'
-    default:
-      return 'PLANNED'
-  }
+  )
 }
 
 export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycleDashboard> {
-  const [allDevices, customers, models, vendors, recentEvents] = await Promise.all([
-    listDevices(),
-    prisma.customer.count({ where: { isActive: true } }),
-    prisma.deviceModel.count({ where: { isActive: true } }),
-    prisma.vendor.count({ where: { isActive: true } }),
-    prisma.auditEvent.findMany({
-      where: { action: { in: [...LIFECYCLE_AUDIT_ACTIONS] } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 8,
-      select: {
-        id: true,
-        action: true,
-        entityId: true,
-        after: true,
-        createdAt: true,
-        actor: { select: { name: true } },
-        customer: { select: { id: true, name: true } },
-      },
-    }),
-  ])
-
+  const allDevices = await listDevices()
   const devices = allDevices.filter((device) => device.isActive)
   const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
   const policies = modelIds.length
@@ -220,10 +208,10 @@ export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycle
 
   const technical = emptyTechnicalFirmwareStateCounts()
   const workflow = emptyWorkflowCounts()
-  const modelBuckets = new Map<string, AttentionBucket>()
-  const customerBuckets = new Map<string, AttentionBucket>()
-  const vendorBuckets = new Map<string, VendorBucket>()
-  const firmwareDistribution = new Map<string, DashboardFirmwareDistributionRow>()
+  const customers = new Map<string, CustomerBucket>()
+  const contracts = new Map<string, DimensionBucket>()
+  const vendors = new Map<string, DimensionBucket>()
+  const firmware = new Map<string, DashboardFirmwareAttentionRow>()
 
   for (const device of devices) {
     const state = resolveTechnicalFirmwareState({
@@ -233,78 +221,73 @@ export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycle
     incrementTechnicalFirmwareStateCount(technical, state)
     incrementWorkflow(workflow, device.lifecycle?.state ?? null)
 
-    const model = ensureAttentionBucket(
-      modelBuckets,
-      device.deviceModel.id,
-      device.deviceModel.model,
-      `${device.deviceModel.vendor.name} · ${device.deviceModel.deviceType.name}`,
+    const customer = ensureCustomerBucket(customers, device.customer.id, device.customer.name)
+    incrementPriority(customer, state)
+    const site = ensureSiteBucket(customer, device.site?.id ?? null, device.site?.name ?? 'Unassigned site')
+    incrementPriority(site, state)
+
+    const contract = ensureDimensionBucket(
+      contracts,
+      device.effectiveContractType?.id ?? 'none',
+      device.effectiveContractType?.id ?? null,
+      device.effectiveContractType?.name ?? 'No contract',
     )
-    recordTechnicalState(model, state)
+    contract.devices += 1
+    incrementPriority(contract, state)
 
-    const customer = ensureAttentionBucket(
-      customerBuckets,
-      device.customer.id,
-      device.customer.name,
-      device.customer.code ?? 'Customer',
+    const vendor = ensureDimensionBucket(
+      vendors,
+      device.deviceModel.vendor.id,
+      device.deviceModel.vendor.id,
+      device.deviceModel.vendor.name,
     )
-    recordTechnicalState(customer, state)
+    vendor.devices += 1
+    incrementPriority(vendor, state)
 
-    const vendor = ensureVendorBucket(vendorBuckets, device.deviceModel.vendor.id, device.deviceModel.vendor.name)
-    recordTechnicalState(vendor, state)
+    const blocked = device.currentFirmwareRelease?.status.toUpperCase() === 'BLOCKED'
+    if (blocked) {
+      contract.blocked += 1
+      vendor.blocked += 1
+    }
 
-    if (device.currentFirmwareRelease) {
-      const current = firmwareDistribution.get(device.currentFirmwareRelease.id)
-      if (current) current.devices += 1
-      else {
-        firmwareDistribution.set(device.currentFirmwareRelease.id, {
-          id: device.currentFirmwareRelease.id,
-          version: device.currentFirmwareRelease.version,
+    if (device.currentFirmwareRelease && (state === 'ACTION_REQUIRED' || blocked)) {
+      const release = device.currentFirmwareRelease
+      const existing = firmware.get(release.id)
+      if (existing) {
+        existing.devices += 1
+        if (state === 'ACTION_REQUIRED') existing.actionRequired += 1
+        if (blocked) existing.blocked += 1
+      } else {
+        firmware.set(release.id, {
+          id: release.id,
+          version: release.version,
           vendor: device.deviceModel.vendor.name,
-          platform: device.currentFirmwareRelease.platform,
+          platform: release.platform,
+          status: release.status,
           devices: 1,
+          actionRequired: state === 'ACTION_REQUIRED' ? 1 : 0,
+          blocked: blocked ? 1 : 0,
         })
       }
     }
   }
 
-  const deviceById = new Map(allDevices.map((device) => [device.id, device]))
-  const recentDecisions: DashboardRecentDecision[] = recentEvents.map((event) => {
-    const device = deviceById.get(event.entityId)
-    const after = objectValue(event.after)
-    return {
-      id: event.id,
-      action: event.action,
-      state: workflowStateFromEvent(event.action, event.after),
-      deviceId: event.entityId,
-      deviceName: device?.name ?? 'Historical device',
-      customerId: event.customer?.id ?? device?.customer.id ?? null,
-      customerName: event.customer?.name ?? device?.customer.name ?? null,
-      actorName: event.actor?.name ?? null,
-      reason: optionalText(after.reason),
-      notes: optionalText(after.notes),
-      createdAt: event.createdAt.toISOString(),
-    }
-  })
-
   return {
-    inventory: {
-      customers,
-      devices: devices.length,
-      models,
-      vendors,
-    },
+    activeDevices: devices.length,
     technical,
     workflow,
-    modelsRequiringUpdates: attentionRows(modelBuckets),
-    customersRequiringUpdates: attentionRows(customerBuckets),
-    complianceByVendor: vendorRows(vendorBuckets),
-    currentFirmwareDistribution: [...firmwareDistribution.values()]
-      .sort((a, b) =>
-        b.devices - a.devices ||
-        a.vendor.localeCompare(b.vendor, 'en', { sensitivity: 'base' }) ||
-        a.version.localeCompare(b.version, 'en', { sensitivity: 'base', numeric: true }),
+    customerAttention: customerRows(customers),
+    contractAttention: dimensionRows(contracts),
+    vendorAttention: dimensionRows(vendors),
+    firmwareAttention: [...firmware.values()]
+      .sort(
+        (a, b) =>
+          b.blocked - a.blocked ||
+          b.actionRequired - a.actionRequired ||
+          b.devices - a.devices ||
+          a.vendor.localeCompare(b.vendor, 'en', { sensitivity: 'base' }) ||
+          a.version.localeCompare(b.version, 'en', { sensitivity: 'base', numeric: true }),
       )
       .slice(0, 10),
-    recentDecisions,
   }
 }
