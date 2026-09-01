@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { DeviceImportReferenceError } from '@/lib/device-import-reference-store'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import { resolveDeviceImportStagedReferencesBulk } from '@/lib/device-import-staged-reference-bulk'
 
@@ -18,7 +19,7 @@ export async function POST(request: Request, context: RouteContext) {
         { status: 400 },
       )
     }
-    if (error instanceof DeviceImportStagingError) {
+    if (error instanceof DeviceImportStagingError || error instanceof DeviceImportReferenceError) {
       return NextResponse.json(
         { error: { code: 'INVALID_STAGED_REFERENCES', message: error.message } },
         { status: 400 },
