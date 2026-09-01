@@ -17,8 +17,12 @@ export const DEVICE_IMPORT_FIELDS = [
   'notes',
 ] as const
 
+export const DEVICE_IMPORT_REFERENCE_KINDS = ['DEVICE_TYPE', 'DEVICE_MODEL'] as const
+
 export type DeviceImportField = (typeof DEVICE_IMPORT_FIELDS)[number]
+export type DeviceImportReferenceKind = (typeof DEVICE_IMPORT_REFERENCE_KINDS)[number]
 export type DeviceImportMapping = Record<string, DeviceImportField | 'ignore'>
+export type DeviceImportResolutionMap = Record<string, string>
 
 export type DeviceImportOptions = {
   sheetName: string
@@ -29,13 +33,21 @@ export type DeviceImportOptions = {
     siteId: string | null
     externalProvider: string | null
   }
+  resolutions: DeviceImportResolutionMap
 }
 
 export type DeviceImportAction = 'CREATE' | 'UPDATE' | 'UNCHANGED' | 'CONFLICT' | 'ERROR'
 
+export type DeviceImportReferenceIssue = {
+  kind: DeviceImportReferenceKind
+  sourceValue: string
+  contextKey: string
+}
+
 export type DeviceImportIssue = {
   level: 'error' | 'warning'
   message: string
+  reference?: DeviceImportReferenceIssue
 }
 
 export type DeviceImportChange = {
@@ -59,11 +71,23 @@ export type DeviceImportPreviewRow = {
   changes: DeviceImportChange[]
 }
 
+export type DeviceImportUnresolvedReference = {
+  key: string
+  kind: DeviceImportReferenceKind
+  sourceValue: string
+  normalizedSourceValue: string
+  contextKey: string
+  vendorId: string | null
+  vendorName: string | null
+  rowNumbers: number[]
+}
+
 export type DeviceImportPreview = {
   fileName: string
   sheetName: string
   headerRow: number
   rows: DeviceImportPreviewRow[]
+  unresolvedReferences: DeviceImportUnresolvedReference[]
   counts: {
     create: number
     update: number
@@ -131,6 +155,10 @@ export function normalizeImportText(value: unknown) {
   return typeof value === 'string'
     ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
     : ''
+}
+
+export function importResolutionKey(kind: DeviceImportReferenceKind, sourceValue: string, contextKey = '') {
+  return `${kind}|${contextKey}|${normalizeImportText(sourceValue)}`
 }
 
 function nonEmptyCells(row: XlsxRow) {
@@ -205,6 +233,9 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
   const rawDefaults = typeof input.defaults === 'object' && input.defaults !== null
     ? (input.defaults as Record<string, unknown>)
     : {}
+  const rawResolutions = typeof input.resolutions === 'object' && input.resolutions !== null
+    ? (input.resolutions as Record<string, unknown>)
+    : {}
 
   if (!sheetName) throw new DeviceImportValidationError('Choose a worksheet to import.')
   if (!Number.isInteger(headerRow) || headerRow < 1 || headerRow > 5000) {
@@ -237,6 +268,11 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
     return typeof raw === 'string' && raw.trim() ? raw.trim() : null
   }
 
+  const resolutions: DeviceImportResolutionMap = {}
+  for (const [key, targetId] of Object.entries(rawResolutions)) {
+    if (typeof targetId === 'string' && targetId.trim()) resolutions[key] = targetId.trim()
+  }
+
   return {
     sheetName,
     headerRow,
@@ -246,6 +282,7 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
       siteId: cleanDefault('siteId'),
       externalProvider: cleanDefault('externalProvider'),
     },
+    resolutions,
   }
 }
 
