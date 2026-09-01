@@ -61,10 +61,6 @@ CREATE INDEX "DeviceImportStagedReference_batchId_status_idx" ON "DeviceImportSt
 CREATE INDEX "DeviceImportStagedReference_batchId_kind_idx" ON "DeviceImportStagedReference"("batchId", "kind");
 CREATE INDEX "DeviceImportStagedReference_targetId_idx" ON "DeviceImportStagedReference"("targetId");
 
-ALTER TABLE "DeviceImportBatch"
-ADD CONSTRAINT "DeviceImportBatch_profileId_fkey"
-FOREIGN KEY ("profileId") REFERENCES "DeviceImportProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
 ALTER TABLE "DeviceImportStagedRow"
 ADD CONSTRAINT "DeviceImportStagedRow_batchId_fkey"
 FOREIGN KEY ("batchId") REFERENCES "DeviceImportBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
