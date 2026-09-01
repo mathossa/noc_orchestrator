@@ -94,6 +94,21 @@ describe('bounded XLSX reader', () => {
     expect(workbook.sheets[0].rows[0]).toEqual({ rowNumber: 6001, values: ['sw-6001'] })
   })
 
+  it('keeps the real row count while only materializing a bounded inspection sample', () => {
+    const rows = Array.from({ length: 50 }, (_unused, index) => {
+      const row = index + 1
+      return `<row r="${row}"><c r="A${row}" t="inlineStr"><is><t>sw-${row}</t></is></c></row>`
+    }).join('')
+    const workbook = readXlsxWorkbook(
+      workbookWithSheet(`<?xml version="1.0"?><worksheet><sheetData>${rows}</sheetData></worksheet>`),
+      { maxMaterializedRowsPerSheet: 3 },
+    )
+
+    expect(workbook.sheets[0].rowCount).toBe(50)
+    expect(workbook.sheets[0].rows).toHaveLength(3)
+    expect(workbook.sheets[0].rows.map((row) => row.rowNumber)).toEqual([1, 2, 3])
+  })
+
   it('rejects malformed non-ZIP/XLSX input cleanly', () => {
     expect(() => readXlsxWorkbook(Buffer.from('not an xlsx'))).toThrow(XlsxImportError)
   })
