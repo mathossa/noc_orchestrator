@@ -237,7 +237,11 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
 
   async function createAllReadySites() {
     if (!workspace || section !== 'SITE' || !activeReferences.length) return
-    if (!window.confirm(`Create ${activeReferences.length.toLocaleString()} unresolved Site${activeReferences.length === 1 ? '' : 's'} using the imported names and generated codes? You can edit them afterward.`)) return
+    const siteReferences = activeReferences.slice(0, 250)
+    const batchText = activeReferences.length > siteReferences.length
+      ? `${siteReferences.length.toLocaleString()} of ${activeReferences.length.toLocaleString()}`
+      : siteReferences.length.toLocaleString()
+    if (!window.confirm(`Create ${batchText} unresolved Site${siteReferences.length === 1 ? '' : 's'} using the imported names and generated codes? You can edit them afterward.`)) return
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -245,14 +249,16 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
       const response = await fetch(`/api/v1/device-import/batches/${batchId}/sites/bulk-create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ referenceIds: activeReferences.map((reference) => reference.id) }),
+        body: JSON.stringify({ referenceIds: siteReferences.map((reference) => reference.id) }),
       })
       const payload = await response.json() as BulkSitePayload
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The staged Sites could not be created.')
       setWorkspace(payload.data.workspace)
       setChoices({})
       const linkedText = payload.data.linkedExisting ? ` ${payload.data.linkedExisting} already-existing Site${payload.data.linkedExisting === 1 ? ' was' : 's were'} linked instead.` : ''
-      setNotice(`Created and linked ${payload.data.created.toLocaleString()} Site${payload.data.created === 1 ? '' : 's'} with generated codes.${linkedText}`)
+      const remaining = payload.data.workspace.counts.references.byKind.SITE?.unresolved ?? 0
+      const remainingText = remaining ? ` ${remaining.toLocaleString()} unresolved Site${remaining === 1 ? '' : 's'} remain; click again for the next batch.` : ''
+      setNotice(`Created and linked ${payload.data.created.toLocaleString()} Site${payload.data.created === 1 ? '' : 's'} with generated codes.${linkedText}${remainingText}`)
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : 'The staged Sites could not be created.')
     } finally {
@@ -291,7 +297,7 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="mr-1 text-sm font-semibold">{chosen.length.toLocaleString()} chosen</span>
-          {section === 'SITE' && activeReferences.length ? <Button type="button" variant="primary" disabled={busy || activeReferences.length > 250} onClick={() => void createAllReadySites()}>{activeReferences.length > 250 ? 'Create Sites in groups of 250' : `Create all ${activeReferences.length} Sites`}</Button> : null}
+          {section === 'SITE' && activeReferences.length ? <Button type="button" variant="primary" disabled={busy} onClick={() => void createAllReadySites()}>{activeReferences.length > 250 ? 'Create next 250 Sites' : `Create all ${activeReferences.length} Site${activeReferences.length === 1 ? '' : 's'}`}</Button> : null}
           <Button type="button" variant="ghost" disabled={busy || !activeReferences.some((reference) => reference.suggestedTargetId)} onClick={useSuggestions}>Use all suggestions</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={clearCurrentChoices}>Clear</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={() => void applyBulk(false)}>{busy ? 'Applying…' : `Link ${chosen.length || ''} once`}</Button>
@@ -346,7 +352,6 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
             </div>
             <FormField label="Link to existing" htmlFor={`bulk-ref-${reference.id}`} description="Search by code, name, model, platform, or version. Enter selects when one result remains.">
               <SearchableReferencePicker
-                key={`${reference.id}:${selected}`}
                 id={`bulk-ref-${reference.id}`}
                 value={selected}
                 options={options}
