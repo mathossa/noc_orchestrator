@@ -6,7 +6,6 @@ import { SummaryStat } from '@/components/ui/summary-stat'
 import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
 import { deviceFilterHref, technicalStateDeviceHref, workflowDeviceHref } from '@/lib/drilldown-links'
 import { getFirmwareLifecycleDashboard } from '@/lib/dashboard-store'
-import type { DashboardWorkflowState } from '@/lib/dashboard'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,25 +32,19 @@ function SectionHeader({ title, description, action }: { title: string; descript
   )
 }
 
-function workflowLabel(state: DashboardWorkflowState) {
-  switch (state) {
-    case 'PLANNED': return 'Planned'
-    case 'IGNORED': return 'Ignored'
-    case 'CUSTOMER_DECLINED': return 'Customer declined'
-    case 'DONE': return 'Done'
-  }
+function contractFilter(id: string | null) {
+  return id ?? 'none'
 }
 
 export default async function DashboardPage() {
   const dashboard = await getFirmwareLifecycleDashboard()
-  const hasInventory = dashboard.inventory.devices > 0
 
   return (
     <>
       <PageHeader
         eyebrow="Firmware lifecycle"
         title="Dashboard"
-        description="Recorded inventory, desired-state compliance, and lifecycle decisions. Technical firmware state and operational workflow remain intentionally separate."
+        description="Customer and site firmware attention first. Technical state and operational workflow remain separate."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Device inventory</Link>
@@ -60,182 +53,140 @@ export default async function DashboardPage() {
         }
       />
 
-      <section>
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold">Inventory footprint</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">Active configured objects and active recorded devices.</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatLink href="/customers"><SummaryStat label="Customers" value={dashboard.inventory.customers} detail="Active customer records." /></StatLink>
-          <StatLink href="/devices"><SummaryStat label="Devices" value={dashboard.inventory.devices} detail="Active recorded inventory devices." /></StatLink>
-          <StatLink href="/models"><SummaryStat label="Models" value={dashboard.inventory.models} detail="Active concrete device models." /></StatLink>
-          <StatLink href="/vendors"><SummaryStat label="Vendors" value={dashboard.inventory.vendors} detail="Active configured vendors." /></StatLink>
-        </div>
-      </section>
-
-      {!hasInventory ? (
-        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <EmptyState
-            title="No active device inventory yet"
-            description="Start with a vendor/model and a manual device, or populate inventory later through an API/import integration. The dashboard will derive firmware state as soon as recorded devices exist."
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Configure models</Link>
-                <Link href="/devices" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Add a device</Link>
-              </div>
-            }
-          />
-        </section>
+      {dashboard.activeDevices === 0 ? (
+        <EmptyState
+          title="No active device inventory yet"
+          description="Add a device or populate inventory through an API/import integration. Firmware attention will appear here as soon as recorded devices exist."
+          action={<Link href="/devices" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]">Add a device</Link>}
+        />
       ) : (
         <>
-          <section className="mt-7">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">Technical firmware state</h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">Exact recorded current release versus exact desired model release. These counts do not describe planning status.</p>
-              </div>
-              <Link href="/devices" className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Open filtered inventory</Link>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatLink href={technicalStateDeviceHref({}, 'CURRENT')}><SummaryStat label="Desired-state compliant" value={dashboard.technical.current} detail="Current release exactly matches desired." accessory={<TechnicalStatusBadge state="CURRENT" />} /></StatLink>
-              <StatLink href={technicalStateDeviceHref({}, 'ACTION_REQUIRED')}><SummaryStat label="Needs firmware action" value={dashboard.technical.actionRequired} detail="Recorded current release differs from desired." accessory={<TechnicalStatusBadge state="ACTION_REQUIRED" />} /></StatLink>
-              <StatLink href={technicalStateDeviceHref({}, 'UNKNOWN')}><SummaryStat label="Unknown firmware" value={dashboard.technical.unknown} detail="A desired release exists, but current is unknown." accessory={<TechnicalStatusBadge state="UNKNOWN" />} /></StatLink>
-              <StatLink href={technicalStateDeviceHref({}, 'NO_POLICY')}><SummaryStat label="No desired policy" value={dashboard.technical.noPolicy} detail="No active model desired-firmware policy." accessory={<TechnicalStatusBadge state="NO_POLICY" />} /></StatLink>
-            </div>
-          </section>
-
-          <section className="mt-7">
+          <section>
             <div className="mb-3">
-              <h2 className="text-sm font-semibold">Lifecycle workflow decisions</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">Operational choices about work. A Planned, Ignored, Declined, or Done device can still have any technical firmware state.</p>
+              <h2 className="text-sm font-semibold">What needs attention</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">The two technical signals that most directly affect day-to-day firmware work.</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              <StatLink href={workflowDeviceHref({}, 'PLANNED')}><SummaryStat label="Planned" value={dashboard.workflow.planned} detail="Upgrade work has been planned." accessory={<WorkflowStatusBadge state="PLANNED" />} /></StatLink>
-              <StatLink href={workflowDeviceHref({}, 'IGNORED')}><SummaryStat label="Ignored" value={dashboard.workflow.ignored} detail="Internally accepted/ignored for now." accessory={<WorkflowStatusBadge state="IGNORED" />} /></StatLink>
-              <StatLink href={workflowDeviceHref({}, 'CUSTOMER_DECLINED')}><SummaryStat label="Customer declined" value={dashboard.workflow.customerDeclined} detail="Customer explicitly declined the change." accessory={<WorkflowStatusBadge state="CUSTOMER_DECLINED" />} /></StatLink>
-              <StatLink href={workflowDeviceHref({}, 'DONE')}><SummaryStat label="Done" value={dashboard.workflow.done} detail="Lifecycle work was marked completed." accessory={<WorkflowStatusBadge state="DONE" />} /></StatLink>
-              <StatLink href={workflowDeviceHref({}, 'UNDECIDED')}><SummaryStat label="No decision" value={dashboard.workflow.undecided} detail="No lifecycle workflow decision recorded." accessory={<span className="rounded border border-[var(--border-strong)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Undecided</span>} /></StatLink>
+            <div className="grid gap-3 md:grid-cols-2">
+              <StatLink href={technicalStateDeviceHref({}, 'ACTION_REQUIRED')}>
+                <SummaryStat label="Needs firmware action" value={dashboard.technical.actionRequired} detail="Recorded current release differs from the exact desired release." accessory={<TechnicalStatusBadge state="ACTION_REQUIRED" />} />
+              </StatLink>
+              <StatLink href={technicalStateDeviceHref({}, 'UNKNOWN')}>
+                <SummaryStat label="Unknown current firmware" value={dashboard.technical.unknown} detail="A desired release exists, but current firmware is not recorded." accessory={<TechnicalStatusBadge state="UNKNOWN" />} />
+              </StatLink>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">Other technical state</span>
+              <Link href={technicalStateDeviceHref({}, 'CURRENT')} className="font-medium hover:text-[var(--accent-light)] hover:underline">Compliant <span className="ml-1 tabular-nums">{dashboard.technical.current}</span></Link>
+              <Link href={technicalStateDeviceHref({}, 'NO_POLICY')} className="font-medium hover:text-[var(--accent-light)] hover:underline">No desired policy <span className="ml-1 tabular-nums">{dashboard.technical.noPolicy}</span></Link>
             </div>
           </section>
-
-          <div className="mt-7 grid gap-5 xl:grid-cols-2">
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Models requiring the most updates" description="Concrete models ranked by devices whose recorded current release differs from desired." action={<Link href={technicalStateDeviceHref({}, 'ACTION_REQUIRED')} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">All action required</Link>} />
-              {dashboard.modelsRequiringUpdates.length === 0 ? (
-                <div className="px-4 py-7 text-sm text-[var(--muted)]">No active devices currently differ from their desired release.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[620px] text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Model</th><th className="px-4 py-3">Devices</th><th className="px-4 py-3">Action required</th><th className="px-4 py-3">Other unresolved</th></tr></thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {dashboard.modelsRequiringUpdates.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-3"><Link href={`/models/${row.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{row.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{row.context}</div></td>
-                          <td className="px-4 py-3 tabular-nums">{row.devices}</td>
-                          <td className="px-4 py-3"><Link href={technicalStateDeviceHref({ model: row.id }, 'ACTION_REQUIRED')} className="font-semibold tabular-nums text-[var(--accent-light)] hover:underline">{row.actionRequired}</Link></td>
-                          <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">{row.unknown} unknown · {row.noPolicy} no policy</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Customers requiring the most updates" description="Customers ranked by active devices with a technical Action required state." />
-              {dashboard.customersRequiringUpdates.length === 0 ? (
-                <div className="px-4 py-7 text-sm text-[var(--muted)]">No customer currently has active devices requiring a firmware change.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[620px] text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Devices</th><th className="px-4 py-3">Action required</th><th className="px-4 py-3">Other unresolved</th></tr></thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {dashboard.customersRequiringUpdates.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-3"><Link href={`/customers/${row.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{row.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{row.context}</div></td>
-                          <td className="px-4 py-3 tabular-nums">{row.devices}</td>
-                          <td className="px-4 py-3"><Link href={technicalStateDeviceHref({ customer: row.id }, 'ACTION_REQUIRED')} className="font-semibold tabular-nums text-[var(--accent-light)] hover:underline">{row.actionRequired}</Link></td>
-                          <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">{row.unknown} unknown · {row.noPolicy} no policy</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </div>
-
-          <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(380px,0.75fr)]">
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Desired-state compliance by vendor" description="The same exact current-versus-desired resolver, grouped by vendor for active devices." />
-              {dashboard.complianceByVendor.length === 0 ? (
-                <div className="px-4 py-7 text-sm text-[var(--muted)]">No vendor compliance data is available yet.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Vendor</th><th className="px-4 py-3">Devices</th><th className="px-4 py-3">Current</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Unknown</th><th className="px-4 py-3">No policy</th></tr></thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {dashboard.complianceByVendor.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-3"><Link href={`/vendors/${row.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{row.name}</Link></td>
-                          <td className="px-4 py-3 tabular-nums"><Link href={deviceFilterHref({ vendor: row.id })} className="hover:text-[var(--accent-light)] hover:underline">{row.devices}</Link></td>
-                          <td className="px-4 py-3 tabular-nums"><Link href={technicalStateDeviceHref({ vendor: row.id }, 'CURRENT')} className="hover:text-[var(--accent-light)] hover:underline">{row.current}</Link></td>
-                          <td className="px-4 py-3 tabular-nums"><Link href={technicalStateDeviceHref({ vendor: row.id }, 'ACTION_REQUIRED')} className="font-semibold text-[var(--accent-light)] hover:underline">{row.actionRequired}</Link></td>
-                          <td className="px-4 py-3 tabular-nums"><Link href={technicalStateDeviceHref({ vendor: row.id }, 'UNKNOWN')} className="hover:text-[var(--accent-light)] hover:underline">{row.unknown}</Link></td>
-                          <td className="px-4 py-3 tabular-nums"><Link href={technicalStateDeviceHref({ vendor: row.id }, 'NO_POLICY')} className="hover:text-[var(--accent-light)] hover:underline">{row.noPolicy}</Link></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Current firmware distribution" description="Most-used exact recorded releases on active devices. Version strings are display values only, not ordered precedence." />
-              {dashboard.currentFirmwareDistribution.length === 0 ? (
-                <div className="px-4 py-7 text-sm text-[var(--muted)]">No current firmware has been recorded yet.</div>
-              ) : (
-                <div className="divide-y divide-[var(--border)]">
-                  {dashboard.currentFirmwareDistribution.map((release) => (
-                    <div key={release.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                      <div className="min-w-0">
-                        <Link href={`/firmware/${release.id}`} className="font-mono text-sm font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link>
-                        <div className="mt-1 truncate text-xs text-[var(--muted)]">{release.vendor} · {release.platform}</div>
-                      </div>
-                      <Link href={deviceFilterHref({ currentFirmware: release.id })} className="shrink-0 text-sm font-semibold tabular-nums text-[var(--accent-light)] hover:underline">{release.devices}</Link>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
 
           <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <SectionHeader title="Recent firmware lifecycle decisions" description="Recent Planned, Ignored, Customer declined, and Done audit events. This is decision history, not monitoring alerts." action={<Link href="/planning" className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Planning workspace</Link>} />
-            {dashboard.recentDecisions.length === 0 ? (
-              <div className="px-4 py-7 text-sm text-[var(--muted)]">No lifecycle decisions have been recorded yet.</div>
+            <SectionHeader title="Workflow" description="Compact operational status; these decisions do not change technical compliance." action={<Link href="/planning" className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Planning workspace</Link>} />
+            <div className="flex flex-wrap gap-2 px-4 py-3">
+              <Link href={workflowDeviceHref({}, 'PLANNED')} className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"><WorkflowStatusBadge state="PLANNED" /><span className="tabular-nums">{dashboard.workflow.planned}</span></Link>
+              <Link href={workflowDeviceHref({}, 'IGNORED')} className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"><WorkflowStatusBadge state="IGNORED" /><span className="tabular-nums">{dashboard.workflow.ignored}</span></Link>
+              <Link href={workflowDeviceHref({}, 'CUSTOMER_DECLINED')} className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"><WorkflowStatusBadge state="CUSTOMER_DECLINED" /><span className="tabular-nums">{dashboard.workflow.customerDeclined}</span></Link>
+              <Link href={workflowDeviceHref({}, 'DONE')} className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"><WorkflowStatusBadge state="DONE" /><span className="tabular-nums">{dashboard.workflow.done}</span></Link>
+              <Link href={workflowDeviceHref({}, 'UNDECIDED')} className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"><span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">No decision</span><span className="tabular-nums">{dashboard.workflow.undecided}</span></Link>
+            </div>
+          </section>
+
+          <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <SectionHeader title="Customer and site attention" description="Primary work view: customers first, with the affected sites directly underneath." action={<Link href={technicalStateDeviceHref({}, 'ACTION_REQUIRED')} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">All firmware action</Link>} />
+            {dashboard.customerAttention.length === 0 ? (
+              <div className="px-4 py-7 text-sm text-[var(--muted)]">No customer currently has Action required, Unknown current, or No policy devices.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-left text-sm">
-                  <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">When</th><th className="px-4 py-3">Device</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Decision</th><th className="px-4 py-3">Reason / notes</th><th className="px-4 py-3">Actor</th></tr></thead>
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Customer / site</th><th className="px-4 py-3">Action required</th><th className="px-4 py-3">Unknown</th><th className="px-4 py-3">No policy</th></tr></thead>
                   <tbody className="divide-y divide-[var(--border)]">
-                    {dashboard.recentDecisions.map((decision) => (
-                      <tr key={decision.id}>
-                        <td className="px-4 py-3 whitespace-nowrap text-xs text-[var(--muted-strong)]">{new Date(decision.createdAt).toLocaleString()}</td>
-                        <td className="px-4 py-3"><Link href={`/devices/${decision.deviceId}`} className="font-semibold text-[var(--accent-light)] hover:underline">{decision.deviceName}</Link></td>
-                        <td className="px-4 py-3">{decision.customerId ? <Link href={`/customers/${decision.customerId}`} className="hover:text-[var(--accent-light)] hover:underline">{decision.customerName ?? 'Customer'}</Link> : <span className="text-[var(--muted)]">—</span>}</td>
-                        <td className="px-4 py-3"><div className="flex items-center gap-2"><WorkflowStatusBadge state={decision.state} /><span className="text-xs text-[var(--muted)]">{workflowLabel(decision.state)}</span></div></td>
-                        <td className="max-w-md px-4 py-3 text-xs leading-5 text-[var(--muted-strong)]">{decision.reason ?? decision.notes ?? '—'}</td>
-                        <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">{decision.actorName ?? 'System / unknown'}</td>
-                      </tr>
-                    ))}
+                    {dashboard.customerAttention.flatMap((customer) => [
+                      <tr key={`customer-${customer.id}`} className="bg-[var(--surface-raised)]/50">
+                        <td className="px-4 py-3"><Link href={deviceFilterHref({ customer: customer.id })} className="font-semibold text-[var(--accent-light)] hover:underline">{customer.name}</Link></td>
+                        <td className="px-4 py-3"><Link href={technicalStateDeviceHref({ customer: customer.id }, 'ACTION_REQUIRED')} className="font-semibold tabular-nums hover:text-[var(--accent-light)] hover:underline">{customer.actionRequired}</Link></td>
+                        <td className="px-4 py-3"><Link href={technicalStateDeviceHref({ customer: customer.id }, 'UNKNOWN')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{customer.unknown}</Link></td>
+                        <td className="px-4 py-3"><Link href={technicalStateDeviceHref({ customer: customer.id }, 'NO_POLICY')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{customer.noPolicy}</Link></td>
+                      </tr>,
+                      ...customer.sites.map((site) => {
+                        const scope = { customer: customer.id, site: site.id ?? 'none' }
+                        return (
+                          <tr key={`site-${customer.id}-${site.id ?? 'none'}`}>
+                            <td className="px-4 py-2.5 pl-8"><Link href={deviceFilterHref(scope)} className="text-[var(--muted-strong)] hover:text-[var(--accent-light)] hover:underline">↳ {site.name}</Link></td>
+                            <td className="px-4 py-2.5"><Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{site.actionRequired}</Link></td>
+                            <td className="px-4 py-2.5"><Link href={technicalStateDeviceHref(scope, 'UNKNOWN')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{site.unknown}</Link></td>
+                            <td className="px-4 py-2.5"><Link href={technicalStateDeviceHref(scope, 'NO_POLICY')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{site.noPolicy}</Link></td>
+                          </tr>
+                        )
+                      }),
+                    ])}
                   </tbody>
                 </table>
               </div>
             )}
           </section>
+
+          <div className="mt-5 grid gap-5 xl:grid-cols-2">
+            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Attention by contract type" description="Effective contract (site override before customer default) as the main prioritization lens." />
+              {dashboard.contractAttention.length === 0 ? (
+                <div className="px-4 py-7 text-sm text-[var(--muted)]">No contract grouping currently has unresolved firmware attention.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[620px] text-left text-sm">
+                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Unknown</th><th className="px-4 py-3">No policy</th><th className="px-4 py-3">Blocked</th></tr></thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {dashboard.contractAttention.map((row) => {
+                        const scope = { contract: contractFilter(row.id) }
+                        return <tr key={row.id ?? 'none'}><td className="px-4 py-3"><Link href={deviceFilterHref(scope)} className="font-semibold text-[var(--accent-light)] hover:underline">{row.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{row.devices} active device{row.devices === 1 ? '' : 's'}</div></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="font-semibold tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.actionRequired}</Link></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'UNKNOWN')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.unknown}</Link></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'NO_POLICY')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.noPolicy}</Link></td><td className="px-4 py-3 tabular-nums">{row.blocked}</td></tr>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Attention by vendor" description="Secondary work-method lens for vendors that require a different upgrade approach." />
+              {dashboard.vendorAttention.length === 0 ? (
+                <div className="px-4 py-7 text-sm text-[var(--muted)]">No vendor currently has unresolved firmware attention.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[620px] text-left text-sm">
+                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Vendor</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Unknown</th><th className="px-4 py-3">No policy</th><th className="px-4 py-3">Blocked</th></tr></thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {dashboard.vendorAttention.map((row) => {
+                        const scope = { vendor: row.id ?? '' }
+                        return <tr key={row.id ?? row.name}><td className="px-4 py-3"><Link href={row.id ? `/vendors/${row.id}` : deviceFilterHref(scope)} className="font-semibold text-[var(--accent-light)] hover:underline">{row.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{row.devices} active device{row.devices === 1 ? '' : 's'}</div></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="font-semibold tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.actionRequired}</Link></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'UNKNOWN')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.unknown}</Link></td><td className="px-4 py-3"><Link href={technicalStateDeviceHref(scope, 'NO_POLICY')} className="tabular-nums hover:text-[var(--accent-light)] hover:underline">{row.noPolicy}</Link></td><td className="px-4 py-3 tabular-nums">{row.blocked}</td></tr>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+
+          {dashboard.firmwareAttention.length > 0 ? (
+            <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Firmware releases needing attention" description="Only releases used by Action required devices, plus BLOCKED releases. General firmware distribution lives in the Firmware catalog." action={<Link href="/firmware" className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Firmware catalog</Link>} />
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-sm">
+                  <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Release</th><th className="px-4 py-3">Vendor / platform</th><th className="px-4 py-3">Affected devices</th><th className="px-4 py-3">Action required</th><th className="px-4 py-3">Blocked</th></tr></thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {dashboard.firmwareAttention.map((release) => (
+                      <tr key={release.id}>
+                        <td className="px-4 py-3"><Link href={`/firmware/${release.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{release.status}</div></td>
+                        <td className="px-4 py-3">{release.vendor}<div className="mt-1 text-xs text-[var(--muted)]">{release.platform}</div></td>
+                        <td className="px-4 py-3 tabular-nums"><Link href={deviceFilterHref({ currentFirmware: release.id })} className="hover:text-[var(--accent-light)] hover:underline">{release.devices}</Link></td>
+                        <td className="px-4 py-3 tabular-nums"><Link href={technicalStateDeviceHref({ currentFirmware: release.id }, 'ACTION_REQUIRED')} className="font-semibold hover:text-[var(--accent-light)] hover:underline">{release.actionRequired}</Link></td>
+                        <td className="px-4 py-3 tabular-nums">{release.blocked}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </>
       )}
     </>
