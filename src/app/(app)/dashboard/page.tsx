@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { EmptyState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -9,7 +10,7 @@ import type { DashboardWorkflowState } from '@/lib/dashboard'
 
 export const dynamic = 'force-dynamic'
 
-function StatLink({ href, children }: { href: string; children: React.ReactNode }) {
+function StatLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
@@ -20,7 +21,7 @@ function StatLink({ href, children }: { href: string; children: React.ReactNode 
   )
 }
 
-function SectionHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
+function SectionHeader({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
       <div>
