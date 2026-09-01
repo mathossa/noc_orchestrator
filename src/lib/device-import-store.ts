@@ -79,6 +79,10 @@ type PlannedRow = DeviceImportPreviewRow & {
 }
 
 type ImportPlan = { preview: DeviceImportPreview; rows: PlannedRow[] }
+type ImportSelection = { mode: 'ALL_IMPORTABLE'; rows: number[] } | { mode: 'ROWS'; rows: number[] }
+
+const SERVER_PREVIEW_ROW_LIMIT = 200
+const RESULT_ROW_SAMPLE_LIMIT = 200
 
 function exactNameOrCode<T extends { name: string; code?: string | null }>(value: string, records: T[]) {
   const normalized = normalizeImportText(value)
@@ -186,7 +190,7 @@ function aliasTargetId(
   const matches = (aliases: AliasRef[]) => aliases.find(
     (alias) => alias.kind === kind && alias.normalizedSourceValue === normalizedSourceValue && alias.contextKey === contextKey,
   )?.targetId ?? null
-  return matches(references.profileAliases) ?? matches(references.globalAliases)
+  return options.profileId ? matches(references.profileAliases) : matches(references.globalAliases)
 }
 
 function unresolvedIssue(
@@ -561,16 +565,16 @@ async function buildPlan(workbook: XlsxWorkbook, options: DeviceImportOptions, f
   }
 
   applyBatchConflicts(rows)
-  const publicRows = rows.map(publicRow)
+  const counts = countImportPreview(rows)
   return {
     rows,
     preview: {
       fileName,
       sheetName: options.sheetName,
       headerRow: options.headerRow,
-      rows: publicRows,
+      rows: rows.slice(0, SERVER_PREVIEW_ROW_LIMIT).map(publicRow),
       unresolvedReferences: unresolvedReferences(rows),
-      counts: countImportPreview(publicRows),
+      counts,
     },
   }
 }
@@ -579,23 +583,32 @@ export async function previewDeviceImport(workbook: XlsxWorkbook, options: Devic
   return (await buildPlan(workbook, options, fileName, new Date())).preview
 }
 
-function parseSelectedRows(value: unknown) {
-  if (!Array.isArray(value)) throw new DeviceImportValidationError('Choose one or more preview rows to import.')
+function parseSelection(value: unknown): ImportSelection {
+  if (typeof value === 'object' && value !== null && (value as { mode?: unknown }).mode === 'ALL_IMPORTABLE') {
+    return { mode: 'ALL_IMPORTABLE', rows: [] }
+  }
+  if (!Array.isArray(value)) throw new DeviceImportValidationError('Choose one or more preview rows to import, or choose all valid rows.')
   const rows = [...new Set(value.map(Number).filter((row) => Number.isInteger(row) && row > 0))]
   if (!rows.length) throw new DeviceImportValidationError('Choose one or more preview rows to import.')
-  return rows
+  return { mode: 'ROWS', rows }
 }
 
 export async function commitDeviceImport(workbook: XlsxWorkbook, options: DeviceImportOptions, selectedRowsValue: unknown, fileName: string, actorUserId: string | null): Promise<DeviceImportResult> {
-  const selectedRows = parseSelectedRows(selectedRowsValue)
+  const selection = parseSelection(selectedRowsValue)
   const now = new Date()
   const plan = await buildPlan(workbook, options, fileName, now)
-  const selectedSet = new Set(selectedRows)
-  const selected = plan.rows.filter((row) => selectedSet.has(row.rowNumber))
-  if (selected.length !== selectedRows.length) throw new DeviceImportValidationError('One or more selected spreadsheet rows are no longer present. Refresh the preview.')
+  const selected = selection.mode === 'ALL_IMPORTABLE'
+    ? plan.rows.filter((row) => row.importable && row.input && ['CREATE', 'UPDATE'].includes(row.action))
+    : plan.rows.filter((row) => selection.rows.includes(row.rowNumber))
+
+  if (selection.mode === 'ROWS' && selected.length !== selection.rows.length) {
+    throw new DeviceImportValidationError('One or more selected spreadsheet rows are no longer present. Refresh the preview.')
+  }
+  if (!selected.length) throw new DeviceImportValidationError('There are no valid CREATE/UPDATE rows selected for import.')
   const stale = selected.find((row) => !row.importable || !row.input || !['CREATE', 'UPDATE'].includes(row.action))
   if (stale) throw new DeviceImportValidationError(`Spreadsheet row ${stale.rowNumber} is no longer importable. Refresh the preview before importing.`)
 
+  const selectedSet = new Set(selected.map((row) => row.rowNumber))
   await prisma.$transaction(async (tx) => {
     for (const row of selected) {
       const input = row.input!
@@ -634,6 +647,6 @@ export async function commitDeviceImport(workbook: XlsxWorkbook, options: Device
     updated: selected.filter((row) => row.action === 'UPDATE').length,
     failed: plan.rows.filter((row) => row.action === 'ERROR' || row.action === 'CONFLICT').length,
     skipped: plan.rows.filter((row) => row.action === 'UNCHANGED').length + plan.rows.filter((row) => row.importable && !selectedSet.has(row.rowNumber)).length,
-    importedRows: selected.map((row) => row.rowNumber),
+    importedRows: selected.slice(0, RESULT_ROW_SAMPLE_LIMIT).map((row) => row.rowNumber),
   }
 }
