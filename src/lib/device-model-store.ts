@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
-import { normalizedDeviceModelName, parseDeviceModelInput } from '@/lib/device-models'
+import { normalizedDeviceModelName, parseDeviceModelInput, type DeviceModelFirmwareReference } from '@/lib/device-models'
 import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
 import {
   emptyTechnicalFirmwareStateCounts,
@@ -36,20 +36,40 @@ export class DeviceModelReferenceError extends Error {
   }
 }
 
+const referenceSelect = { id: true, code: true, name: true, isActive: true } as const
+const familySelect = { id: true, vendorId: true, name: true, isActive: true } as const
+const firmwareSelect = {
+  id: true,
+  vendorId: true,
+  version: true,
+  platform: true,
+  status: true,
+  isActive: true,
+  releasedAt: true,
+  firmwareTrain: { select: { id: true, name: true } },
+} as const
+
 const deviceModelInclude = {
-  vendor: { select: { id: true, code: true, name: true, isActive: true } },
-  deviceType: { select: { id: true, code: true, name: true, isActive: true } },
+  vendor: { select: referenceSelect },
+  deviceType: { select: referenceSelect },
+  family: { select: familySelect },
   _count: { select: { devices: true } },
 } as const
 
-function normalizedFirmwarePlatform(value: string | null | undefined) {
-  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
-}
+const modelBaselineScope = {
+  isActive: true,
+  customerId: null,
+  contractTypeId: null,
+  deviceId: null,
+  vendorId: null,
+  deviceTypeId: null,
+} as const
 
-function serializeDeviceModel(record: {
+type IncludedDeviceModel = {
   id: string
   vendorId: string
   deviceTypeId: string
+  familyId: string | null
   model: string
   platform: string | null
   notes: string | null
@@ -60,12 +80,39 @@ function serializeDeviceModel(record: {
   lastSynchronizedAt: Date | null
   vendor: { id: string; code: string; name: string; isActive: boolean }
   deviceType: { id: string; code: string; name: string; isActive: boolean }
+  family: { id: string; vendorId: string; name: string; isActive: boolean } | null
   _count: { devices: number }
-}) {
+}
+
+function normalizedFirmwarePlatform(value: string | null | undefined) {
+  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
+
+function serializeFirmware(release: {
+  id: string
+  vendorId: string
+  version: string
+  platform: string
+  status: string
+  isActive: boolean
+  releasedAt: Date | null
+  firmwareTrain: { id: string; name: string } | null
+}): DeviceModelFirmwareReference {
+  return {
+    ...release,
+    releasedAt: release.releasedAt?.toISOString() ?? null,
+  }
+}
+
+function serializeDeviceModel(
+  record: IncludedDeviceModel,
+  desiredFirmwareRelease: DeviceModelFirmwareReference | null = null,
+) {
   return {
     id: record.id,
     vendorId: record.vendorId,
     deviceTypeId: record.deviceTypeId,
+    familyId: record.familyId,
     model: record.model,
     platform: record.platform,
     notes: record.notes,
@@ -76,18 +123,27 @@ function serializeDeviceModel(record: {
     lastSynchronizedAt: record.lastSynchronizedAt?.toISOString() ?? null,
     vendor: record.vendor,
     deviceType: record.deviceType,
+    family: record.family,
     deviceCount: record._count.devices,
+    desiredFirmwareRelease,
   }
 }
 
-async function assertReferences(vendorId: string, deviceTypeId: string) {
-  const [vendor, deviceType] = await Promise.all([
+async function assertReferences(vendorId: string, deviceTypeId: string, familyId: string | null) {
+  const [vendor, deviceType, family] = await Promise.all([
     prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } }),
     prisma.deviceType.findUnique({ where: { id: deviceTypeId }, select: { id: true } }),
+    familyId
+      ? prisma.deviceModelFamily.findUnique({ where: { id: familyId }, select: { id: true, vendorId: true } })
+      : Promise.resolve(null),
   ])
 
   if (!vendor) throw new DeviceModelReferenceError('The selected vendor does not exist.')
   if (!deviceType) throw new DeviceModelReferenceError('The selected device type does not exist.')
+  if (familyId && !family) throw new DeviceModelReferenceError('The selected model family / series does not exist.')
+  if (family && family.vendorId !== vendorId) {
+    throw new DeviceModelReferenceError('The selected family / series must belong to the same vendor as the model.')
+  }
 }
 
 async function assertUniqueWithinVendor(vendorId: string, model: string, excludeId?: string) {
@@ -109,21 +165,57 @@ export async function listDeviceModels() {
     orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { model: 'asc' }],
     include: deviceModelInclude,
   })
-  return records.map(serializeDeviceModel)
+  const modelIds = records.map((record) => record.id)
+  const policies = modelIds.length
+    ? await prisma.firmwarePolicy.findMany({
+        where: { ...modelBaselineScope, deviceModelId: { in: modelIds } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          deviceModelId: true,
+          targetFirmwareRelease: { select: firmwareSelect },
+        },
+      })
+    : []
+  const desiredByModel = new Map<string, DeviceModelFirmwareReference>()
+  for (const policy of policies) {
+    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
+    desiredByModel.set(policy.deviceModelId, serializeFirmware(policy.targetFirmwareRelease))
+  }
+
+  return records.map((record) =>
+    serializeDeviceModel(record as IncludedDeviceModel, desiredByModel.get(record.id) ?? null),
+  )
 }
 
 export async function listDeviceModelReferences() {
-  const [vendors, deviceTypes] = await Promise.all([
+  const [vendors, deviceTypes, families, firmwareReleases] = await Promise.all([
     prisma.vendor.findMany({
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: { id: true, code: true, name: true, isActive: true },
+      select: referenceSelect,
     }),
     prisma.deviceType.findMany({
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: { id: true, code: true, name: true, isActive: true },
+      select: referenceSelect,
+    }),
+    prisma.deviceModelFamily.findMany({
+      orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { name: 'asc' }],
+      select: familySelect,
+    }),
+    prisma.firmwareRelease.findMany({
+      where: {
+        isActive: true,
+        status: { in: [...NORMAL_DESIRED_FIRMWARE_STATUSES] },
+      },
+      orderBy: [{ vendor: { name: 'asc' } }, { platform: 'asc' }, { releasedAt: 'desc' }, { version: 'asc' }],
+      select: firmwareSelect,
     }),
   ])
-  return { vendors, deviceTypes }
+  return {
+    vendors,
+    deviceTypes,
+    families,
+    firmwareReleases: firmwareReleases.map(serializeFirmware),
+  }
 }
 
 export async function getDeviceModel(id: string) {
@@ -151,16 +243,7 @@ export async function getDeviceModel(id: string) {
     prisma.firmwareRelease.findMany({
       where: { vendorId: record.vendorId },
       orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
-      select: {
-        id: true,
-        vendorId: true,
-        version: true,
-        platform: true,
-        status: true,
-        isActive: true,
-        releasedAt: true,
-        firmwareTrain: { select: { id: true, name: true } },
-      },
+      select: firmwareSelect,
     }),
     listAuditEventsForEntity('DeviceModel', id),
   ])
@@ -228,8 +311,10 @@ export async function getDeviceModel(id: string) {
     }
   }
 
+  const desiredRelease = desiredPolicy?.release ?? null
+
   return {
-    ...serializeDeviceModel(record),
+    ...serializeDeviceModel(record as IncludedDeviceModel, desiredRelease),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     customers: [...customerMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -239,13 +324,12 @@ export async function getDeviceModel(id: string) {
     desiredFirmware: {
       available: true as const,
       policyId: desiredPolicy?.id ?? null,
-      release: desiredPolicy?.release ?? null,
+      release: desiredRelease,
     },
     availableFirmware: {
       available: true as const,
       releases: availableReleases.map((release) => ({
-        ...release,
-        releasedAt: release.releasedAt?.toISOString() ?? null,
+        ...serializeFirmware(release),
         selectable:
           release.isActive &&
           NORMAL_DESIRED_FIRMWARE_STATUSES.includes(
@@ -259,10 +343,10 @@ export async function getDeviceModel(id: string) {
 
 export async function createDeviceModel(rawInput: unknown) {
   const input = parseDeviceModelInput(rawInput)
-  await assertReferences(input.vendorId, input.deviceTypeId)
+  await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
   await assertUniqueWithinVendor(input.vendorId, input.model)
   const record = await prisma.deviceModel.create({ data: input, include: deviceModelInclude })
-  return serializeDeviceModel(record)
+  return serializeDeviceModel(record as IncludedDeviceModel)
 }
 
 export async function updateDeviceModel(id: string, rawInput: unknown) {
@@ -273,6 +357,7 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
   const input = parseDeviceModelInput({
     vendorId: current.vendorId,
     deviceTypeId: current.deviceTypeId,
+    familyId: current.familyId,
     model: current.model,
     platform: current.platform,
     notes: current.notes,
@@ -283,10 +368,10 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
     ...patch,
   })
 
-  await assertReferences(input.vendorId, input.deviceTypeId)
+  await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
   await assertUniqueWithinVendor(input.vendorId, input.model, id)
   const record = await prisma.deviceModel.update({ where: { id }, data: input, include: deviceModelInclude })
-  return serializeDeviceModel(record)
+  return serializeDeviceModel(record as IncludedDeviceModel)
 }
 
 export async function deleteDeviceModel(id: string) {
