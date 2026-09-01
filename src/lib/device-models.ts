@@ -1,4 +1,5 @@
 import type { AuditEventRecord } from '@/lib/audit-events'
+import type { DeviceModelFamilyReference } from '@/lib/model-families'
 
 export type DeviceModelSource = 'MANUAL' | 'API' | 'IMPORT'
 
@@ -24,6 +25,7 @@ export type DeviceModelRecord = {
   id: string
   vendorId: string
   deviceTypeId: string
+  familyId: string | null
   model: string
   platform: string | null
   notes: string | null
@@ -34,7 +36,9 @@ export type DeviceModelRecord = {
   lastSynchronizedAt: string | null
   vendor: DeviceModelReference
   deviceType: DeviceModelReference
+  family: DeviceModelFamilyReference | null
   deviceCount: number
+  desiredFirmwareRelease: DeviceModelFirmwareReference | null
 }
 
 export type DeviceModelDetailRecord = DeviceModelRecord & {
@@ -102,6 +106,7 @@ export function parseDeviceModelInput(input: unknown) {
   const body = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const vendorId = optionalText(body.vendorId) ?? ''
   const deviceTypeId = optionalText(body.deviceTypeId) ?? ''
+  const familyId = optionalText(body.familyId)
   const model = cleanDeviceModelName(body.model)
   const platform = optionalText(body.platform)
   const notes = optionalText(body.notes)
@@ -139,6 +144,7 @@ export function parseDeviceModelInput(input: unknown) {
   return {
     vendorId,
     deviceTypeId,
+    familyId,
     model,
     platform,
     notes,
