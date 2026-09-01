@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const options = optionsFromFormData(formData)
     const workbook = readXlsxWorkbook(buffer)
     const preview = await previewDeviceImport(workbook, options, file.name)
-    const totalRows = preview.rows.length
+    const totalRows = preview.counts.create + preview.counts.update + preview.counts.unchanged + preview.counts.conflict + preview.counts.error
 
     return NextResponse.json({
       data: {
