@@ -13,63 +13,52 @@ export type DashboardWorkflowCounts = {
   undecided: number
 }
 
-export type DashboardAttentionRow = {
-  id: string
+export type DashboardSiteAttentionRow = {
+  id: string | null
   name: string
-  context: string
-  devices: number
-  current: number
   actionRequired: number
   unknown: number
   noPolicy: number
 }
 
-export type DashboardVendorComplianceRow = {
+export type DashboardCustomerAttentionRow = {
   id: string
   name: string
-  devices: number
-  current: number
   actionRequired: number
   unknown: number
   noPolicy: number
+  sites: DashboardSiteAttentionRow[]
 }
 
-export type DashboardFirmwareDistributionRow = {
+export type DashboardDimensionAttentionRow = {
+  id: string | null
+  name: string
+  devices: number
+  actionRequired: number
+  unknown: number
+  noPolicy: number
+  blocked: number
+}
+
+export type DashboardFirmwareAttentionRow = {
   id: string
   version: string
   vendor: string
   platform: string
+  status: string
   devices: number
+  actionRequired: number
+  blocked: number
 }
 
 export type DashboardWorkflowState = 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
 
-export type DashboardRecentDecision = {
-  id: string
-  action: string
-  state: DashboardWorkflowState
-  deviceId: string
-  deviceName: string
-  customerId: string | null
-  customerName: string | null
-  actorName: string | null
-  reason: string | null
-  notes: string | null
-  createdAt: string
-}
-
 export type FirmwareLifecycleDashboard = {
-  inventory: {
-    customers: number
-    devices: number
-    models: number
-    vendors: number
-  }
+  activeDevices: number
   technical: DashboardTechnicalCounts
   workflow: DashboardWorkflowCounts
-  modelsRequiringUpdates: DashboardAttentionRow[]
-  customersRequiringUpdates: DashboardAttentionRow[]
-  complianceByVendor: DashboardVendorComplianceRow[]
-  currentFirmwareDistribution: DashboardFirmwareDistributionRow[]
-  recentDecisions: DashboardRecentDecision[]
+  customerAttention: DashboardCustomerAttentionRow[]
+  contractAttention: DashboardDimensionAttentionRow[]
+  vendorAttention: DashboardDimensionAttentionRow[]
+  firmwareAttention: DashboardFirmwareAttentionRow[]
 }
