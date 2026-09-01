@@ -304,14 +304,14 @@ model ImportReferenceAlias {
 }
 
 model DeviceImportBatch {
-  id          String  @id @default(uuid())
+  id          String    @id @default(uuid())
   profileId   String?
   fileName    String
   sheetName   String
   headerRow   Int
   settings    Json
-  status      String  @default("STAGED")
-  totalRows   Int     @default(0)
+  status      String    @default("STAGED")
+  totalRows   Int       @default(0)
   publishedAt DateTime?
 
   rows       DeviceImportStagedRow[]
@@ -326,12 +326,12 @@ model DeviceImportBatch {
 }
 
 model DeviceImportStagedRow {
-  id                String  @id @default(uuid())
+  id                String @id @default(uuid())
   batchId           String
   rowNumber         Int
   rawData           Json
   mappedData        Json
-  status            String  @default("STAGED")
+  status            String @default("STAGED")
   publishedDeviceId String?
 
   batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
@@ -363,7 +363,7 @@ model DeviceImportStagedReference {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  @@unique([batchId, kind, normalizedSourceValue, contextKey])
+  @@unique([batchId, kind, normalizedSourceValue, contextKey], map: "ImportStagedRef_batch_kind_source_context_key")
   @@index([batchId, status])
   @@index([batchId, kind])
   @@index([targetId])
@@ -419,9 +419,9 @@ model FirmwareRelease {
 
   vendor             Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   firmwareTrain      FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
-  currentOnDevices   Device[]                  @relation("DeviceCurrentFirmware")
-  targetedByPolicies FirmwarePolicy[]          @relation("PolicyTargetFirmware")
-  lifecycleTargets   FirmwareLifecycleRecord[] @relation("LifecycleTargetFirmware")
+  currentOnDevices   Device[]                   @relation("DeviceCurrentFirmware")
+  targetedByPolicies FirmwarePolicy[]           @relation("PolicyTargetFirmware")
+  lifecycleTargets   FirmwareLifecycleRecord[]  @relation("LifecycleTargetFirmware")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -523,7 +523,7 @@ model FirmwareLifecycleRecord {
   notes                   String?
   plannedFor              DateTime?
   reviewAt                DateTime?
-  decidedAt               DateTime              @default(now())
+  decidedAt               DateTime               @default(now())
   decidedByUserId         String?
   completedAt             DateTime?
 
