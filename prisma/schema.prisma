@@ -303,6 +303,72 @@ model ImportReferenceAlias {
   @@index([kind, targetId])
 }
 
+model DeviceImportBatch {
+  id          String  @id @default(uuid())
+  profileId   String?
+  fileName    String
+  sheetName   String
+  headerRow   Int
+  settings    Json
+  status      String  @default("STAGED")
+  totalRows   Int     @default(0)
+  publishedAt DateTime?
+
+  rows       DeviceImportStagedRow[]
+  references DeviceImportStagedReference[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([profileId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DeviceImportStagedRow {
+  id                String  @id @default(uuid())
+  batchId           String
+  rowNumber         Int
+  rawData           Json
+  mappedData        Json
+  status            String  @default("STAGED")
+  publishedDeviceId String?
+
+  batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+}
+
+model DeviceImportStagedReference {
+  id                    String  @id @default(uuid())
+  batchId               String
+  kind                  String
+  sourceValue           String
+  normalizedSourceValue String
+  contextKey            String  @default("")
+  metadata              Json?
+  status                String  @default("UNRESOLVED")
+  targetId              String?
+  suggestedTargetId     String?
+  suggestionScore       Float?
+  resolutionSource      String?
+  occurrenceCount       Int     @default(1)
+
+  batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([batchId, kind, normalizedSourceValue, contextKey])
+  @@index([batchId, status])
+  @@index([batchId, kind])
+  @@index([targetId])
+}
+
 model FirmwareTrain {
   id       String @id @default(uuid())
   vendorId String
