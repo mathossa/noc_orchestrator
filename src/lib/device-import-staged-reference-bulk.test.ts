@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBulkReferenceResolutionInput } from '@/lib/device-import-staged-reference-bulk'
+import { parseBulkReferenceResolutionInput } from '@/lib/device-import-staged-reference-bulk-input'
 
 describe('parseBulkReferenceResolutionInput', () => {
   it('accepts mixed remember modes in one backend request', () => {
