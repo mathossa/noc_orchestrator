@@ -6,11 +6,26 @@ Issue #38 adds a guided spreadsheet import for recorded device inventory. It is 
 
 The workspace lives at `/devices/import` and uses three server-validated stages:
 
-1. **Inspect** — parse the XLSX, select worksheet/header, inspect a sample, and choose or create an import profile.
-2. **Preview / resolve** — map columns, resolve reference values, review CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR rows, and choose rows to import. Preview does not write device inventory.
-3. **Commit** — reparse and revalidate the original workbook against the current database, then write selected CREATE/UPDATE rows in one Prisma transaction.
+1. **Inspect** — parse the XLSX, select worksheet/header, inspect a bounded sample, and choose or create an import profile.
+2. **Preview / resolve** — map columns, resolve reference values, review CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR counts plus a bounded row sample, and choose sampled rows or every valid row to import. Preview does not write device inventory.
+3. **Commit** — reparse and revalidate the original workbook against the current database, then write the selected CREATE/UPDATE rows in one Prisma transaction.
 
 The browser retains the original `File` and resends it for each stage; no temporary uploaded workbook record is required.
+
+## Large-workbook behavior
+
+Large exports are deliberately not rendered as thousands of browser table rows.
+
+- Inspect materializes only the first 30 non-empty worksheet rows needed for header/mapping work while retaining the worksheet row count.
+- Full preview validation still evaluates the complete mapped worksheet.
+- Only the first 200 validated row details are returned to the browser.
+- Aggregate CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR counts cover the full workbook.
+- Repeated unresolved references are aggregated across the full workbook; only a bounded row-number sample is returned to the browser.
+- **Import all valid rows** is represented by one selection token, so the browser does not retain or submit tens of thousands of row numbers.
+- Commit performs one revalidation plan and selects every valid CREATE/UPDATE row before entering the transaction.
+- Result row-number detail is bounded; the result counts remain complete.
+
+This avoids the previous failure mode where a valid large XLSX could freeze the client because React attempted to render every validated row.
 
 ## Reusable import profiles
 
@@ -28,7 +43,7 @@ A profile stores:
 
 The import page exposes saved profiles through a dropdown near the external-provider/default settings. Selecting a profile restores its mapping. Updating the profile persists later layout changes.
 
-Reference aliases remembered with **Always match** are scoped to the selected profile. This means an Auvik-specific name does not silently become a rule for an unrelated CMDB export. Existing legacy/global aliases remain supported when no profile is selected.
+Reference aliases remembered with **Always match** are scoped to the selected profile. This means an Auvik-specific name does not silently become a rule for an unrelated CMDB export. Legacy/global aliases are used only when no import profile is selected.
 
 ## Column mapping
 
@@ -96,7 +111,7 @@ Reference kinds currently supported by the resolver are:
 For a reference value an engineer may choose:
 
 - **Use once** — map the raw value for the current preview/import only;
-- **Always match** — save the mapping for the selected import profile;
+- **Always match** — save the mapping for the selected import profile, or globally when no profile is selected;
 - **Create new** — deliberately create the missing reference using the normal application validation, then use it once or remember it.
 
 Creation is always explicit. The importer never creates arbitrary reference records unattended merely because spreadsheet text was not recognized.
@@ -175,7 +190,8 @@ Current safeguards remain:
 - maximum worksheets: 20;
 - maximum columns parsed per worksheet: 100;
 - maximum total uncompressed ZIP content: 40 MB;
-- worksheet sample returned to the mapping UI: first 30 non-empty rows.
+- worksheet sample returned to the mapping UI: first 30 non-empty rows;
+- validated row details returned to the browser: first 200 rows.
 
 Encrypted workbooks, unsupported compression, unsafe ZIP paths and malformed archives are rejected. Embedded scripts/macros, external links and formula code are not executed.
 
