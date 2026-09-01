@@ -1,6 +1,7 @@
 import type { XlsxRow, XlsxSheet } from '@/lib/xlsx-reader'
 
 export const DEVICE_IMPORT_FIELDS = [
+  'organizationSite',
   'customer',
   'site',
   'name',
@@ -11,20 +12,30 @@ export const DEVICE_IMPORT_FIELDS = [
   'deviceType',
   'managementAddress',
   'currentFirmware',
+  'firmwareVersion',
+  'softwareVersion',
   'contract',
   'externalProvider',
   'externalId',
   'notes',
 ] as const
 
-export const DEVICE_IMPORT_REFERENCE_KINDS = ['DEVICE_TYPE', 'DEVICE_MODEL'] as const
+export const DEVICE_IMPORT_REFERENCE_KINDS = [
+  'CUSTOMER',
+  'SITE',
+  'VENDOR',
+  'DEVICE_TYPE',
+  'DEVICE_MODEL',
+  'CONTRACT_TYPE',
+  'FIRMWARE_RELEASE',
+] as const
 
 export type DeviceImportField = (typeof DEVICE_IMPORT_FIELDS)[number]
 export type DeviceImportReferenceKind = (typeof DEVICE_IMPORT_REFERENCE_KINDS)[number]
 export type DeviceImportMapping = Record<string, DeviceImportField | 'ignore'>
 export type DeviceImportResolutionMap = Record<string, string>
 
-export type DeviceImportOptions = {
+export type DeviceImportProfileSettings = {
   sheetName: string
   headerRow: number
   mapping: DeviceImportMapping
@@ -33,6 +44,11 @@ export type DeviceImportOptions = {
     siteId: string | null
     externalProvider: string | null
   }
+  organizationSiteDelimiter: string
+}
+
+export type DeviceImportOptions = DeviceImportProfileSettings & {
+  profileId: string | null
   resolutions: DeviceImportResolutionMap
 }
 
@@ -42,6 +58,12 @@ export type DeviceImportReferenceIssue = {
   kind: DeviceImportReferenceKind
   sourceValue: string
   contextKey: string
+  customerId?: string | null
+  customerName?: string | null
+  vendorId?: string | null
+  vendorName?: string | null
+  platform?: string | null
+  modelName?: string | null
 }
 
 export type DeviceImportIssue = {
@@ -77,8 +99,12 @@ export type DeviceImportUnresolvedReference = {
   sourceValue: string
   normalizedSourceValue: string
   contextKey: string
+  customerId: string | null
+  customerName: string | null
   vendorId: string | null
   vendorName: string | null
+  platform: string | null
+  modelName: string | null
   rowNumbers: number[]
 }
 
@@ -114,6 +140,7 @@ export class DeviceImportValidationError extends Error {
 }
 
 const aliases: Record<DeviceImportField, string[]> = {
+  organizationSite: ['organization name', 'organisation name', 'organization / site', 'organisation / site'],
   customer: ['customer', 'client', 'klant', 'organisatie', 'organization', 'organisation'],
   site: ['site', 'location', 'locatie', 'vestiging', 'office', 'campus'],
   name: ['device name', 'device', 'apparaatnaam', 'inventory name', 'name'],
@@ -131,15 +158,9 @@ const aliases: Record<DeviceImportField, string[]> = {
     'ip adres',
     'address',
   ],
-  currentFirmware: [
-    'current firmware',
-    'firmware version',
-    'firmware',
-    'software version',
-    'current version',
-    'ios version',
-    'version',
-  ],
+  currentFirmware: ['current firmware', 'firmware', 'current version', 'version'],
+  firmwareVersion: ['firmware version'],
+  softwareVersion: ['software version', 'ios version', 'os version'],
   contract: ['contract', 'contract type', 'contracttype', 'service contract', 'dienstverlening'],
   externalProvider: ['external provider', 'source system', 'source provider', 'provider', 'bron'],
   externalId: ['external id', 'source id', 'asset id', 'device id', 'object id', 'external identifier'],
@@ -159,6 +180,26 @@ export function normalizeImportText(value: unknown) {
 
 export function importResolutionKey(kind: DeviceImportReferenceKind, sourceValue: string, contextKey = '') {
   return `${kind}|${contextKey}|${normalizeImportText(sourceValue)}`
+}
+
+export function extractFirmwareVersion(value: string | null) {
+  if (!value) return null
+  const cleaned = value.normalize('NFKC').trim()
+  const explicitV = cleaned.match(/(?:^|[\s_-])v(\d+(?:\.\d+){1,5})\b/i)
+  if (explicitV) return explicitV[1]
+  const dotted = cleaned.match(/\b(\d+(?:\.\d+){1,5})\b/)
+  return dotted?.[1] ?? cleaned
+}
+
+export function splitOrganizationSite(value: string | null, delimiter = ' - ') {
+  if (!value) return { customer: null, site: null }
+  const cleaned = value.normalize('NFKC').trim()
+  const normalizedDelimiter = delimiter || ' - '
+  const splitAt = cleaned.lastIndexOf(normalizedDelimiter)
+  if (splitAt <= 0) return { customer: cleaned || null, site: null }
+  const customer = cleaned.slice(0, splitAt).trim()
+  const site = cleaned.slice(splitAt + normalizedDelimiter.length).trim()
+  return { customer: customer || null, site: site || null }
 }
 
 function nonEmptyCells(row: XlsxRow) {
@@ -238,7 +279,7 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
     : {}
 
   if (!sheetName) throw new DeviceImportValidationError('Choose a worksheet to import.')
-  if (!Number.isInteger(headerRow) || headerRow < 1 || headerRow > 5000) {
+  if (!Number.isInteger(headerRow) || headerRow < 1) {
     throw new DeviceImportValidationError('Choose a valid worksheet header row.')
   }
 
@@ -273,7 +314,12 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
     if (typeof targetId === 'string' && targetId.trim()) resolutions[key] = targetId.trim()
   }
 
+  const profileId = typeof input.profileId === 'string' && input.profileId.trim() ? input.profileId.trim() : null
+  const rawDelimiter = typeof input.organizationSiteDelimiter === 'string' ? input.organizationSiteDelimiter : ' - '
+  const organizationSiteDelimiter = rawDelimiter.length > 0 && rawDelimiter.length <= 20 ? rawDelimiter : ' - '
+
   return {
+    profileId,
     sheetName,
     headerRow,
     mapping,
@@ -282,6 +328,7 @@ export function parseDeviceImportOptions(value: unknown): DeviceImportOptions {
       siteId: cleanDefault('siteId'),
       externalProvider: cleanDefault('externalProvider'),
     },
+    organizationSiteDelimiter,
     resolutions,
   }
 }
@@ -301,6 +348,16 @@ export function mappedRows(sheet: XlsxSheet, options: DeviceImportOptions) {
         const raw = row.values[columnIndex]?.normalize('NFKC').trim() ?? ''
         values[field] = raw || null
       }
+
+      if (values.organizationSite) {
+        const split = splitOrganizationSite(values.organizationSite, options.organizationSiteDelimiter)
+        if (!values.customer) values.customer = split.customer
+        if (!values.site) values.site = split.site
+      }
+
+      if (values.firmwareVersion) values.currentFirmware = values.firmwareVersion
+      else if (!values.currentFirmware && values.softwareVersion) values.currentFirmware = extractFirmwareVersion(values.softwareVersion)
+
       return { rowNumber: row.rowNumber, values }
     })
     .filter((row) => Object.values(row.values).some(Boolean))
