@@ -10,6 +10,10 @@ export const XLSX_LIMITS = {
   previewRows: 30,
 } as const
 
+export type XlsxReadOptions = {
+  maxMaterializedRowsPerSheet?: number
+}
+
 export class XlsxImportError extends Error {
   constructor(
     message: string,
@@ -232,13 +236,16 @@ function cellValue(type: string | null, body: string, strings: string[]) {
   return value
 }
 
-function parseWorksheet(xml: string, strings: string[], name: string): XlsxSheet {
+function parseWorksheet(xml: string, strings: string[], name: string, maxMaterializedRows: number): XlsxSheet {
   const rows: XlsxRow[] = []
   let highestColumn = 0
+  let highestRow = 0
+  let inferredRowNumber = 0
 
   for (const rowMatch of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
+    inferredRowNumber += 1
     const rowNumberValue = attribute(rowMatch[1], 'r')
-    const rowNumber = rowNumberValue ? Number.parseInt(rowNumberValue, 10) : rows.length + 1
+    const rowNumber = rowNumberValue ? Number.parseInt(rowNumberValue, 10) : inferredRowNumber
     if (!Number.isInteger(rowNumber) || rowNumber < 1) continue
     if (rowNumber > XLSX_LIMITS.maxRowsPerSheet) {
       throw new XlsxImportError(
@@ -246,6 +253,9 @@ function parseWorksheet(xml: string, strings: string[], name: string): XlsxSheet
         'XLSX_TOO_MANY_ROWS',
       )
     }
+    highestRow = Math.max(highestRow, rowNumber)
+
+    if (rows.length >= maxMaterializedRows) continue
 
     const values: string[] = []
     let inferredColumn = 0
@@ -278,13 +288,13 @@ function parseWorksheet(xml: string, strings: string[], name: string): XlsxSheet
 
   return {
     name,
-    rowCount: rows.length > 0 ? rows[rows.length - 1].rowNumber : 0,
+    rowCount: highestRow,
     columnCount: highestColumn,
     rows,
   }
 }
 
-export function readXlsxWorkbook(input: ArrayBuffer | Buffer): XlsxWorkbook {
+export function readXlsxWorkbook(input: ArrayBuffer | Buffer, options: XlsxReadOptions = {}): XlsxWorkbook {
   const data = Buffer.isBuffer(input) ? input : Buffer.from(input)
   if (data.length === 0) throw new XlsxImportError('The uploaded XLSX file is empty.')
   if (data.length > XLSX_LIMITS.maxFileBytes) {
@@ -293,6 +303,11 @@ export function readXlsxWorkbook(input: ArrayBuffer | Buffer): XlsxWorkbook {
       'XLSX_TOO_LARGE',
     )
   }
+
+  const requestedLimit = options.maxMaterializedRowsPerSheet
+  const maxMaterializedRows = requestedLimit === undefined
+    ? Number.POSITIVE_INFINITY
+    : Math.max(1, Math.min(XLSX_LIMITS.maxRowsPerSheet, Math.floor(requestedLimit)))
 
   const entries = readZipEntries(data)
   const workbookXml = readEntryText(data, entries, 'xl/workbook.xml')
@@ -311,7 +326,7 @@ export function readXlsxWorkbook(input: ArrayBuffer | Buffer): XlsxWorkbook {
   return {
     sheets: sheets.map((sheet) => {
       const xml = readEntryText(data, entries, sheet.entryName)
-      return parseWorksheet(xml, strings, sheet.name)
+      return parseWorksheet(xml, strings, sheet.name, maxMaterializedRows)
     }),
   }
 }
