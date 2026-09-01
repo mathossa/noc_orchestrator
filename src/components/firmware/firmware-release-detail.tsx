@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
+import { deviceFilterHref } from '@/lib/drilldown-links'
 import type { FirmwareReleaseDetailRecord } from '@/lib/firmware-releases'
 
 type ApiError = { error?: { message?: string } }
@@ -47,6 +48,9 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
     return <ErrorState title="Firmware release could not be loaded" description={error ?? 'The catalog record is unavailable.'} action={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to firmware</Link>} />
   }
 
+  const currentDevicesHref = deviceFilterHref({ currentFirmware: release.id })
+  const desiredDevicesHref = deviceFilterHref({ desiredFirmware: release.id })
+
   return (
     <>
       <PageHeader
@@ -55,14 +59,16 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         description={`${release.platform} catalog entry. Catalog status, train membership, and recency do not make this release desired firmware.`}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href={currentDevicesHref} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Devices currently on release</Link>
+            <Link href={desiredDevicesHref} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Devices desiring release</Link>
             {release.firmwareTrain ? <Link href={`/firmware/trains/${release.firmwareTrain.id}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">View {release.firmwareTrain.name}</Link> : null}
-            <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage firmware</Link>
+            <Link href="/firmware" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Manage firmware</Link>
           </div>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Current on devices" value={release.usage.currentDevices} detail="Devices whose recorded current firmware points to this release." />
+        <SummaryStat label="Current on devices" value={<Link href={currentDevicesHref} className="text-[var(--accent-light)] hover:underline">{release.usage.currentDevices}</Link>} detail="Devices whose recorded current firmware points to this release." />
         <SummaryStat label="Policy targets" value={release.usage.targetPolicies} detail="Policies that explicitly target this exact release." />
         <SummaryStat label="Lifecycle targets" value={release.usage.lifecycleTargets} detail="Current lifecycle decisions targeting this release." />
         <SummaryStat label="Matching models" value={release.matchingModels.length} detail="Models sharing this vendor and platform/family." />
@@ -81,7 +87,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
               <table className="w-full min-w-[620px] text-left text-sm">
                 <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="px-4 py-3">Model</th><th className="px-4 py-3">Device type</th><th className="px-4 py-3">Devices</th></tr></thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {release.matchingModels.map((model) => <tr key={model.id}><td className="px-4 py-3"><Link href={`/models/${model.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{model.model}</Link></td><td className="px-4 py-3 text-[var(--muted-strong)]">{model.deviceType.name}</td><td className="px-4 py-3">{model.deviceCount}</td></tr>)}
+                  {release.matchingModels.map((model) => <tr key={model.id}><td className="px-4 py-3"><Link href={`/models/${model.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{model.model}</Link></td><td className="px-4 py-3 text-[var(--muted-strong)]">{model.deviceType.name}</td><td className="px-4 py-3"><Link href={deviceFilterHref({ model: model.id })} className="text-[var(--accent-light)] hover:underline">{model.deviceCount}</Link></td></tr>)}
                 </tbody>
               </table>
             </div>
@@ -91,7 +97,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <h2 className="text-sm font-semibold">Release metadata</h2>
           <dl className="mt-4 space-y-3 text-sm">
-            <DetailRow label="Vendor" value={release.vendor.name} />
+            <DetailRow label="Vendor" value={<Link href={`/vendors/${release.vendor.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.vendor.name}</Link>} />
             <DetailRow label="Platform" value={release.platform} />
             <DetailRow label="Train" value={release.firmwareTrain ? <Link href={`/firmware/trains/${release.firmwareTrain.id}`} className="text-[var(--accent-light)] hover:underline">{release.firmwareTrain.name}</Link> : '—'} />
             <DetailRow label="Version" value={release.version} />
@@ -102,6 +108,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
             <DetailRow label="File size" value={formatBytes(release.fileSizeBytes)} />
             <DetailRow label="SHA256" value={release.sha256 ?? '—'} mono />
             <DetailRow label="Source" value={release.source} />
+            <DetailRow label="Last synchronized" value={release.lastSynchronizedAt ? new Date(release.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
             <DetailRow label="External provider" value={release.externalProvider ?? '—'} />
             <DetailRow label="External ID" value={release.externalId ?? '—'} />
           </dl>
