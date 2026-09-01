@@ -53,7 +53,7 @@ model AuthAccount {
   id                    String    @id @default(uuid())
   issuer                String
   accountId             String
-  providerId            String
+  providerId             String
   userId                 String
   accessToken            String?
   refreshToken           String?
@@ -75,8 +75,8 @@ model AuthVerification {
   identifier String
   value      String
   expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([identifier])
 }
@@ -260,6 +260,7 @@ model DeviceImportProfile {
   externalProvider String?
   settings         Json
   isActive         Boolean @default(true)
+  aliases          DeviceImportProfileAlias[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -268,9 +269,27 @@ model DeviceImportProfile {
   @@index([externalProvider])
 }
 
+model DeviceImportProfileAlias {
+  id                    String @id @default(uuid())
+  profileId             String
+  kind                  String
+  sourceValue           String
+  normalizedSourceValue String
+  contextKey            String @default("")
+  targetId              String
+
+  profile DeviceImportProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([profileId, kind, normalizedSourceValue, contextKey])
+  @@index([profileId])
+  @@index([kind, targetId])
+}
+
 model ImportReferenceAlias {
   id                    String @id @default(uuid())
-  profileScope          String @default("GLOBAL")
   kind                  String
   sourceValue           String
   normalizedSourceValue String
@@ -280,8 +299,7 @@ model ImportReferenceAlias {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  @@unique([profileScope, kind, normalizedSourceValue, contextKey])
-  @@index([profileScope])
+  @@unique([kind, normalizedSourceValue, contextKey])
   @@index([kind, targetId])
 }
 
