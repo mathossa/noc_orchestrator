@@ -1,6 +1,7 @@
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import {
   countImportPreview,
+  importResolutionKey,
   mappedRows,
   normalizeImportText,
   type DeviceImportAction,
@@ -10,6 +11,7 @@ import {
   type DeviceImportPreview,
   type DeviceImportPreviewRow,
   type DeviceImportResult,
+  type DeviceImportUnresolvedReference,
   DeviceImportValidationError,
 } from '@/lib/device-import'
 import { normalizedDeviceName, normalizedPlatform, parseDeviceInput } from '@/lib/devices'
@@ -57,6 +59,12 @@ type FirmwareRef = {
 }
 
 type ContractRef = { id: string; code: string; name: string; isActive: boolean }
+type AliasRef = {
+  kind: string
+  normalizedSourceValue: string
+  contextKey: string
+  targetId: string
+}
 
 type ExistingDevice = {
   id: string
@@ -87,6 +95,7 @@ type ReferenceSet = {
   firmwareReleases: FirmwareRef[]
   contracts: ContractRef[]
   devices: ExistingDevice[]
+  aliases: AliasRef[]
 }
 
 type PlannedRow = DeviceImportPreviewRow & {
@@ -163,7 +172,7 @@ function publicRow(row: PlannedRow): DeviceImportPreviewRow {
 }
 
 async function loadReferences(): Promise<ReferenceSet> {
-  const [customers, sites, vendors, deviceTypes, models, firmwareReleases, contracts, devices] = await Promise.all([
+  const [customers, sites, vendors, deviceTypes, models, firmwareReleases, contracts, devices, aliases] = await Promise.all([
     prisma.customer.findMany({
       select: { id: true, code: true, name: true, isActive: true, contractTypeId: true },
     }),
@@ -209,9 +218,37 @@ async function loadReferences(): Promise<ReferenceSet> {
         currentFirmwareRelease: { select: { id: true, version: true } },
       },
     }),
+    prisma.importReferenceAlias.findMany({
+      select: { kind: true, normalizedSourceValue: true, contextKey: true, targetId: true },
+    }),
   ])
 
-  return { customers, sites, vendors, deviceTypes, models, firmwareReleases, contracts, devices }
+  return { customers, sites, vendors, deviceTypes, models, firmwareReleases, contracts, devices, aliases }
+}
+
+function aliasTargetId(kind: 'DEVICE_TYPE' | 'DEVICE_MODEL', value: string, contextKey: string, options: DeviceImportOptions, references: ReferenceSet) {
+  const key = importResolutionKey(kind, value, contextKey)
+  const oneTime = options.resolutions[key]
+  if (oneTime) return oneTime
+  return references.aliases.find(
+    (alias) =>
+      alias.kind === kind &&
+      alias.normalizedSourceValue === normalizeImportText(value) &&
+      alias.contextKey === contextKey,
+  )?.targetId ?? null
+}
+
+function unresolvedIssue(
+  kind: 'DEVICE_TYPE' | 'DEVICE_MODEL',
+  value: string,
+  contextKey: string,
+  message: string,
+): DeviceImportIssue {
+  return {
+    level: 'error',
+    message,
+    reference: { kind, sourceValue: value, contextKey },
+  }
 }
 
 function resolveExternalMatch(
@@ -345,15 +382,25 @@ function resolveVendor(value: string | null, references: ReferenceSet, issues: D
   return activeReference(matches[0], 'Vendor', issues)
 }
 
-function resolveDeviceType(value: string | null, references: ReferenceSet, issues: DeviceImportIssue[]) {
+function resolveDeviceType(value: string | null, references: ReferenceSet, options: DeviceImportOptions, issues: DeviceImportIssue[]) {
   if (!value) return null
+  const targetId = aliasTargetId('DEVICE_TYPE', value, '', options, references)
+  if (targetId) {
+    const target = references.deviceTypes.find((record) => record.id === targetId) ?? null
+    if (!target) {
+      issues.push(unresolvedIssue('DEVICE_TYPE', value, '', `The remembered device type mapping for “${value}” points to a record that no longer exists.`))
+      return null
+    }
+    return activeReference(target, 'Device type', issues)
+  }
+
   const matches = exactNameOrCode(value, references.deviceTypes)
   if (matches.length === 0) {
-    issues.push({ level: 'error', message: `Device type “${value}” was not found.` })
+    issues.push(unresolvedIssue('DEVICE_TYPE', value, '', `Device type “${value}” was not found.`))
     return null
   }
   if (matches.length > 1) {
-    issues.push({ level: 'error', message: `Device type “${value}” is ambiguous.` })
+    issues.push(unresolvedIssue('DEVICE_TYPE', value, '', `Device type “${value}” is ambiguous.`))
     return null
   }
   return activeReference(matches[0], 'Device type', issues)
@@ -365,6 +412,7 @@ function resolveModel(
   deviceType: DeviceTypeRef | null,
   existing: ExistingDevice | null,
   references: ReferenceSet,
+  options: DeviceImportOptions,
   issues: DeviceImportIssue[],
 ) {
   if (!rawModel) {
@@ -383,6 +431,25 @@ function resolveModel(
     return model
   }
 
+  const contextKey = vendor?.id ?? ''
+  const targetId = aliasTargetId('DEVICE_MODEL', rawModel, contextKey, options, references)
+  if (targetId) {
+    const target = references.models.find((record) => record.id === targetId) ?? null
+    if (!target) {
+      issues.push(unresolvedIssue('DEVICE_MODEL', rawModel, contextKey, `The remembered model mapping for “${rawModel}” points to a record that no longer exists.`))
+      return null
+    }
+    if (vendor && target.vendorId !== vendor.id) {
+      issues.push(unresolvedIssue('DEVICE_MODEL', rawModel, contextKey, `The selected model for “${rawModel}” belongs to another vendor.`))
+      return null
+    }
+    if (deviceType && target.deviceTypeId !== deviceType.id) {
+      issues.push(unresolvedIssue('DEVICE_MODEL', rawModel, contextKey, `The selected model for “${rawModel}” has a different device type.`))
+      return null
+    }
+    return activeReference(target, 'Device model', issues)
+  }
+
   const normalizedModel = normalizeImportText(rawModel)
   const candidates = references.models.filter(
     (model) =>
@@ -391,14 +458,11 @@ function resolveModel(
       (!deviceType || model.deviceTypeId === deviceType.id),
   )
   if (candidates.length === 0) {
-    issues.push({ level: 'error', message: `Concrete device model “${rawModel}” was not found for the mapped vendor/type.` })
+    issues.push(unresolvedIssue('DEVICE_MODEL', rawModel, contextKey, `Concrete device model “${rawModel}” was not found for the mapped vendor/type.`))
     return null
   }
   if (candidates.length > 1) {
-    issues.push({
-      level: 'error',
-      message: `Concrete device model “${rawModel}” is ambiguous. Map Vendor and/or Device type to disambiguate it.`,
-    })
+    issues.push(unresolvedIssue('DEVICE_MODEL', rawModel, contextKey, `Concrete device model “${rawModel}” is ambiguous. Choose the concrete model to use.`))
     return null
   }
   return activeReference(candidates[0], 'Device model', issues)
@@ -537,6 +601,35 @@ function applyBatchConflicts(rows: PlannedRow[]) {
   }
 }
 
+function unresolvedReferences(rows: PlannedRow[], references: ReferenceSet): DeviceImportUnresolvedReference[] {
+  const unresolved = new Map<string, DeviceImportUnresolvedReference>()
+  for (const row of rows) {
+    for (const issue of row.issues) {
+      if (!issue.reference) continue
+      const key = importResolutionKey(issue.reference.kind, issue.reference.sourceValue, issue.reference.contextKey)
+      const current = unresolved.get(key)
+      if (current) {
+        if (!current.rowNumbers.includes(row.rowNumber)) current.rowNumbers.push(row.rowNumber)
+        continue
+      }
+      const vendor = issue.reference.contextKey
+        ? references.vendors.find((candidate) => candidate.id === issue.reference?.contextKey) ?? null
+        : null
+      unresolved.set(key, {
+        key,
+        kind: issue.reference.kind,
+        sourceValue: issue.reference.sourceValue,
+        normalizedSourceValue: normalizeImportText(issue.reference.sourceValue),
+        contextKey: issue.reference.contextKey,
+        vendorId: vendor?.id ?? null,
+        vendorName: vendor?.name ?? null,
+        rowNumbers: [row.rowNumber],
+      })
+    }
+  }
+  return [...unresolved.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.sourceValue.localeCompare(b.sourceValue))
+}
+
 async function buildPlan(
   workbook: XlsxWorkbook,
   options: DeviceImportOptions,
@@ -571,8 +664,8 @@ async function buildPlan(
       ? resolveSite(raw.site, options.defaults.siteId, customer, existing, references, issues)
       : null
     const vendor = resolveVendor(raw.vendor, references, issues)
-    const deviceType = resolveDeviceType(raw.deviceType, references, issues)
-    const model = resolveModel(raw.model, vendor, deviceType, existing, references, issues)
+    const deviceType = resolveDeviceType(raw.deviceType, references, options, issues)
+    const model = resolveModel(raw.model, vendor, deviceType, existing, references, options, issues)
     const firmware = resolveFirmware(raw.currentFirmware, model, existing, references, issues)
     validateContract(raw.contract, customer, site, references, issues)
 
@@ -653,6 +746,7 @@ async function buildPlan(
       sheetName: options.sheetName,
       headerRow: options.headerRow,
       rows: publicRows,
+      unresolvedReferences: unresolvedReferences(rows, references),
       counts: countImportPreview(publicRows),
     },
   }
