@@ -63,6 +63,7 @@ function attribute(source: string, name: string) {
 }
 
 function findEndOfCentralDirectory(data: Buffer) {
+  if (data.length < 22) throw new XlsxImportError('The uploaded file is not a valid XLSX/ZIP workbook.')
   const minimumOffset = Math.max(0, data.length - 65_557)
   for (let offset = data.length - 22; offset >= minimumOffset; offset -= 1) {
     if (data.readUInt32LE(offset) === 0x06054b50) return offset
