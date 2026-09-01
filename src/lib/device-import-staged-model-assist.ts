@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { suggestImportModelFamily } from '@/lib/device-import-model-family'
-import { getDeviceImportBatchWorkspace, refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
+import { refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
 
