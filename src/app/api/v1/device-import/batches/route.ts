@@ -1,0 +1,39 @@
+import { NextResponse } from 'next/server'
+import { deviceImportApiError, optionsFromFormData, xlsxFileFromRequest } from '@/lib/device-import-api'
+import {
+  createDeviceImportBatch,
+  DeviceImportStagingError,
+  listDeviceImportBatches,
+} from '@/lib/device-import-staging-store'
+import { readXlsxWorkbook } from '@/lib/xlsx-reader'
+
+export const runtime = 'nodejs'
+
+export async function GET() {
+  try {
+    return NextResponse.json({ data: await listDeviceImportBatches() })
+  } catch (error) {
+    console.error('Failed to list staged device imports', error)
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Staged imports could not be loaded.' } },
+      { status: 500 },
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { formData, file, buffer } = await xlsxFileFromRequest(request)
+    const options = optionsFromFormData(formData)
+    const workbook = readXlsxWorkbook(buffer)
+    return NextResponse.json(
+      { data: await createDeviceImportBatch(workbook, options, file.name) },
+      { status: 201 },
+    )
+  } catch (error) {
+    if (error instanceof DeviceImportStagingError) {
+      return NextResponse.json({ error: { code: 'INVALID_STAGED_IMPORT', message: error.message } }, { status: 400 })
+    }
+    return deviceImportApiError(error)
+  }
+}
