@@ -1,65 +1,161 @@
 # XLSX device inventory import
 
-Issue #38 adds a guided spreadsheet import for recorded device inventory. It is an inventory/current-state input path, not a monitoring or device-discovery mechanism and not a desired-firmware/lifecycle import.
+Issue #38 implements a staged inventory-ingestion workflow. It is an inventory/current-state input path, not monitoring, discovery, desired-firmware import, lifecycle import, or firmware execution.
 
-## Import workflow
+The central design rule is:
 
-The workspace lives at `/devices/import` and uses three server-validated stages:
+> External inventory is quarantined first. Resolve unique entities once, remember source-specific decisions, and publish canonical devices only after the staged batch is clean.
 
-1. **Inspect** — parse the XLSX, select worksheet/header, inspect a bounded sample, and choose or create an import profile.
-2. **Preview / resolve** — map columns, resolve reference values, review CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR counts plus a bounded row sample, and choose sampled rows or every valid row to import. Preview does not write device inventory.
-3. **Commit** — reparse and revalidate the original workbook against the current database, then write the selected CREATE/UPDATE rows in one Prisma transaction.
+## Workflow
 
-The browser retains the original `File` and resends it for each stage; no temporary uploaded workbook record is required.
+`/devices/import` is an **Import Inbox** plus upload/mapping screen.
 
-## Large-workbook behavior
+The workflow is:
 
-Large exports are deliberately not rendered as thousands of browser table rows.
+1. **Inspect** — upload the XLSX, inspect a bounded sample, choose worksheet/header and map columns.
+2. **Choose/save source profile** — e.g. `AUVIK EXPORT`.
+3. **Stage** — persist raw + mapped rows and unique external reference values. Nothing is globally visible yet.
+4. **Resolve entities** — work through Customers, Sites, Vendors, Device Types, Models, Firmware and Contract values. Repeated source values are collapsed into one task.
+5. **Final device validation** — reuse the normal Device duplicate/domain validation engine.
+6. **Accept and publish** — only a clean, explicitly accepted batch becomes normal inventory.
 
-- Inspect materializes only the first 30 non-empty worksheet rows needed for header/mapping work while retaining the worksheet row count.
-- Full preview validation still evaluates the complete mapped worksheet.
-- Only the first 200 validated row details are returned to the browser.
-- Aggregate CREATE / UPDATE / UNCHANGED / CONFLICT / ERROR counts cover the full workbook.
-- Repeated unresolved references are aggregated across the full workbook; only a bounded row-number sample is returned to the browser.
-- **Import all valid rows** is represented by one selection token, so the browser does not retain or submit tens of thousands of row numbers.
-- Commit performs one revalidation plan and selects every valid CREATE/UPDATE row before entering the transaction.
-- Result row-number detail is bounded; the result counts remain complete.
+The staged workspace is persistent. Engineers can leave and continue later.
 
-This avoids the previous failure mode where a valid large XLSX could freeze the client because React attempted to render every validated row.
+## Staging data model
 
-## Reusable import profiles
+Three import-only working tables quarantine source data:
 
-Exports from products such as Auvik normally keep the same layout between runs. `DeviceImportProfile` stores those structural choices so they do not need to be recreated on every import.
+- `DeviceImportBatch` — source file/profile/settings/status;
+- `DeviceImportStagedRow` — raw and mapped device row data;
+- `DeviceImportStagedReference` — one unique source entity/value with status, dependency metadata, suggestion and selected target.
 
-A profile stores:
+Canonical Customer/Site/Vendor/DeviceType/DeviceModel/FirmwareRelease/Device records are not created merely because text appears in a workbook.
 
-- profile/export name, e.g. `AUVIK EXPORT`;
+## Entity-first cleanup
+
+A large workbook may contain thousands of devices but only a few dozen distinct external entities. The resolver therefore works on unique values rather than device rows.
+
+Example summary:
+
+- Customers: 14 total / 11 linked / 3 review
+- Sites: 62 total / 43 linked / 19 review
+- Vendors: 4 total / 3 linked / 1 review
+- Models: 38 total / 21 linked / 17 review
+- Devices: 8,421 staged rows
+
+Resolving one Model applies to every staged row that uses the same source value and dependency context.
+
+## Dependency-aware resolution
+
+Child references do not become errors only because their parent is unresolved.
+
+Dependencies include:
+
+- Customer -> Site;
+- Vendor + Device Type -> concrete Device Model;
+- Device Model/platform -> Firmware Release.
+
+For example, a Site can display `Waiting for Customer`. After that Customer is linked or created, staged references are refreshed and the Site becomes actionable.
+
+Site resolution is always scoped to the resolved Customer. Cross-customer Site linking is rejected server-side.
+
+## Resolution actions
+
+For each unique reference value the staged workspace can:
+
+- **Link once** — use an existing canonical entity for this batch;
+- **Remember match** — use the entity and save the decision for the selected import profile;
+- **Create + link** — explicitly create missing canonical reference data with a prefilled form;
+- **Create + remember** — create it and remember the source mapping for future imports.
+
+Creation is always explicit. Unknown source values are never silently promoted to canonical reference data.
+
+The workspace supports explicit creation of:
+
+- Customer;
+- Site under its resolved Customer;
+- Vendor;
+- Device Type;
+- concrete Device Model;
+- Contract Type;
+- Firmware Release.
+
+Device Model creation preserves the exact external model notation by default. Vendor prefixes are not silently stripped.
+
+## Conservative suggestions
+
+The staging layer can suggest likely matches for punctuation/notation differences. Suggestions are never automatically accepted.
+
+Examples include variants such as:
+
+`Fortinet FortiGate-100F`
+
+and an existing label using spaces/punctuation differently.
+
+Weak or ambiguous similarities produce no suggestion.
+
+## Reusable source profiles
+
+Exports such as Auvik normally keep a stable structure and vocabulary. `DeviceImportProfile` stores:
+
+- profile name, e.g. `AUVIK EXPORT`;
 - external provider, e.g. `Auvik`;
-- worksheet name;
-- header row;
+- worksheet/header;
 - column mapping;
-- optional Customer/Site defaults;
+- optional file-level Customer/Site defaults;
 - Organization/Site split delimiter.
 
-The import page exposes saved profiles through a dropdown near the external-provider/default settings. Selecting a profile restores its mapping. Updating the profile persists later layout changes.
+`DeviceImportProfileAlias` stores explicit remembered semantic decisions.
 
-Reference aliases remembered with **Always match** are scoped to the selected profile. This means an Auvik-specific name does not silently become a rule for an unrelated CMDB export. Legacy/global aliases are used only when no import profile is selected.
+When a profile is selected, only that profile's aliases are used. Auvik-specific vocabulary therefore cannot leak into an unrelated CMDB export.
+
+On the next Auvik import, previously remembered values should link automatically. The engineer only reviews new or changed vocabulary.
+
+## Auvik Organization Name
+
+`Organization Name` is suggested as **Organization + site (split one column)**.
+
+With delimiter ` - `:
+
+`Unica Groep - UICTS Working Spirit Deventer`
+
+becomes:
+
+- Customer: `Unica Groep`
+- Site: `UICTS Working Spirit Deventer`.
+
+Customer is resolved first. Site is then resolved inside that Customer.
+
+## Firmware Version and Software Version
+
+The mapper distinguishes:
+
+- `Firmware Version` — preferred current-firmware source;
+- `Software Version` — fallback when Firmware Version is absent/blank.
+
+Verbose Software Version strings can yield an embedded dotted firmware version, for example:
+
+- `FortiGate-100F v7.4.12,build2902,...` -> `7.4.12`
+- `S424EF-v7.4.9-build946,...` -> `7.4.9`
+- `FP231G-v7.4.7-build0802` -> `7.4.7`
+
+Firmware still has to resolve to a release compatible with the resolved Model Vendor/platform.
 
 ## Column mapping
 
-Supported destination fields are:
+Supported destination fields include:
 
-- combined Organization + Site;
+- Organization + Site;
 - Customer;
-- Site / location;
+- Site/location;
 - Device name;
 - Hostname;
 - Serial number;
 - Vendor;
-- concrete Device model;
-- Device type;
+- concrete Device Model;
+- Device Type;
 - Management address;
-- Current firmware (generic);
+- Current firmware;
 - Firmware Version;
 - Software Version;
 - Contract context;
@@ -67,143 +163,86 @@ Supported destination fields are:
 - External/source ID;
 - Notes.
 
-Scalar fields such as hostname, IP address, serial number and notes do not need a reference-link decision. Their source column is remembered by the import profile.
+Scalar fields such as Hostname, IP address, Serial and Notes do not need entity linking. Their column mappings are remembered by the profile.
 
-Reference-valued fields can be resolved explicitly when source text does not match configured NOC Orchestrator data.
+## Final device validation
 
-## Auvik Organization Name: `<Organization> - <Site>`
+After staged references are linked, the batch is converted into a canonical validation plan using the existing Device import/domain logic.
 
-Auvik-style `Organization Name` is suggested as **Organization + site (split one column)**.
+The plan still classifies:
 
-The default delimiter is ` - `. The importer splits on the final occurrence. For example:
+- CREATE;
+- UPDATE;
+- UNCHANGED;
+- CONFLICT;
+- ERROR.
 
-`Unica Groep - UICTS Working Spirit Deventer`
+Publication is blocked while any Conflict or Error remains.
 
-becomes:
+Duplicate matching stays conservative:
 
-- Customer: `Unica Groep`
-- Site: `UICTS Working Spirit Deventer`
+1. external provider + external ID when available;
+2. otherwise Customer-scoped normalized Device name/hostname;
+3. ambiguous or duplicate destination rows are conflicts.
 
-Resolution is dependency-aware:
+A clean match updates an existing Device instead of silently creating a duplicate.
 
-1. Customer is resolved first.
-2. Site is resolved only inside that Customer.
-3. If Customer is not yet known, resolve/create the Customer and re-run preview.
-4. The Site can then be linked or created under that Customer.
-5. When both choices are remembered for the selected profile, future exports resolve them automatically.
+## Publication boundary
 
-A Site alias is always Customer-scoped and can never assign a Site across Customers.
+Staged data is not visible in normal `/devices`, dashboards, planning or reports.
 
-## Explicit reference resolution
+Only **Accept and publish** promotes the batch into canonical inventory.
 
-The preview aggregates repeated unresolved values so one decision applies to every matching row.
+Published Device changes use `IMPORT` provenance and the existing current-firmware audit behavior.
 
-Reference kinds currently supported by the resolver are:
+Import never overwrites:
 
-- Customer;
-- Site;
-- Vendor;
-- Device Type;
-- concrete Device Model;
-- Contract Type;
-- Firmware Release.
+- desired firmware policy;
+- lifecycle workflow state;
+- PLANNED / IGNORED / CUSTOMER_DECLINED / DONE decisions;
+- planning/review dates/reasons;
+- existing audit history.
 
-For a reference value an engineer may choose:
-
-- **Use once** — map the raw value for the current preview/import only;
-- **Always match** — save the mapping for the selected import profile, or globally when no profile is selected;
-- **Create new** — deliberately create the missing reference using the normal application validation, then use it once or remember it.
-
-Creation is always explicit. The importer never creates arbitrary reference records unattended merely because spreadsheet text was not recognized.
-
-Mappings that need context keep that context in their alias key:
-
-- Site → Customer;
-- Device Model → Vendor;
-- Firmware Release → Vendor + platform.
-
-Device inventory always points at a concrete `DeviceModel`; a family/series is never substituted for the concrete model.
-
-## Firmware Version vs Software Version
-
-Exports may contain both fields. When both are mapped:
-
-1. **Firmware Version** is the preferred source for `Device.currentFirmwareRelease`.
-2. **Software Version** is a fallback only when Firmware Version is absent/blank.
-
-For verbose Software Version strings the importer extracts the dotted version when possible. Examples:
-
-- `FortiGate-100F v7.4.12,build2902,...` → `7.4.12`
-- `S424EF-v7.4.9-build946,260122 (GA)` → `7.4.9`
-- `FP231G-v7.4.7-build0802` → `7.4.7`
-
-The resulting version still has to resolve to a Firmware Release compatible with the concrete model's Vendor/platform. An engineer may link, remember, or explicitly create a missing Firmware Release from the resolver.
-
-## Customer, Site and contract semantics
-
-Site assignment is always scoped to the resolved Customer.
-
-Device does not own a contract field. Effective contract remains:
+Device contract remains derived from:
 
 `Site override -> Customer default -> none`
 
-A mapped Contract column is validation context. A Contract Type may be linked/created as reference data, but device import does **not** automatically change Customer/Site contract assignment. The resolved Contract must still equal the effective contract.
+A mapped Contract value is validation context only; it does not assign a contract to Device.
 
-## Existing-device matching
+## Large-workbook behavior
 
-Matching is deterministic and conservative:
+There is no fixed 5,000-row application limit.
 
-1. external provider + external ID when both are available;
-2. otherwise Customer-scoped normalized Device name and/or hostname;
-3. multiple possible matches are conflicts;
-4. multiple spreadsheet rows targeting the same existing Device are conflicts;
-5. multiple create rows producing the same Customer-scoped Device name are conflicts;
-6. duplicate provider + external ID pairs inside the workbook are conflicts.
+The XLSX reader accepts row coordinates up to Excel's worksheet maximum of 1,048,576, subject to workbook safety limits.
 
-A clear match becomes UPDATE instead of silently creating a duplicate. Blank/unmapped optional cells do not automatically clear existing optional inventory values.
+Browser rendering remains bounded:
 
-## Provenance and ownership boundaries
+- inspection materializes only the first 30 non-empty rows per sheet;
+- the staged Devices tab returns only a small row sample;
+- final validation returns bounded row detail while full counts cover the batch;
+- unique reference values, not thousands of repeated row errors, drive cleanup.
 
-Created/updated Devices use `source = IMPORT` and update `lastSynchronizedAt`.
+Current workbook safeguards include:
 
-When current firmware is supplied by the workbook:
-
-- `currentFirmwareSource = IMPORT`;
-- observation time is the import time;
-- the normal current-firmware audit event includes workbook sheet/row context and selected import-profile ID.
-
-XLSX import never overwrites:
-
-- desired firmware policies;
-- lifecycle workflow state;
-- PLANNED / IGNORED / CUSTOMER_DECLINED / DONE decisions;
-- planning/review dates or reasons;
-- existing audit history.
-
-## XLSX safety limits
-
-There is no artificial 5,000-row application limit anymore. Worksheets are accepted up to Excel's XLSX worksheet maximum of 1,048,576 rows, subject to workbook-size safeguards.
-
-Current safeguards remain:
-
-- maximum uploaded `.xlsx`: 8 MB;
+- maximum uploaded XLSX: 8 MB;
 - maximum worksheets: 20;
-- maximum columns parsed per worksheet: 100;
-- maximum total uncompressed ZIP content: 40 MB;
-- worksheet sample returned to the mapping UI: first 30 non-empty rows;
-- validated row details returned to the browser: first 200 rows.
+- maximum parsed columns per worksheet: 100;
+- maximum expanded ZIP content: 40 MB;
+- encrypted/malformed/unsafe archives rejected.
 
-Encrypted workbooks, unsupported compression, unsafe ZIP paths and malformed archives are rejected. Embedded scripts/macros, external links and formula code are not executed.
+No workbook code/macros are executed.
 
-For very large exports, compressed/uncompressed size limits remain the controlling resource boundary instead of a fixed device-row count.
+## Migrations
 
-## Database additions
+Issue #38 currently adds:
 
-Issue #38 uses two migrations:
+1. `20260901143000_import_reference_aliases`
+2. `20260901152000_device_import_profiles`
+3. `20260901163000_device_import_profile_schema_alignment`
+4. `20260901185500_device_import_staging`
 
-1. `ImportReferenceAlias` for the original explicit remembered mappings.
-2. `DeviceImportProfile` + `DeviceImportProfileAlias` for reusable exporter layouts and profile-scoped remembered choices.
+The staging migration adds the persistent quarantine tables without changing normal inventory ownership.
 
 ## Non-goals
 
-Issue #38 does not add CSV import, API synchronization providers, live discovery, SSH/SNMP interrogation, unattended reference creation, desired-firmware import, lifecycle/planning import, or firmware execution.
+Issue #38 does not add CSV synchronization, live provider polling, live discovery/interrogation, unattended canonical reference creation, desired-firmware import, lifecycle/planning import, or firmware execution.
