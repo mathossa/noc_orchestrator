@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { detectHeaderRow, headersFromRow, suggestColumnMapping } from '@/lib/device-import'
 import { deviceImportApiError, xlsxFileFromRequest } from '@/lib/device-import-api'
+import { listDeviceImportProfiles } from '@/lib/device-import-profile-store'
 import { listDeviceImportReferenceOptions } from '@/lib/device-import-reference-store'
 import { listDeviceReferences } from '@/lib/device-store'
 import { readXlsxWorkbook, XLSX_LIMITS } from '@/lib/xlsx-reader'
@@ -10,10 +11,11 @@ export const runtime = 'nodejs'
 export async function POST(request: Request) {
   try {
     const { file, buffer } = await xlsxFileFromRequest(request)
-    const [workbook, references, resolutionReferences] = await Promise.all([
+    const [workbook, references, resolutionReferences, profiles] = await Promise.all([
       Promise.resolve(readXlsxWorkbook(buffer)),
       listDeviceReferences(),
       listDeviceImportReferenceOptions(),
+      listDeviceImportProfiles(),
     ])
 
     const sheets = workbook.sheets.map((sheet) => {
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
         sheets,
         limits: XLSX_LIMITS,
       },
+      profiles,
       references: {
         customers: references.customers,
         sites: references.sites,
