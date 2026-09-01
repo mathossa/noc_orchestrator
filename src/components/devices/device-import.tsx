@@ -48,10 +48,14 @@ type ImportProfile = {
   createdAt: string
   updatedAt: string
 }
+type LargeImportPreview = DeviceImportPreview & {
+  totalRows?: number
+  previewRowLimit?: number
+  rowsTruncated?: boolean
+}
 type InspectPayload = { data?: Inspection; references?: DeviceImportResolutionReferences; profiles?: ImportProfile[] } & ApiError
-type PreviewPayload = { data?: DeviceImportPreview } & ApiError
+type PreviewPayload = { data?: LargeImportPreview } & ApiError
 type CommitPayload = { data?: DeviceImportResult } & ApiError
-
 type ProfilePayload = { data?: ImportProfile } & ApiError
 
 const EMPTY_REFERENCES: DeviceImportResolutionReferences = {
@@ -104,7 +108,7 @@ export function DeviceImportWorkspace() {
   const [externalProvider, setExternalProvider] = useState('')
   const [organizationSiteDelimiter, setOrganizationSiteDelimiter] = useState(' - ')
   const [resolutions, setResolutions] = useState<DeviceImportResolutionMap>({})
-  const [preview, setPreview] = useState<DeviceImportPreview | null>(null)
+  const [preview, setPreview] = useState<LargeImportPreview | null>(null)
   const [selectedRows, setSelectedRows] = useState<number[]>([])
   const [filter, setFilter] = useState<'ALL' | DeviceImportAction>('ALL')
   const [result, setResult] = useState<DeviceImportResult | null>(null)
@@ -117,10 +121,12 @@ export function DeviceImportWorkspace() {
   const headers = currentSheet ? headersFromRow(headerSourceRow, currentSheet.columnCount) : []
   const defaultSites = references.sites.filter((site) => site.customerId === defaultCustomerId)
   const visibleRows = preview?.rows.filter((row) => filter === 'ALL' || row.action === filter) ?? []
-  const importableRows = preview?.rows.filter((row) => row.importable).map((row) => row.rowNumber) ?? []
+  const shownImportableRows = preview?.rows.filter((row) => row.importable).map((row) => row.rowNumber) ?? []
   const allVisibleImportable = visibleRows.filter((row) => row.importable)
   const allVisibleSelected = allVisibleImportable.length > 0 && allVisibleImportable.every((row) => selectedRows.includes(row.rowNumber))
   const selectedProfile = profiles.find((profile) => profile.id === profileId) ?? null
+  const totalValidatedRows = preview?.totalRows ?? (preview ? preview.counts.create + preview.counts.update + preview.counts.unchanged + preview.counts.conflict + preview.counts.error : 0)
+  const allValidCount = preview?.counts.importable ?? 0
 
   const mappedFieldSet = useMemo(
     () => new Set(Object.values(mapping).filter((value): value is DeviceImportField => value !== 'ignore')),
@@ -325,16 +331,19 @@ export function DeviceImportWorkspace() {
     }
   }
 
-  async function commitImport() {
-    if (!file || !preview || selectedRows.length === 0) return
-    if (!window.confirm(`Import ${selectedRows.length} selected spreadsheet row${selectedRows.length === 1 ? '' : 's'}? The server will revalidate the workbook before writing.`)) return
+  async function commitImport(allValid: boolean) {
+    if (!file || !preview) return
+    if (!allValid && selectedRows.length === 0) return
+    const requestedCount = allValid ? allValidCount : selectedRows.length
+    const scope = allValid ? 'all valid CREATE/UPDATE rows' : `${selectedRows.length} selected preview row${selectedRows.length === 1 ? '' : 's'}`
+    if (!window.confirm(`Import ${scope} (${requestedCount})? The server will revalidate the entire workbook before writing.`)) return
     setBusy('commit')
     setError(null)
     try {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('options', JSON.stringify(options()))
-      formData.append('selectedRows', JSON.stringify(selectedRows))
+      formData.append('selectedRows', JSON.stringify(allValid ? { mode: 'ALL_IMPORTABLE' } : selectedRows))
       const response = await fetch('/api/v1/device-import/xlsx/commit', { method: 'POST', body: formData })
       const payload = (await response.json()) as CommitPayload
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The selected rows could not be imported.')
@@ -369,7 +378,7 @@ export function DeviceImportWorkspace() {
     {notice ? <div className="mb-5 rounded-md border border-[#4e4a2a] bg-[#282416] px-4 py-3 text-sm text-amber-100">{notice}</div> : null}
 
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"><FormField label="1. XLSX workbook" htmlFor="device-import-file" description="The workbook is parsed as data only. The compressed and expanded-size safety limits still apply."><input id="device-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className="block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[var(--surface-raised)] file:px-3 file:py-1.5 file:text-sm file:font-semibold" /></FormField><Button variant="primary" onClick={() => void inspectWorkbook()} disabled={!file || busy !== null}>{busy === 'inspect' ? 'Inspecting…' : 'Inspect workbook'}</Button></div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"><FormField label="1. XLSX workbook" htmlFor="device-import-file" description="Inspection reads only a bounded worksheet sample. Full validation happens when you request a preview/import."><input id="device-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className="block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[var(--surface-raised)] file:px-3 file:py-1.5 file:text-sm file:font-semibold" /></FormField><Button variant="primary" onClick={() => void inspectWorkbook()} disabled={!file || busy !== null}>{busy === 'inspect' ? 'Inspecting…' : 'Inspect workbook'}</Button></div>
       {file ? <p className="mt-3 text-xs text-[var(--muted)]">Selected: {file.name} · {(file.size / 1024).toFixed(1)} KB</p> : null}
     </section>
 
@@ -389,11 +398,12 @@ export function DeviceImportWorkspace() {
       </div><div className="flex justify-end border-t border-[var(--border)] px-4 py-3 sm:px-5"><Button variant="primary" onClick={() => void previewImport()} disabled={busy !== null}>{busy === 'preview' ? 'Validating…' : 'Validate and preview'}</Button></div></section>
     </div> : null}
 
-    {preview ? <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5"><div><h2 className="text-sm font-semibold">5. Import preview</h2><p className="mt-1 text-xs text-[var(--muted)]">Resolve unknown references, then re-run validation. Repeated values are grouped.</p></div><div className="flex flex-wrap gap-2 text-xs"><PreviewCount label="Create" value={preview.counts.create} /><PreviewCount label="Update" value={preview.counts.update} /><PreviewCount label="Unchanged" value={preview.counts.unchanged} /><PreviewCount label="Conflict" value={preview.counts.conflict} /><PreviewCount label="Error" value={preview.counts.error} /></div></div>
+    {preview ? <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5"><div><h2 className="text-sm font-semibold">5. Import preview</h2><p className="mt-1 text-xs text-[var(--muted)]">All {totalValidatedRows.toLocaleString()} rows were validated server-side. The browser only receives a bounded review sample.</p></div><div className="flex flex-wrap gap-2 text-xs"><PreviewCount label="Create" value={preview.counts.create} /><PreviewCount label="Update" value={preview.counts.update} /><PreviewCount label="Unchanged" value={preview.counts.unchanged} /><PreviewCount label="Conflict" value={preview.counts.conflict} /><PreviewCount label="Error" value={preview.counts.error} /></div></div>
+      {preview.rowsTruncated ? <div className="border-b border-[#4e4a2a] bg-[#282416] px-4 py-3 text-xs text-amber-100 sm:px-5">Showing {preview.rows.length.toLocaleString()} of {totalValidatedRows.toLocaleString()} validated rows. Counts and unresolved-reference aggregation cover the full workbook. Use <strong>Import all valid rows</strong> to import beyond this sample without loading every row into the browser.</div> : null}
       <DeviceImportReferenceResolver unresolved={preview.unresolvedReferences} references={references} resolutions={resolutions} profileId={profileId || null} profileName={selectedProfile?.name ?? (profileId ? profileName : null)} onResolutionChange={(key, targetId) => setResolutions((current) => ({ ...current, [key]: targetId }))} onReferenceCreated={() => void refreshReferenceContext()} onRepreview={() => void previewImport()} disabled={busy !== null} />
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5"><FormField label="Show" htmlFor="device-import-filter"><SelectInput id="device-import-filter" value={filter} onChange={(event) => setFilter(event.target.value as 'ALL' | DeviceImportAction)}><option value="ALL">All preview rows</option>{Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectInput></FormField><div className="text-sm text-[var(--muted-strong)]">{selectedRows.length} of {importableRows.length} importable rows selected</div></div>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5"><FormField label="Show sample rows" htmlFor="device-import-filter"><SelectInput id="device-import-filter" value={filter} onChange={(event) => setFilter(event.target.value as 'ALL' | DeviceImportAction)}><option value="ALL">All sampled rows</option>{Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectInput></FormField><div className="text-sm text-[var(--muted-strong)]">{selectedRows.length} of {shownImportableRows.length} shown importable rows selected · {allValidCount.toLocaleString()} valid in full workbook</div></div>
       <div className="noc-scrollbar overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-sm"><thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]"><tr><th className="w-12 px-3 py-2.5"><input type="checkbox" aria-label="Select visible importable rows" checked={allVisibleSelected} onChange={(event) => toggleVisibleRows(event.target.checked)} disabled={!allVisibleImportable.length} /></th><th className="px-3 py-2.5">Row</th><th className="px-3 py-2.5">Action</th><th className="px-3 py-2.5">Identity</th><th className="px-3 py-2.5">Customer / site</th><th className="px-3 py-2.5">Model</th><th className="px-3 py-2.5">Current firmware</th><th className="px-3 py-2.5">Changes / validation</th></tr></thead><tbody className="divide-y divide-[var(--border)]">{visibleRows.map((row) => <tr key={row.rowNumber} className={row.action === 'ERROR' || row.action === 'CONFLICT' ? 'bg-[#2a1b1b]/35' : ''}><td className="px-3 py-3"><input type="checkbox" checked={selectedRows.includes(row.rowNumber)} onChange={() => toggleRow(row.rowNumber)} disabled={!row.importable} aria-label={`Import spreadsheet row ${row.rowNumber}`} /></td><td className="px-3 py-3 tabular-nums text-[var(--muted)]">{row.rowNumber}</td><td className="px-3 py-3"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs font-semibold">{ACTION_LABELS[row.action]}</span></td><td className="px-3 py-3"><div className="font-semibold">{row.identity}</div>{row.existingDeviceId ? <Link href={`/devices/${row.existingDeviceId}`} className="mt-1 inline-flex text-xs text-[var(--accent-light)] hover:underline">Existing device</Link> : null}</td><td className="px-3 py-3"><div>{row.customer ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{row.site ?? 'No site'}</div></td><td className="px-3 py-3">{row.model ?? '—'}</td><td className="px-3 py-3 font-mono">{row.currentFirmware ?? 'Unknown'}</td><td className="px-3 py-3">{row.issues.length ? <div className="space-y-1">{row.issues.map((issue, index) => <div key={`${issue.message}-${index}`} className={issue.level === 'error' ? 'text-xs text-red-300' : 'text-xs text-amber-200'}>{issue.message}</div>)}</div> : null}{row.changes.length ? <details className="mt-1"><summary className="cursor-pointer text-xs font-semibold text-[var(--accent-light)]">{row.changes.length} changes</summary><div className="mt-2 space-y-1 text-xs text-[var(--muted)]">{row.changes.map((change) => <div key={change.field}><strong>{change.label}:</strong> {change.before ?? '—'} → {change.after ?? '—'}</div>)}</div></details> : null}</td></tr>)}</tbody></table></div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-4 sm:px-5"><p className="max-w-3xl text-xs text-[var(--muted)]">Import changes inventory/current firmware only. Desired firmware and lifecycle/planning state remain NOC Orchestrator-owned.</p><Button variant="primary" onClick={() => void commitImport()} disabled={!selectedRows.length || busy !== null}>{busy === 'commit' ? 'Importing…' : `Import ${selectedRows.length} selected`}</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-4 sm:px-5"><p className="max-w-2xl text-xs text-[var(--muted)]">Import changes inventory/current firmware only. Desired firmware and lifecycle/planning state remain NOC Orchestrator-owned.</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => void commitImport(false)} disabled={!selectedRows.length || busy !== null}>{busy === 'commit' ? 'Importing…' : `Import ${selectedRows.length} selected sample rows`}</Button><Button variant="primary" onClick={() => void commitImport(true)} disabled={!allValidCount || busy !== null}>{busy === 'commit' ? 'Importing…' : `Import all ${allValidCount.toLocaleString()} valid rows`}</Button></div></div>
     </section> : null}
 
     {result ? <section className="mt-5 rounded-lg border border-[#285f48] bg-[#142b22] p-5"><h2 className="text-sm font-semibold text-[#c8f3da]">Import completed</h2><div className="mt-4 grid gap-3 sm:grid-cols-4"><ResultStat label="Created" value={result.created} /><ResultStat label="Updated" value={result.updated} /><ResultStat label="Skipped" value={result.skipped} /><ResultStat label="Failed / excluded" value={result.failed} /></div><div className="mt-4"><Link href="/devices?source=IMPORT" className="rounded-md border border-[#4a8b6c] bg-[#1b382c] px-3 py-2 text-sm font-semibold text-[#c8f3da]">View imported devices</Link></div></section> : null}
@@ -405,5 +415,5 @@ function PreviewCount({ label, value }: { label: string; value: number }) {
 }
 
 function ResultStat({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-md border border-[#285f48] bg-[#10271e] p-3"><div className="text-xs uppercase tracking-[0.08em] text-[#7fb99a]">{label}</div><div className="mt-1 text-2xl font-semibold text-[#d7f7e4]">{value}</div></div>
+  return <div className="rounded-md border border-[#285f48] bg-[#10271e] p-3"><div className="text-xs uppercase tracking-[0.08em] text-[#7fb99a]">{label}</div><div className="mt-1 text-2xl font-semibold text-[#d7f7e5]">{value}</div></div>
 }
