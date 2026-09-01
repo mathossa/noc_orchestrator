@@ -1,11 +1,14 @@
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
 import { saveImportReferenceAlias } from '@/lib/device-import-reference-store'
+import {
+  DeviceImportBulkInputError,
+  parseBulkReferenceResolutionInput,
+} from '@/lib/device-import-staged-reference-bulk-input'
 import { refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 
-const MAX_BULK_REFERENCES = 250
 const WRITE_CONCURRENCY = 25
 
 type BatchRecord = {
@@ -22,12 +25,6 @@ type StagedReferenceRecord = {
   metadata: unknown
 }
 
-type BulkResolutionItem = {
-  referenceId: string
-  targetId: string
-  remember: boolean
-}
-
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? (value as DeviceImportStagedReferenceMetadata) : {}
 }
@@ -40,32 +37,6 @@ function aliasContext(reference: StagedReferenceRecord) {
     return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
   }
   return ''
-}
-
-export function parseBulkReferenceResolutionInput(rawInput: unknown) {
-  const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
-  const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
-  const rawItems = Array.isArray(input.items) ? input.items : []
-
-  if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
-  if (!rawItems.length) throw new DeviceImportStagingError('Choose at least one staged reference to link.')
-  if (rawItems.length > MAX_BULK_REFERENCES) {
-    throw new DeviceImportStagingError(`Resolve at most ${MAX_BULK_REFERENCES} reference values in one bulk action.`)
-  }
-
-  const seen = new Set<string>()
-  const items: BulkResolutionItem[] = rawItems.map((rawItem) => {
-    const item = typeof rawItem === 'object' && rawItem !== null ? rawItem as Record<string, unknown> : {}
-    const referenceId = typeof item.referenceId === 'string' ? item.referenceId.trim() : ''
-    const targetId = typeof item.targetId === 'string' ? item.targetId.trim() : ''
-    const remember = item.remember === true
-    if (!referenceId || !targetId) throw new DeviceImportStagingError('Every bulk mapping needs a staged reference and target.')
-    if (seen.has(referenceId)) throw new DeviceImportStagingError('A staged reference can only appear once in a bulk action.')
-    seen.add(referenceId)
-    return { referenceId, targetId, remember }
-  })
-
-  return { batchId, items }
 }
 
 async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId: string) {
@@ -135,7 +106,15 @@ async function inChunks<T>(items: T[], action: (item: T) => Promise<unknown>) {
 }
 
 export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown) {
-  const { batchId, items } = parseBulkReferenceResolutionInput(rawInput)
+  let parsed
+  try {
+    parsed = parseBulkReferenceResolutionInput(rawInput)
+  } catch (error) {
+    if (error instanceof DeviceImportBulkInputError) throw new DeviceImportStagingError(error.message)
+    throw error
+  }
+  const { batchId, items } = parsed
+
   const [batch, references] = await Promise.all([
     prisma.deviceImportBatch.findUnique({
       where: { id: batchId },
