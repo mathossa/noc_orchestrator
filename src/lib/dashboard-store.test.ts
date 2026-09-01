@@ -1,59 +1,64 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DeviceRecord } from '@/lib/devices'
+import type { DeviceContractReference, DeviceRecord } from '@/lib/devices'
 
 const mocks = vi.hoisted(() => ({
   listDevices: vi.fn(),
-  customerCount: vi.fn(),
-  modelCount: vi.fn(),
-  vendorCount: vi.fn(),
   policyFindMany: vi.fn(),
-  auditFindMany: vi.fn(),
 }))
 
 vi.mock('@/lib/device-store', () => ({ listDevices: mocks.listDevices }))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    customer: { count: mocks.customerCount },
-    deviceModel: { count: mocks.modelCount },
-    vendor: { count: mocks.vendorCount },
     firmwarePolicy: { findMany: mocks.policyFindMany },
-    auditEvent: { findMany: mocks.auditFindMany },
   },
 }))
 
 import { getFirmwareLifecycleDashboard } from '@/lib/dashboard-store'
 
+function contract(id: string, name: string): DeviceContractReference {
+  return { id, code: id.toUpperCase(), name, firmwareManagementEnabled: true, isActive: true }
+}
+
 function device({
   id,
   customerId,
   customerName,
-  customerCode,
+  customerContract = null,
+  siteId = null,
+  siteName,
+  siteContract = null,
   modelId,
   modelName,
   vendorId,
   vendorName,
   currentId,
   currentVersion,
+  currentStatus = 'APPROVED',
   workflow,
   active = true,
 }: {
   id: string
   customerId: string
   customerName: string
-  customerCode?: string
+  customerContract?: DeviceContractReference | null
+  siteId?: string | null
+  siteName?: string
+  siteContract?: DeviceContractReference | null
   modelId: string
   modelName: string
   vendorId: string
   vendorName: string
   currentId: string | null
   currentVersion?: string
+  currentStatus?: string
   workflow?: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
   active?: boolean
 }): DeviceRecord {
+  const effectiveContractType = siteContract ?? customerContract
   return {
     id,
     customerId,
-    siteId: null,
+    siteId,
     deviceModelId: modelId,
     name: id.toUpperCase(),
     hostname: null,
@@ -71,20 +76,28 @@ function device({
     lastSynchronizedAt: null,
     customer: {
       id: customerId,
-      code: customerCode ?? null,
+      code: null,
       name: customerName,
       isActive: true,
-      contractType: null,
+      contractType: customerContract,
     },
-    site: null,
-    effectiveContractType: null,
-    contractSource: 'NONE',
+    site: siteId
+      ? {
+          id: siteId,
+          code: null,
+          name: siteName ?? siteId,
+          isActive: true,
+          contractType: siteContract,
+        }
+      : null,
+    effectiveContractType,
+    contractSource: siteContract ? 'SITE' : customerContract ? 'CUSTOMER' : 'NONE',
     deviceModel: {
       id: modelId,
       model: modelName,
       platform: 'NOS',
       isActive: true,
-      vendor: { id: vendorId, code: vendorName.toUpperCase(), name: vendorName, isActive: true },
+      vendor: { id: vendorId, code: vendorId.toUpperCase(), name: vendorName, isActive: true },
       deviceType: { id: 'type-switch', code: 'SWITCH', name: 'Switches', isActive: true },
     },
     currentFirmwareRelease: currentId
@@ -93,7 +106,7 @@ function device({
           vendorId,
           platform: 'NOS',
           version: currentVersion ?? currentId,
-          status: 'APPROVED',
+          status: currentStatus,
           isActive: true,
           firmwareTrain: null,
           releasedAt: null,
@@ -119,91 +132,150 @@ function device({
 describe('firmware lifecycle dashboard aggregation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.customerCount.mockResolvedValue(3)
-    mocks.modelCount.mockResolvedValue(3)
-    mocks.vendorCount.mockResolvedValue(2)
-    mocks.auditFindMany.mockResolvedValue([])
     mocks.policyFindMany.mockResolvedValue([
       { deviceModelId: 'model-1', targetFirmwareReleaseId: 'release-1' },
       { deviceModelId: 'model-2', targetFirmwareReleaseId: 'release-2' },
     ])
   })
 
-  it('keeps technical state and workflow counts independent and excludes archived devices', async () => {
+  it('prioritizes customer/site, effective contract, vendor, and bad-release attention without conflating workflow', async () => {
+    const gold = contract('contract-gold', 'Gold')
+    const premium = contract('contract-premium', 'Premium')
+    const standard = contract('contract-standard', 'Standard')
+
     mocks.listDevices.mockResolvedValue([
-      device({ id: 'device-1', customerId: 'customer-1', customerName: 'Alpha', customerCode: 'ALPHA', modelId: 'model-1', modelName: 'Switch 48', vendorId: 'vendor-1', vendorName: 'Vendor A', currentId: 'release-1', currentVersion: '1.0', workflow: 'PLANNED' }),
-      device({ id: 'device-2', customerId: 'customer-1', customerName: 'Alpha', customerCode: 'ALPHA', modelId: 'model-1', modelName: 'Switch 48', vendorId: 'vendor-1', vendorName: 'Vendor A', currentId: 'release-old', currentVersion: '0.9' }),
-      device({ id: 'device-3', customerId: 'customer-2', customerName: 'Beta', modelId: 'model-2', modelName: 'Firewall X', vendorId: 'vendor-2', vendorName: 'Vendor B', currentId: null, workflow: 'IGNORED' }),
-      device({ id: 'device-4', customerId: 'customer-2', customerName: 'Beta', modelId: 'model-3', modelName: 'AP 10', vendorId: 'vendor-2', vendorName: 'Vendor B', currentId: 'release-3', currentVersion: '3.0', workflow: 'CUSTOMER_DECLINED' }),
-      device({ id: 'device-5', customerId: 'customer-3', customerName: 'Gamma', modelId: 'model-2', modelName: 'Firewall X', vendorId: 'vendor-2', vendorName: 'Vendor B', currentId: 'release-2', currentVersion: '2.0', workflow: 'DONE' }),
-      device({ id: 'device-archived', customerId: 'customer-1', customerName: 'Alpha', modelId: 'model-4', modelName: 'Old switch', vendorId: 'vendor-1', vendorName: 'Vendor A', currentId: 'release-old', active: false }),
-    ])
-    mocks.auditFindMany.mockResolvedValue([
-      {
-        id: 'audit-1',
-        action: 'FIRMWARE_LIFECYCLE_DONE',
-        entityId: 'device-5',
-        after: { state: 'DONE', notes: 'Upgrade completed.' },
-        createdAt: new Date('2026-09-01T10:00:00Z'),
-        actor: { name: 'Engineer' },
-        customer: { id: 'customer-3', name: 'Gamma' },
-      },
+      device({
+        id: 'device-1',
+        customerId: 'customer-1',
+        customerName: 'Alpha',
+        customerContract: gold,
+        siteId: 'site-1',
+        siteName: 'Amsterdam',
+        modelId: 'model-1',
+        modelName: 'Switch 48',
+        vendorId: 'vendor-a',
+        vendorName: 'Vendor A',
+        currentId: 'release-old',
+        currentVersion: '0.9',
+        workflow: 'PLANNED',
+      }),
+      device({
+        id: 'device-2',
+        customerId: 'customer-1',
+        customerName: 'Alpha',
+        customerContract: gold,
+        siteId: 'site-2',
+        siteName: 'Rotterdam',
+        siteContract: premium,
+        modelId: 'model-2',
+        modelName: 'Firewall X',
+        vendorId: 'vendor-b',
+        vendorName: 'Vendor B',
+        currentId: null,
+        workflow: 'IGNORED',
+      }),
+      device({
+        id: 'device-3',
+        customerId: 'customer-2',
+        customerName: 'Beta',
+        modelId: 'model-3',
+        modelName: 'AP 10',
+        vendorId: 'vendor-b',
+        vendorName: 'Vendor B',
+        currentId: 'release-blocked',
+        currentVersion: 'BAD-1',
+        currentStatus: 'BLOCKED',
+      }),
+      device({
+        id: 'device-4',
+        customerId: 'customer-2',
+        customerName: 'Beta',
+        customerContract: standard,
+        siteId: 'site-3',
+        siteName: 'Utrecht',
+        modelId: 'model-1',
+        modelName: 'Switch 48',
+        vendorId: 'vendor-a',
+        vendorName: 'Vendor A',
+        currentId: 'release-1',
+        currentVersion: '1.0',
+        workflow: 'DONE',
+      }),
+      device({
+        id: 'device-archived',
+        customerId: 'customer-1',
+        customerName: 'Alpha',
+        customerContract: gold,
+        modelId: 'model-1',
+        modelName: 'Old switch',
+        vendorId: 'vendor-a',
+        vendorName: 'Vendor A',
+        currentId: 'release-old',
+        active: false,
+      }),
     ])
 
     const result = await getFirmwareLifecycleDashboard()
 
-    expect(result.inventory).toEqual({ customers: 3, devices: 5, models: 3, vendors: 2 })
-    expect(result.technical).toEqual({ current: 2, actionRequired: 1, unknown: 1, noPolicy: 1 })
-    expect(result.workflow).toEqual({ planned: 1, ignored: 1, customerDeclined: 1, done: 1, undecided: 1 })
+    expect(result.activeDevices).toBe(4)
+    expect(result.technical).toEqual({ current: 1, actionRequired: 1, unknown: 1, noPolicy: 1 })
+    expect(result.workflow).toEqual({ planned: 1, ignored: 1, customerDeclined: 0, done: 1, undecided: 1 })
 
-    expect(result.modelsRequiringUpdates).toEqual([
-      expect.objectContaining({ id: 'model-1', actionRequired: 1, devices: 2 }),
-    ])
-    expect(result.customersRequiringUpdates).toEqual([
-      expect.objectContaining({ id: 'customer-1', actionRequired: 1, devices: 2 }),
-    ])
-    expect(result.complianceByVendor).toEqual([
-      expect.objectContaining({ id: 'vendor-1', devices: 2, current: 1, actionRequired: 1 }),
-      expect.objectContaining({ id: 'vendor-2', devices: 3, current: 1, unknown: 1, noPolicy: 1 }),
-    ])
-    expect(result.currentFirmwareDistribution.find((release) => release.id === 'release-1')).toEqual(
-      expect.objectContaining({ version: '1.0', devices: 1 }),
+    expect(result.customerAttention[0]).toEqual(
+      expect.objectContaining({ id: 'customer-1', actionRequired: 1, unknown: 1, noPolicy: 0 }),
     )
-    expect(result.recentDecisions[0]).toEqual(
-      expect.objectContaining({
-        state: 'DONE',
-        deviceId: 'device-5',
-        deviceName: 'DEVICE-5',
-        customerName: 'Gamma',
-        actorName: 'Engineer',
-        notes: 'Upgrade completed.',
-      }),
+    expect(result.customerAttention[0].sites).toEqual([
+      expect.objectContaining({ id: 'site-1', name: 'Amsterdam', actionRequired: 1 }),
+      expect.objectContaining({ id: 'site-2', name: 'Rotterdam', unknown: 1 }),
+    ])
+    expect(result.customerAttention).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'customer-2', noPolicy: 1 })]),
     )
+
+    expect(result.contractAttention).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'contract-gold', actionRequired: 1, unknown: 0 }),
+        expect.objectContaining({ id: 'contract-premium', actionRequired: 0, unknown: 1 }),
+        expect.objectContaining({ id: null, name: 'No contract', noPolicy: 1, blocked: 1 }),
+      ]),
+    )
+    expect(result.contractAttention.find((row) => row.id === 'contract-gold')?.devices).toBe(1)
+    expect(result.contractAttention.find((row) => row.id === 'contract-premium')?.devices).toBe(1)
+    expect(result.contractAttention.find((row) => row.id === 'contract-standard')).toBeUndefined()
+
+    expect(result.vendorAttention).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'vendor-a', actionRequired: 1 }),
+        expect.objectContaining({ id: 'vendor-b', unknown: 1, noPolicy: 1, blocked: 1 }),
+      ]),
+    )
+
+    expect(result.firmwareAttention).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'release-old', actionRequired: 1, blocked: 0 }),
+        expect.objectContaining({ id: 'release-blocked', actionRequired: 0, blocked: 1, status: 'BLOCKED' }),
+      ]),
+    )
+    expect(result.firmwareAttention.find((release) => release.id === 'release-1')).toBeUndefined()
 
     expect(mocks.policyFindMany).toHaveBeenCalledTimes(1)
-    expect(mocks.policyFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        deviceModelId: { in: expect.arrayContaining(['model-1', 'model-2', 'model-3']) },
-      }),
-    }))
     const modelIds = mocks.policyFindMany.mock.calls[0][0].where.deviceModelId.in
+    expect(modelIds).toEqual(expect.arrayContaining(['model-1', 'model-2', 'model-3']))
     expect(modelIds).not.toContain('model-4')
   })
 
   it('returns a useful zero state without querying desired policies', async () => {
     mocks.listDevices.mockResolvedValue([])
-    mocks.customerCount.mockResolvedValue(0)
-    mocks.modelCount.mockResolvedValue(0)
-    mocks.vendorCount.mockResolvedValue(0)
 
     const result = await getFirmwareLifecycleDashboard()
 
-    expect(result.inventory).toEqual({ customers: 0, devices: 0, models: 0, vendors: 0 })
+    expect(result.activeDevices).toBe(0)
     expect(result.technical).toEqual({ current: 0, actionRequired: 0, unknown: 0, noPolicy: 0 })
     expect(result.workflow).toEqual({ planned: 0, ignored: 0, customerDeclined: 0, done: 0, undecided: 0 })
-    expect(result.modelsRequiringUpdates).toEqual([])
-    expect(result.customersRequiringUpdates).toEqual([])
-    expect(result.complianceByVendor).toEqual([])
+    expect(result.customerAttention).toEqual([])
+    expect(result.contractAttention).toEqual([])
+    expect(result.vendorAttention).toEqual([])
+    expect(result.firmwareAttention).toEqual([])
     expect(mocks.policyFindMany).not.toHaveBeenCalled()
   })
 })
