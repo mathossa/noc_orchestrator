@@ -1,12 +1,10 @@
 import {
-  DEVICE_IMPORT_FIELDS,
   headersFromRow,
   importResolutionKey,
   mappedRows,
   normalizeImportText,
   parseDeviceImportOptions,
   type DeviceImportField,
-  type DeviceImportOptions,
   type DeviceImportPreview,
   type DeviceImportReferenceKind,
   type DeviceImportResult,
@@ -252,10 +250,11 @@ function resolveOneReference(
     if (!customerTargetId && meta.customerSourceValue) {
       const customerRef = findRaw('CUSTOMER', meta.customerSourceValue)
       customerTargetId = customerRef?.status === 'LINKED' ? customerRef.targetId : null
-      if (!customerTargetId) waitingFor = ['CUSTOMER']
     }
-    if (!customerTargetId) waitingFor = ['CUSTOMER']
-    if (waitingFor.length) return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, customerTargetId: null, waitingFor } }
+    if (!customerTargetId) {
+      waitingFor = ['CUSTOMER']
+      return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, customerTargetId: null, waitingFor } }
+    }
     canonicalContext = customerTargetId
     const active = universe.sites.filter((record) => record.isActive && record.customerId === customerTargetId)
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
