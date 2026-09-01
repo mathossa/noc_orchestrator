@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useMemo, useState, useEffect } from 'react'
+import { SearchableReferencePicker } from '@/components/devices/searchable-reference-picker'
 import { Button } from '@/components/ui/button'
-import { FormField, SelectInput } from '@/components/ui/form-controls'
+import { FormField } from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
 
@@ -80,6 +81,14 @@ type Workspace = {
 }
 
 type WorkspacePayload = { data?: Workspace } & ApiError
+type BulkSitePayload = {
+  data?: {
+    workspace: Workspace
+    created: number
+    linkedExisting: number
+    sites: Array<{ id: string; name: string; code: string; customerId: string }>
+  }
+} & ApiError
 
 type KindDefinition = { kind: DeviceImportReferenceKind; label: string }
 const KINDS: KindDefinition[] = [
@@ -99,20 +108,28 @@ function samePlatform(left: string, right: string) {
 function referenceOptions(reference: StagedReference, options: WorkspaceOptions) {
   if (reference.kind === 'CUSTOMER') {
     return options.customers.filter((record) => record.isActive)
-      .map((record) => ({ id: record.id, label: `${record.name}${record.code ? ` (${record.code})` : ''}` }))
+      .map((record) => ({
+        id: record.id,
+        label: `${record.name}${record.code ? ` (${record.code})` : ''}`,
+        keywords: [record.name, record.code ?? ''],
+      }))
   }
   if (reference.kind === 'SITE') {
     return options.sites
       .filter((record) => record.isActive && record.customerId === reference.metadata.customerTargetId)
-      .map((record) => ({ id: record.id, label: `${record.name}${record.code ? ` (${record.code})` : ''}` }))
+      .map((record) => ({
+        id: record.id,
+        label: `${record.name}${record.code ? ` (${record.code})` : ''}`,
+        keywords: [record.name, record.code ?? ''],
+      }))
   }
   if (reference.kind === 'VENDOR') {
     return options.vendors.filter((record) => record.isActive)
-      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})` }))
+      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})`, keywords: [record.name, record.code] }))
   }
   if (reference.kind === 'DEVICE_TYPE') {
     return options.deviceTypes.filter((record) => record.isActive)
-      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})` }))
+      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})`, keywords: [record.name, record.code] }))
   }
   if (reference.kind === 'DEVICE_MODEL') {
     return options.models
@@ -121,11 +138,15 @@ function referenceOptions(reference: StagedReference, options: WorkspaceOptions)
         (!reference.metadata.vendorTargetId || record.vendorId === reference.metadata.vendorTargetId) &&
         (!reference.metadata.deviceTypeTargetId || record.deviceTypeId === reference.metadata.deviceTypeTargetId),
       )
-      .map((record) => ({ id: record.id, label: `${record.vendor.name} · ${record.model} · ${record.deviceType.name}` }))
+      .map((record) => ({
+        id: record.id,
+        label: `${record.vendor.name} · ${record.model} · ${record.deviceType.name}`,
+        keywords: [record.model, record.vendor.name, record.deviceType.name, record.platform ?? ''],
+      }))
   }
   if (reference.kind === 'CONTRACT_TYPE') {
     return options.contracts.filter((record) => record.isActive)
-      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})` }))
+      .map((record) => ({ id: record.id, label: `${record.name} (${record.code})`, keywords: [record.name, record.code] }))
   }
   return options.firmwareReleases
     .filter((record) =>
@@ -133,7 +154,11 @@ function referenceOptions(reference: StagedReference, options: WorkspaceOptions)
       (!reference.metadata.vendorTargetId || record.vendorId === reference.metadata.vendorTargetId) &&
       (!reference.metadata.platform || samePlatform(record.platform, reference.metadata.platform)),
     )
-    .map((record) => ({ id: record.id, label: `${record.vendor.name} · ${record.platform} · ${record.version} · ${record.status}` }))
+    .map((record) => ({
+      id: record.id,
+      label: `${record.vendor.name} · ${record.platform} · ${record.version} · ${record.status}`,
+      keywords: [record.version, record.platform, record.vendor.name, record.status],
+    }))
 }
 
 export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
@@ -195,9 +220,7 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
       const response = await fetch(`/api/v1/device-import/batches/${batchId}/references/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: chosen.map((item) => ({ ...item, remember })),
-        }),
+        body: JSON.stringify({ items: chosen.map((item) => ({ ...item, remember })) }),
       })
       const payload = await response.json() as WorkspacePayload
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The selected mappings could not be applied.')
@@ -207,6 +230,31 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
       setNotice(`Applied ${chosen.length.toLocaleString()} mapping${chosen.length === 1 ? '' : 's'} to ${destination}.`)
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : 'The selected mappings could not be applied.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createAllReadySites() {
+    if (!workspace || section !== 'SITE' || !activeReferences.length) return
+    if (!window.confirm(`Create ${activeReferences.length.toLocaleString()} unresolved Site${activeReferences.length === 1 ? '' : 's'} using the imported names and generated codes? You can edit them afterward.`)) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await fetch(`/api/v1/device-import/batches/${batchId}/sites/bulk-create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ referenceIds: activeReferences.map((reference) => reference.id) }),
+      })
+      const payload = await response.json() as BulkSitePayload
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The staged Sites could not be created.')
+      setWorkspace(payload.data.workspace)
+      setChoices({})
+      const linkedText = payload.data.linkedExisting ? ` ${payload.data.linkedExisting} already-existing Site${payload.data.linkedExisting === 1 ? ' was' : 's were'} linked instead.` : ''
+      setNotice(`Created and linked ${payload.data.created.toLocaleString()} Site${payload.data.created === 1 ? '' : 's'} with generated codes.${linkedText}`)
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'The staged Sites could not be created.')
     } finally {
       setBusy(false)
     }
@@ -226,7 +274,7 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
     <PageHeader
       eyebrow="Staged inventory"
       title="Bulk resolve mappings"
-      description={`${workspace.batch.fileName} · choose mappings locally, then write them in one bulk action.`}
+      description={`${workspace.batch.fileName} · type a code/name/model/version to narrow choices, then apply mappings in bulk.`}
       actions={<Link href={`/devices/import/${batchId}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Detailed workspace</Link>}
     />
 
@@ -238,11 +286,12 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
         <div>
           <h2 className="text-sm font-semibold">Bulk action</h2>
           <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-            Only dropdowns you explicitly fill are submitted. You can mix modes: remember one subset first, then link another subset once.
+            Type to filter by code or label. Press Enter when only one result remains. Only mappings you explicitly choose are submitted.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="mr-1 text-sm font-semibold">{chosen.length.toLocaleString()} chosen</span>
+          {section === 'SITE' && activeReferences.length ? <Button type="button" variant="primary" disabled={busy || activeReferences.length > 250} onClick={() => void createAllReadySites()}>{activeReferences.length > 250 ? 'Create Sites in groups of 250' : `Create all ${activeReferences.length} Sites`}</Button> : null}
           <Button type="button" variant="ghost" disabled={busy || !activeReferences.some((reference) => reference.suggestedTargetId)} onClick={useSuggestions}>Use all suggestions</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={clearCurrentChoices}>Clear</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={() => void applyBulk(false)}>{busy ? 'Applying…' : `Link ${chosen.length || ''} once`}</Button>
@@ -273,6 +322,10 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
         </div>
       </div>
 
+      {section === 'SITE' && activeReferences.length ? <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3 text-xs text-[var(--muted)] sm:px-5">
+        Bulk-create uses each imported Site name as-is and generates a readable Site code. Code collisions within a Customer receive a numeric suffix. Created Sites can be edited afterward.
+      </div> : null}
+
       {sectionCount.waiting ? <div className="border-b border-[var(--border)] bg-[#282416] px-4 py-3 text-xs text-amber-100 sm:px-5">
         {sectionCount.waiting} value{sectionCount.waiting === 1 ? ' is' : 's are'} waiting for a parent entity. Resolve the parent section first; these are not errors.
       </div> : null}
@@ -291,11 +344,15 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
                 <button type="button" className="ml-2 font-semibold text-[var(--accent-light)] hover:underline" onClick={() => setChoices((current) => ({ ...current, [reference.id]: reference.suggestedTargetId! }))}>Use</button>
               </div> : null}
             </div>
-            <FormField label="Link to existing" htmlFor={`bulk-ref-${reference.id}`}>
-              <SelectInput id={`bulk-ref-${reference.id}`} value={selected} onChange={(event) => setChoices((current) => ({ ...current, [reference.id]: event.target.value }))}>
-                <option value="">Do not include yet</option>
-                {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-              </SelectInput>
+            <FormField label="Link to existing" htmlFor={`bulk-ref-${reference.id}`} description="Search by code, name, model, platform, or version. Enter selects when one result remains.">
+              <SearchableReferencePicker
+                key={`${reference.id}:${selected}`}
+                id={`bulk-ref-${reference.id}`}
+                value={selected}
+                options={options}
+                disabled={busy}
+                onChange={(value) => setChoices((current) => ({ ...current, [reference.id]: value }))}
+              />
             </FormField>
           </div>
         })}
