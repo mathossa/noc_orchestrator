@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   detectHeaderRow,
   headersFromRow,
+  importResolutionKey,
   mappedRows,
   parseDeviceImportOptions,
   suggestColumnMapping,
@@ -52,6 +53,19 @@ describe('device XLSX import mapping', () => {
         values: expect.objectContaining({ hostname: 'sw-02', model: '2530-48G', currentFirmware: '16.11.0031' }),
       },
     ])
+  })
+
+  it('keeps one-time reference resolutions in the validated import options', () => {
+    const key = importResolutionKey('DEVICE_MODEL', 'Fortinet FortiGate-100F', 'vendor-fortinet')
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 2,
+      mapping: { '0': 'hostname', '2': 'model' },
+      defaults: { customerId: 'customer-1' },
+      resolutions: { [key]: 'model-100f', ignored: '' },
+    })
+
+    expect(options.resolutions).toEqual({ [key]: 'model-100f' })
   })
 
   it('rejects mapping the same destination field more than once', () => {
