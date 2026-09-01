@@ -167,7 +167,7 @@ XLSX import never overwrites:
 
 ## XLSX safety limits
 
-There is no artificial 5,000-row application limit anymore. Worksheets are accepted up to the XLSX/Excel row-coordinate maximum (1,048,576 rows), subject to workbook-size safeguards.
+There is no artificial 5,000-row application limit anymore. Worksheets are accepted up to Excel's XLSX worksheet maximum of 1,048,576 rows, subject to workbook-size safeguards.
 
 Current safeguards remain:
 
