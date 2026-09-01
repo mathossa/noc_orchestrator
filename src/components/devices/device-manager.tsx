@@ -114,7 +114,6 @@ export function DeviceManager({
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     void load()
       .then((payload) => {
         if (!cancelled) applyPayload(payload)
