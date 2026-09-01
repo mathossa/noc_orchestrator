@@ -55,7 +55,7 @@ CREATE INDEX "DeviceImportBatch_createdAt_idx" ON "DeviceImportBatch"("createdAt
 CREATE UNIQUE INDEX "DeviceImportStagedRow_batchId_rowNumber_key" ON "DeviceImportStagedRow"("batchId", "rowNumber");
 CREATE INDEX "DeviceImportStagedRow_batchId_status_idx" ON "DeviceImportStagedRow"("batchId", "status");
 
-CREATE UNIQUE INDEX "DeviceImportStagedReference_batchId_kind_normalizedSourceValue_contextKey_key"
+CREATE UNIQUE INDEX "ImportStagedRef_batch_kind_source_context_key"
 ON "DeviceImportStagedReference"("batchId", "kind", "normalizedSourceValue", "contextKey");
 CREATE INDEX "DeviceImportStagedReference_batchId_status_idx" ON "DeviceImportStagedReference"("batchId", "status");
 CREATE INDEX "DeviceImportStagedReference_batchId_kind_idx" ON "DeviceImportStagedReference"("batchId", "kind");
