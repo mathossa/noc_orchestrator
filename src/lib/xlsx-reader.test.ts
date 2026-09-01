@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readXlsxWorkbook, XlsxImportError } from '@/lib/xlsx-reader'
+import { readXlsxWorkbook, XLSX_LIMITS, XlsxImportError } from '@/lib/xlsx-reader'
 
 function storedZip(files: Record<string, string>) {
   const localParts: Buffer[] = []
@@ -70,6 +70,10 @@ function sampleWorkbook() {
 }
 
 describe('bounded XLSX reader', () => {
+  it('uses the native Excel worksheet row ceiling instead of the former 5,000-row application cap', () => {
+    expect(XLSX_LIMITS.maxRowsPerSheet).toBe(1_048_576)
+  })
+
   it('reads worksheet names, shared strings and inline strings without an external XLSX runtime dependency', () => {
     const workbook = readXlsxWorkbook(sampleWorkbook())
 
