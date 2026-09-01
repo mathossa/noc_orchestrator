@@ -92,6 +92,7 @@ export function DeviceManager({
   const [references, setReferences] = useState<DeviceReferenceData>(EMPTY_REFERENCES)
   const [meta, setMeta] = useState<DeviceQueryMeta | null>(null)
   const [form, setForm] = useState<FormState>(() => emptyForm(initialCustomerId, initialSiteId))
+  const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -138,8 +139,20 @@ export function DeviceManager({
     setError(null)
   }
 
+  function closeForm() {
+    resetForm()
+    setFormOpen(false)
+  }
+
+  function beginAdd() {
+    resetForm()
+    setMessage(null)
+    setFormOpen(true)
+  }
+
   function beginEdit(record: DeviceRecord) {
     setEditingId(record.id)
+    setFormOpen(true)
     setForm({
       customerId: record.customerId,
       siteId: record.siteId ?? '',
@@ -208,6 +221,7 @@ export function DeviceManager({
       }
       setMessage(editingId ? 'Device updated.' : 'Device created.')
       resetForm()
+      setFormOpen(false)
       await reload()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Device could not be saved.')
@@ -243,7 +257,7 @@ export function DeviceManager({
       setError(payload.error?.message ?? 'Device could not be deleted.')
       return
     }
-    if (editingId === record.id) resetForm()
+    if (editingId === record.id) closeForm()
     setMessage('Device deleted.')
     await reload()
   }
@@ -286,97 +300,133 @@ export function DeviceManager({
         eyebrow="Recorded inventory"
         title="Devices"
         description="Filter and group recorded inventory across customer, site, vendor, model, type, effective contract, firmware state, workflow, and provenance."
-        actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>
+            <Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button>
+          </div>
+        }
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
       {error ? <div className="mb-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">{error}</div> : null}
 
-      <form onSubmit={save} className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">{editingId ? 'Edit device' : 'Add device'}</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Manual devices need only a customer, model, and device name. Site, management address, current firmware, and integration identity can remain unknown.</p>
-          </div>
-          {editingId ? <Button type="button" variant="ghost" onClick={resetForm}>Cancel edit</Button> : null}
-        </div>
+      <section className="mb-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <button
+          type="button"
+          aria-expanded={formOpen}
+          onClick={formOpen ? closeForm : beginAdd}
+          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[var(--surface-raised)] sm:px-5"
+        >
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold uppercase tracking-[0.1em] text-[var(--accent-light)]">Manual inventory</span>
+            <span className="mt-1 block text-sm font-semibold text-[var(--foreground)]">{editingId ? 'Edit device' : 'Add device'}</span>
+            <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">
+              {formOpen
+                ? 'Customer, model, firmware and synchronization fields are isolated from the inventory workspace below.'
+                : 'Expand only when you need to add a manually recorded device; inventory browsing stays the primary workspace.'}
+            </span>
+          </span>
+          <span className="shrink-0 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs font-semibold text-[var(--muted-strong)]">
+            {formOpen ? 'Collapse' : 'Expand'}
+          </span>
+        </button>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <FormField label="Customer" htmlFor="device-customer" error={fieldErrors.customerId}>
-            <SelectInput id="device-customer" value={form.customerId} onChange={(event) => changeCustomer(event.target.value)} required>
-              <option value="">Select customer</option>
-              {references.customers.map((customer) => <option key={customer.id} value={customer.id} disabled={!customer.isActive && customer.id !== form.customerId}>{customer.name}{customer.isActive ? '' : ' (archived)'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Site" htmlFor="device-site" description="Optional; only sites belonging to the selected customer are shown." error={fieldErrors.siteId}>
-            <SelectInput id="device-site" value={form.siteId} onChange={(event) => setForm({ ...form, siteId: event.target.value })} disabled={!form.customerId}>
-              <option value="">No site / unassigned</option>
-              {formSites.map((site) => <option key={site.id} value={site.id} disabled={!site.isActive && site.id !== form.siteId}>{site.name}{site.code ? ` (${site.code})` : ''}{site.contractType ? ` · ${site.contractType.name}` : ''}{site.isActive ? '' : ' — archived'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Effective contract" htmlFor="device-effective-contract" description={effectiveFormContractSource}>
-            <div id="device-effective-contract" className="flex min-h-10 items-center rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--muted-strong)]">
-              {effectiveFormContract?.name ?? 'No contract assigned'}
+        {formOpen ? (
+          <form onSubmit={save} className="border-t border-[var(--border)] p-4 sm:p-5">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">{editingId ? 'Edit device record' : 'New manual device'}</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Manual devices need only a customer, model, and device name. Site, management address, current firmware, and integration identity can remain unknown.</p>
+              </div>
+              <Button type="button" variant="ghost" onClick={closeForm}>{editingId ? 'Cancel edit' : 'Cancel'}</Button>
             </div>
-          </FormField>
-          <FormField label="Device model" htmlFor="device-model" error={fieldErrors.deviceModelId}>
-            <SelectInput id="device-model" value={form.deviceModelId} onChange={(event) => changeModel(event.target.value)} required>
-              <option value="">Select model</option>
-              {references.models.map((model) => <option key={model.id} value={model.id} disabled={!model.isActive && model.id !== form.deviceModelId}>{model.vendor.name} · {model.model} · {model.deviceType.name}{model.isActive ? '' : ' (archived)'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Device name" htmlFor="device-name" description="Customer-scoped inventory name." error={fieldErrors.name}>
-            <TextInput id="device-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="HQ-SW-01" required />
-          </FormField>
-          <FormField label="Hostname" htmlFor="device-hostname" error={fieldErrors.hostname}>
-            <TextInput id="device-hostname" value={form.hostname} onChange={(event) => setForm({ ...form, hostname: event.target.value })} placeholder="hq-sw-01.example.local" />
-          </FormField>
-          <FormField label="Management address" htmlFor="device-management" description="Recorded address only; reachability is not tested." error={fieldErrors.managementAddress}>
-            <TextInput id="device-management" value={form.managementAddress} onChange={(event) => setForm({ ...form, managementAddress: event.target.value })} placeholder="10.10.10.10" />
-          </FormField>
-          <FormField label="Serial number" htmlFor="device-serial" error={fieldErrors.serialNumber}>
-            <TextInput id="device-serial" value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} />
-          </FormField>
-          <FormField label="Current firmware" htmlFor="device-current-firmware" description={form.deviceModelId ? 'Only catalog releases compatible with the selected model are shown.' : 'Select a model first.'} error={fieldErrors.currentFirmwareReleaseId}>
-            <SelectInput id="device-current-firmware" value={form.currentFirmwareReleaseId} onChange={(event) => setForm({ ...form, currentFirmwareReleaseId: event.target.value, currentFirmwareObservedAt: event.target.value ? form.currentFirmwareObservedAt : '' })} disabled={!form.deviceModelId}>
-              <option value="">Unknown / not recorded</option>
-              {formReleases.map((release) => <option key={release.id} value={release.id}>{release.version}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''} · {release.status}{release.isActive ? '' : ' · archived'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Firmware source" htmlFor="device-firmware-source" error={fieldErrors.currentFirmwareSource}>
-            <SelectInput id="device-firmware-source" value={form.currentFirmwareSource} onChange={(event) => setForm({ ...form, currentFirmwareSource: event.target.value })} disabled={!form.currentFirmwareReleaseId}>
-              <option value="MANUAL">Manual</option><option value="API">API</option><option value="IMPORT">Import</option>
-            </SelectInput>
-          </FormField>
-          <FormField label="Observed / reported at" htmlFor="device-firmware-observed" description="Optional timestamp for the recorded firmware state." error={fieldErrors.currentFirmwareObservedAt}>
-            <TextInput id="device-firmware-observed" type="datetime-local" value={form.currentFirmwareObservedAt} onChange={(event) => setForm({ ...form, currentFirmwareObservedAt: event.target.value })} disabled={!form.currentFirmwareReleaseId} />
-          </FormField>
-          <div className="md:col-span-2">
-            <FormField label="Notes" htmlFor="device-notes" error={fieldErrors.notes}>
-              <TextArea id="device-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Firmware-lifecycle relevant inventory notes…" />
-            </FormField>
-          </div>
-        </div>
 
-        <details className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
-          <summary className="cursor-pointer text-sm font-semibold">Advanced / synchronization</summary>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <FormField label="Inventory source" htmlFor="device-source" error={fieldErrors.source}>
-              <SelectInput id="device-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}><option value="MANUAL">MANUAL</option><option value="API">API</option><option value="IMPORT">IMPORT</option></SelectInput>
-            </FormField>
-            <FormField label="External provider" htmlFor="device-provider" error={fieldErrors.externalProvider}>
-              <TextInput id="device-provider" value={form.externalProvider} onChange={(event) => setForm({ ...form, externalProvider: event.target.value })} placeholder="Optional" />
-            </FormField>
-            <FormField label="External ID" htmlFor="device-external-id" error={fieldErrors.externalId}>
-              <TextInput id="device-external-id" value={form.externalId} onChange={(event) => setForm({ ...form, externalId: event.target.value })} placeholder="Optional" />
-            </FormField>
-          </div>
-        </details>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <FormField label="Customer" htmlFor="device-customer" error={fieldErrors.customerId}>
+                <SelectInput id="device-customer" value={form.customerId} onChange={(event) => changeCustomer(event.target.value)} required>
+                  <option value="">Select customer</option>
+                  {references.customers.map((customer) => <option key={customer.id} value={customer.id} disabled={!customer.isActive && customer.id !== form.customerId}>{customer.name}{customer.isActive ? '' : ' (archived)'}</option>)}
+                </SelectInput>
+              </FormField>
+              <FormField label="Site" htmlFor="device-site" description="Optional; only sites belonging to the selected customer are shown." error={fieldErrors.siteId}>
+                <SelectInput id="device-site" value={form.siteId} onChange={(event) => setForm({ ...form, siteId: event.target.value })} disabled={!form.customerId}>
+                  <option value="">No site / unassigned</option>
+                  {formSites.map((site) => <option key={site.id} value={site.id} disabled={!site.isActive && site.id !== form.siteId}>{site.name}{site.code ? ` (${site.code})` : ''}{site.contractType ? ` · ${site.contractType.name}` : ''}{site.isActive ? '' : ' — archived'}</option>)}
+                </SelectInput>
+              </FormField>
+              <FormField label="Effective contract" htmlFor="device-effective-contract" description={effectiveFormContractSource}>
+                <div id="device-effective-contract" className="flex min-h-10 items-center rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--muted-strong)]">
+                  {effectiveFormContract?.name ?? 'No contract assigned'}
+                </div>
+              </FormField>
+              <FormField label="Device model" htmlFor="device-model" error={fieldErrors.deviceModelId}>
+                <SelectInput id="device-model" value={form.deviceModelId} onChange={(event) => changeModel(event.target.value)} required>
+                  <option value="">Select model</option>
+                  {references.models.map((model) => <option key={model.id} value={model.id} disabled={!model.isActive && model.id !== form.deviceModelId}>{model.vendor.name} · {model.model} · {model.deviceType.name}{model.isActive ? '' : ' (archived)'}</option>)}
+                </SelectInput>
+              </FormField>
+              <FormField label="Device name" htmlFor="device-name" description="Customer-scoped inventory name." error={fieldErrors.name}>
+                <TextInput id="device-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="HQ-SW-01" required />
+              </FormField>
+              <FormField label="Hostname" htmlFor="device-hostname" error={fieldErrors.hostname}>
+                <TextInput id="device-hostname" value={form.hostname} onChange={(event) => setForm({ ...form, hostname: event.target.value })} placeholder="hq-sw-01.example.local" />
+              </FormField>
+              <FormField label="Management address" htmlFor="device-management" description="Recorded address only; reachability is not tested." error={fieldErrors.managementAddress}>
+                <TextInput id="device-management" value={form.managementAddress} onChange={(event) => setForm({ ...form, managementAddress: event.target.value })} placeholder="10.10.10.10" />
+              </FormField>
+              <FormField label="Serial number" htmlFor="device-serial" error={fieldErrors.serialNumber}>
+                <TextInput id="device-serial" value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} />
+              </FormField>
+              <FormField label="Current firmware" htmlFor="device-current-firmware" description={form.deviceModelId ? 'Only catalog releases compatible with the selected model are shown.' : 'Select a model first.'} error={fieldErrors.currentFirmwareReleaseId}>
+                <SelectInput id="device-current-firmware" value={form.currentFirmwareReleaseId} onChange={(event) => setForm({ ...form, currentFirmwareReleaseId: event.target.value, currentFirmwareObservedAt: event.target.value ? form.currentFirmwareObservedAt : '' })} disabled={!form.deviceModelId}>
+                  <option value="">Unknown / not recorded</option>
+                  {formReleases.map((release) => <option key={release.id} value={release.id}>{release.version}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''} · {release.status}{release.isActive ? '' : ' · archived'}</option>)}
+                </SelectInput>
+              </FormField>
+              <FormField label="Firmware source" htmlFor="device-firmware-source" error={fieldErrors.currentFirmwareSource}>
+                <SelectInput id="device-firmware-source" value={form.currentFirmwareSource} onChange={(event) => setForm({ ...form, currentFirmwareSource: event.target.value })} disabled={!form.currentFirmwareReleaseId}>
+                  <option value="MANUAL">Manual</option><option value="API">API</option><option value="IMPORT">Import</option>
+                </SelectInput>
+              </FormField>
+              <FormField label="Observed / reported at" htmlFor="device-firmware-observed" description="Optional timestamp for the recorded firmware state." error={fieldErrors.currentFirmwareObservedAt}>
+                <TextInput id="device-firmware-observed" type="datetime-local" value={form.currentFirmwareObservedAt} onChange={(event) => setForm({ ...form, currentFirmwareObservedAt: event.target.value })} disabled={!form.currentFirmwareReleaseId} />
+              </FormField>
+              <div className="md:col-span-2">
+                <FormField label="Notes" htmlFor="device-notes" error={fieldErrors.notes}>
+                  <TextArea id="device-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Firmware-lifecycle relevant inventory notes…" />
+                </FormField>
+              </div>
+            </div>
 
-        <div className="mt-4 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Save device' : 'Add device'}</Button></div>
-      </form>
+            <details className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+              <summary className="cursor-pointer text-sm font-semibold">Advanced / synchronization</summary>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <FormField label="Inventory source" htmlFor="device-source" error={fieldErrors.source}>
+                  <SelectInput id="device-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}><option value="MANUAL">MANUAL</option><option value="API">API</option><option value="IMPORT">IMPORT</option></SelectInput>
+                </FormField>
+                <FormField label="External provider" htmlFor="device-provider" error={fieldErrors.externalProvider}>
+                  <TextInput id="device-provider" value={form.externalProvider} onChange={(event) => setForm({ ...form, externalProvider: event.target.value })} placeholder="Optional" />
+                </FormField>
+                <FormField label="External ID" htmlFor="device-external-id" error={fieldErrors.externalId}>
+                  <TextInput id="device-external-id" value={form.externalId} onChange={(event) => setForm({ ...form, externalId: event.target.value })} placeholder="Optional" />
+                </FormField>
+              </div>
+            </details>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeForm}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Save device' : 'Add device'}</Button>
+            </div>
+          </form>
+        ) : null}
+      </section>
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold">Device inventory</h2>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Browse, filter and group recorded devices. Manual entry is kept separate above so the inventory remains the primary workspace.</p>
+        </div>
         {meta ? <DeviceFilterBar meta={meta} /> : null}
 
         {meta ? (
