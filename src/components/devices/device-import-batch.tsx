@@ -168,7 +168,6 @@ export function DeviceImportBatchWorkspace({ batchId }: { batchId: string }) {
   }, [batchId])
 
   useEffect(() => {
-    setError(null)
     void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'The staged import could not be loaded.'))
   }, [loadWorkspace])
 
