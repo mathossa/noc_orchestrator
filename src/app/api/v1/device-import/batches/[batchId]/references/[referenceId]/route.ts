@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { DeviceImportStagingError, resolveDeviceImportStagedReference } from '@/lib/device-import-staging-store'
+import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
+import { resolveDeviceImportStagedReferenceIncrementally } from '@/lib/device-import-staged-reference-resolver'
 
 type RouteContext = { params: Promise<{ batchId: string; referenceId: string }> }
 
@@ -8,7 +9,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const body = await request.json()
     return NextResponse.json({
-      data: await resolveDeviceImportStagedReference({ ...body, batchId, referenceId }),
+      data: await resolveDeviceImportStagedReferenceIncrementally({ ...body, batchId, referenceId }),
     })
   } catch (error) {
     if (error instanceof SyntaxError) {
