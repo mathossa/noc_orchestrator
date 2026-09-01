@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
 
+const ACTION_BATCH_SIZE = 250
+
 type ApiError = { error?: { message?: string } }
 
 type Family = { id: string; vendorId: string; name: string; isActive: boolean }
@@ -72,10 +74,12 @@ export function DeviceImportModelAssist({ batchId }: { batchId: string }) {
     const familyId = choices[model.id] ?? ''
     return familyId && familyId !== model.familyId ? [{ modelId: model.id, familyId }] : []
   }) ?? [], [assist, choices])
+  const suggestionBatch = familySuggestions.slice(0, ACTION_BATCH_SIZE)
+  const chosenBatch = chosenFamilies.slice(0, ACTION_BATCH_SIZE)
 
   async function createReadyModels() {
     if (!assist?.readyToCreate.length) return
-    const models = assist.readyToCreate.slice(0, 250)
+    const models = assist.readyToCreate.slice(0, ACTION_BATCH_SIZE)
     const countText = assist.readyToCreate.length > models.length ? `${models.length} of ${assist.readyToCreate.length}` : String(models.length)
     if (!window.confirm(`Create ${countText} missing concrete Model${models.length === 1 ? '' : 's'} using the imported model notation and already-resolved Vendor/Device Type?`)) return
     setBusy(true)
@@ -153,7 +157,7 @@ export function DeviceImportModelAssist({ batchId }: { batchId: string }) {
           <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Only Models whose Vendor and Device Type are already resolved are eligible. Imported model notation is preserved exactly.</p>
         </div>
         <Button type="button" variant="primary" disabled={busy || !assist.readyToCreate.length} onClick={() => void createReadyModels()}>
-          {assist.readyToCreate.length > 250 ? `Create next 250 of ${assist.readyToCreate.length} Models` : `Create all ${assist.readyToCreate.length} ready Models`}
+          {assist.readyToCreate.length > ACTION_BATCH_SIZE ? `Create next ${ACTION_BATCH_SIZE} of ${assist.readyToCreate.length} Models` : `Create all ${assist.readyToCreate.length} ready Models`}
         </Button>
       </div>
     </section>
@@ -169,12 +173,14 @@ export function DeviceImportModelAssist({ batchId }: { batchId: string }) {
           <Button
             type="button"
             variant="primary"
-            disabled={busy || !familySuggestions.length}
-            onClick={() => void assignFamilies(familySuggestions.map((model) => ({ modelId: model.id, familyId: model.suggestedFamilyId! })), 'Applied safe family suggestions')}
+            disabled={busy || !suggestionBatch.length}
+            onClick={() => void assignFamilies(suggestionBatch.map((model) => ({ modelId: model.id, familyId: model.suggestedFamilyId! })), 'Applied safe family suggestions')}
           >
-            Apply {familySuggestions.length} suggested families
+            {familySuggestions.length > ACTION_BATCH_SIZE ? `Apply next ${ACTION_BATCH_SIZE} of ${familySuggestions.length} suggestions` : `Apply ${familySuggestions.length} suggested families`}
           </Button>
-          <Button type="button" variant="primary" disabled={busy || !chosenFamilies.length} onClick={() => void assignFamilies(chosenFamilies, 'Applied reviewed family choices')}>Apply {chosenFamilies.length} chosen</Button>
+          <Button type="button" variant="primary" disabled={busy || !chosenBatch.length} onClick={() => void assignFamilies(chosenBatch, 'Applied reviewed family choices')}>
+            {chosenFamilies.length > ACTION_BATCH_SIZE ? `Apply next ${ACTION_BATCH_SIZE} of ${chosenFamilies.length} chosen` : `Apply ${chosenFamilies.length} chosen`}
+          </Button>
         </div>
       </div>
 
