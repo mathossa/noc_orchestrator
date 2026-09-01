@@ -39,6 +39,7 @@ export function SearchableReferencePicker({
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const displayValue = open ? query : selected?.label ?? query
+  const listboxId = `${id}-options`
 
   const filtered = useMemo(() => options.filter((option) => matches(option, query)).slice(0, 20), [options, query])
 
@@ -59,6 +60,7 @@ export function SearchableReferencePicker({
       id={id}
       type="text"
       role="combobox"
+      aria-controls={listboxId}
       aria-expanded={open}
       aria-autocomplete="list"
       autoComplete="off"
@@ -90,7 +92,7 @@ export function SearchableReferencePicker({
       }}
     />
 
-    {open && !disabled ? <div role="listbox" className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-xl">
+    {open && !disabled ? <div id={listboxId} role="listbox" className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-xl">
       {filtered.length ? filtered.map((option) => <button
         key={option.id}
         type="button"
