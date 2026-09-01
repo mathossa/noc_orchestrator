@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   releaseFindMany: vi.fn(),
   contractFindMany: vi.fn(),
   deviceFindMany: vi.fn(),
+  aliasFindMany: vi.fn(),
   transaction: vi.fn(),
   txDeviceCreate: vi.fn(),
   txDeviceUpdate: vi.fn(),
@@ -25,11 +26,12 @@ vi.mock('@/lib/prisma', () => ({
     firmwareRelease: { findMany: mocks.releaseFindMany },
     contractType: { findMany: mocks.contractFindMany },
     device: { findMany: mocks.deviceFindMany },
+    importReferenceAlias: { findMany: mocks.aliasFindMany },
     $transaction: mocks.transaction,
   },
 }))
 
-import { parseDeviceImportOptions } from '@/lib/device-import'
+import { importResolutionKey, parseDeviceImportOptions } from '@/lib/device-import'
 import { commitDeviceImport, previewDeviceImport } from '@/lib/device-import-store'
 import type { XlsxWorkbook } from '@/lib/xlsx-reader'
 
@@ -67,12 +69,17 @@ function workbook(rows: string[][]): XlsxWorkbook {
   }
 }
 
-function options(mapping: Record<string, string>, defaults: Record<string, string | null> = {}) {
+function options(
+  mapping: Record<string, string>,
+  defaults: Record<string, string | null> = {},
+  resolutions: Record<string, string> = {},
+) {
   return parseDeviceImportOptions({
     sheetName: 'Devices',
     headerRow: 1,
     mapping,
     defaults,
+    resolutions,
   })
 }
 
@@ -110,6 +117,7 @@ describe('XLSX device import planning and persistence', () => {
     mocks.releaseFindMany.mockResolvedValue(releases)
     mocks.contractFindMany.mockResolvedValue(contracts)
     mocks.deviceFindMany.mockResolvedValue([])
+    mocks.aliasFindMany.mockResolvedValue([])
     mocks.txDeviceCreate.mockResolvedValue({ id: 'created-1' })
     mocks.txDeviceUpdate.mockResolvedValue({ id: 'device-1' })
     mocks.txAuditCreate.mockResolvedValue({ id: 'audit-1' })
@@ -143,7 +151,7 @@ describe('XLSX device import planning and persistence', () => {
     })
   })
 
-  it('surfaces unknown concrete models instead of silently creating them', async () => {
+  it('surfaces unknown concrete models as resolvable references instead of silently creating them', async () => {
     const preview = await previewDeviceImport(
       workbook([['Hostname', 'Model'], ['sw-01', 'UNKNOWN-24G']]),
       options({ '0': 'hostname', '1': 'model' }, { customerId: 'customer-1' }),
@@ -151,8 +159,48 @@ describe('XLSX device import planning and persistence', () => {
     )
 
     expect(preview.rows[0].action).toBe('ERROR')
-    expect(preview.rows[0].issues.map((issue) => issue.message).join(' ')).toContain('was not found')
+    expect(preview.unresolvedReferences).toEqual([
+      expect.objectContaining({ kind: 'DEVICE_MODEL', sourceValue: 'UNKNOWN-24G', rowNumbers: [2] }),
+    ])
     expect(mocks.txDeviceCreate).not.toHaveBeenCalled()
+  })
+
+  it('applies one-time type and vendor-scoped model resolutions to every matching row', async () => {
+    const resolutions = {
+      [importResolutionKey('DEVICE_TYPE', 'Network Switch')]: 'type-1',
+      [importResolutionKey('DEVICE_MODEL', 'Aruba 2530-24G', 'vendor-1')]: 'model-1',
+    }
+    const preview = await previewDeviceImport(
+      workbook([
+        ['Hostname', 'Vendor', 'Device Type', 'Model'],
+        ['sw-01', 'Aruba', 'Network Switch', 'Aruba 2530-24G'],
+        ['sw-02', 'Aruba', 'Network Switch', 'Aruba 2530-24G'],
+      ]),
+      options(
+        { '0': 'hostname', '1': 'vendor', '2': 'deviceType', '3': 'model' },
+        { customerId: 'customer-1' },
+        resolutions,
+      ),
+      'devices.xlsx',
+    )
+
+    expect(preview.counts).toMatchObject({ create: 2, error: 0, importable: 2 })
+    expect(preview.unresolvedReferences).toEqual([])
+    expect(preview.rows.every((row) => row.model === 'Aruba · 2530-24G')).toBe(true)
+  })
+
+  it('uses a saved device-type alias on later imports without a one-time override', async () => {
+    mocks.aliasFindMany.mockResolvedValue([
+      { kind: 'DEVICE_TYPE', normalizedSourceValue: 'network switch', contextKey: '', targetId: 'type-1' },
+    ])
+    const preview = await previewDeviceImport(
+      workbook([['Hostname', 'Device Type', 'Model'], ['sw-01', 'Network Switch', '2530-24G']]),
+      options({ '0': 'hostname', '1': 'deviceType', '2': 'model' }, { customerId: 'customer-1' }),
+      'devices.xlsx',
+    )
+
+    expect(preview.rows[0].action).toBe('CREATE')
+    expect(preview.unresolvedReferences).toEqual([])
   })
 
   it('rejects a file-level site default that belongs to another customer', async () => {
