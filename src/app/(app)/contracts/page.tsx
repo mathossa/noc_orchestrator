@@ -1,4 +1,3 @@
-import { ContractDetail } from '@/components/contracts/contract-detail'
 import { ReferenceDataManager } from '@/components/reference-data/reference-data-manager'
 import { ReferenceDrilldownDirectory } from '@/components/reference-data/reference-drilldown-directory'
 
