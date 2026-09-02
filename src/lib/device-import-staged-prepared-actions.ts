@@ -20,7 +20,6 @@ const REFERENCE_ORDER: DeviceImportReferenceKind[] = [
   'CUSTOMER',
   'VENDOR',
   'DEVICE_TYPE',
-  'CONTRACT_TYPE',
   'SITE',
   'DEVICE_MODEL',
   'FIRMWARE_RELEASE',
@@ -301,7 +300,7 @@ async function applyCreateActions(
   let applied = 0
   const rememberedKinds = new Set<DeviceImportReferenceKind>()
 
-  const coreKinds = new Set<DeviceImportReferenceKind>(['CUSTOMER', 'VENDOR', 'DEVICE_TYPE', 'CONTRACT_TYPE'])
+  const coreKinds = new Set<DeviceImportReferenceKind>(['CUSTOMER', 'VENDOR', 'DEVICE_TYPE'])
   const coreItems = items.filter((item) => coreKinds.has(referenceById.get(item.referenceId)?.kind as DeviceImportReferenceKind))
   for (const part of chunks(coreItems)) {
     const succeeded = await applyChunkWithFallback(

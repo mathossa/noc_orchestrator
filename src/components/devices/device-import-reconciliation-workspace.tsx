@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SearchableReferencePicker } from '@/components/devices/searchable-reference-picker'
 import { Button } from '@/components/ui/button'
@@ -310,7 +311,7 @@ function sectionClass() {
   return 'rounded-lg border border-[var(--border)] bg-[var(--surface)]'
 }
 
-export function DeviceImportReconciliationWorkspace({ batchId }: { batchId: string }) {
+export function DeviceImportReconciliationWorkspace({ batchId, reconciliationWorksheet }: { batchId: string; reconciliationWorksheet?: ReactNode }) {
   const [data, setData] = useState<AssistData | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [selectedRows, setSelectedRows] = useState<number[]>([])
@@ -653,14 +654,16 @@ export function DeviceImportReconciliationWorkspace({ batchId }: { batchId: stri
           {waiting.length ? <span className="text-amber-200">{waiting.length} waiting</span> : null}
         </div>
         {!published ? <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="primary" disabled={Boolean(busy) || !safeCount} onClick={() => void applySafeSuggestions()}>
-            {busy === 'safe' ? 'Applying…' : `Apply ${safeCount} safe match${safeCount === 1 ? '' : 'es'}`}
-          </Button>
-          <Button type="button" variant="primary" disabled={Boolean(busy) || !preparedCount} onClick={() => void applyPrepared()}>
-            {busy === 'prepared' ? 'Creating…' : `Apply ${preparedCount} prepared action${preparedCount === 1 ? '' : 's'}`}
-          </Button>
-          <Button type="button" variant="ghost" disabled={Boolean(busy) || !chosen.length} onClick={() => void linkChosen(false)}>Link {chosen.length || ''} once</Button>
-          <Button type="button" variant="ghost" disabled={Boolean(busy) || !chosen.length || !workspace.batch.profileId} onClick={() => void linkChosen(true)}>Remember {chosen.length || ''}</Button>
+          {!reconciliationWorksheet ? <>
+            <Button type="button" variant="primary" disabled={Boolean(busy) || !safeCount} onClick={() => void applySafeSuggestions()}>
+              {busy === 'safe' ? 'Applying…' : `Apply ${safeCount} safe match${safeCount === 1 ? '' : 'es'}`}
+            </Button>
+            <Button type="button" variant="primary" disabled={Boolean(busy) || !preparedCount} onClick={() => void applyPrepared()}>
+              {busy === 'prepared' ? 'Creating…' : `Apply ${preparedCount} prepared action${preparedCount === 1 ? '' : 's'}`}
+            </Button>
+            <Button type="button" variant="ghost" disabled={Boolean(busy) || !chosen.length} onClick={() => void linkChosen(false)}>Link {chosen.length || ''} once</Button>
+            <Button type="button" variant="ghost" disabled={Boolean(busy) || !chosen.length || !workspace.batch.profileId} onClick={() => void linkChosen(true)}>Remember {chosen.length || ''}</Button>
+          </> : null}
           {selectedRows.length ? <>
             <Button type="button" variant="ghost" disabled={Boolean(busy)} onClick={() => void rowAction('EXCLUDE', { rowNumbers: selectedRows })}>Exclude {selectedRows.length}</Button>
             <Button type="button" variant="ghost" disabled={Boolean(busy)} onClick={() => void rowAction('IGNORE', { rowNumbers: selectedRows })}>Ignore {selectedRows.length}</Button>
@@ -694,6 +697,7 @@ export function DeviceImportReconciliationWorkspace({ batchId }: { batchId: stri
       </div>
     </details> : null}
 
+    {reconciliationWorksheet ? reconciliationWorksheet : <>
     {!published && unresolved.length ? <details className={`${sectionClass()} mb-5`} open>
       <summary className="cursor-pointer px-4 py-4 font-semibold sm:px-5">Existing-link suggestions and exceptions · {unresolved.length}</summary>
       <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">
@@ -766,6 +770,8 @@ export function DeviceImportReconciliationWorkspace({ batchId }: { batchId: stri
       <summary className="cursor-pointer px-4 py-4 font-semibold sm:px-5">Firmware · {firmwareDrafts.length} Release proposals</summary>
       <div className="border-t border-[var(--border)] px-4 py-4 sm:px-5"><div className="space-y-2">{firmwareDrafts.map((draft) => <div key={draft.key} className="grid gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 xl:grid-cols-[34px_minmax(160px,.6fr)_minmax(180px,.7fr)_minmax(150px,.6fr)_minmax(160px,.65fr)_minmax(250px,1fr)] xl:items-end"><label className="flex h-10 items-center justify-center"><input type="checkbox" checked={draft.include} disabled={Boolean(busy) || !draft.platform} onChange={(event) => setFirmwareDrafts((current) => current.map((item) => item.key === draft.key ? { ...item, include: event.target.checked } : item))} aria-label={`Create firmware ${draft.version}`} /></label><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Vendor</div><div className="mt-1 text-sm font-semibold">{draft.vendorName}</div></div><div><label className="mb-1 block text-xs font-semibold" htmlFor={`fw-platform-${draft.key}`}>Platform</label><TextInput id={`fw-platform-${draft.key}`} value={draft.platform} disabled={Boolean(busy) || Boolean(draft.existingTarget)} onChange={(event) => setFirmwareDrafts((current) => current.map((item) => item.key === draft.key ? { ...item, platform: event.target.value, include: Boolean(event.target.value) } : item))} />{!draft.platform ? <div className="mt-1 text-xs text-amber-200">Needs platform before it is safe to create.</div> : null}</div><div><label className="mb-1 block text-xs font-semibold" htmlFor={`fw-version-${draft.key}`}>Version</label><TextInput id={`fw-version-${draft.key}`} value={draft.version} disabled={Boolean(busy) || Boolean(draft.existingTarget)} onChange={(event) => setFirmwareDrafts((current) => current.map((item) => item.key === draft.key ? { ...item, version: event.target.value } : item))} /></div><div><label className="mb-1 block text-xs font-semibold" htmlFor={`fw-status-${draft.key}`}>Status</label><SelectInput id={`fw-status-${draft.key}`} value={draft.status} disabled={Boolean(busy) || Boolean(draft.existingTarget)} onChange={(event) => setFirmwareDrafts((current) => current.map((item) => item.key === draft.key ? { ...item, status: event.target.value } : item))}>{STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</SelectInput></div><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Models</div><div className="mt-1 text-sm">{draft.modelNames.join(', ')}</div><div className="mt-1 text-xs text-[var(--muted)]">Raw: {draft.versions.join(', ')}{draft.existingTarget ? ' · existing Release will be linked' : ''}</div></div></div>)}</div></div>
     </details> : null}
+
+    </>}
 
     <details className={`${sectionClass()} mb-5`} open>
       <summary className="cursor-pointer px-4 py-4 font-semibold sm:px-5">Devices · active, ignored and excluded rows</summary>

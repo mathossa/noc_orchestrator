@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SearchableReferencePicker, type SearchableReferenceOption } from '@/components/devices/searchable-reference-picker'
 import { Button } from '@/components/ui/button'
@@ -253,7 +254,7 @@ function FreeTextSuggestions({
   </label>
 }
 
-function field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="min-w-0 text-xs font-semibold text-[var(--muted-strong)]">
     <span className="mb-1 block">{label}</span>
     {children}
@@ -509,6 +510,16 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     for (const reference of modelRefs) {
       const draft = modelDrafts[reference.id]
       if (!draft) continue
+      const vendorRef = sourceReference(assist, 'VENDOR', reference.metadata.vendorSourceValue)
+      if (vendorRef && vendorRef.status !== 'LINKED') {
+        if (draft.vendorId) itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'LINK', targetId: draft.vendorId, remember, values: {} })
+        else if (draft.vendorName.trim()) itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.vendorName, code: draft.vendorCode } })
+      }
+      const typeRef = sourceReference(assist, 'DEVICE_TYPE', reference.metadata.deviceTypeSourceValue)
+      if (typeRef && typeRef.status !== 'LINKED') {
+        if (draft.deviceTypeId) itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'LINK', targetId: draft.deviceTypeId, remember, values: {} })
+        else if (draft.deviceTypeName.trim()) itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.deviceTypeName, code: draft.deviceTypeCode } })
+      }
       if (draft.existingModelId) {
         itemMap.set(reference.id, { referenceId: reference.id, action: 'LINK', targetId: draft.existingModelId, remember, values: {} })
       } else if (draft.vendorName.trim() && draft.deviceTypeName.trim() && draft.model.trim()) {
@@ -545,20 +556,23 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         const relatedModel = modelRefs.find((modelRef) => normalized(modelRef.sourceValue) === normalized(reference.metadata.modelSourceValue))
         const relatedModelDraft = relatedModel ? modelDrafts[relatedModel.id] : null
         const platform = draft.platform || relatedModelDraft?.platform || ''
-        itemMap.set(reference.id, {
-          referenceId: reference.id,
-          action: 'CREATE',
-          targetId: null,
-          remember,
-          values: {
-            modelId: reference.metadata.modelTargetId || null,
-            vendorId: reference.metadata.vendorTargetId || relatedModelDraft?.vendorId || null,
-            platform,
-            version: draft.version,
-            status: draft.status,
-          },
-        })
-        if (!platform) errors.push(`Firmware “${reference.sourceValue}” still needs a Platform.`)
+        if (platform) {
+          itemMap.set(reference.id, {
+            referenceId: reference.id,
+            action: 'CREATE',
+            targetId: null,
+            remember,
+            values: {
+              modelId: reference.metadata.modelTargetId || null,
+              vendorId: reference.metadata.vendorTargetId || relatedModelDraft?.vendorId || null,
+              platform,
+              version: draft.version,
+              status: draft.status,
+            },
+          })
+        } else {
+          errors.push(`Firmware “${reference.sourceValue}” still needs a Platform.`)
+        }
       }
     }
 
@@ -574,7 +588,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   }, [assist, coreDrafts, coreRefs, familyDrafts, firmwareDrafts, firmwareRefs, linkedFamilyTasks, modelDrafts, modelRefs, siteDrafts, siteRefs])
 
   async function applyAll() {
-    if (!assist || (!plan.items.length && !plan.families.length) || plan.errors.length) return
+    if (!assist || (!plan.items.length && !plan.families.length)) return
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -725,7 +739,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     </details> : null}
 
     <div className="sticky bottom-2 z-20 m-3 rounded-lg border border-[var(--accent)] bg-[var(--surface-raised)]/95 px-4 py-3 shadow-lg backdrop-blur sm:m-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm"><strong>{prepared.toLocaleString()}</strong> mappings ready · <strong className={pending ? 'text-amber-200' : ''}>{pending.toLocaleString()}</strong> need input · Contract Type is intentionally not imported.</div><Button type="button" variant="primary" disabled={busy || !prepared || Boolean(pending)} onClick={() => void applyAll()}>{busy ? 'Applying worksheet…' : `Apply worksheet (${prepared.toLocaleString()})`}</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm"><strong>{prepared.toLocaleString()}</strong> mappings ready · <strong className={pending ? 'text-amber-200' : ''}>{pending.toLocaleString()}</strong> need input · Contract Type is intentionally not imported.</div><Button type="button" variant="primary" disabled={busy || !prepared} onClick={() => void applyAll()}>{busy ? 'Applying worksheet…' : `Apply worksheet (${prepared.toLocaleString()})`}</Button></div>
       {plan.errors.length ? <div className="mt-2 text-xs text-amber-200">{plan.errors.slice(0, 5).join(' · ')}{plan.errors.length > 5 ? ` · +${plan.errors.length - 5} more` : ''}</div> : null}
     </div>
   </section>

@@ -391,7 +391,7 @@ async function refreshReferenceRecords(batch: BatchRecord) {
     }
   }
 
-  const unresolved = records.filter((record) => record.status !== 'LINKED').length
+  const unresolved = records.filter((record) => record.kind !== 'CONTRACT_TYPE' && record.status !== 'LINKED').length
   await prisma.deviceImportBatch.update({
     where: { id: batch.id },
     data: { status: unresolved === 0 ? 'READY' : 'STAGED' },
@@ -566,10 +566,11 @@ export async function getDeviceImportBatchWorkspace(batchId: string) {
       : Promise.resolve(null),
   ])
 
+  const actionableReferences = references.filter((reference) => reference.kind !== 'CONTRACT_TYPE')
   const byKind = Object.fromEntries([
-    'CUSTOMER', 'SITE', 'VENDOR', 'DEVICE_TYPE', 'DEVICE_MODEL', 'CONTRACT_TYPE', 'FIRMWARE_RELEASE',
+    'CUSTOMER', 'SITE', 'VENDOR', 'DEVICE_TYPE', 'DEVICE_MODEL', 'FIRMWARE_RELEASE',
   ].map((kind) => {
-    const items = references.filter((reference) => reference.kind === kind)
+    const items = actionableReferences.filter((reference) => reference.kind === kind)
     return [kind, {
       total: items.length,
       linked: items.filter((reference) => reference.status === 'LINKED').length,
@@ -577,8 +578,8 @@ export async function getDeviceImportBatchWorkspace(batchId: string) {
       waiting: items.filter((reference) => reference.status === 'WAITING').length,
     }]
   }))
-  const linked = references.filter((reference) => reference.status === 'LINKED').length
-  const unresolved = references.length - linked
+  const linked = actionableReferences.filter((reference) => reference.status === 'LINKED').length
+  const unresolved = actionableReferences.length - linked
 
   return {
     batch: {
@@ -588,8 +589,8 @@ export async function getDeviceImportBatchWorkspace(batchId: string) {
       createdAt: batch.createdAt.toISOString(),
       updatedAt: batch.updatedAt.toISOString(),
     },
-    counts: { references: { total: references.length, linked, unresolved, byKind }, rows: { total: batch.totalRows, sample: rows.length } },
-    references: references.map((reference) => ({
+    counts: { references: { total: actionableReferences.length, linked, unresolved, byKind }, rows: { total: batch.totalRows, sample: rows.length } },
+    references: actionableReferences.map((reference) => ({
       ...reference,
       targetLabel: targetLabel(reference.kind, reference.targetId, universe),
       suggestedTargetLabel: targetLabel(reference.kind, reference.suggestedTargetId, universe),
@@ -679,7 +680,7 @@ export async function resolveDeviceImportStagedReference(rawInput: unknown) {
 
 const PUBLISH_FIELDS = [
   'customer', 'site', 'name', 'hostname', 'serialNumber', 'vendor', 'model', 'deviceType',
-  'managementAddress', 'currentFirmware', 'contract', 'externalProvider', 'externalId', 'notes',
+  'managementAddress', 'currentFirmware', 'externalProvider', 'externalId', 'notes',
 ] as const satisfies readonly DeviceImportField[]
 
 async function publicationInput(batchId: string) {
@@ -689,13 +690,14 @@ async function publicationInput(batchId: string) {
     prisma.deviceImportStagedReference.findMany({ where: { batchId } }) as Promise<StagedReferenceRecord[]>,
   ])
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
-  if (references.some((reference) => reference.status !== 'LINKED')) {
+  const actionableReferences = references.filter((reference) => reference.kind !== 'CONTRACT_TYPE')
+  if (actionableReferences.some((reference) => reference.status !== 'LINKED')) {
     throw new DeviceImportStagingError('Resolve all staged reference values before validating devices.')
   }
 
   const universe = await loadReferenceUniverse(batch.profileId)
   const resolutions: Record<string, string> = {}
-  for (const reference of references) {
+  for (const reference of actionableReferences) {
     if (!reference.targetId) continue
     resolutions[importResolutionKey(reference.kind as DeviceImportReferenceKind, reference.sourceValue, aliasContext(reference))] = reference.targetId
   }

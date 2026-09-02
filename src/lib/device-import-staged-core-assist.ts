@@ -7,7 +7,7 @@ import {
 } from '@/lib/device-import-staging-store'
 import { prisma } from '@/lib/prisma'
 
-export const CORE_ASSIST_KINDS = ['CUSTOMER', 'VENDOR', 'DEVICE_TYPE', 'CONTRACT_TYPE'] as const
+export const CORE_ASSIST_KINDS = ['CUSTOMER', 'VENDOR', 'DEVICE_TYPE'] as const
 type CoreAssistKind = (typeof CORE_ASSIST_KINDS)[number]
 
 const MAX_CORE_CREATE = 250

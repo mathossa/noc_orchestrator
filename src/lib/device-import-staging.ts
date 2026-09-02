@@ -149,7 +149,6 @@ export function buildDeviceImportStagedReferenceSeeds(
     addSeed(result, 'VENDOR', row.values.vendor, row.values, row.rowNumber, options)
     addSeed(result, 'DEVICE_TYPE', row.values.deviceType, row.values, row.rowNumber, options)
     addSeed(result, 'DEVICE_MODEL', row.values.model, row.values, row.rowNumber, options)
-    addSeed(result, 'CONTRACT_TYPE', row.values.contract, row.values, row.rowNumber, options)
     addSeed(result, 'FIRMWARE_RELEASE', row.values.currentFirmware, row.values, row.rowNumber, options)
   }
   return [...result.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.sourceValue.localeCompare(b.sourceValue))
