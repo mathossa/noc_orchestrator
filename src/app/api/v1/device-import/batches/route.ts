@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { deviceImportApiError, optionsFromFormData, xlsxFileFromRequest } from '@/lib/device-import-api'
+import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { applySavedImportProfileRules } from '@/lib/device-import-staged-rules'
 import {
   createDeviceImportBatch,
   DeviceImportStagingError,
+  getDeviceImportBatchWorkspace,
   listDeviceImportBatches,
 } from '@/lib/device-import-staging-store'
 import { readXlsxWorkbook } from '@/lib/xlsx-reader'
@@ -28,7 +30,9 @@ export async function POST(request: Request) {
     const options = optionsFromFormData(formData)
     const workbook = readXlsxWorkbook(buffer)
     const staged = await createDeviceImportBatch(workbook, options, file.name)
-    const data = await applySavedImportProfileRules(staged.batch.id)
+    await applySavedImportProfileRules(staged.batch.id)
+    await synchronizeImportedModelPlatforms(staged.batch.id)
+    const data = await getDeviceImportBatchWorkspace(staged.batch.id)
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {
     if (error instanceof DeviceImportStagingError) {
