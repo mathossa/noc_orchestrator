@@ -150,6 +150,48 @@ describe('staged import ignore rules', () => {
     expect(mocks.rowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'row-switch' } }))
   })
 
+  it('ignores a Firmware value and remembers it for the import profile', async () => {
+    const firmwareRow = {
+      id: 'row-fw',
+      rowNumber: 4,
+      status: 'STAGED',
+      mappedData: { hostname: 'ap-01', deviceType: 'Access Point', vendor: 'Aruba', currentFirmware: '8.10.0.20' },
+    }
+    mocks.rowFindMany
+      .mockResolvedValueOnce([firmwareRow, switchRow])
+      .mockResolvedValueOnce([switchRow])
+      .mockResolvedValueOnce([switchRow])
+
+    const result = await applyDeviceImportRowAction({
+      batchId: 'batch-1',
+      action: 'IGNORE',
+      field: 'currentFirmware',
+      value: '8.10.0.20',
+      remember: true,
+    })
+
+    expect(result.affected).toBe(1)
+    expect(mocks.ruleUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        profileId_action_field_operator_normalizedValue: {
+          profileId: 'profile-auvik',
+          action: 'IGNORE',
+          field: 'currentFirmware',
+          operator: 'EQUALS',
+          normalizedValue: '8.10.0.20',
+        },
+      },
+    }))
+    expect(mocks.rowUpdate).toHaveBeenCalledWith({
+      where: { id: 'row-fw' },
+      data: {
+        status: 'IGNORED',
+        statusSource: 'PROFILE_RULE',
+        statusReason: 'currentFirmware = 8.10.0.20',
+      },
+    })
+  })
+
   it('automatically applies the remembered Phone rule on a second import', async () => {
     mocks.batchFindUnique.mockResolvedValue(batch('batch-2'))
     mocks.ruleFindMany.mockResolvedValue([{ id: 'rule-phone', field: 'deviceType', value: 'Phone' }])

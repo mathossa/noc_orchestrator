@@ -37,6 +37,24 @@ function importedPlatformSet(meta: DeviceImportStagedReferenceMetadata) {
   return values
 }
 
+function majorVersion(sourceValue: string) {
+  const match = sourceValue.normalize('NFKC').trim().match(/^v?(\d+)(?:\.|$)/i)
+  return match ? Number(match[1]) : null
+}
+
+function inferAosPlatformFromVersion(sourceValue: string, supported: Map<string, string>) {
+  const major = majorVersion(sourceValue)
+  if (major !== 8 && major !== 10) return null
+
+  const aos8 = normalizedPlatform('AOS-8')
+  const aos10 = normalizedPlatform('AOS-10')
+  const hasAosFamily = supported.has(aos8) || supported.has(aos10)
+  if (!hasAosFamily) return null
+
+  const expected = major === 8 ? aos8 : aos10
+  return supported.get(expected) ?? (major === 8 ? 'AOS-8' : 'AOS-10')
+}
+
 export function resolveStagedFirmwarePlatform(
   meta: DeviceImportStagedReferenceMetadata,
   model: PlatformModel,
@@ -50,9 +68,15 @@ export function resolveStagedFirmwarePlatform(
   if (imported.size === 1) return [...imported.values()][0]
   if (imported.size > 1) return null
 
-  if (meta.platform) return meta.platform
-
   const supported = platformSet(model)
+
+  // For Aruba AOS dual-platform hardware, the firmware major is stronger
+  // evidence than a legacy DeviceModel.platform default. A stale AOS-10
+  // default must never turn an imported 8.x release into AOS-10 (or vice
+  // versa). Explicit staged `platforms` evidence above still wins.
+  const aosPlatform = inferAosPlatformFromVersion(sourceValue, supported)
+  if (aosPlatform) return aosPlatform
+
   if (supported.size === 1) return [...supported.values()][0]
 
   // For a multi-platform model, a version can safely identify the platform only

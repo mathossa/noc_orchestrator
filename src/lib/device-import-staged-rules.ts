@@ -10,7 +10,7 @@ import {
 } from '@/lib/device-import-staging-store'
 import { prisma } from '@/lib/prisma'
 
-export const IMPORT_RULE_FIELDS = ['customer', 'site', 'vendor', 'deviceType', 'model', 'name', 'hostname', 'externalId'] as const
+export const IMPORT_RULE_FIELDS = ['customer', 'site', 'vendor', 'deviceType', 'model', 'currentFirmware', 'name', 'hostname', 'externalId'] as const
 export type ImportRuleField = (typeof IMPORT_RULE_FIELDS)[number]
 
 const REBUILD_CHUNK = 500
@@ -159,7 +159,7 @@ export async function getDeviceImportSmartGroups(batchId: string) {
     select: { rowNumber: true, mappedData: true },
   })
 
-  const fields: ImportRuleField[] = ['customer', 'site', 'vendor', 'deviceType', 'model']
+  const fields: ImportRuleField[] = ['customer', 'site', 'vendor', 'deviceType', 'model', 'currentFirmware']
   const groups = fields.flatMap((field) => {
     const byValue = new Map<string, { value: string; count: number; sampleRows: number[] }>()
     for (const row of rows) {

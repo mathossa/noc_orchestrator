@@ -19,6 +19,22 @@ describe('staged firmware platform resolution', () => {
     )).toBe('AOS-8')
   })
 
+  it('does not let a stale AOS-10 model default misclassify an 8.x firmware release', () => {
+    expect(resolveStagedFirmwarePlatform(
+      { platform: 'AOS-10' },
+      { ...ap315, platform: 'AOS-10' },
+      '8.10.0.20',
+    )).toBe('AOS-8')
+  })
+
+  it('does not let a stale AOS-8 model default misclassify a 10.x firmware release', () => {
+    expect(resolveStagedFirmwarePlatform(
+      { platform: 'AOS-8' },
+      { ...ap315, platform: 'AOS-8' },
+      '10.7.0.1',
+    )).toBe('AOS-10')
+  })
+
   it('infers the only supported platform for a single-platform model', () => {
     expect(resolveStagedFirmwarePlatform(
       {},
@@ -39,14 +55,14 @@ describe('staged firmware platform resolution', () => {
     )).toBe('AOS-8')
   })
 
-  it('keeps a multi-platform model in review when the same version exists on more than one supported platform', () => {
+  it('keeps a multi-platform model in review when a neutral version exists on more than one supported platform', () => {
     expect(resolveStagedFirmwarePlatform(
       {},
       ap315,
-      '10.0.0',
+      '9.0.0',
       [
-        { id: 'fw-8', vendorId: 'vendor-aruba', platform: 'AOS-8', version: '10.0.0' },
-        { id: 'fw-10', vendorId: 'vendor-aruba', platform: 'AOS-10', version: '10.0.0' },
+        { id: 'fw-8', vendorId: 'vendor-aruba', platform: 'AOS-8', version: '9.0.0' },
+        { id: 'fw-10', vendorId: 'vendor-aruba', platform: 'AOS-10', version: '9.0.0' },
       ],
     )).toBeNull()
   })
