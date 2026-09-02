@@ -14,7 +14,7 @@ import {
   type DeviceImportMapping,
   type DeviceImportProfileSettings,
 } from '@/lib/device-import'
-import { modelDraftIdsForVendorSource, profileIdForRepeatedWorkbook } from '@/lib/device-import-reconciliation-memory'
+import { profileIdForRepeatedWorkbook } from '@/lib/device-import-reconciliation-memory'
 import type { XlsxRow } from '@/lib/xlsx-reader'
 
 type ApiError = { error?: { message?: string } }
