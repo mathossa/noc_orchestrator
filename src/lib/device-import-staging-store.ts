@@ -206,7 +206,7 @@ function targetExists(kind: DeviceImportReferenceKind, targetId: string, univers
   return universe.firmwareReleases.some((record) => record.id === targetId && record.isActive)
 }
 
-function resolveOneReference(
+export function resolveOneReference(
   reference: StagedReferenceRecord,
   references: StagedReferenceRecord[],
   universe: ReferenceUniverse,
@@ -220,6 +220,10 @@ function resolveOneReference(
   if (kind === 'CUSTOMER') {
     const active = universe.customers.filter((record) => record.isActive)
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
+    const rememberedCustomer = profileAliasTarget(kind, reference.sourceValue, '', universe.aliases)
+    if (rememberedCustomer && active.some((record) => record.id === rememberedCustomer)) {
+      return { status: 'LINKED', targetId: rememberedCustomer, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: meta }
+    }
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }
   } else if (kind === 'VENDOR') {
@@ -234,11 +238,19 @@ function resolveOneReference(
   } else if (kind === 'DEVICE_TYPE') {
     const active = universe.deviceTypes.filter((record) => record.isActive)
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
+    const rememberedType = profileAliasTarget(kind, reference.sourceValue, '', universe.aliases)
+    if (rememberedType && active.some((record) => record.id === rememberedType)) {
+      return { status: 'LINKED', targetId: rememberedType, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: meta }
+    }
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }
   } else if (kind === 'CONTRACT_TYPE') {
     const active = universe.contracts.filter((record) => record.isActive)
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
+    const rememberedContract = profileAliasTarget(kind, reference.sourceValue, '', universe.aliases)
+    if (rememberedContract && active.some((record) => record.id === rememberedContract)) {
+      return { status: 'LINKED', targetId: rememberedContract, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: meta }
+    }
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }
   } else if (kind === 'SITE') {
@@ -250,6 +262,10 @@ function resolveOneReference(
     canonicalContext = customerTargetId
     const active = universe.sites.filter((record) => record.isActive && record.customerId === customerTargetId)
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
+    const rememberedSite = profileAliasTarget(kind, reference.sourceValue, canonicalContext, universe.aliases)
+    if (rememberedSite && active.some((record) => record.id === rememberedSite)) {
+      return { status: 'LINKED', targetId: rememberedSite, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: { ...meta, customerTargetId, waitingFor: [] } }
+    }
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, customerTargetId, waitingFor: [] } }
     meta.customerTargetId = customerTargetId
@@ -268,6 +284,18 @@ function resolveOneReference(
       { id: record.id, label: record.model },
       { id: record.id, label: `${record.vendor.name} ${record.model}` },
     ])
+    const rememberedModel = profileAliasTarget(kind, reference.sourceValue, canonicalContext, universe.aliases)
+    const rememberedModelTarget = active.find((record) => record.id === rememberedModel)
+    if (rememberedModelTarget) {
+      return {
+        status: 'LINKED',
+        targetId: rememberedModelTarget.id,
+        suggestedTargetId: null,
+        suggestionScore: null,
+        resolutionSource: 'PROFILE_ALIAS',
+        metadata: { ...meta, vendorTargetId, deviceTypeTargetId: rememberedModelTarget.deviceTypeId, platform: rememberedModelTarget.platform, waitingFor: [] },
+      }
+    }
     const normalized = normalizeImportText(reference.sourceValue)
     const exact = active.filter((record) =>
       normalizeImportText(record.model) === normalized ||
@@ -290,6 +318,10 @@ function resolveOneReference(
       (!model.platform || normalizedPlatform(record.platform) === normalizedPlatform(model.platform)),
     )
     candidates = active.map((record) => ({ id: record.id, label: record.version }))
+    const rememberedFirmware = profileAliasTarget(kind, reference.sourceValue, canonicalContext, universe.aliases)
+    if (rememberedFirmware && active.some((record) => record.id === rememberedFirmware)) {
+      return { status: 'LINKED', targetId: rememberedFirmware, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform: model.platform, waitingFor: [] } }
+    }
     const exact = active.filter((record) => normalizeImportText(record.version) === normalizeImportText(reference.sourceValue))
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform: model.platform, waitingFor: [] } }
     meta.modelTargetId = modelTargetId
@@ -297,17 +329,6 @@ function resolveOneReference(
     meta.platform = model.platform
   }
 
-  const remembered = profileAliasTarget(kind, reference.sourceValue, canonicalContext, universe.aliases)
-  if (remembered && targetExists(kind, remembered, universe)) {
-    return {
-      status: 'LINKED',
-      targetId: remembered,
-      suggestedTargetId: null,
-      suggestionScore: null,
-      resolutionSource: 'PROFILE_ALIAS',
-      metadata: { ...meta, waitingFor: [] },
-    }
-  }
 
   if (reference.targetId && ['USER', 'CREATED'].includes(reference.resolutionSource ?? '') && targetExists(kind, reference.targetId, universe)) {
     const valid = kind === 'SITE'
