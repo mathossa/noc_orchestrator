@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextInput } from '@/components/ui/form-controls'
@@ -14,6 +14,7 @@ import {
   type DeviceImportMapping,
   type DeviceImportProfileSettings,
 } from '@/lib/device-import'
+import { modelDraftIdsForVendorSource, profileIdForRepeatedWorkbook } from '@/lib/device-import-reconciliation-memory'
 import type { XlsxRow } from '@/lib/xlsx-reader'
 
 type ApiError = { error?: { message?: string } }
@@ -99,6 +100,8 @@ export function DeviceImportWorkspace() {
   const [references, setReferences] = useState<ReferenceContext>(EMPTY_REFERENCES)
   const [profiles, setProfiles] = useState<ImportProfile[]>([])
   const [batches, setBatches] = useState<BatchListItem[]>([])
+  const [batchesLoaded, setBatchesLoaded] = useState(false)
+  const [autoProfileAttempted, setAutoProfileAttempted] = useState(false)
   const [profileId, setProfileId] = useState('')
   const [profileName, setProfileName] = useState('')
   const [sheetName, setSheetName] = useState('')
@@ -120,6 +123,7 @@ export function DeviceImportWorkspace() {
         if (!cancelled && response.ok) setBatches(payload.data ?? [])
       })
       .catch(() => undefined)
+      .finally(() => { if (!cancelled) setBatchesLoaded(true) })
     return () => { cancelled = true }
   }, [])
 
@@ -137,6 +141,7 @@ export function DeviceImportWorkspace() {
     setInspection(null)
     setReferences(EMPTY_REFERENCES)
     setProfiles([])
+    setAutoProfileAttempted(false)
     setProfileId('')
     setProfileName('')
     setSheetName('')
@@ -161,7 +166,7 @@ export function DeviceImportWorkspace() {
     setMapping(sheet.suggestedMapping)
   }
 
-  function applyProfile(nextId: string) {
+  const applyProfile = useCallback((nextId: string) => {
     setProfileId(nextId)
     if (!nextId) return
     const profile = profiles.find((candidate) => candidate.id === nextId)
@@ -181,7 +186,23 @@ export function DeviceImportWorkspace() {
     } else {
       setNotice(`Profile “${profile.name}” expects worksheet “${settings.sheetName}”. Choose the matching worksheet and update the profile if the export changed.`)
     }
-  }
+  }, [inspection, profiles])
+
+  useEffect(() => {
+    if (!inspection || !batchesLoaded || autoProfileAttempted || !profiles.length) return
+    setAutoProfileAttempted(true)
+    if (profileId) return
+    const repeatedProfileId = profileIdForRepeatedWorkbook(
+      inspection.fileName,
+      inspection.sheets.map((sheet) => sheet.name),
+      batches,
+      profiles,
+    )
+    if (!repeatedProfileId) return
+    const profile = profiles.find((candidate) => candidate.id === repeatedProfileId)
+    applyProfile(repeatedProfileId)
+    setNotice(`Automatically loaded ${profile?.name ?? 'the previous import profile'} because the latest batch with this workbook filename used it.`)
+  }, [applyProfile, autoProfileAttempted, batches, batchesLoaded, inspection, profileId, profiles])
 
   function changeHeaderRow(nextRow: number) {
     if (!currentSheet) return
