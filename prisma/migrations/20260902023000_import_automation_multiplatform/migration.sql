@@ -32,9 +32,15 @@ ALTER TABLE "Device" ADD COLUMN "platform" TEXT;
 CREATE INDEX "Device_platform_idx" ON "Device"("platform");
 
 UPDATE "Device" d
-SET "platform" = COALESCE(fr."platform", dm."platform")
+SET "platform" = COALESCE(
+    (
+        SELECT fr."platform"
+        FROM "FirmwareRelease" fr
+        WHERE fr."id" = d."currentFirmwareReleaseId"
+    ),
+    dm."platform"
+)
 FROM "DeviceModel" dm
-LEFT JOIN "FirmwareRelease" fr ON fr."id" = d."currentFirmwareReleaseId"
 WHERE dm."id" = d."deviceModelId"
   AND d."platform" IS NULL;
 

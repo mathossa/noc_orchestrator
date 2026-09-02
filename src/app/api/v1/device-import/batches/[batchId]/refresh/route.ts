@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server'
-import { DeviceImportStagingError, refreshDeviceImportBatchReferences } from '@/lib/device-import-staging-store'
+import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
+import { DeviceImportStagingError, getDeviceImportBatchWorkspace, refreshDeviceImportBatchReferences } from '@/lib/device-import-staging-store'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
 export async function POST(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
-    return NextResponse.json({ data: await refreshDeviceImportBatchReferences(batchId) })
+    await refreshDeviceImportBatchReferences(batchId)
+    await synchronizeImportedModelPlatforms(batchId)
+    await resolveStagedFirmwarePlatforms(batchId)
+    return NextResponse.json({ data: await getDeviceImportBatchWorkspace(batchId) })
   } catch (error) {
     if (error instanceof DeviceImportStagingError) {
       return NextResponse.json({ error: { code: 'INVALID_STAGED_IMPORT', message: error.message } }, { status: 400 })

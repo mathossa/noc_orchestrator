@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { DeviceImportReferenceError } from '@/lib/device-import-reference-store'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { resolveDeviceImportStagedReferencesBulk } from '@/lib/device-import-staged-reference-bulk'
 import { DeviceImportStagingError, getDeviceImportBatchWorkspace } from '@/lib/device-import-staging-store'
 
@@ -12,6 +13,7 @@ export async function POST(request: Request, context: RouteContext) {
     const body = await request.json()
     await resolveDeviceImportStagedReferencesBulk({ ...body, batchId })
     await synchronizeImportedModelPlatforms(batchId)
+    await resolveStagedFirmwarePlatforms(batchId)
     return NextResponse.json({ data: await getDeviceImportBatchWorkspace(batchId) })
   } catch (error) {
     if (error instanceof SyntaxError) {

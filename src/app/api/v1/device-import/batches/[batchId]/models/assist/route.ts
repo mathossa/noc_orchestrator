@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import {
@@ -22,6 +23,8 @@ function errorResponse(error: unknown) {
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
+    await synchronizeImportedModelPlatforms(batchId)
+    await resolveStagedFirmwarePlatforms(batchId)
     return NextResponse.json({ data: await getDeviceImportModelAssist(batchId) })
   } catch (error) {
     return errorResponse(error)
@@ -36,6 +39,7 @@ export async function POST(request: Request, context: RouteContext) {
       const data = await bulkCreateDeviceImportModels({ ...body, batchId })
       await rememberReviewedBatchReferences(batchId, ['DEVICE_MODEL'])
       await synchronizeImportedModelPlatforms(batchId)
+      await resolveStagedFirmwarePlatforms(batchId)
       return NextResponse.json({ data })
     }
     if (body.action === 'ASSIGN_FAMILIES') {

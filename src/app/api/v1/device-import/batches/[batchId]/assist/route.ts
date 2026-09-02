@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
+import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { getDeviceImportCoreAssist } from '@/lib/device-import-staged-core-assist'
 import { getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
 import { getDeviceImportSmartGroups } from '@/lib/device-import-staged-rules'
 import { getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
@@ -12,7 +14,7 @@ type RouteContext = { params: Promise<{ batchId: string }> }
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
-    const workspace = await getDeviceImportBatchWorkspace(batchId)
+    let workspace = await getDeviceImportBatchWorkspace(batchId)
     if (workspace.batch.status === 'PUBLISHED') {
       return NextResponse.json({
         data: {
@@ -25,6 +27,13 @@ export async function GET(_request: Request, context: RouteContext) {
         },
       })
     }
+
+    // Keep old staged batches usable in place. These passes are idempotent and
+    // only add supported Model platforms / repair Firmware references when the
+    // staged evidence makes the platform deterministic.
+    await synchronizeImportedModelPlatforms(batchId)
+    await resolveStagedFirmwarePlatforms(batchId)
+    workspace = await getDeviceImportBatchWorkspace(batchId)
 
     const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows] = await Promise.all([
       getDeviceImportCoreAssist(batchId),

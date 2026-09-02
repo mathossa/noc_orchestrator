@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { bulkCreateDeviceImportFirmware, getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 
@@ -16,6 +17,7 @@ function errorResponse(error: unknown) {
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
+    await resolveStagedFirmwarePlatforms(batchId)
     return NextResponse.json({ data: await getDeviceImportFirmwareAssist(batchId) })
   } catch (error) {
     return errorResponse(error)
@@ -26,6 +28,7 @@ export async function POST(request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
     const body = await request.json()
+    await resolveStagedFirmwarePlatforms(batchId)
     const data = await bulkCreateDeviceImportFirmware({ ...body, batchId })
     await rememberReviewedBatchReferences(batchId, ['FIRMWARE_RELEASE'])
     return NextResponse.json({ data })

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { deviceImportApiError, optionsFromFormData, xlsxFileFromRequest } from '@/lib/device-import-api'
 import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
+import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { applySavedImportProfileRules } from '@/lib/device-import-staged-rules'
 import {
   createDeviceImportBatch,
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     const staged = await createDeviceImportBatch(workbook, options, file.name)
     await applySavedImportProfileRules(staged.batch.id)
     await synchronizeImportedModelPlatforms(staged.batch.id)
+    await resolveStagedFirmwarePlatforms(staged.batch.id)
     const data = await getDeviceImportBatchWorkspace(staged.batch.id)
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {
