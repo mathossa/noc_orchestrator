@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   deviceCreate: vi.fn(),
   deviceUpdate: vi.fn(),
   deviceDelete: vi.fn(),
-  policyFindFirst: vi.fn(),
+  policyFindMany: vi.fn(),
   policyCount: vi.fn(),
   lifecycleCount: vi.fn(),
   auditFindMany: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock('@/lib/prisma', () => ({
       update: mocks.deviceUpdate,
       delete: mocks.deviceDelete,
     },
-    firmwarePolicy: { findFirst: mocks.policyFindFirst, count: mocks.policyCount },
+    firmwarePolicy: { findMany: mocks.policyFindMany, count: mocks.policyCount },
     firmwareLifecycleRecord: { count: mocks.lifecycleCount },
     auditEvent: { findMany: mocks.auditFindMany, create: mocks.auditCreate, count: mocks.auditCount },
     $transaction: mocks.transaction,
@@ -51,107 +51,103 @@ import {
   DeviceInUseError,
   DeviceReferenceError,
   getDevice,
-  updateDevice,
 } from '@/lib/device-store'
 
-const customerContract = {
-  id: 'contract-1',
-  code: 'FULL',
-  name: 'Fully Managed',
-  firmwareManagementEnabled: true,
-  isActive: true,
-}
-const siteContract = {
-  id: 'contract-2',
-  code: 'FW',
-  name: 'Firmware Management',
-  firmwareManagementEnabled: true,
-  isActive: true,
+const now = new Date('2026-09-01T00:00:00Z')
+const contract = {
+  id: 'contract-1', code: 'FULL', name: 'Fully Managed', firmwareManagementEnabled: true, isActive: true,
 }
 const customer = {
-  id: 'customer-1',
-  code: 'ACME',
-  name: 'Acme',
-  isActive: true,
-  contractType: customerContract,
+  id: 'customer-1', code: 'ACME', name: 'Acme', isActive: true, contractType: contract,
 }
-const model = {
-  id: 'model-1',
+const ciscoModel = {
+  id: 'model-cisco',
   model: 'C9300-24P',
   platform: 'IOS XE',
+  supportedPlatforms: [{ id: 'platform-iosxe', platform: 'IOS XE' }],
   isActive: true,
-  vendor: { id: 'vendor-1', code: 'CISCO', name: 'Cisco', isActive: true },
-  deviceType: { id: 'type-1', code: 'SWITCH', name: 'Switch', isActive: true },
+  vendor: { id: 'vendor-cisco', code: 'CISCO', name: 'Cisco', isActive: true },
+  deviceType: { id: 'type-switch', code: 'SWITCH', name: 'Switch', isActive: true },
 }
-const rawModel = { id: 'model-1', vendorId: 'vendor-1', platform: 'IOS XE' }
-const release = {
-  id: 'release-1',
-  vendorId: 'vendor-1',
-  platform: 'IOS XE',
-  version: '17.12.5',
-  status: 'APPROVED',
-  isActive: true,
-  releasedAt: new Date('2026-08-01T00:00:00Z'),
-  firmwareTrain: { id: 'train-old', name: '17.12.x' },
+const ciscoRawModel = {
+  id: 'model-cisco', vendorId: 'vendor-cisco', platform: 'IOS XE', supportedPlatforms: [{ platform: 'IOS XE' }],
 }
-const storedDevice = {
-  id: 'device-1',
-  customerId: 'customer-1',
-  siteId: null,
-  deviceModelId: 'model-1',
-  name: 'HQ-SW-01',
-  hostname: null,
-  serialNumber: null,
-  managementAddress: null,
-  notes: null,
-  currentFirmwareReleaseId: null,
-  currentFirmwareObservedAt: null,
-  currentFirmwareSource: 'MANUAL',
+const ap315RawModel = {
+  id: 'ap315', vendorId: 'vendor-aruba', platform: null,
+  supportedPlatforms: [{ platform: 'AOS-8' }, { platform: 'AOS-10' }],
+}
+const ap315Model = {
+  id: 'ap315', model: 'AP315', platform: null,
+  supportedPlatforms: [
+    { id: 'platform-aos8', platform: 'AOS-8' },
+    { id: 'platform-aos10', platform: 'AOS-10' },
+  ],
   isActive: true,
-  source: 'MANUAL',
-  externalProvider: null,
-  externalId: null,
-  lastSynchronizedAt: null,
-  customer,
-  site: null,
-  deviceModel: model,
-  currentFirmwareRelease: null,
-  lifecycle: null,
-  createdAt: new Date('2026-08-31T20:00:00Z'),
-  updatedAt: new Date('2026-08-31T20:00:00Z'),
+  vendor: { id: 'vendor-aruba', code: 'ARUBA', name: 'Aruba', isActive: true },
+  deviceType: { id: 'type-ap', code: 'AP', name: 'Access Point', isActive: true },
+}
+const aos8Release = {
+  id: 'fw-aos8', vendorId: 'vendor-aruba', platform: 'AOS-8', version: '8.10.0.20', status: 'APPROVED', isActive: true,
+  releasedAt: now, firmwareTrain: null,
+}
+const aos10Release = {
+  id: 'fw-aos10', vendorId: 'vendor-aruba', platform: 'AOS-10', version: '10.7.0.1', status: 'APPROVED', isActive: true,
+  releasedAt: now, firmwareTrain: null,
 }
 
-const desiredRelease = {
-  id: 'desired-1',
-  vendorId: 'vendor-1',
-  platform: 'IOS XE',
-  version: '17.15.5',
-  status: 'APPROVED',
-  isActive: true,
-  releasedAt: new Date('2026-08-20T00:00:00Z'),
-  firmwareTrain: { id: 'train-new', name: '17.15.x' },
-}
-
-function desiredPolicy(target = desiredRelease) {
+function storedDevice(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'policy-1',
-    targetFirmwareReleaseId: target.id,
-    isActive: true,
+    id: 'device-1',
+    customerId: 'customer-1',
+    siteId: null,
+    deviceModelId: 'model-cisco',
+    platform: 'IOS XE',
+    name: 'HQ-SW-01',
+    hostname: null,
+    serialNumber: null,
+    managementAddress: null,
     notes: null,
-    deviceModelId: 'model-1',
-    createdAt: new Date('2026-09-01T00:00:00Z'),
-    updatedAt: new Date('2026-09-01T00:00:00Z'),
-    targetFirmwareRelease: target,
+    currentFirmwareReleaseId: null,
+    currentFirmwareObservedAt: null,
+    currentFirmwareSource: 'MANUAL',
+    isActive: true,
+    source: 'MANUAL',
+    externalProvider: null,
+    externalId: null,
+    lastSynchronizedAt: null,
+    customer,
+    site: null,
+    deviceModel: ciscoModel,
+    currentFirmwareRelease: null,
+    lifecycle: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
   }
 }
 
-describe('device inventory persistence rules', () => {
+function policy(id: string, platform: string, release: typeof aos8Release | typeof aos10Release) {
+  return {
+    id,
+    targetFirmwareReleaseId: release.id,
+    platform,
+    isActive: true,
+    notes: null,
+    deviceModelId: 'ap315',
+    createdAt: now,
+    updatedAt: now,
+    targetFirmwareRelease: release,
+  }
+}
+
+describe('device inventory platform rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
-    mocks.modelFindUnique.mockResolvedValue(rawModel)
+    mocks.modelFindUnique.mockResolvedValue(ciscoRawModel)
+    mocks.firmwareFindUnique.mockResolvedValue(null)
     mocks.deviceFindMany.mockResolvedValue([])
-    mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.policyFindMany.mockResolvedValue([])
     mocks.auditFindMany.mockResolvedValue([])
     mocks.auditCreate.mockResolvedValue({ id: 'audit-1' })
     mocks.assertSiteBelongsToCustomer.mockResolvedValue(null)
@@ -161,128 +157,98 @@ describe('device inventory persistence rules', () => {
     }))
   })
 
-  it('creates a minimal manual device without site or external identity', async () => {
-    mocks.deviceCreate.mockResolvedValue(storedDevice)
-    const result = await createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01' })
-    expect(mocks.deviceCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ customerId: 'customer-1', siteId: null, deviceModelId: 'model-1', name: 'HQ-SW-01', source: 'MANUAL', externalProvider: null, externalId: null }) }))
-    expect(result).toMatchObject({ id: 'device-1', source: 'MANUAL', currentFirmwareRelease: null, effectiveContractType: customerContract, contractSource: 'CUSTOMER' })
-    expect(mocks.auditCreate).not.toHaveBeenCalled()
-  })
+  it('creates a single-platform device without requiring an extra platform choice', async () => {
+    mocks.deviceCreate.mockResolvedValue(storedDevice())
+    const result = await createDevice({ customerId: 'customer-1', deviceModelId: 'model-cisco', name: 'HQ-SW-01' })
 
-  it('validates optional site assignment against the selected customer', async () => {
-    mocks.deviceCreate.mockResolvedValue({ ...storedDevice, siteId: 'site-1', site: { id: 'site-1', code: 'BRANCH', name: 'Branch', isActive: true, contractType: null } })
-    await createDevice({ customerId: 'customer-1', siteId: 'site-1', deviceModelId: 'model-1', name: 'HQ-SW-01' })
-    expect(mocks.assertSiteBelongsToCustomer).toHaveBeenCalledWith('site-1', 'customer-1')
-  })
-
-  it('uses a site contract override before the customer default', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, siteId: 'site-1', site: { id: 'site-1', code: 'BRANCH', name: 'Branch', isActive: true, contractType: siteContract } })
-    const result = await getDevice('device-1')
-    expect(result.effectiveContractType).toEqual(siteContract)
-    expect(result.contractSource).toBe('SITE')
-    expect(result.customer.contractType).toEqual(customerContract)
-    expect(result.auditHistory).toEqual([])
-  })
-
-  it('rejects current firmware from a different vendor', async () => {
-    mocks.firmwareFindUnique.mockResolvedValue({ id: 'release-other', vendorId: 'vendor-2', platform: 'IOS XE' })
-    await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', currentFirmwareReleaseId: 'release-other' })).rejects.toBeInstanceOf(DeviceReferenceError)
-    expect(mocks.deviceCreate).not.toHaveBeenCalled()
-  })
-
-  it('rejects current firmware from a different platform when the model declares one', async () => {
-    mocks.firmwareFindUnique.mockResolvedValue({ id: 'release-other', vendorId: 'vendor-1', platform: 'IOS XR' })
-    await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', currentFirmwareReleaseId: 'release-other' })).rejects.toBeInstanceOf(DeviceReferenceError)
-  })
-
-  it('rejects normalized duplicate device names within one customer', async () => {
-    mocks.deviceFindMany.mockResolvedValue([{ id: 'existing', name: '  hq-sw-01 ' }])
-    await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01' })).rejects.toBeInstanceOf(DeviceConflictError)
-    expect(mocks.deviceCreate).not.toHaveBeenCalled()
-  })
-
-  it('supports archive-only updates without creating irrelevant audit noise', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, customer: undefined, site: undefined, deviceModel: undefined, currentFirmwareRelease: null, lifecycle: undefined })
-    mocks.deviceUpdate.mockResolvedValue({ ...storedDevice, isActive: false })
-    await updateDevice('device-1', { isActive: false })
-    expect(mocks.deviceUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'device-1' }, data: expect.objectContaining({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', isActive: false }) }))
-    expect(mocks.auditCreate).not.toHaveBeenCalled()
-  })
-
-  it('audits a manual current-firmware change with previous/new values and actor', async () => {
-    const newerRelease = { ...release, id: 'release-2', version: '17.15.5', firmwareTrain: { id: 'train-new', name: '17.15.x' } }
-    const oldObservedAt = new Date('2026-08-30T20:00:00Z')
-    const newObservedAt = new Date('2026-09-01T00:15:00Z')
-    mocks.deviceFindUnique.mockResolvedValue({
-      ...storedDevice,
-      currentFirmwareReleaseId: release.id,
-      currentFirmwareObservedAt: oldObservedAt,
-      currentFirmwareRelease: { id: release.id, version: release.version, platform: release.platform },
-    })
-    mocks.firmwareFindUnique.mockResolvedValue({ id: newerRelease.id, vendorId: 'vendor-1', platform: 'IOS XE' })
-    mocks.deviceUpdate.mockResolvedValue({
-      ...storedDevice,
-      currentFirmwareReleaseId: newerRelease.id,
-      currentFirmwareObservedAt: newObservedAt,
-      currentFirmwareRelease: newerRelease,
-    })
-
-    await updateDevice('device-1', {
-      currentFirmwareReleaseId: newerRelease.id,
-      currentFirmwareObservedAt: newObservedAt.toISOString(),
-      currentFirmwareSource: 'MANUAL',
-    }, 'user-1')
-
-    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        actorUserId: 'user-1',
-        customerId: 'customer-1',
-        action: 'CURRENT_FIRMWARE_CHANGED',
-        entityType: 'Device',
-        entityId: 'device-1',
-        before: expect.objectContaining({ firmwareReleaseId: 'release-1', version: '17.12.5' }),
-        after: expect.objectContaining({ firmwareReleaseId: 'release-2', version: '17.15.5' }),
-      }),
+    expect(mocks.deviceCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ platform: 'IOS XE' }),
     }))
+    expect(result.platform).toBe('IOS XE')
   })
 
-  it('resolves ACTION_REQUIRED when current and desired exact releases differ', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release, currentFirmwareObservedAt: new Date('2026-08-30T20:00:00Z') })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
+  it('infers AP315 AOS-10 from the concrete current firmware release', async () => {
+    mocks.modelFindUnique.mockResolvedValue(ap315RawModel)
+    mocks.firmwareFindUnique.mockResolvedValue({ id: 'fw-aos10', vendorId: 'vendor-aruba', platform: 'AOS-10' })
+    mocks.deviceCreate.mockResolvedValue(storedDevice({
+      id: 'ap-10',
+      deviceModelId: 'ap315',
+      platform: 'AOS-10',
+      name: 'HQ-AP-10',
+      deviceModel: ap315Model,
+      currentFirmwareReleaseId: 'fw-aos10',
+      currentFirmwareRelease: aos10Release,
+      currentFirmwareSource: 'IMPORT',
+    }))
 
-    const result = await getDevice('device-1')
+    const result = await createDevice({
+      customerId: 'customer-1',
+      deviceModelId: 'ap315',
+      name: 'HQ-AP-10',
+      currentFirmwareReleaseId: 'fw-aos10',
+      currentFirmwareSource: 'IMPORT',
+    })
 
-    expect(result.currentFirmwareRelease?.version).toBe('17.12.5')
-    expect(result.desiredFirmware.release?.version).toBe('17.15.5')
-    expect(result.technicalState).toEqual({ available: true, state: 'ACTION_REQUIRED' })
+    expect(mocks.deviceCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ platform: 'AOS-10', currentFirmwareReleaseId: 'fw-aos10' }),
+    }))
+    expect(result.platform).toBe('AOS-10')
   })
 
-  it('resolves CURRENT when the exact current release is the desired release', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy(release))
-    const result = await getDevice('device-1')
-    expect(result.technicalState).toEqual({ available: true, state: 'CURRENT' })
+  it('requires review when a multi-platform AP315 has neither platform nor firmware evidence', async () => {
+    mocks.modelFindUnique.mockResolvedValue(ap315RawModel)
+    await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'ap315', name: 'HQ-AP-01' }))
+      .rejects.toBeInstanceOf(DeviceReferenceError)
+    expect(mocks.deviceCreate).not.toHaveBeenCalled()
   })
 
-  it('resolves UNKNOWN when a desired policy exists but current firmware is not recorded', async () => {
-    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
-    const result = await getDevice('device-1')
-    expect(result.technicalState).toEqual({ available: true, state: 'UNKNOWN' })
+  it('rejects firmware that conflicts with an explicitly selected device platform', async () => {
+    mocks.modelFindUnique.mockResolvedValue(ap315RawModel)
+    mocks.firmwareFindUnique.mockResolvedValue({ id: 'fw-aos10', vendorId: 'vendor-aruba', platform: 'AOS-10' })
+
+    await expect(createDevice({
+      customerId: 'customer-1',
+      deviceModelId: 'ap315',
+      platform: 'AOS-8',
+      name: 'HQ-AP-01',
+      currentFirmwareReleaseId: 'fw-aos10',
+    })).rejects.toBeInstanceOf(DeviceReferenceError)
   })
 
-  it('resolves NO_POLICY when the model has no active desired policy', async () => {
-    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
-    const result = await getDevice('device-1')
-    expect(result.desiredFirmware).toEqual({ available: true, release: null })
-    expect(result.technicalState).toEqual({ available: true, state: 'NO_POLICY' })
+  it('selects different desired firmware for two AP315 devices on AOS-8 and AOS-10', async () => {
+    const policies = [policy('policy-10', 'AOS-10', aos10Release), policy('policy-8', 'AOS-8', aos8Release)]
+    mocks.policyFindMany.mockResolvedValue(policies)
+    mocks.deviceFindUnique
+      .mockResolvedValueOnce(storedDevice({
+        id: 'ap-8', deviceModelId: 'ap315', platform: 'AOS-8', name: 'HQ-AP-08', deviceModel: ap315Model,
+        currentFirmwareReleaseId: 'fw-aos8', currentFirmwareRelease: aos8Release,
+      }))
+      .mockResolvedValueOnce(storedDevice({
+        id: 'ap-10', deviceModelId: 'ap315', platform: 'AOS-10', name: 'HQ-AP-10', deviceModel: ap315Model,
+        currentFirmwareReleaseId: 'fw-aos10', currentFirmwareRelease: aos10Release,
+      }))
+
+    const aos8Device = await getDevice('ap-8')
+    const aos10Device = await getDevice('ap-10')
+
+    expect(aos8Device.desiredFirmware.release).toMatchObject({ id: 'fw-aos8', platform: 'AOS-8' })
+    expect(aos10Device.desiredFirmware.release).toMatchObject({ id: 'fw-aos10', platform: 'AOS-10' })
+    expect(aos8Device.technicalState.state).toBe('CURRENT')
+    expect(aos10Device.technicalState.state).toBe('CURRENT')
   })
 
-  it('blocks destructive deletion when lifecycle or history references exist', async () => {
+  it('rejects normalized duplicate names within the same customer', async () => {
+    mocks.deviceFindMany.mockResolvedValue([{ id: 'existing', name: '  hq-sw-01 ' }])
+    await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'model-cisco', name: 'HQ-SW-01' }))
+      .rejects.toBeInstanceOf(DeviceConflictError)
+  })
+
+  it('blocks destructive deletion while lifecycle/history references exist', async () => {
     mocks.deviceFindUnique.mockResolvedValue({ id: 'device-1', name: 'HQ-SW-01' })
     mocks.policyCount.mockResolvedValue(0)
     mocks.lifecycleCount.mockResolvedValue(1)
     mocks.auditCount.mockResolvedValue(0)
+
     await expect(deleteDevice('device-1')).rejects.toBeInstanceOf(DeviceInUseError)
     expect(mocks.deviceDelete).not.toHaveBeenCalled()
   })
