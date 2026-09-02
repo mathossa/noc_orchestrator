@@ -30,6 +30,7 @@ type ModelRef = {
   deviceTypeId: string
   model: string
   platform: string | null
+  supportedPlatforms: Array<{ platform: string }>
   isActive: boolean
   vendor: VendorRef
   deviceType: DeviceTypeRef
@@ -43,6 +44,7 @@ type ExistingDevice = {
   customerId: string
   siteId: string | null
   deviceModelId: string
+  platform: string | null
   name: string
   hostname: string | null
   serialNumber: string | null
@@ -55,7 +57,7 @@ type ExistingDevice = {
   externalProvider: string | null
   externalId: string | null
   isActive: boolean
-  currentFirmwareRelease: { id: string; version: string } | null
+  currentFirmwareRelease: { id: string; version: string; platform: string } | null
 }
 
 type ReferenceSet = {
@@ -137,6 +139,7 @@ async function loadReferences(profileId: string | null): Promise<ReferenceSet> {
         deviceTypeId: true,
         model: true,
         platform: true,
+        supportedPlatforms: { select: { platform: true } },
         isActive: true,
         vendor: { select: { id: true, code: true, name: true, isActive: true } },
         deviceType: { select: { id: true, code: true, name: true, isActive: true } },
@@ -150,6 +153,7 @@ async function loadReferences(profileId: string | null): Promise<ReferenceSet> {
         customerId: true,
         siteId: true,
         deviceModelId: true,
+        platform: true,
         name: true,
         hostname: true,
         serialNumber: true,
@@ -162,7 +166,7 @@ async function loadReferences(profileId: string | null): Promise<ReferenceSet> {
         externalProvider: true,
         externalId: true,
         isActive: true,
-        currentFirmwareRelease: { select: { id: true, version: true } },
+        currentFirmwareRelease: { select: { id: true, version: true, platform: true } },
       },
     }),
     prisma.importReferenceAlias.findMany({ select: { kind: true, normalizedSourceValue: true, contextKey: true, targetId: true } }),
@@ -345,22 +349,44 @@ function resolveModel(raw: string | null, vendor: VendorRef | null, type: Device
   return null
 }
 
-function firmwareContext(model: ModelRef) {
-  return `${model.vendorId}|${normalizedPlatform(model.platform ?? '')}`
+function supportedPlatforms(model: ModelRef) {
+  const result = new Map<string, string>()
+  if (model.platform) result.set(normalizedPlatform(model.platform), model.platform)
+  for (const entry of model.supportedPlatforms) result.set(normalizedPlatform(entry.platform), entry.platform)
+  result.delete('')
+  return result
 }
 
-function resolveFirmware(raw: string | null, model: ModelRef | null, existing: ExistingDevice | null, refs: ReferenceSet, options: DeviceImportOptions, issues: DeviceImportIssue[]) {
+function preliminaryDevicePlatform(rawPlatform: string | null, model: ModelRef | null, existing: ExistingDevice | null) {
+  if (rawPlatform) return rawPlatform
+  if (existing?.platform) return existing.platform
+  if (!model) return null
+  const supported = supportedPlatforms(model)
+  return supported.size === 1 ? [...supported.values()][0] : null
+}
+
+function firmwareContext(model: ModelRef, platform: string | null) {
+  return `${model.vendorId}|${normalizedPlatform(platform ?? '')}`
+}
+
+function resolveFirmware(raw: string | null, devicePlatform: string | null, model: ModelRef | null, existing: ExistingDevice | null, refs: ReferenceSet, options: DeviceImportOptions, issues: DeviceImportIssue[]) {
   if (!raw) {
     if (!existing?.currentFirmwareReleaseId) return null
     return refs.firmwareReleases.find((release) => release.id === existing.currentFirmwareReleaseId) ?? null
   }
   if (!model) return null
-  const contextKey = firmwareContext(model)
-  const metadata = { vendorId: model.vendorId, vendorName: model.vendor.name, platform: model.platform, modelName: model.model }
+  const supported = supportedPlatforms(model)
+  const contextKey = firmwareContext(model, devicePlatform)
+  const metadata = { vendorId: model.vendorId, vendorName: model.vendor.name, platform: devicePlatform, modelName: model.model }
+  const compatiblePlatform = (release: FirmwareRef) => {
+    const normalized = normalizedPlatform(release.platform)
+    if (devicePlatform) return normalized === normalizedPlatform(devicePlatform)
+    return supported.size === 0 || supported.has(normalized)
+  }
   const targetId = aliasTargetId('FIRMWARE_RELEASE', raw, contextKey, options, refs)
   if (targetId) {
     const target = refs.firmwareReleases.find((release) => release.id === targetId) ?? null
-    if (!target || target.vendorId !== model.vendorId || (model.platform && normalizedPlatform(target.platform) !== normalizedPlatform(model.platform))) {
+    if (!target || target.vendorId !== model.vendorId || !compatiblePlatform(target)) {
       issues.push(unresolvedIssue('FIRMWARE_RELEASE', raw, contextKey, `The remembered firmware mapping for “${raw}” is no longer compatible with ${model.model}.`, metadata))
       return null
     }
@@ -369,11 +395,37 @@ function resolveFirmware(raw: string | null, model: ModelRef | null, existing: E
   const candidates = refs.firmwareReleases.filter((release) =>
     release.vendorId === model.vendorId &&
     normalizeImportText(release.version) === normalizeImportText(raw) &&
-    (!model.platform || normalizedPlatform(release.platform) === normalizedPlatform(model.platform)),
+    compatiblePlatform(release),
   )
   if (candidates.length === 1) return activeReference(candidates[0], 'Firmware release', issues)
-  issues.push(unresolvedIssue('FIRMWARE_RELEASE', raw, contextKey, candidates.length ? `Current firmware “${raw}” matches multiple compatible catalog releases.` : `Current firmware “${raw}” is not present in the compatible firmware catalog for this concrete model.`, metadata))
+  issues.push(unresolvedIssue('FIRMWARE_RELEASE', raw, contextKey, candidates.length ? `Current firmware “${raw}” matches multiple compatible platform releases. Choose the Device platform or Release.` : `Current firmware “${raw}” is not present in the compatible firmware catalog for this concrete model.`, metadata))
   return null
+}
+
+function resolveDevicePlatform(
+  rawPlatform: string | null,
+  model: ModelRef | null,
+  firmware: FirmwareRef | null,
+  existing: ExistingDevice | null,
+  issues: DeviceImportIssue[],
+) {
+  if (!model) return rawPlatform ?? firmware?.platform ?? existing?.platform ?? null
+  const supported = supportedPlatforms(model)
+  const selected = rawPlatform ?? firmware?.platform ?? existing?.platform ?? (supported.size === 1 ? [...supported.values()][0] : null)
+  if (!selected) {
+    if (supported.size > 1) {
+      issues.push({ level: 'error', message: `Device platform is required because ${model.model} supports multiple platforms (${[...supported.values()].join(', ')}).` })
+    }
+    return null
+  }
+  const normalized = normalizedPlatform(selected)
+  if (supported.size && !supported.has(normalized)) {
+    issues.push({ level: 'error', message: `Platform “${selected}” is not configured as a supported platform for ${model.model}.` })
+  }
+  if (firmware && normalizedPlatform(firmware.platform) !== normalized) {
+    issues.push({ level: 'error', message: `Firmware ${firmware.version} belongs to ${firmware.platform}, not Device platform ${selected}.` })
+  }
+  return selected
 }
 
 function resolveContract(raw: string | null, customer: CustomerRef | null, site: SiteRef | null, refs: ReferenceSet, options: DeviceImportOptions, issues: DeviceImportIssue[]) {
@@ -408,6 +460,7 @@ function buildChanges(existing: ExistingDevice, input: ReturnType<typeof parseDe
   addChange(changes, 'customer', 'Customer', oldCustomer?.name, customer.name)
   addChange(changes, 'site', 'Site/location', displaySite(oldSite), displaySite(site))
   addChange(changes, 'model', 'Device model', displayModel(oldModel), displayModel(model))
+  addChange(changes, 'platform', 'Platform', existing.platform, input.platform)
   addChange(changes, 'name', 'Device name', existing.name, input.name)
   addChange(changes, 'hostname', 'Hostname', existing.hostname, input.hostname)
   addChange(changes, 'serialNumber', 'Serial number', existing.serialNumber, input.serialNumber)
@@ -505,7 +558,9 @@ async function buildPlan(workbook: XlsxWorkbook, options: DeviceImportOptions, f
     const vendor = resolveVendor(raw.vendor, refs, options, issues)
     const deviceType = resolveDeviceType(raw.deviceType, refs, options, issues)
     const model = resolveModel(raw.model, vendor, deviceType, existing, refs, options, issues)
-    const firmware = resolveFirmware(raw.currentFirmware, model, existing, refs, options, issues)
+    const preliminaryPlatform = preliminaryDevicePlatform(raw.platform, model, existing)
+    const firmware = resolveFirmware(raw.currentFirmware, preliminaryPlatform, model, existing, refs, options, issues)
+    const devicePlatform = resolveDevicePlatform(raw.platform, model, firmware, existing, issues)
     resolveContract(raw.contract, customer, site, refs, options, issues)
 
     const identity = raw.name ?? raw.hostname ?? raw.externalId ?? `Spreadsheet row ${sourceRow.rowNumber}`
@@ -519,6 +574,7 @@ async function buildPlan(workbook: XlsxWorkbook, options: DeviceImportOptions, f
           customerId: customer.id,
           siteId: site?.id ?? null,
           deviceModelId: model.id,
+          platform: devicePlatform,
           name,
           hostname: raw.hostname ?? existing?.hostname ?? null,
           serialNumber: raw.serialNumber ?? existing?.serialNumber ?? null,
@@ -623,7 +679,7 @@ export async function commitDeviceImport(workbook: XlsxWorkbook, options: Device
           entityId: created.id,
           before: { firmwareReleaseId: null, version: null, observedAt: null, source: null },
           after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource },
-          metadata: { context: 'XLSX_IMPORT_CREATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId },
+          metadata: { context: 'XLSX_IMPORT_CREATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId, platform: input.platform },
         } })
         continue
       }
@@ -635,8 +691,8 @@ export async function commitDeviceImport(workbook: XlsxWorkbook, options: Device
         action: AUDIT_ACTIONS.currentFirmwareChanged,
         entityType: 'Device',
         entityId: existing.id,
-        before: { firmwareReleaseId: existing.currentFirmwareReleaseId, version: existing.currentFirmwareRelease?.version ?? null, observedAt: existing.currentFirmwareObservedAt?.toISOString() ?? null, source: existing.currentFirmwareSource },
-        after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource },
+        before: { firmwareReleaseId: existing.currentFirmwareReleaseId, version: existing.currentFirmwareRelease?.version ?? null, observedAt: existing.currentFirmwareObservedAt?.toISOString() ?? null, source: existing.currentFirmwareSource, platform: existing.platform },
+        after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource, platform: input.platform },
         metadata: { context: 'XLSX_IMPORT_UPDATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId },
       } })
     }
