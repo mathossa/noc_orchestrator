@@ -329,16 +329,14 @@ export function DeviceImportBulkReconciliationSheet({ batchId }: { batchId: stri
   }
 
   function patchFamily(model: LinkedModel, values: Partial<FamilyDraft>) {
-    setFamilyDrafts((current) => ({
-      ...current,
-      [model.id]: {
-        decision: 'REVIEW',
+    setFamilyDrafts((current) => {
+      const base = current[model.id] ?? {
+        decision: 'REVIEW' as FamilyDecision,
         familyId: '',
         name: model.proposedNewFamilyName ?? '',
-        ...(current[model.id] ?? {}),
-        ...values,
-      },
-    }))
+      }
+      return { ...current, [model.id]: { ...base, ...values } }
+    })
     setFailures((current) => {
       const key = `family:${model.id}`
       if (!current[key]) return current
