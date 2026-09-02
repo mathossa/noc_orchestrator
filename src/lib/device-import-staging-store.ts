@@ -349,12 +349,31 @@ async function refreshReferenceRecords(batch: BatchRecord) {
     'FIRMWARE_RELEASE',
   ]
 
+  const dirty: Array<{ id: string; resolved: ReturnType<typeof resolveOneReference> }> = []
   for (const kind of order) {
     for (const reference of records.filter((record) => record.kind === kind)) {
+      const beforeMetadata = JSON.stringify(reference.metadata ?? null)
       const resolved = resolveOneReference(reference, records, universe)
+      const changed =
+        reference.status !== resolved.status ||
+        reference.targetId !== resolved.targetId ||
+        reference.suggestedTargetId !== resolved.suggestedTargetId ||
+        reference.suggestionScore !== resolved.suggestionScore ||
+        reference.resolutionSource !== resolved.resolutionSource ||
+        beforeMetadata !== JSON.stringify(resolved.metadata ?? null)
       Object.assign(reference, resolved)
-      await prisma.deviceImportStagedReference.update({
-        where: { id: reference.id },
+      if (changed) dirty.push({ id: reference.id, resolved })
+    }
+  }
+
+  // A full batch can contain thousands of unique staged references. Updating them
+  // one-by-one made every dependency refresh take many seconds even when almost
+  // nothing changed. Resolve in memory first, then persist only dirty records
+  // with bounded concurrency.
+  for (let index = 0; index < dirty.length; index += 50) {
+    await Promise.all(dirty.slice(index, index + 50).map(({ id, resolved }) =>
+      prisma.deviceImportStagedReference.update({
+        where: { id },
         data: {
           status: resolved.status,
           targetId: resolved.targetId,
@@ -363,8 +382,8 @@ async function refreshReferenceRecords(batch: BatchRecord) {
           resolutionSource: resolved.resolutionSource,
           metadata: resolved.metadata,
         },
-      })
-    }
+      }),
+    ))
   }
 
   const unresolved = records.filter((record) => record.kind !== 'CONTRACT_TYPE' && record.status !== 'LINKED').length

@@ -119,7 +119,6 @@ describe('staged import ignore rules', () => {
     mocks.rowFindMany
       .mockResolvedValueOnce([phoneRow, switchRow])
       .mockResolvedValueOnce([switchRow])
-      .mockResolvedValueOnce([switchRow])
 
     const result = await applyDeviceImportRowAction({
       batchId: 'batch-1',
@@ -161,7 +160,6 @@ describe('staged import ignore rules', () => {
     }
     mocks.rowFindMany
       .mockResolvedValueOnce([firmwareRow, switchRow])
-      .mockResolvedValueOnce([switchRow])
       .mockResolvedValueOnce([switchRow])
 
     const result = await applyDeviceImportRowAction({

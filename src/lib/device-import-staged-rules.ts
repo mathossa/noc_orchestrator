@@ -258,7 +258,7 @@ export async function applyDeviceImportRowAction(rawInput: unknown) {
   })
 
   const workspace = await rebuildActiveReferences(batchId)
-  return { affected: selected.length, workspace, smartGroups: await getDeviceImportSmartGroups(batchId) }
+  return { affected: selected.length, workspace }
 }
 
 export async function listDeviceImportProfileRules(profileId: string) {

@@ -1,4 +1,4 @@
-import type { DeviceImportReferenceKind } from '@/lib/device-import'
+import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
 import { bulkCreateDeviceImportCoreReferences } from '@/lib/device-import-staged-core-assist'
 import { bulkCreateDeviceImportFirmware } from '@/lib/device-import-staged-firmware-assist'
 import {
@@ -229,13 +229,105 @@ async function prepareSiteCreate(batchId: string, item: PreparedReferenceAction)
   }
 }
 
-async function prepareModelCreate(batchId: string, item: PreparedReferenceAction) {
+function generatedReferenceCode(value: string) {
+  return value.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'IMPORT'
+}
+
+async function resolveOrCreateModelVendor(values: Record<string, unknown>) {
+  const name = text(values.vendorName)
+  if (!name) return null
+  const code = text(values.vendorCode) || generatedReferenceCode(name)
+  const existing = await prisma.vendor.findFirst({
+    where: { OR: [{ name }, { code }] },
+    select: { id: true, isActive: true },
+  })
+  if (existing) {
+    if (!existing.isActive) throw new DeviceImportStagingError(`Vendor “${name}” already exists but is archived.`)
+    return existing.id
+  }
+  return (await prisma.vendor.create({ data: { name, code, isActive: true }, select: { id: true } })).id
+}
+
+async function resolveOrCreateModelDeviceType(values: Record<string, unknown>) {
+  const name = text(values.deviceTypeName)
+  if (!name) return null
+  const code = text(values.deviceTypeCode) || generatedReferenceCode(name)
+  const existing = await prisma.deviceType.findFirst({
+    where: { OR: [{ name }, { code }] },
+    select: { id: true, isActive: true },
+  })
+  if (existing) {
+    if (!existing.isActive) throw new DeviceImportStagingError(`Device Type “${name}” already exists but is archived.`)
+    return existing.id
+  }
+  return (await prisma.deviceType.create({ data: { name, code, isActive: true }, select: { id: true } })).id
+}
+
+async function linkModelDependencyReference(
+  batchId: string,
+  kind: 'VENDOR' | 'DEVICE_TYPE',
+  sourceValue: string | null | undefined,
+  targetId: string,
+) {
+  const normalizedSourceValue = normalizeImportText(sourceValue)
+  if (!normalizedSourceValue) return
+  await prisma.deviceImportStagedReference.updateMany({
+    where: { batchId, kind, normalizedSourceValue },
+    data: {
+      status: 'LINKED',
+      targetId,
+      suggestedTargetId: null,
+      suggestionScore: null,
+      resolutionSource: 'USER',
+    },
+  })
+}
+
+type ModelDependencyCache = Map<string, Promise<string | null>>
+
+function cachedModelDependency(
+  cache: ModelDependencyCache,
+  kind: 'VENDOR' | 'DEVICE_TYPE',
+  value: string,
+  resolve: () => Promise<string | null>,
+) {
+  const key = `${kind}|${normalizeImportText(value)}`
+  const existing = cache.get(key)
+  if (existing) return existing
+  const pending = resolve()
+  cache.set(key, pending)
+  return pending
+}
+
+async function prepareModelCreate(batchId: string, item: PreparedReferenceAction, dependencyCache: ModelDependencyCache) {
   const reference = await prisma.deviceImportStagedReference.findFirst({ where: { id: item.referenceId, batchId }, select: { id: true, metadata: true } })
   if (!reference) throw new DeviceImportStagingError('The prepared Model reference no longer exists.')
   const current = metadata(reference.metadata)
-  const vendorId = optionalText(item.values.vendorId) ?? current.vendorTargetId ?? null
-  const deviceTypeId = optionalText(item.values.deviceTypeId) ?? current.deviceTypeTargetId ?? null
-  if (!vendorId || !deviceTypeId) throw new DeviceImportStagingError('Resolve or choose both Vendor and Device Type before creating this Model.')
+
+  // A value explicitly typed in the worksheet must override stale imported
+  // dependency metadata. This also makes a new Vendor/Device Type an inline
+  // dependency of Model creation instead of requiring a separate setup step.
+  let vendorId = optionalText(item.values.vendorId)
+  const vendorName = text(item.values.vendorName)
+  if (!vendorId && vendorName) {
+    vendorId = await cachedModelDependency(dependencyCache, 'VENDOR', vendorName, () => resolveOrCreateModelVendor(item.values))
+  }
+  if (!vendorId) vendorId = current.vendorTargetId ?? null
+
+  let deviceTypeId = optionalText(item.values.deviceTypeId)
+  const deviceTypeName = text(item.values.deviceTypeName)
+  if (!deviceTypeId && deviceTypeName) {
+    deviceTypeId = await cachedModelDependency(dependencyCache, 'DEVICE_TYPE', deviceTypeName, () => resolveOrCreateModelDeviceType(item.values))
+  }
+  if (!deviceTypeId) deviceTypeId = current.deviceTypeTargetId ?? null
+
+  if (!vendorId || !deviceTypeId) throw new DeviceImportStagingError('Resolve or enter both Vendor and Device Type before creating this Model.')
+
+  await Promise.all([
+    linkModelDependencyReference(batchId, 'VENDOR', current.vendorSourceValue, vendorId),
+    linkModelDependencyReference(batchId, 'DEVICE_TYPE', current.deviceTypeSourceValue, deviceTypeId),
+  ])
+
   const platform = optionalText(item.values.platform)
   const rawPlatforms = Array.isArray(item.values.platforms)
     ? item.values.platforms
@@ -328,9 +420,8 @@ async function applyCreateActions(
     }
   }
 
-  if (coreItems.length) await refreshDeviceImportBatchReferences(batchId)
-
   const siteItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'SITE')
+  if (coreItems.length && siteItems.length) await refreshDeviceImportBatchReferences(batchId)
   for (const part of chunks(siteItems)) {
     const prepared = (await Promise.all(part.map(async (item) => {
       try {
@@ -352,11 +443,12 @@ async function applyCreateActions(
   }
 
   const modelItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'DEVICE_MODEL')
+  const modelDependencyCache: ModelDependencyCache = new Map()
   const successfulModelFamilyDrafts: Array<{ referenceId: string; name: string }> = []
   for (const part of chunks(modelItems)) {
     const prepared = (await Promise.all(part.map(async (item) => {
       try {
-        return { source: item, value: await prepareModelCreate(batchId, item) }
+        return { source: item, value: await prepareModelCreate(batchId, item, modelDependencyCache) }
       } catch (error) {
         failures.push({ key: item.referenceId, message: failureMessage(error) })
         return null
@@ -379,6 +471,8 @@ async function applyCreateActions(
         }
       }
       rememberedKinds.add('DEVICE_MODEL')
+      rememberedKinds.add('VENDOR')
+      rememberedKinds.add('DEVICE_TYPE')
     }
   }
 
@@ -416,9 +510,8 @@ async function applyCreateActions(
     }
   }
 
-  if (modelItems.length) await refreshDeviceImportBatchReferences(batchId)
-
   const firmwareItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'FIRMWARE_RELEASE')
+  if (modelItems.length && firmwareItems.length) await refreshDeviceImportBatchReferences(batchId)
   for (const part of chunks(firmwareItems)) {
     const prepared = (await Promise.all(part.map(async (item) => {
       try {
@@ -495,7 +588,12 @@ export async function applyPreparedImportActions(rawInput: unknown) {
 
   let applied = 0
   applied += await applyLinkActions(input.batchId, linkItems, referenceById, failures)
-  await refreshDeviceImportBatchReferences(input.batchId)
+  const linkedKinds = new Set(linkItems.map((item) => referenceById.get(item.referenceId)?.kind))
+  const createdKinds = new Set(createItems.map((item) => referenceById.get(item.referenceId)?.kind))
+  const needsLinkDependencyRefresh =
+    (createdKinds.has('SITE') && linkedKinds.has('CUSTOMER')) ||
+    (createdKinds.has('FIRMWARE_RELEASE') && linkedKinds.has('DEVICE_MODEL'))
+  if (needsLinkDependencyRefresh) await refreshDeviceImportBatchReferences(input.batchId)
   applied += await applyCreateActions(input.batchId, createItems, referenceById, failures)
   applied += await applyFamilyActions(input.batchId, input.families, failures)
 
