@@ -6,7 +6,7 @@ import { SearchableReferencePicker, type SearchableReferenceOption } from '@/com
 import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
-import { inferImportedModelVendor } from '@/lib/device-import-model-identity'
+import { resolveImportedModelVendor } from '@/lib/device-import-model-identity'
 
 const SAFE_SCORE = 0.97
 const INITIAL_VISIBLE = 50
@@ -115,6 +115,7 @@ type Assist = {
   sites: { proposals: SiteProposal[] }
   models: { readyToCreate: ReadyModel[]; linkedModels: LinkedModel[]; families: Family[] }
   firmware: { proposals: FirmwareProposal[] }
+  vendorAliases: Array<{ sourceValue: string; targetId: string }>
 }
 type AssistPayload = { data?: Assist } & ApiError
 
@@ -140,6 +141,7 @@ type ModelDraft = {
   platforms: string
   familyId: string
   familyName: string
+  vendorSourceValue: string
 }
 type FirmwareDraft = {
   existingReleaseId: string
@@ -354,10 +356,12 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       const typeRef = sourceReference(next, 'DEVICE_TYPE', reference.metadata.deviceTypeSourceValue)
       const inferredVendor = reference.metadata.vendorSourceValue
         ? null
-        : inferImportedModelVendor(reference.sourceValue, activeVendors)
-      const vendorId = reference.metadata.vendorTargetId ?? vendorRef?.targetId ?? (safeSuggestedTarget(vendorRef) || inferredVendor?.id || '')
+        : resolveImportedModelVendor(reference.sourceValue, activeVendors, next.vendorAliases)
+      const vendorSourceValue = reference.metadata.vendorSourceValue || inferredVendor?.sourceValue || ''
+      const rememberedVendorId = next.vendorAliases.find((alias) => normalized(alias.sourceValue) === normalized(vendorSourceValue))?.targetId ?? ''
+      const vendorId = rememberedVendorId || reference.metadata.vendorTargetId || vendorRef?.targetId || safeSuggestedTarget(vendorRef) || inferredVendor?.vendor.id || ''
       const deviceTypeId = reference.metadata.deviceTypeTargetId ?? typeRef?.targetId ?? safeSuggestedTarget(typeRef)
-      const vendorName = selectedName(vendorId, activeVendors) || reference.metadata.vendorSourceValue || inferredVendor?.name || ''
+      const vendorName = selectedName(vendorId, activeVendors) || inferredVendor?.vendor.name || reference.metadata.vendorSourceValue || ''
       const deviceTypeName = selectedName(deviceTypeId, activeTypes) || reference.metadata.deviceTypeSourceValue || ''
       const proposal = next.models.readyToCreate.find((item) => item.id === reference.id)
       const platform = proposal?.proposedPlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
@@ -375,6 +379,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         platforms,
         familyId: proposal?.suggestedFamilyId ?? '',
         familyName: proposal?.proposedNewFamilyName ?? '',
+        vendorSourceValue,
       }
     }
     setModelDrafts(nextModels)
@@ -498,8 +503,16 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           ...next,
           vendorId: vendorMatch?.id ?? '',
           vendorCode: vendorMatch?.code ?? suggestedCode(values.vendorName),
-          model: draft.model === stripVendorPrefix(reference.sourceValue, draft.vendorName) ? stripVendorPrefix(reference.sourceValue, values.vendorName) : draft.model,
+          model: stripVendorPrefix(reference.sourceValue, draft.vendorSourceValue || draft.vendorName),
           existingModelId: '',
+        }
+        if (draft.vendorSourceValue) {
+          const sourceKey = normalized(draft.vendorSourceValue)
+          const propagated = { id: vendorMatch?.id ?? '', name: values.vendorName, code: vendorMatch?.code ?? suggestedCode(values.vendorName) }
+          queueMicrotask(() => setModelDrafts((latest) => Object.fromEntries(Object.entries(latest).map(([id, candidate]) => {
+            if (id === reference.id || normalized(candidate.vendorSourceValue) !== sourceKey) return [id, candidate]
+            return [id, { ...candidate, vendorId: propagated.id, vendorName: propagated.name, vendorCode: propagated.code, existingModelId: '' }]
+          }))))
         }
       }
       if (values.deviceTypeName !== undefined) {
@@ -642,6 +655,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
             vendorId: draft.vendorId || null,
             vendorName: draft.vendorName,
             vendorCode: draft.vendorCode,
+            vendorSourceValue: draft.vendorSourceValue || reference.metadata.vendorSourceValue || null,
             deviceTypeId: draft.deviceTypeId || null,
             deviceTypeName: draft.deviceTypeName,
             deviceTypeCode: draft.deviceTypeCode,

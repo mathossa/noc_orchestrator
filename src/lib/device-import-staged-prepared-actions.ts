@@ -6,7 +6,7 @@ import {
   bulkCreateAndAssignDeviceImportModelFamilies,
   bulkCreateDeviceImportModels,
 } from '@/lib/device-import-staged-model-assist'
-import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
+import { rememberReviewedBatchReferences, rememberReviewedImportAliases } from '@/lib/device-import-staged-profile-aliases'
 import { resolveDeviceImportStagedReferencesBulk } from '@/lib/device-import-staged-reference-bulk'
 import { bulkCreateDeviceImportSites } from '@/lib/device-import-staged-site-bulk-create'
 import { refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
@@ -324,7 +324,7 @@ async function prepareModelCreate(batchId: string, item: PreparedReferenceAction
   if (!vendorId || !deviceTypeId) throw new DeviceImportStagingError('Resolve or enter both Vendor and Device Type before creating this Model.')
 
   await Promise.all([
-    linkModelDependencyReference(batchId, 'VENDOR', current.vendorSourceValue, vendorId),
+    linkModelDependencyReference(batchId, 'VENDOR', optionalText(item.values.vendorSourceValue) ?? current.vendorSourceValue, vendorId),
     linkModelDependencyReference(batchId, 'DEVICE_TYPE', current.deviceTypeSourceValue, deviceTypeId),
   ])
 
@@ -356,8 +356,11 @@ async function prepareModelCreate(batchId: string, item: PreparedReferenceAction
     platform,
     platforms,
     familyId: optionalText(item.values.familyId),
+    vendorAliasSource: optionalText(item.values.vendorSourceValue) ?? current.vendorSourceValue ?? null,
+    vendorId,
   }
 }
+
 
 async function prepareFirmwareCreate(batchId: string, item: PreparedReferenceAction) {
   const reference = await prisma.deviceImportStagedReference.findFirst({ where: { id: item.referenceId, batchId }, select: { id: true, metadata: true } })
@@ -445,6 +448,7 @@ async function applyCreateActions(
   const modelItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'DEVICE_MODEL')
   const modelDependencyCache: ModelDependencyCache = new Map()
   const successfulModelFamilyDrafts: Array<{ referenceId: string; name: string }> = []
+  const successfulVendorAliases: Array<{ sourceValue: string; targetId: string }> = []
   for (const part of chunks(modelItems)) {
     const prepared = (await Promise.all(part.map(async (item) => {
       try {
@@ -465,6 +469,9 @@ async function applyCreateActions(
       applied += succeeded
       const failedKeys = new Set(failures.slice(beforeFailures).map((failure) => failure.key))
       for (const entry of prepared) {
+        if (!failedKeys.has(entry.source.referenceId) && entry.value.vendorAliasSource) {
+          successfulVendorAliases.push({ sourceValue: entry.value.vendorAliasSource, targetId: entry.value.vendorId })
+        }
         const familyName = optionalText(entry.source.values.newFamilyName)
         if (familyName && !failedKeys.has(entry.source.referenceId)) {
           successfulModelFamilyDrafts.push({ referenceId: entry.source.referenceId, name: familyName })
@@ -474,6 +481,16 @@ async function applyCreateActions(
       rememberedKinds.add('VENDOR')
       rememberedKinds.add('DEVICE_TYPE')
     }
+  }
+
+  if (successfulVendorAliases.length) {
+    const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { profileId: true } })
+    await rememberReviewedImportAliases(batch?.profileId ?? null, successfulVendorAliases.map((alias) => ({
+      kind: 'VENDOR' as const,
+      sourceValue: alias.sourceValue,
+      contextKey: '',
+      targetId: alias.targetId,
+    })))
   }
 
   if (successfulModelFamilyDrafts.length) {

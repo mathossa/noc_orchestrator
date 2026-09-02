@@ -8,6 +8,7 @@ import { getDeviceImportSmartGroups } from '@/lib/device-import-staged-rules'
 import { getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import { countNormalizableStagedGenericSites } from '@/lib/device-import-staged-site-normalize'
 import { DeviceImportStagingError, getDeviceImportBatchWorkspace } from '@/lib/device-import-staging-store'
+import { prisma } from '@/lib/prisma'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
@@ -24,6 +25,7 @@ export async function GET(_request: Request, context: RouteContext) {
           models: { readyToCreate: [], linkedModels: [], families: [], newFamilyProposals: [] },
           firmware: { proposals: [], rawReferenceCount: 0, proposalCount: 0 },
           rows: { profileId: workspace.batch.profileId, groups: [], rowCounts: { PUBLISHED: workspace.batch.totalRows } },
+          vendorAliases: [],
         },
       })
     }
@@ -35,13 +37,19 @@ export async function GET(_request: Request, context: RouteContext) {
     await resolveStagedFirmwarePlatforms(batchId)
     workspace = await getDeviceImportBatchWorkspace(batchId)
 
-    const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows] = await Promise.all([
+    const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows, vendorAliases] = await Promise.all([
       getDeviceImportCoreAssist(batchId),
       getDeviceImportSiteCreateProposals(batchId),
       countNormalizableStagedGenericSites(batchId),
       getDeviceImportModelAssist(batchId),
       getDeviceImportFirmwareAssist(batchId),
       getDeviceImportSmartGroups(batchId),
+      workspace.batch.profileId
+        ? prisma.deviceImportProfileAlias.findMany({
+            where: { profileId: workspace.batch.profileId, kind: 'VENDOR' },
+            select: { sourceValue: true, targetId: true },
+          })
+        : Promise.resolve([]),
     ])
 
     return NextResponse.json({
@@ -52,6 +60,7 @@ export async function GET(_request: Request, context: RouteContext) {
         models,
         firmware,
         rows,
+        vendorAliases,
       },
     })
   } catch (error) {

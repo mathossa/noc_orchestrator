@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   bulkAssignFamilies: vi.fn(),
   bulkCreateFamilies: vi.fn(),
   remember: vi.fn(),
+  rememberAliases: vi.fn(),
   resolveBulk: vi.fn(),
   bulkSites: vi.fn(),
   refresh: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('@/lib/device-import-staged-model-assist', () => ({
   bulkCreateAndAssignDeviceImportModelFamilies: mocks.bulkCreateFamilies,
   bulkCreateDeviceImportModels: mocks.bulkModels,
 }))
-vi.mock('@/lib/device-import-staged-profile-aliases', () => ({ rememberReviewedBatchReferences: mocks.remember }))
+vi.mock('@/lib/device-import-staged-profile-aliases', () => ({ rememberReviewedBatchReferences: mocks.remember, rememberReviewedImportAliases: mocks.rememberAliases }))
 vi.mock('@/lib/device-import-staged-reference-bulk', () => ({ resolveDeviceImportStagedReferencesBulk: mocks.resolveBulk }))
 vi.mock('@/lib/device-import-staged-site-bulk-create', () => ({ bulkCreateDeviceImportSites: mocks.bulkSites }))
 vi.mock('@/lib/device-import-staging-store', () => {
@@ -54,7 +55,7 @@ import { applyPreparedImportActions } from '@/lib/device-import-staged-prepared-
 describe('prepared staged import actions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.batchFindUnique.mockResolvedValue({ id: 'batch-1', status: 'STAGED' })
+    mocks.batchFindUnique.mockResolvedValue({ id: 'batch-1', status: 'STAGED', profileId: 'profile-auvik' })
     mocks.referenceFindMany.mockResolvedValue([{
       id: 'model-ref',
       kind: 'DEVICE_MODEL',
@@ -74,6 +75,7 @@ describe('prepared staged import actions', () => {
     mocks.deviceTypeCreate.mockResolvedValue({ id: 'type-new' })
     mocks.bulkModels.mockResolvedValue({})
     mocks.remember.mockResolvedValue(undefined)
+    mocks.rememberAliases.mockResolvedValue(undefined)
     mocks.refresh.mockResolvedValue({ counts: { references: { unresolved: 0 } } })
   })
 
@@ -89,6 +91,7 @@ describe('prepared staged import actions', () => {
           vendorId: null,
           vendorName: 'Aerohive',
           vendorCode: 'AEROHIVE',
+          vendorSourceValue: 'Aruba',
           deviceTypeId: 'type-ap',
           deviceTypeName: 'Access Point',
           deviceTypeCode: 'ACCESS_POINT',
@@ -116,6 +119,9 @@ describe('prepared staged import actions', () => {
       deferRefresh: true,
       items: [expect.objectContaining({ referenceId: 'model-ref', model: 'AP305' })],
     }))
+    expect(mocks.rememberAliases).toHaveBeenCalledWith('profile-auvik', [
+      { kind: 'VENDOR', sourceValue: 'Aruba', contextKey: '', targetId: 'vendor-aerohive' },
+    ])
     expect(result.applied).toBe(1)
     expect(result.failed).toBe(0)
     expect(mocks.refresh).toHaveBeenCalledTimes(1)

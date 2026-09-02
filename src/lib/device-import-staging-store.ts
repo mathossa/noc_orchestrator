@@ -224,6 +224,10 @@ function resolveOneReference(
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }
   } else if (kind === 'VENDOR') {
     const active = universe.vendors.filter((record) => record.isActive)
+    const rememberedVendor = profileAliasTarget(kind, reference.sourceValue, '', universe.aliases)
+    if (rememberedVendor && targetExists(kind, rememberedVendor, universe)) {
+      return { status: 'LINKED', targetId: rememberedVendor, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: meta }
+    }
     candidates = active.map((record) => ({ id: record.id, label: record.name }))
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }

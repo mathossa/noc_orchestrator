@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inferImportedModelVendor } from '@/lib/device-import-model-identity'
+import { inferImportedModelVendor, resolveImportedModelVendor } from '@/lib/device-import-model-identity'
 
 const vendors = [
   { id: 'aruba', name: 'Aruba', code: 'ARUBA', isActive: true },
@@ -19,5 +19,11 @@ describe('imported model vendor inference', () => {
   it('does not infer a vendor from an embedded or unknown word', () => {
     expect(inferImportedModelVendor('My Aruba 7005', vendors)).toBeNull()
     expect(inferImportedModelVendor('Aerohive AP305', vendors)).toBeNull()
+  })
+
+  it('prefers a remembered Aruba to HPE Networking mapping over the literal Aruba vendor', () => {
+    const withHpe = [...vendors, { id: 'hpe', name: 'HPE Networking', code: 'HPE', isActive: true }]
+    const resolution = resolveImportedModelVendor('Aruba 7005', withHpe, [{ sourceValue: 'Aruba', targetId: 'hpe' }])
+    expect(resolution).toEqual({ sourceValue: 'Aruba', vendor: withHpe[3] })
   })
 })
