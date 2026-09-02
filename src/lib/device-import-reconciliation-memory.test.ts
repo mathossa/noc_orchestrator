@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   modelDraftIdsForVendorSource,
   profileIdForRepeatedWorkbook,
 } from '@/lib/device-import-reconciliation-memory'
+vi.mock('@/lib/prisma', () => ({ prisma: {} }))
+
 import { resolveOneReference } from '@/lib/device-import-staging-store'
 
 describe('device import reconciliation memory', () => {
