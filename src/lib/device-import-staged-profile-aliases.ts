@@ -1,4 +1,5 @@
 import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
+import { importSiteProfileContext } from '@/lib/device-import-site-code'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
@@ -18,7 +19,7 @@ function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
 
 function contextKey(kind: DeviceImportReferenceKind, value: unknown) {
   const meta = metadata(value)
-  if (kind === 'SITE') return meta.customerTargetId ?? ''
+  if (kind === 'SITE') return meta.customerTargetId ? importSiteProfileContext(meta.customerTargetId, meta.customerSourceValue) : ''
   if (kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
   if (kind === 'FIRMWARE_RELEASE') {
     return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
