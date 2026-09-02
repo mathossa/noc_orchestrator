@@ -1,5 +1,5 @@
 import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
-import { importSiteProfileContext } from '@/lib/device-import-site-code'
+import { importSiteProfileContextCandidates } from '@/lib/device-import-site-code'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
@@ -17,18 +17,22 @@ function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
 }
 
-function contextKey(kind: DeviceImportReferenceKind, value: unknown) {
+function contextKeys(kind: DeviceImportReferenceKind, value: unknown, sourceValue: string) {
   const meta = metadata(value)
   if (kind === 'SITE') {
     return meta.customerTargetId
-      ? importSiteProfileContext(meta.customerTargetId, meta.organizationSiteSourceValue)
-      : ''
+      ? importSiteProfileContextCandidates(
+          meta.customerTargetId,
+          meta.organizationSiteSourceValue,
+          sourceValue,
+        )
+      : ['']
   }
-  if (kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
+  if (kind === 'DEVICE_MODEL') return [meta.vendorTargetId ?? '']
   if (kind === 'FIRMWARE_RELEASE') {
-    return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
+    return [meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : '']
   }
-  return ''
+  return ['']
 }
 
 export async function rememberReviewedImportAliases(profileId: string | null, inputs: ProfileAliasInput[]) {
@@ -78,11 +82,11 @@ export async function rememberReviewedBatchReferences(batchId: string, kinds: De
   await rememberReviewedImportAliases(batch.profileId, references.flatMap((reference) => {
     if (!reference.targetId) return []
     const kind = reference.kind as DeviceImportReferenceKind
-    return [{
+    return contextKeys(kind, reference.metadata, reference.sourceValue).map((contextKey) => ({
       kind,
       sourceValue: reference.sourceValue,
-      contextKey: contextKey(kind, reference.metadata),
-      targetId: reference.targetId,
-    }]
+      contextKey,
+      targetId: reference.targetId!,
+    }))
   }))
 }
