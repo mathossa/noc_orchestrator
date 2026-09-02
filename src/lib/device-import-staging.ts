@@ -26,6 +26,7 @@ export type DeviceImportStagedReferenceMetadata = {
   modelSourceValue?: string | null
   modelTargetId?: string | null
   platform?: string | null
+  platforms?: string[]
   waitingFor?: DeviceImportReferenceKind[]
 }
 
@@ -55,7 +56,7 @@ function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenc
     return `vendor:${normalizeImportText(values.vendor)}|type:${normalizeImportText(values.deviceType)}`
   }
   if (kind === 'FIRMWARE_RELEASE') {
-    return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}`
+    return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
   }
   return ''
 }
@@ -70,12 +71,26 @@ function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferen
   if (kind === 'DEVICE_MODEL') {
     base.vendorSourceValue = clean(values.vendor)
     base.deviceTypeSourceValue = clean(values.deviceType)
+    base.platform = clean(values.platform)
+    base.platforms = base.platform ? [base.platform] : []
   }
   if (kind === 'FIRMWARE_RELEASE') {
     base.vendorSourceValue = clean(values.vendor)
     base.modelSourceValue = clean(values.model)
+    base.platform = clean(values.platform)
+    base.platforms = base.platform ? [base.platform] : []
   }
   return base
+}
+
+function mergePlatformMetadata(metadata: DeviceImportStagedReferenceMetadata, platformValue: string | null) {
+  const platform = clean(platformValue)
+  if (!platform) return
+  const platforms = metadata.platforms ?? []
+  const normalized = normalizeImportText(platform)
+  if (!platforms.some((candidate) => normalizeImportText(candidate) === normalized)) platforms.push(platform)
+  metadata.platforms = platforms
+  metadata.platform = platforms.length === 1 ? platforms[0] : null
 }
 
 function addSeed(
@@ -97,6 +112,7 @@ function addSeed(
     const rows = current.metadata.rowNumbers ?? []
     if (rows.length < ROW_NUMBER_SAMPLE && !rows.includes(rowNumber)) rows.push(rowNumber)
     current.metadata.rowNumbers = rows
+    if (kind === 'DEVICE_MODEL' || kind === 'FIRMWARE_RELEASE') mergePlatformMetadata(current.metadata, values.platform)
     return
   }
   result.set(key, {
