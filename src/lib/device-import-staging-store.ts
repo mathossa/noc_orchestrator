@@ -262,8 +262,7 @@ function resolveOneReference(
     canonicalContext = vendorTargetId ?? ''
     const active = universe.models.filter((record) =>
       record.isActive &&
-      (!vendorTargetId || record.vendorId === vendorTargetId) &&
-      (!deviceTypeTargetId || record.deviceTypeId === deviceTypeTargetId),
+      (!vendorTargetId || record.vendorId === vendorTargetId),
     )
     candidates = active.flatMap((record) => [
       { id: record.id, label: record.model },
@@ -274,7 +273,7 @@ function resolveOneReference(
       normalizeImportText(record.model) === normalized ||
       normalizeImportText(`${record.vendor.name} ${record.model}`) === normalized,
     )
-    if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, vendorTargetId, deviceTypeTargetId, platform: exact[0].platform, waitingFor: [] } }
+    if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, vendorTargetId, deviceTypeTargetId: exact[0].deviceTypeId, platform: exact[0].platform, waitingFor: [] } }
     meta.vendorTargetId = vendorTargetId
     meta.deviceTypeTargetId = deviceTypeTargetId
   } else {

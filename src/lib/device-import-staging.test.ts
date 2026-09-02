@@ -38,9 +38,31 @@ describe('staged device import references', () => {
     expect(customer).toMatchObject({ sourceValue: 'Unica Groep', occurrenceCount: 2, contextKey: '' })
     expect(site).toMatchObject({ sourceValue: 'Deventer', occurrenceCount: 2, contextKey: 'customer:unica groep' })
     expect(site.metadata).toMatchObject({ customerSourceValue: 'Unica Groep', rowNumbers: [2, 3] })
-    expect(model.contextKey).toBe('vendor:fortinet|type:firewall')
-    expect(model.metadata).toMatchObject({ vendorSourceValue: 'Fortinet', deviceTypeSourceValue: 'Firewall' })
+    expect(model.contextKey).toBe('vendor:fortinet')
+    expect(model.metadata).toMatchObject({ vendorSourceValue: 'Fortinet', deviceTypeSourceValue: 'Firewall', deviceTypeSourceValues: ['Firewall'] })
     expect(firmware.contextKey).toBe('vendor:fortinet|model:fortinet fortigate-100f|platform:')
+  })
+
+  it('collapses the same Vendor + Model even when upstream Device Type labels differ', () => {
+    const references = buildDeviceImportStagedReferenceSeeds([
+      { rowNumber: 2, values: values({ vendor: 'Cisco', deviceType: 'Switch', model: 'Cisco WS-C2960X-24PS-L' }) },
+      { rowNumber: 3, values: values({ vendor: 'Cisco', deviceType: 'Stack', model: 'Cisco WS-C2960X-24PS-L' }) },
+      { rowNumber: 4, values: values({ vendor: 'Cisco', deviceType: 'Switches', model: 'Cisco WS-C2960X-24PS-L' }) },
+    ], options)
+
+    const models = references.filter((reference) => reference.kind === 'DEVICE_MODEL')
+    expect(models).toHaveLength(1)
+    expect(models[0]).toMatchObject({
+      sourceValue: 'Cisco WS-C2960X-24PS-L',
+      contextKey: 'vendor:cisco',
+      occurrenceCount: 3,
+      metadata: {
+        vendorSourceValue: 'Cisco',
+        deviceTypeSourceValue: 'Switch',
+        deviceTypeSourceValues: ['Switch', 'Stack', 'Switches'],
+        rowNumbers: [2, 3, 4],
+      },
+    })
   })
 
   it('keeps site identity customer-scoped when the same site label occurs under multiple organizations', () => {

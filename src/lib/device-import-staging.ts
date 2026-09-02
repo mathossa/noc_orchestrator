@@ -22,6 +22,7 @@ export type DeviceImportStagedReferenceMetadata = {
   vendorSourceValue?: string | null
   vendorTargetId?: string | null
   deviceTypeSourceValue?: string | null
+  deviceTypeSourceValues?: string[]
   deviceTypeTargetId?: string | null
   modelSourceValue?: string | null
   modelTargetId?: string | null
@@ -53,7 +54,11 @@ function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenc
     return 'customer:'
   }
   if (kind === 'DEVICE_MODEL') {
-    return `vendor:${normalizeImportText(values.vendor)}|type:${normalizeImportText(values.deviceType)}`
+    // DeviceModel is canonically unique by Vendor + Model. Device Type is a
+    // property of that Model, not part of its identity. Keeping the source
+    // Device Type in the key caused one physical model to appear multiple
+    // times when Auvik classified different devices slightly differently.
+    return `vendor:${normalizeImportText(values.vendor)}`
   }
   if (kind === 'FIRMWARE_RELEASE') {
     return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
@@ -71,6 +76,7 @@ function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferen
   if (kind === 'DEVICE_MODEL') {
     base.vendorSourceValue = clean(values.vendor)
     base.deviceTypeSourceValue = clean(values.deviceType)
+    base.deviceTypeSourceValues = base.deviceTypeSourceValue ? [base.deviceTypeSourceValue] : []
     base.platform = clean(values.platform)
     base.platforms = base.platform ? [base.platform] : []
   }
@@ -93,6 +99,16 @@ function mergePlatformMetadata(metadata: DeviceImportStagedReferenceMetadata, pl
   metadata.platform = platforms.length === 1 ? platforms[0] : null
 }
 
+function mergeDeviceTypeMetadata(metadata: DeviceImportStagedReferenceMetadata, deviceTypeValue: string | null) {
+  const deviceType = clean(deviceTypeValue)
+  if (!deviceType) return
+  const values = metadata.deviceTypeSourceValues ?? (metadata.deviceTypeSourceValue ? [metadata.deviceTypeSourceValue] : [])
+  const normalized = normalizeImportText(deviceType)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(deviceType)
+  metadata.deviceTypeSourceValues = values
+  metadata.deviceTypeSourceValue = values[0] ?? null
+}
+
 function addSeed(
   result: Map<string, DeviceImportStagedReferenceSeed>,
   kind: DeviceImportReferenceKind,
@@ -112,7 +128,12 @@ function addSeed(
     const rows = current.metadata.rowNumbers ?? []
     if (rows.length < ROW_NUMBER_SAMPLE && !rows.includes(rowNumber)) rows.push(rowNumber)
     current.metadata.rowNumbers = rows
-    if (kind === 'DEVICE_MODEL' || kind === 'FIRMWARE_RELEASE') mergePlatformMetadata(current.metadata, values.platform)
+    if (kind === 'DEVICE_MODEL') {
+      mergePlatformMetadata(current.metadata, values.platform)
+      mergeDeviceTypeMetadata(current.metadata, values.deviceType)
+    } else if (kind === 'FIRMWARE_RELEASE') {
+      mergePlatformMetadata(current.metadata, values.platform)
+    }
     return
   }
   result.set(key, {

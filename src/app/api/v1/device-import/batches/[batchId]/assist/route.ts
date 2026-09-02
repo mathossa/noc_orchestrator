@@ -4,6 +4,7 @@ import { getDeviceImportCoreAssist } from '@/lib/device-import-staged-core-assis
 import { getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
 import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
+import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-staged-model-dedup'
 import { getDeviceImportSmartGroups } from '@/lib/device-import-staged-rules'
 import { getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import { countNormalizableStagedGenericSites } from '@/lib/device-import-staged-site-normalize'
@@ -30,9 +31,10 @@ export async function GET(_request: Request, context: RouteContext) {
       })
     }
 
-    // Keep old staged batches usable in place. These passes are idempotent and
-    // only add supported Model platforms / repair Firmware references when the
-    // staged evidence makes the platform deterministic.
+    // Keep old staged batches usable in place. Older batches keyed Models by
+    // Vendor + Device Type + Model, which could duplicate one canonical Model.
+    // Repair that identity once before the other dependency passes.
+    await repairDuplicateDeviceImportModelReferences(batchId)
     await synchronizeImportedModelPlatforms(batchId)
     await resolveStagedFirmwarePlatforms(batchId)
     workspace = await getDeviceImportBatchWorkspace(batchId)
