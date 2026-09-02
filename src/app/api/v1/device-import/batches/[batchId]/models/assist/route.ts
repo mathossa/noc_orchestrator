@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import {
@@ -34,6 +35,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.action === 'CREATE_MODELS') {
       const data = await bulkCreateDeviceImportModels({ ...body, batchId })
       await rememberReviewedBatchReferences(batchId, ['DEVICE_MODEL'])
+      await synchronizeImportedModelPlatforms(batchId)
       return NextResponse.json({ data })
     }
     if (body.action === 'ASSIGN_FAMILIES') {
