@@ -1,9 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { stagedReferenceDependsOn } from '@/lib/device-import-staging-dependencies'
+import { currentLinkedDependencyTarget, stagedReferenceDependsOn } from '@/lib/device-import-staging-dependencies'
 
 function reference(kind: string, source: string, metadata: Record<string, unknown> = {}) {
   return { kind, normalizedSourceValue: source.toLowerCase(), metadata }
 }
+
+describe('currentLinkedDependencyTarget', () => {
+  it('replaces stale child metadata with the currently linked Vendor target', () => {
+    const references = [{
+      kind: 'VENDOR',
+      normalizedSourceValue: 'aerohive',
+      status: 'LINKED',
+      targetId: 'vendor-aerohive',
+    }]
+
+    expect(currentLinkedDependencyTarget('VENDOR', 'Aerohive', references, 'vendor-old')).toBe('vendor-aerohive')
+  })
+
+  it('does not retain a stale dependency target while its source reference is unresolved', () => {
+    const references = [{
+      kind: 'DEVICE_TYPE',
+      normalizedSourceValue: 'access point',
+      status: 'UNRESOLVED',
+      targetId: null,
+    }]
+
+    expect(currentLinkedDependencyTarget('DEVICE_TYPE', 'Access Point', references, 'type-old')).toBeNull()
+  })
+})
 
 describe('stagedReferenceDependsOn', () => {
   it('targets only Sites belonging to the resolved raw Customer', () => {

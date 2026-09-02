@@ -7,6 +7,28 @@ export type StagedDependencyReference = {
   metadata: unknown
 }
 
+export type LinkedStagedDependencyReference = {
+  kind: string
+  normalizedSourceValue: string
+  status: string
+  targetId: string | null
+}
+
+export function currentLinkedDependencyTarget(
+  kind: DeviceImportReferenceKind,
+  sourceValue: string | null | undefined,
+  references: LinkedStagedDependencyReference[],
+  fallback: string | null = null,
+) {
+  if (!sourceValue) return fallback
+  const normalizedSourceValue = normalizeImportText(sourceValue)
+  const reference = references.find((candidate) =>
+    candidate.kind === kind && candidate.normalizedSourceValue === normalizedSourceValue,
+  )
+  if (!reference) return fallback
+  return reference.status === 'LINKED' ? reference.targetId : null
+}
+
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? (value as DeviceImportStagedReferenceMetadata) : {}
 }

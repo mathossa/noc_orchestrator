@@ -114,6 +114,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
   const deferRefresh = input.deferRefresh === true
+  const allowRelink = input.allowRelink === true
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   await assertMutable(batchId)
   const items = parseItems(rawInput)
@@ -121,10 +122,17 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
   if (new Set(ids).size !== ids.length) throw new DeviceImportStagingError('A staged reference can only appear once in a create action.')
 
   const references = await prisma.deviceImportStagedReference.findMany({
-    where: { batchId, id: { in: ids }, kind: { in: [...CORE_ASSIST_KINDS] }, status: 'UNRESOLVED' },
+    where: {
+      batchId,
+      id: { in: ids },
+      kind: { in: [...CORE_ASSIST_KINDS] },
+      ...(allowRelink ? {} : { status: 'UNRESOLVED' }),
+    },
     select: { id: true, kind: true, sourceValue: true },
   })
-  if (references.length !== ids.length) throw new DeviceImportStagingError('One or more prepared references are no longer unresolved.')
+  if (references.length !== ids.length) throw new DeviceImportStagingError(allowRelink
+    ? 'One or more prepared references are no longer available.'
+    : 'One or more prepared references are no longer unresolved.')
   const referenceById = new Map(references.map((reference) => [reference.id, reference]))
 
   let created = 0

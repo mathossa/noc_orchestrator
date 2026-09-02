@@ -310,6 +310,7 @@ async function applyCreateActions(
       (current) => bulkCreateDeviceImportCoreReferences({
         batchId,
         deferRefresh: true,
+        allowRelink: true,
         items: current.map((item) => ({
           referenceId: item.referenceId,
           name: text(item.values.name),

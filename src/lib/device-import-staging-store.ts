@@ -17,6 +17,7 @@ import {
   type DeviceImportMappedValues,
   type DeviceImportStagedReferenceMetadata,
 } from '@/lib/device-import-staging'
+import { currentLinkedDependencyTarget } from '@/lib/device-import-staging-dependencies'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 import type { XlsxWorkbook } from '@/lib/xlsx-reader'
@@ -190,14 +191,6 @@ async function loadReferenceUniverse(profileId: string | null): Promise<Referenc
   return { customers, sites, vendors, deviceTypes, models, contracts, firmwareReleases, aliases }
 }
 
-function rawReferenceLookup(references: StagedReferenceRecord[]) {
-  return (kind: DeviceImportReferenceKind, sourceValue: string | null | undefined) => {
-    if (!sourceValue) return null
-    const normalized = normalizeImportText(sourceValue)
-    return references.find((reference) => reference.kind === kind && reference.normalizedSourceValue === normalized) ?? null
-  }
-}
-
 function suggestion<T extends { id: string }>(sourceValue: string, candidates: T[], label: (candidate: T) => string) {
   const best = bestImportReferenceSuggestion(sourceValue, candidates, label)
   return best ? { targetId: best.candidate.id, score: best.score } : { targetId: null, score: null }
@@ -220,7 +213,6 @@ function resolveOneReference(
 ) {
   const kind = reference.kind as DeviceImportReferenceKind
   const meta = metadata(reference.metadata)
-  const findRaw = rawReferenceLookup(references)
   let canonicalContext = ''
   let candidates: Array<{ id: string; label: string }> = []
   let waitingFor: DeviceImportReferenceKind[] = []
@@ -246,11 +238,7 @@ function resolveOneReference(
     const exact = exactNameOrCode(reference.sourceValue, active)
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: meta }
   } else if (kind === 'SITE') {
-    let customerTargetId = meta.customerTargetId ?? null
-    if (!customerTargetId && meta.customerSourceValue) {
-      const customerRef = findRaw('CUSTOMER', meta.customerSourceValue)
-      customerTargetId = customerRef?.status === 'LINKED' ? customerRef.targetId : null
-    }
+    const customerTargetId = currentLinkedDependencyTarget('CUSTOMER', meta.customerSourceValue, references, meta.customerTargetId ?? null)
     if (!customerTargetId) {
       waitingFor = ['CUSTOMER']
       return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, customerTargetId: null, waitingFor } }
@@ -262,18 +250,10 @@ function resolveOneReference(
     if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, customerTargetId, waitingFor: [] } }
     meta.customerTargetId = customerTargetId
   } else if (kind === 'DEVICE_MODEL') {
-    let vendorTargetId: string | null = meta.vendorTargetId ?? null
-    let deviceTypeTargetId: string | null = meta.deviceTypeTargetId ?? null
-    if (!vendorTargetId && meta.vendorSourceValue) {
-      const vendorRef = findRaw('VENDOR', meta.vendorSourceValue)
-      vendorTargetId = vendorRef?.status === 'LINKED' ? vendorRef.targetId : null
-      if (!vendorTargetId) waitingFor.push('VENDOR')
-    }
-    if (!deviceTypeTargetId && meta.deviceTypeSourceValue) {
-      const typeRef = findRaw('DEVICE_TYPE', meta.deviceTypeSourceValue)
-      deviceTypeTargetId = typeRef?.status === 'LINKED' ? typeRef.targetId : null
-      if (!deviceTypeTargetId) waitingFor.push('DEVICE_TYPE')
-    }
+    const vendorTargetId = currentLinkedDependencyTarget('VENDOR', meta.vendorSourceValue, references, meta.vendorTargetId ?? null)
+    const deviceTypeTargetId = currentLinkedDependencyTarget('DEVICE_TYPE', meta.deviceTypeSourceValue, references, meta.deviceTypeTargetId ?? null)
+    if (!vendorTargetId && meta.vendorSourceValue) waitingFor.push('VENDOR')
+    if (!deviceTypeTargetId && meta.deviceTypeSourceValue) waitingFor.push('DEVICE_TYPE')
     if (waitingFor.length) return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, vendorTargetId, deviceTypeTargetId, waitingFor } }
     canonicalContext = vendorTargetId ?? ''
     const active = universe.models.filter((record) =>
@@ -294,12 +274,8 @@ function resolveOneReference(
     meta.vendorTargetId = vendorTargetId
     meta.deviceTypeTargetId = deviceTypeTargetId
   } else {
-    let modelTargetId: string | null = meta.modelTargetId ?? null
-    if (!modelTargetId && meta.modelSourceValue) {
-      const modelRef = findRaw('DEVICE_MODEL', meta.modelSourceValue)
-      modelTargetId = modelRef?.status === 'LINKED' ? modelRef.targetId : null
-      if (!modelTargetId) waitingFor = ['DEVICE_MODEL']
-    }
+    const modelTargetId = currentLinkedDependencyTarget('DEVICE_MODEL', meta.modelSourceValue, references, meta.modelTargetId ?? null)
+    if (!modelTargetId && meta.modelSourceValue) waitingFor = ['DEVICE_MODEL']
     if (!modelTargetId) waitingFor = ['DEVICE_MODEL']
     if (waitingFor.length) return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, modelTargetId: null, waitingFor } }
     const model = universe.models.find((record) => record.id === modelTargetId) ?? null

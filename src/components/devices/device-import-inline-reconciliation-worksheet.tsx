@@ -181,10 +181,6 @@ function normalized(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
 }
 
-function compact(value: string | null | undefined) {
-  return normalized(value).replace(/[^a-z0-9]+/g, '')
-}
-
 function suggestedCode(value: string, separator: '_' | '-' = '_') {
   return value.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]+/g, separator).replace(new RegExp(`^\\${separator}+|\\${separator}+$`, 'g'), '').slice(0, 40) || 'IMPORT'
 }
@@ -605,14 +601,30 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       if (!draft) continue
       if (!editedReferences.has(reference.id)) { addPending(`Model “${reference.sourceValue}” has not been reviewed yet.`); continue }
       const vendorRef = referenceBySource.get(`VENDOR|${normalized(reference.metadata.vendorSourceValue)}`) ?? null
-      if (vendorRef && vendorRef.status !== 'LINKED') {
-        if (draft.vendorId) itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'LINK', targetId: draft.vendorId, remember, values: {} })
-        else if (draft.vendorName.trim()) itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.vendorName, code: draft.vendorCode } })
+      if (vendorRef) {
+        const currentVendorId = vendorRef.targetId ?? reference.metadata.vendorTargetId ?? ''
+        const currentVendorName = selectedName(currentVendorId, assist.workspace.options.vendors)
+        const wantsDifferentVendor = draft.vendorId
+          ? draft.vendorId !== currentVendorId
+          : Boolean(draft.vendorName.trim()) && normalized(draft.vendorName) !== normalized(currentVendorName || reference.metadata.vendorSourceValue)
+        if (draft.vendorId && (vendorRef.status !== 'LINKED' || wantsDifferentVendor)) {
+          itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'LINK', targetId: draft.vendorId, remember, values: {} })
+        } else if (!draft.vendorId && draft.vendorName.trim() && (vendorRef.status !== 'LINKED' || wantsDifferentVendor)) {
+          itemMap.set(vendorRef.id, { referenceId: vendorRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.vendorName, code: draft.vendorCode } })
+        }
       }
       const typeRef = referenceBySource.get(`DEVICE_TYPE|${normalized(reference.metadata.deviceTypeSourceValue)}`) ?? null
-      if (typeRef && typeRef.status !== 'LINKED') {
-        if (draft.deviceTypeId) itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'LINK', targetId: draft.deviceTypeId, remember, values: {} })
-        else if (draft.deviceTypeName.trim()) itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.deviceTypeName, code: draft.deviceTypeCode } })
+      if (typeRef) {
+        const currentTypeId = typeRef.targetId ?? reference.metadata.deviceTypeTargetId ?? ''
+        const currentTypeName = selectedName(currentTypeId, assist.workspace.options.deviceTypes)
+        const wantsDifferentType = draft.deviceTypeId
+          ? draft.deviceTypeId !== currentTypeId
+          : Boolean(draft.deviceTypeName.trim()) && normalized(draft.deviceTypeName) !== normalized(currentTypeName || reference.metadata.deviceTypeSourceValue)
+        if (draft.deviceTypeId && (typeRef.status !== 'LINKED' || wantsDifferentType)) {
+          itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'LINK', targetId: draft.deviceTypeId, remember, values: {} })
+        } else if (!draft.deviceTypeId && draft.deviceTypeName.trim() && (typeRef.status !== 'LINKED' || wantsDifferentType)) {
+          itemMap.set(typeRef.id, { referenceId: typeRef.id, action: 'CREATE', targetId: null, remember, values: { name: draft.deviceTypeName, code: draft.deviceTypeCode } })
+        }
       }
       if (draft.existingModelId) {
         itemMap.set(reference.id, { referenceId: reference.id, action: 'LINK', targetId: draft.existingModelId, remember, values: {} })
@@ -680,7 +692,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     }
 
     return { items: [...itemMap.values()], families, errors, pendingCount }
-  }, [assist, coreDrafts, coreRefs, editedFamilies, editedReferences, familyDrafts, firmwareDrafts, firmwareRefs, linkedFamilyTasks, modelDrafts, modelRefs, siteDrafts, siteRefs])
+  }, [assist, coreDrafts, coreRefs, editedFamilies, editedReferences, familyDrafts, firmwareDrafts, firmwareRefs, linkedFamilyTasks, modelDrafts, modelRefBySource, modelRefs, referenceBySource, siteDrafts, siteRefs])
 
   async function applyAll() {
     if (!assist || (!plan.items.length && !plan.families.length)) return
