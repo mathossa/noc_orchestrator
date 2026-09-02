@@ -74,4 +74,65 @@ describe('device import reconciliation memory', () => {
       resolutionSource: 'PROFILE_ALIAS',
     })
   })
+
+  it('reuses remembered Firmware with explicit staged platform evidence on a multi-platform Model', () => {
+    const reference = {
+      id: 'firmware-ref',
+      batchId: 'batch-1',
+      kind: 'FIRMWARE_RELEASE',
+      sourceValue: '8.10.0.20',
+      normalizedSourceValue: '8.10.0.20',
+      contextKey: '',
+      metadata: { modelTargetId: 'model-ap315', platform: 'AOS-8' },
+      status: 'UNRESOLVED',
+      targetId: null,
+      suggestedTargetId: null,
+      suggestionScore: null,
+      resolutionSource: null,
+      occurrenceCount: 1,
+    }
+    const vendor = { id: 'vendor-hpe', code: 'HPE', name: 'HPE Networking', isActive: true }
+    const deviceType = { id: 'type-ap', code: 'AP', name: 'Access Point', isActive: true }
+    const universe = {
+      customers: [],
+      sites: [],
+      vendors: [vendor],
+      deviceTypes: [deviceType],
+      models: [{
+        id: 'model-ap315',
+        vendorId: vendor.id,
+        deviceTypeId: deviceType.id,
+        familyId: null,
+        model: 'AP315',
+        platform: null,
+        isActive: true,
+        vendor,
+        deviceType,
+      }],
+      contracts: [],
+      firmwareReleases: [{
+        id: 'firmware-aos8',
+        vendorId: vendor.id,
+        platform: 'AOS-8',
+        version: '8.10.0.20',
+        status: 'AVAILABLE',
+        isActive: true,
+        vendor,
+      }],
+      aliases: [{
+        kind: 'FIRMWARE_RELEASE',
+        normalizedSourceValue: '8.10.0.20',
+        contextKey: 'vendor-hpe|aos-8',
+        targetId: 'firmware-aos8',
+      }],
+    }
+
+    expect(resolveOneReference(reference as never, [reference] as never, universe as never)).toMatchObject({
+      status: 'LINKED',
+      targetId: 'firmware-aos8',
+      resolutionSource: 'PROFILE_ALIAS',
+      metadata: { platform: 'AOS-8' },
+    })
+  })
+
 })
