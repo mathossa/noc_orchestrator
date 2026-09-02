@@ -311,22 +311,23 @@ export function resolveOneReference(
     if (waitingFor.length) return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, modelTargetId: null, waitingFor } }
     const model = universe.models.find((record) => record.id === modelTargetId) ?? null
     if (!model) return { status: 'WAITING', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, metadata: { ...meta, modelTargetId, waitingFor: ['DEVICE_MODEL'] } }
-    canonicalContext = `${model.vendorId}|${normalizedPlatform(model.platform ?? '')}`
+    const platform = meta.platform ?? model.platform
+    canonicalContext = `${model.vendorId}|${normalizedPlatform(platform ?? '')}`
     const active = universe.firmwareReleases.filter((record) =>
       record.isActive &&
       record.vendorId === model.vendorId &&
-      (!model.platform || normalizedPlatform(record.platform) === normalizedPlatform(model.platform)),
+      (!platform || normalizedPlatform(record.platform) === normalizedPlatform(platform)),
     )
     candidates = active.map((record) => ({ id: record.id, label: record.version }))
     const rememberedFirmware = profileAliasTarget(kind, reference.sourceValue, canonicalContext, universe.aliases)
     if (rememberedFirmware && active.some((record) => record.id === rememberedFirmware)) {
-      return { status: 'LINKED', targetId: rememberedFirmware, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform: model.platform, waitingFor: [] } }
+      return { status: 'LINKED', targetId: rememberedFirmware, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'PROFILE_ALIAS', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform, waitingFor: [] } }
     }
     const exact = active.filter((record) => normalizeImportText(record.version) === normalizeImportText(reference.sourceValue))
-    if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform: model.platform, waitingFor: [] } }
+    if (exact.length === 1) return { status: 'LINKED', targetId: exact[0].id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT', metadata: { ...meta, modelTargetId, vendorTargetId: model.vendorId, platform, waitingFor: [] } }
     meta.modelTargetId = modelTargetId
     meta.vendorTargetId = model.vendorId
-    meta.platform = model.platform
+    meta.platform = platform
   }
 
 
