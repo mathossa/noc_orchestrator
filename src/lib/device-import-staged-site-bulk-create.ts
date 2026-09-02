@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
-import { nextAvailableImportSiteCode, suggestedImportSiteCode } from '@/lib/device-import-site-code'
+import {
+  nextAvailableImportSiteCode,
+  suggestedImportSiteCode,
+  suggestedImportSiteName,
+} from '@/lib/device-import-site-code'
 import { getDeviceImportBatchWorkspace, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
@@ -57,17 +61,35 @@ export async function getDeviceImportSiteCreateProposals(batchId: string) {
     usedCodesByCustomer.set(site.customerId, used)
   }
 
-  const grouped = new Map<string, { customerId: string; referenceIds: string[]; sourceValues: string[]; name: string }>()
+  const grouped = new Map<string, {
+    customerId: string
+    referenceIds: string[]
+    sourceValues: string[]
+    customerSourceValues: string[]
+    name: string
+  }>()
   for (const reference of references) {
-    const customerId = metadata(reference.metadata).customerTargetId!
-    if (!customerById.has(customerId)) continue
-    const key = `${customerId}|${normalizeImportText(reference.sourceValue)}`
+    const meta = metadata(reference.metadata)
+    const customerId = meta.customerTargetId!
+    const customer = customerById.get(customerId)
+    if (!customer) continue
+    const proposedName = suggestedImportSiteName(reference.sourceValue, meta.customerSourceValue, customer.name)
+    const key = `${customerId}|${normalizeImportText(proposedName)}`
     const current = grouped.get(key)
     if (current) {
       current.referenceIds.push(reference.id)
       if (!current.sourceValues.includes(reference.sourceValue)) current.sourceValues.push(reference.sourceValue)
+      if (meta.customerSourceValue && !current.customerSourceValues.includes(meta.customerSourceValue)) {
+        current.customerSourceValues.push(meta.customerSourceValue)
+      }
     } else {
-      grouped.set(key, { customerId, referenceIds: [reference.id], sourceValues: [reference.sourceValue], name: reference.sourceValue })
+      grouped.set(key, {
+        customerId,
+        referenceIds: [reference.id],
+        sourceValues: [reference.sourceValue],
+        customerSourceValues: meta.customerSourceValue ? [meta.customerSourceValue] : [],
+        name: proposedName,
+      })
     }
   }
 
@@ -92,6 +114,7 @@ export async function getDeviceImportSiteCreateProposals(batchId: string) {
       customerCode: customer.code,
       referenceIds: group.referenceIds,
       sourceValues: group.sourceValues,
+      customerSourceValues: group.customerSourceValues,
       name: group.name,
       code,
       existingTarget: existing ? { id: existing.id, name: existing.name, code: existing.code } : null,
