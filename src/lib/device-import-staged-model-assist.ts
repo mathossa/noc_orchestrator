@@ -20,11 +20,29 @@ type ModelCreateInput = {
   referenceId: string
   model: string
   platform: string | null
+  platforms: string[]
   familyId: string | null
 }
 
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
+}
+
+function cleanPlatform(value: unknown) {
+  return typeof value === 'string' && value.trim()
+    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ')
+    : null
+}
+
+function cleanPlatforms(value: unknown, preferred: string | null) {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  const result = new Map<string, string>()
+  for (const candidate of raw) {
+    const platform = cleanPlatform(candidate)
+    if (platform) result.set(normalizeImportText(platform), platform)
+  }
+  if (preferred) result.set(normalizeImportText(preferred), preferred)
+  return [...result.values()]
 }
 
 async function assertMutableBatch(batchId: string) {
@@ -55,6 +73,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
         familyId: true,
         model: true,
         platform: true,
+        supportedPlatforms: { select: { id: true, platform: true }, orderBy: { platform: 'asc' } },
         isActive: true,
         vendor: { select: { id: true, code: true, name: true } },
         deviceType: { select: { id: true, code: true, name: true } },
@@ -116,6 +135,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
     const vendor = vendorById.get(meta.vendorTargetId!)!
     const deviceType = typeById.get(meta.deviceTypeTargetId!)!
     const existingSuggestion = suggestImportModelFamily(reference.sourceValue, vendor.id, families)
+    const inferredPlatforms = cleanPlatforms(meta.platforms ?? [], meta.platform ?? null)
     return {
       id: reference.id,
       sourceValue: reference.sourceValue,
@@ -126,7 +146,8 @@ export async function getDeviceImportModelAssist(batchId: string) {
       deviceTypeName: deviceType.name,
       deviceTypeCode: deviceType.code,
       proposedModel: reference.sourceValue,
-      proposedPlatform: meta.platform ?? '',
+      proposedPlatform: inferredPlatforms.length === 1 ? inferredPlatforms[0] : '',
+      proposedPlatforms: inferredPlatforms,
       suggestedFamilyId: existingSuggestion?.id ?? null,
       suggestedFamilyName: existingSuggestion?.name ?? null,
       proposedNewFamilyName: existingSuggestion ? null : suggestNewImportModelFamilyName(reference.sourceValue, vendor.name, vendor.code),
@@ -170,12 +191,14 @@ function parseModelCreateItems(rawInput: Record<string, unknown>, references: Mo
       const item = typeof rawItem === 'object' && rawItem !== null ? rawItem as Record<string, unknown> : {}
       const referenceId = typeof item.referenceId === 'string' ? item.referenceId.trim() : ''
       const model = typeof item.model === 'string' ? item.model.normalize('NFKC').trim().replace(/\s+/g, ' ') : ''
-      const platform = typeof item.platform === 'string' && item.platform.trim() ? item.platform.normalize('NFKC').trim().replace(/\s+/g, ' ') : null
+      const platform = cleanPlatform(item.platform)
+      const platforms = cleanPlatforms(item.platforms, platform)
       const familyId = typeof item.familyId === 'string' && item.familyId.trim() ? item.familyId.trim() : null
       if (!referenceId || !model) throw new DeviceImportStagingError('Every prepared Model needs a staged reference and concrete Model name.')
       if (model.length > 160) throw new DeviceImportStagingError(`Model “${model}” is longer than 160 characters.`)
       if (platform && platform.length > 160) throw new DeviceImportStagingError(`Platform “${platform}” is longer than 160 characters.`)
-      return { referenceId, model, platform, familyId }
+      if (platforms.some((value) => value.length > 160)) throw new DeviceImportStagingError('Supported platform names must be 160 characters or fewer.')
+      return { referenceId, model, platform, platforms, familyId }
     })
   }
   const referenceIds = Array.isArray(rawInput.referenceIds)
@@ -183,7 +206,15 @@ function parseModelCreateItems(rawInput: Record<string, unknown>, references: Mo
     : []
   return referenceIds.map((referenceId) => {
     const reference = references.find((candidate) => candidate.id === referenceId)
-    return { referenceId, model: reference?.sourceValue ?? '', platform: reference ? metadata(reference.metadata).platform ?? null : null, familyId: null }
+    const meta = reference ? metadata(reference.metadata) : {}
+    const platforms = cleanPlatforms(meta.platforms ?? [], meta.platform ?? null)
+    return {
+      referenceId,
+      model: reference?.sourceValue ?? '',
+      platform: platforms.length === 1 ? platforms[0] : null,
+      platforms,
+      familyId: null,
+    }
   })
 }
 
@@ -217,7 +248,18 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     prisma.vendor.findMany({ where: { id: { in: vendorIds }, isActive: true }, select: { id: true } }),
     prisma.deviceType.findMany({ where: { id: { in: typeIds }, isActive: true }, select: { id: true } }),
     familyIds.length ? prisma.deviceModelFamily.findMany({ where: { id: { in: familyIds }, isActive: true }, select: { id: true, vendorId: true } }) : Promise.resolve([]),
-    prisma.deviceModel.findMany({ where: { vendorId: { in: vendorIds } }, select: { id: true, vendorId: true, deviceTypeId: true, familyId: true, model: true } }),
+    prisma.deviceModel.findMany({
+      where: { vendorId: { in: vendorIds } },
+      select: {
+        id: true,
+        vendorId: true,
+        deviceTypeId: true,
+        familyId: true,
+        model: true,
+        platform: true,
+        supportedPlatforms: { select: { platform: true } },
+      },
+    }),
   ])
   if (vendors.length !== vendorIds.length) throw new DeviceImportStagingError('One or more resolved Vendors no longer exist or are archived.')
   if (types.length !== typeIds.length) throw new DeviceImportStagingError('One or more resolved Device Types no longer exist or are archived.')
@@ -230,10 +272,11 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     familyId: string | null
     model: string
     platform: string | null
+    platforms: Map<string, string>
     referenceIds: string[]
   }
   const pendingByKey = new Map<string, PendingModel>()
-  const links: Array<{ referenceId: string; targetId: string; source: 'EXACT' | 'CREATED' }> = []
+  const links: Array<{ referenceId: string; targetId: string; source: 'EXACT'; platforms: string[]; preferred: string | null }> = []
 
   for (const item of items) {
     const reference = referenceById.get(item.referenceId)!
@@ -248,7 +291,7 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     const exact = existingModels.find((model) => model.vendorId === vendorId && normalizeImportText(model.model) === normalized)
     if (exact) {
       if (exact.deviceTypeId !== deviceTypeId) throw new DeviceImportStagingError(`Model “${item.model}” already exists for this Vendor under another Device Type.`)
-      links.push({ referenceId: reference.id, targetId: exact.id, source: 'EXACT' })
+      links.push({ referenceId: reference.id, targetId: exact.id, source: 'EXACT', platforms: item.platforms, preferred: item.platform })
       continue
     }
 
@@ -256,16 +299,32 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     const current = pendingByKey.get(key)
     if (current) {
       if (current.deviceTypeId !== deviceTypeId) throw new DeviceImportStagingError(`Model “${item.model}” resolves to conflicting Device Types in this import.`)
-      if (current.familyId !== item.familyId || current.platform !== item.platform) throw new DeviceImportStagingError(`Model “${item.model}” has conflicting Platform or Family proposals. Make the prepared rows consistent.`)
+      if (current.familyId !== item.familyId) throw new DeviceImportStagingError(`Model “${item.model}” has conflicting Family proposals. Make the prepared rows consistent.`)
+      if (current.platform && item.platform && normalizeImportText(current.platform) !== normalizeImportText(item.platform)) {
+        throw new DeviceImportStagingError(`Model “${item.model}” has conflicting preferred-platform proposals. Leave preferred platform blank for a dual-platform model.`)
+      }
+      if (!current.platform && item.platform) current.platform = item.platform
+      for (const platform of item.platforms) current.platforms.set(normalizeImportText(platform), platform)
       current.referenceIds.push(reference.id)
       continue
     }
     pendingByKey.set(key, {
-      id: randomUUID(), vendorId, deviceTypeId, familyId: item.familyId, model: item.model, platform: item.platform, referenceIds: [reference.id],
+      id: randomUUID(),
+      vendorId,
+      deviceTypeId,
+      familyId: item.familyId,
+      model: item.model,
+      platform: item.platform,
+      platforms: new Map(item.platforms.map((platform) => [normalizeImportText(platform), platform])),
+      referenceIds: [reference.id],
     })
   }
 
   const pending = [...pendingByKey.values()]
+  const platformCreates = [
+    ...pending.flatMap((model) => [...model.platforms.values()].map((platform) => ({ deviceModelId: model.id, platform }))),
+    ...links.flatMap((link) => link.platforms.map((platform) => ({ deviceModelId: link.targetId, platform }))),
+  ]
   const operations = [
     ...(pending.length ? [prisma.deviceModel.createMany({
       data: pending.map((model) => ({
@@ -274,12 +333,17 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
         deviceTypeId: model.deviceTypeId,
         familyId: model.familyId,
         model: model.model,
-        platform: model.platform,
+        platform: model.platform ?? (model.platforms.size === 1 ? [...model.platforms.values()][0] : null),
         notes: 'Created from staged XLSX inventory import.',
         source: 'IMPORT',
         isActive: true,
       })),
     })] : []),
+    ...(platformCreates.length ? [prisma.deviceModelPlatform.createMany({ data: platformCreates, skipDuplicates: true })] : []),
+    ...links.filter((link) => link.preferred).map((link) => prisma.deviceModel.updateMany({
+      where: { id: link.targetId, platform: null },
+      data: { platform: link.preferred },
+    })),
     ...pending.flatMap((model) => model.referenceIds.map((referenceId) => prisma.deviceImportStagedReference.update({
       where: { id: referenceId },
       data: { status: 'LINKED', targetId: model.id, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'CREATED' },
