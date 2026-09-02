@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { nextAvailableImportSiteCode, suggestedImportSiteCode } from '@/lib/device-import-site-code'
+import {
+  importSiteProfileContext,
+  nextAvailableImportSiteCode,
+  suggestedImportSiteCode,
+  suggestedImportSiteName,
+} from '@/lib/device-import-site-code'
 
 describe('import Site codes', () => {
   it('creates readable canonical codes from imported Site names', () => {
@@ -17,5 +22,17 @@ describe('import Site codes', () => {
     const result = nextAvailableImportSiteCode(base, new Set([base]))
     expect(result.length).toBeLessThanOrEqual(40)
     expect(result.endsWith('-2')).toBe(true)
+  })
+
+  it('uses the raw organization suffix as a review suggestion for generic upstream Sites', () => {
+    expect(suggestedImportSiteName('Open internet', 'Unica Groep - UICTS Working Spirit Deventer', 'Unica Groep'))
+      .toBe('UICTS Working Spirit Deventer')
+    expect(suggestedImportSiteName('Open internet', 'Unica Groep - Zwolle', 'Unica Groep')).toBe('Zwolle')
+    expect(suggestedImportSiteName('Datacenter', 'Unica Groep - Zwolle', 'Unica Groep')).toBe('Datacenter')
+  })
+
+  it('keeps same generic Site labels distinguishable by raw organization context', () => {
+    expect(importSiteProfileContext('customer-1', 'Unica Groep - Deventer'))
+      .not.toBe(importSiteProfileContext('customer-1', 'Unica Groep - Zwolle'))
   })
 })
