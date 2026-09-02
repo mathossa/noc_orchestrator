@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import {
   bulkCreateDeviceImportCoreReferences,
@@ -31,6 +32,7 @@ export async function POST(request: Request, context: RouteContext) {
     const body = await request.json()
     const data = await bulkCreateDeviceImportCoreReferences({ ...body, batchId })
     await rememberReviewedBatchReferences(batchId, ['CUSTOMER', 'VENDOR', 'DEVICE_TYPE', 'CONTRACT_TYPE'])
+    await synchronizeImportedModelPlatforms(batchId)
     return NextResponse.json({ data })
   } catch (error) {
     if (error instanceof SyntaxError) {
