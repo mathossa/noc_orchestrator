@@ -73,6 +73,7 @@ const FIELD_LABELS: Record<DeviceImportField, string> = {
   serialNumber: 'Serial number',
   vendor: 'Vendor',
   model: 'Concrete device model',
+  platform: 'Platform',
   deviceType: 'Device type',
   managementAddress: 'Management address',
   currentFirmware: 'Current firmware (generic)',

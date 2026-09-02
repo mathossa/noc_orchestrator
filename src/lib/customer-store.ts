@@ -122,6 +122,7 @@ export async function getCustomer(id: string) {
       where: { customerId: id },
       select: {
         deviceModelId: true,
+        platform: true,
         currentFirmwareReleaseId: true,
         lifecycle: { select: { state: true } },
       },
@@ -141,11 +142,18 @@ export async function getCustomer(id: string) {
     }),
   ])
 
-  const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
+  const policyScopes = new Map<string, { deviceModelId: string; platform: string | null }>()
+  for (const device of devices) {
+    const key = `${device.deviceModelId}\u0000${device.platform ?? ''}`
+    if (!policyScopes.has(key)) policyScopes.set(key, { deviceModelId: device.deviceModelId, platform: device.platform })
+  }
   const desiredPolicies = await Promise.all(
-    modelIds.map(async (modelId) => [modelId, await getActiveModelDesiredPolicy(modelId)] as const),
+    [...policyScopes.entries()].map(async ([key, scope]) => [
+      key,
+      await getActiveModelDesiredPolicy(scope.deviceModelId, scope.platform),
+    ] as const),
   )
-  const desiredByModel = new Map(desiredPolicies)
+  const desiredByScope = new Map(desiredPolicies)
 
   const workflowCounts = {
     planned: 0,
@@ -156,7 +164,7 @@ export async function getCustomer(id: string) {
   const desiredStateSummary = emptyTechnicalFirmwareStateCounts()
 
   for (const device of devices) {
-    const desiredPolicy = desiredByModel.get(device.deviceModelId)
+    const desiredPolicy = desiredByScope.get(`${device.deviceModelId}\u0000${device.platform ?? ''}`)
     incrementTechnicalFirmwareStateCount(
       desiredStateSummary,
       resolveTechnicalFirmwareState({

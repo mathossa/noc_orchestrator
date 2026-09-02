@@ -97,14 +97,14 @@ export async function setFirmwareLifecycleDecision(
   const input = parseFirmwareLifecycleInput(rawInput)
   const device = await prisma.device.findUnique({
     where: { id: deviceId },
-    select: { id: true, deviceModelId: true, customerId: true },
+    select: { id: true, deviceModelId: true, platform: true, customerId: true },
   })
   if (!device) throw new FirmwareLifecycleNotFoundError('Device was not found.')
 
-  const desiredPolicy = await getActiveModelDesiredPolicy(device.deviceModelId)
+  const desiredPolicy = await getActiveModelDesiredPolicy(device.deviceModelId, device.platform)
   if (!desiredPolicy) {
     throw new FirmwareLifecyclePolicyError(
-      'A lifecycle decision requires an explicit desired firmware policy for the device model.',
+      'A lifecycle decision requires an explicit desired firmware policy for the device model and platform.',
     )
   }
 
@@ -191,6 +191,7 @@ export async function setFirmwareLifecycleDecision(
         },
         metadata: {
           deviceModelId: device.deviceModelId,
+          devicePlatform: device.platform,
           desiredPolicyId: desiredPolicy.id,
         },
       },

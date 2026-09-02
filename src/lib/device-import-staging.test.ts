@@ -40,7 +40,7 @@ describe('staged device import references', () => {
     expect(site.metadata).toMatchObject({ customerSourceValue: 'Unica Groep', rowNumbers: [2, 3] })
     expect(model.contextKey).toBe('vendor:fortinet|type:firewall')
     expect(model.metadata).toMatchObject({ vendorSourceValue: 'Fortinet', deviceTypeSourceValue: 'Firewall' })
-    expect(firmware.contextKey).toBe('vendor:fortinet|model:fortinet fortigate-100f')
+    expect(firmware.contextKey).toBe('vendor:fortinet|model:fortinet fortigate-100f|platform:')
   })
 
   it('keeps site identity customer-scoped when the same site label occurs under multiple organizations', () => {

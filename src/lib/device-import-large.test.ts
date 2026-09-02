@@ -44,6 +44,7 @@ const model = {
   deviceTypeId: deviceType.id,
   model: '2530-24G',
   platform: 'AOS-S',
+  supportedPlatforms: [{ platform: 'AOS-S' }],
   isActive: true,
   vendor,
   deviceType,

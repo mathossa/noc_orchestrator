@@ -37,7 +37,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     where: { batchId, kind: 'FIRMWARE_RELEASE', status: 'UNRESOLVED' },
     orderBy: { sourceValue: 'asc' },
     select: { id: true, sourceValue: true, metadata: true },
-  }) as Promise<FirmwareReference[]>
+  }) as FirmwareReference[]
 
   const vendorIds = [...new Set(references.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
   const modelIds = [...new Set(references.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id)))]
@@ -53,7 +53,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
         supportedPlatforms: { select: { platform: true } },
         isActive: true,
       },
-    }) : Promise.resolve([]),
+    }) as Promise<Array<{ id: string; vendorId: string; model: string; platform: string | null; supportedPlatforms: Array<{ platform: string }>; isActive: boolean }>> : Promise.resolve([]),
     vendorIds.length ? prisma.firmwareRelease.findMany({
       where: { vendorId: { in: vendorIds } },
       select: { id: true, vendorId: true, platform: true, version: true, status: true, isActive: true },
@@ -154,7 +154,7 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   const references = await prisma.deviceImportStagedReference.findMany({
     where: { batchId, kind: 'FIRMWARE_RELEASE', status: 'UNRESOLVED', id: { in: allReferenceIds } },
     select: { id: true, sourceValue: true, metadata: true },
-  }) as Promise<FirmwareReference[]>
+  }) as FirmwareReference[]
   if (references.length !== allReferenceIds.length) throw new DeviceImportStagingError('One or more prepared Firmware references are no longer unresolved.')
   const referenceById = new Map(references.map((reference) => [reference.id, reference]))
 
