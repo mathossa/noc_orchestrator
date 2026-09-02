@@ -19,7 +19,11 @@ function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
 
 function contextKey(kind: DeviceImportReferenceKind, value: unknown) {
   const meta = metadata(value)
-  if (kind === 'SITE') return meta.customerTargetId ? importSiteProfileContext(meta.customerTargetId, meta.customerSourceValue) : ''
+  if (kind === 'SITE') {
+    return meta.customerTargetId
+      ? importSiteProfileContext(meta.customerTargetId, meta.organizationSiteSourceValue)
+      : ''
+  }
   if (kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
   if (kind === 'FIRMWARE_RELEASE') {
     return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
