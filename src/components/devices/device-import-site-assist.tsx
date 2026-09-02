@@ -14,6 +14,7 @@ type SiteProposal = {
   customerCode: string | null
   referenceIds: string[]
   sourceValues: string[]
+  organizationSiteSourceValues: string[]
   name: string
   code: string
   existingTarget: { id: string; name: string; code: string | null } | null
@@ -142,6 +143,7 @@ export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Customer</div>
           <div className="mt-1 text-sm font-semibold">{draft.customerName}</div>
           <div className="mt-1 text-xs text-[var(--muted)]">{draft.customerCode ? `${draft.customerCode} · ` : ''}{draft.referenceIds.length} staged reference{draft.referenceIds.length === 1 ? '' : 's'}</div>
+          {draft.organizationSiteSourceValues.length ? <div className="mt-1 text-xs text-[var(--muted)]">Source organization: {draft.organizationSiteSourceValues.join(' · ')}</div> : null}
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-semibold text-[var(--muted-strong)]" htmlFor={`site-name-${draft.key}`}>Site name</label>
