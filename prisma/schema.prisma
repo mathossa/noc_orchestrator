@@ -235,11 +235,12 @@ model DeviceModel {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  deviceType       DeviceType         @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
-  family           DeviceModelFamily? @relation(fields: [familyId], references: [id], onDelete: Restrict)
-  devices          Device[]
-  firmwarePolicies FirmwarePolicy[]
+  vendor             Vendor                @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  deviceType         DeviceType            @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
+  family             DeviceModelFamily?    @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  supportedPlatforms DeviceModelPlatform[]
+  devices            Device[]
+  firmwarePolicies   FirmwarePolicy[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -254,6 +255,21 @@ model DeviceModel {
   @@index([isActive])
 }
 
+model DeviceModelPlatform {
+  id            String @id @default(uuid())
+  deviceModelId String
+  platform      String
+
+  deviceModel DeviceModel @relation(fields: [deviceModelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([deviceModelId, platform])
+  @@index([deviceModelId])
+  @@index([platform])
+}
+
 model DeviceImportProfile {
   id               String  @id @default(uuid())
   name             String  @unique
@@ -261,6 +277,7 @@ model DeviceImportProfile {
   settings         Json
   isActive         Boolean @default(true)
   aliases          DeviceImportProfileAlias[]
+  rules            DeviceImportProfileRule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -286,6 +303,26 @@ model DeviceImportProfileAlias {
   @@unique([profileId, kind, normalizedSourceValue, contextKey])
   @@index([profileId])
   @@index([kind, targetId])
+}
+
+model DeviceImportProfileRule {
+  id              String  @id @default(uuid())
+  profileId       String
+  action          String  @default("IGNORE")
+  field           String
+  operator        String  @default("EQUALS")
+  value           String
+  normalizedValue String
+  isActive        Boolean @default(true)
+
+  profile DeviceImportProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([profileId, action, field, operator, normalizedValue], map: "ImportProfileRule_profile_action_field_value_key")
+  @@index([profileId, isActive])
+  @@index([action, field])
 }
 
 model ImportReferenceAlias {
@@ -326,12 +363,14 @@ model DeviceImportBatch {
 }
 
 model DeviceImportStagedRow {
-  id                String @id @default(uuid())
+  id                String  @id @default(uuid())
   batchId           String
   rowNumber         Int
   rawData           Json
   mappedData        Json
-  status            String @default("STAGED")
+  status            String  @default("STAGED")
+  statusReason      String?
+  statusSource      String?
   publishedDeviceId String?
 
   batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
@@ -441,6 +480,7 @@ model Device {
   customerId                String
   siteId                    String?
   deviceModelId             String
+  platform                  String?
   name                      String
   hostname                  String?
   serialNumber              String?
@@ -473,6 +513,7 @@ model Device {
   @@index([customerId])
   @@index([siteId])
   @@index([deviceModelId])
+  @@index([platform])
   @@index([currentFirmwareReleaseId])
   @@index([currentFirmwareSource])
   @@index([source])
@@ -483,6 +524,7 @@ model Device {
 model FirmwarePolicy {
   id                      String  @id @default(uuid())
   targetFirmwareReleaseId String
+  platform                String?
   isActive                Boolean @default(true)
   notes                   String?
 
@@ -505,7 +547,7 @@ model FirmwarePolicy {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([targetFirmwareReleaseId])
-  @@index([deviceModelId, isActive])
+  @@index([deviceModelId, platform, isActive])
   @@index([customerId])
   @@index([contractTypeId])
   @@index([deviceId])
@@ -523,7 +565,7 @@ model FirmwareLifecycleRecord {
   notes                   String?
   plannedFor              DateTime?
   reviewAt                DateTime?
-  decidedAt               DateTime               @default(now())
+  decidedAt               DateTime              @default(now())
   decidedByUserId         String?
   completedAt             DateTime?
 
@@ -544,13 +586,13 @@ model FirmwareLifecycleRecord {
 model AuditEvent {
   id          String @id @default(uuid())
   actorUserId String?
-  customerId  String?
+  customerId String?
   action      String
-  entityType  String
-  entityId    String
-  before      Json?
-  after       Json?
-  metadata    Json?
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  metadata   Json?
 
   actor    User?     @relation("AuditEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
