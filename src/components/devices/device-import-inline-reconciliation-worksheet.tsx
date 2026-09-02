@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
 import { resolveImportedModelVendor } from '@/lib/device-import-model-identity'
+import { modelDraftIdsForVendorSource } from '@/lib/device-import-reconciliation-memory'
 
 const SAFE_SCORE = 0.97
 const INITIAL_VISIBLE = 50
@@ -467,13 +468,18 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const filteredModels = modelRefs.filter(matchesQuery)
   const filteredFirmware = firmwareRefs.filter(matchesQuery)
 
-  function markEdited(referenceId: string) {
+  function markEditedReferences(referenceIds: string[]) {
     setEditedReferences((current) => {
-      if (current.has(referenceId)) return current
+      const missing = referenceIds.filter((referenceId) => !current.has(referenceId))
+      if (!missing.length) return current
       const next = new Set(current)
-      next.add(referenceId)
+      for (const referenceId of missing) next.add(referenceId)
       return next
     })
+  }
+
+  function markEdited(referenceId: string) {
+    markEditedReferences([referenceId])
   }
 
   function markFamilyEdited(modelId: string) {
@@ -492,7 +498,10 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   }
 
   function updateModel(reference: Reference, values: Partial<ModelDraft>) {
-    markEdited(reference.id)
+    const relatedReferenceIds = values.vendorName !== undefined
+      ? modelDraftIdsForVendorSource(modelDrafts, reference.id)
+      : [reference.id]
+    markEditedReferences(relatedReferenceIds)
     setModelDrafts((current) => {
       const draft = current[reference.id]
       if (!draft) return current
