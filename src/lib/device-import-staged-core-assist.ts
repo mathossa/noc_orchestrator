@@ -134,6 +134,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
       const normalizedName = normalizeImportText(item.name)
       const normalizedCode = normalizeImportText(item.code)
       let targetId: string | null = null
+      let resolutionSource: 'EXACT' | 'CREATED' = 'CREATED'
 
       if (reference.kind === 'CUSTOMER') {
         const candidates = await tx.customer.findMany({ select: { id: true, code: true, name: true } })
@@ -141,6 +142,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
         if (exact.length > 1) throw new DeviceImportStagingError(`Customer “${item.name}” is ambiguous. Link it manually instead.`)
         if (exact.length === 1) {
           targetId = exact[0].id
+          resolutionSource = 'EXACT'
           linkedExisting += 1
         } else {
           targetId = randomUUID()
@@ -151,6 +153,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
         const existing = await tx.vendor.findFirst({ where: { OR: [{ code: item.code }, { name: item.name }] }, select: { id: true } })
         if (existing) {
           targetId = existing.id
+          resolutionSource = 'EXACT'
           linkedExisting += 1
         } else {
           targetId = randomUUID()
@@ -161,6 +164,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
         const existing = await tx.deviceType.findFirst({ where: { OR: [{ code: item.code }, { name: item.name }] }, select: { id: true } })
         if (existing) {
           targetId = existing.id
+          resolutionSource = 'EXACT'
           linkedExisting += 1
         } else {
           targetId = randomUUID()
@@ -171,6 +175,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
         const existing = await tx.contractType.findFirst({ where: { OR: [{ code: item.code }, { name: item.name }] }, select: { id: true } })
         if (existing) {
           targetId = existing.id
+          resolutionSource = 'EXACT'
           linkedExisting += 1
         } else {
           targetId = randomUUID()
@@ -186,7 +191,7 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
           targetId,
           suggestedTargetId: null,
           suggestionScore: null,
-          resolutionSource: linkedExisting ? 'EXACT' : 'CREATED',
+          resolutionSource,
         },
       })
     }
