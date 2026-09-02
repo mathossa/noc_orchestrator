@@ -1,4 +1,4 @@
-import { DeviceImportManualEntityResolver } from '@/components/devices/device-import-manual-entity-resolver'
+import { DeviceImportBulkReconciliationSheet } from '@/components/devices/device-import-bulk-reconciliation-sheet'
 import { DeviceImportReconciliationWorkspace } from '@/components/devices/device-import-reconciliation-workspace'
 import { DeviceImportSafeActionsControl } from '@/components/devices/device-import-safe-actions-control'
 
@@ -8,7 +8,7 @@ export default async function DeviceImportBatchPage({ params }: PageProps) {
   const { batchId } = await params
   return <>
     <DeviceImportReconciliationWorkspace batchId={batchId} />
-    <DeviceImportManualEntityResolver batchId={batchId} />
+    <DeviceImportBulkReconciliationSheet batchId={batchId} />
     <DeviceImportSafeActionsControl batchId={batchId} />
   </>
 }
