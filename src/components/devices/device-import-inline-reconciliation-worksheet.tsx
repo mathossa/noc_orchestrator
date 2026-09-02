@@ -6,6 +6,7 @@ import { SearchableReferencePicker, type SearchableReferenceOption } from '@/com
 import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
+import { isSafeExistingModelPrediction } from '@/lib/device-import-model-predictions'
 import { resolveImportedModelVendor } from '@/lib/device-import-model-identity'
 import { modelDraftIdsForVendorSource } from '@/lib/device-import-reconciliation-memory'
 
@@ -189,6 +190,20 @@ type PreparedFamily = {
   name: string | null
 }
 
+type ModelPrediction = {
+  referenceId: string
+  sourceValue: string
+  occurrenceCount: number
+  groupKey: string
+  groupLabel: string
+  action: 'LINK' | 'CREATE'
+  targetLabel: string
+  detail: string
+  confidence: number
+  confident: boolean
+  warning: string | null
+}
+
 function normalized(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
 }
@@ -213,6 +228,19 @@ function sourceReference(assist: Assist, kind: DeviceImportReferenceKind, source
 function safeSuggestedTarget(reference: Reference | null) {
   if (!reference?.suggestedTargetId || (reference.suggestionScore ?? 0) < SAFE_SCORE) return ''
   return reference.suggestedTargetId
+}
+
+function safeSuggestedModelTarget(reference: Reference, models: ModelRecord[]) {
+  const canonicalMatches = models.filter((model) =>
+    model.isActive &&
+    (!reference.metadata.vendorTargetId || model.vendorId === reference.metadata.vendorTargetId) &&
+    isSafeExistingModelPrediction(reference.sourceValue, model.model),
+  )
+  if (canonicalMatches.length === 1) return canonicalMatches[0].id
+  const targetId = reference.suggestedTargetId ?? ''
+  if (!targetId) return ''
+  const target = models.find((model) => model.id === targetId)
+  return target && isSafeExistingModelPrediction(reference.sourceValue, target.model) ? target.id : ''
 }
 
 function selectedName(id: string, records: OptionRecord[]) {
@@ -328,6 +356,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [predictionOpen, setPredictionOpen] = useState(false)
+  const [predictionSelection, setPredictionSelection] = useState<Set<string>>(() => new Set())
+  const [deferredModelReferences, setDeferredModelReferences] = useState<Set<string>>(() => new Set())
   const [editedReferences, setEditedReferences] = useState<Set<string>>(() => new Set())
   const [editedFamilies, setEditedFamilies] = useState<Set<string>>(() => new Set())
 
@@ -336,6 +367,8 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     setFailures({})
     setEditedReferences(new Set())
     setEditedFamilies(new Set())
+    setPredictionOpen(false)
+    setPredictionSelection(new Set())
 
     const activeCustomers = next.workspace.options.customers.filter((item) => item.isActive)
     const activeVendors = next.workspace.options.vendors.filter((item) => item.isActive)
@@ -377,7 +410,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       const platform = proposal?.proposedPlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
       const platforms = proposal?.proposedPlatforms?.length ? proposal.proposedPlatforms.join(', ') : reference.metadata.platforms?.join(', ') ?? (platform ? platform : '')
       nextModels[reference.id] = {
-        existingModelId: safeSuggestedTarget(reference),
+        existingModelId: safeSuggestedModelTarget(reference, next.workspace.options.models),
         vendorId,
         vendorName,
         vendorCode: suggestedCode(vendorName),
@@ -460,16 +493,65 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const firmwareRefs = useMemo(() => references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE'), [references])
   const coreRefs = useMemo(() => references.filter((reference) => Boolean(coreDrafts[reference.id])), [coreDrafts, references])
   const linkedFamilyTasks = useMemo(() => assist?.models.linkedModels.filter((model) => !model.familyId) ?? [], [assist])
-  const recommendedModelReferenceIds = useMemo(() => modelRefs.flatMap((reference) => {
-    const proposal = assist?.models.readyToCreate.find((item) => item.id === reference.id)
-    return proposal?.normalizationRuleKey && (proposal.normalizationConfidence ?? 0) >= 0.98 ? [reference.id] : []
-  }), [assist, modelRefs])
   const referenceBySource = useMemo(() => {
     const index = new Map<string, Reference>()
     for (const reference of assist?.workspace.references ?? []) index.set(`${reference.kind}|${normalized(reference.sourceValue)}`, reference)
     return index
   }, [assist])
   const modelRefBySource = useMemo(() => new Map(modelRefs.map((reference) => [normalized(reference.sourceValue), reference])), [modelRefs])
+  const modelPredictions = useMemo((): ModelPrediction[] => {
+    if (!assist) return []
+    return modelRefs.flatMap((reference) => {
+      const draft = modelDrafts[reference.id]
+      if (!draft) return []
+      const proposal = assist.models.readyToCreate.find((item) => item.id === reference.id)
+      const existing = draft.existingModelId
+        ? assist.workspace.options.models.find((model) => model.id === draft.existingModelId) ?? null
+        : null
+      const suggested = reference.suggestedTargetId
+        ? assist.workspace.options.models.find((model) => model.id === reference.suggestedTargetId) ?? null
+        : null
+      const action = existing ? 'LINK' as const : 'CREATE' as const
+      const completeCreate = Boolean(draft.vendorName.trim() && draft.deviceTypeName.trim() && draft.model.trim())
+      if (action === 'CREATE' && !completeCreate) return []
+      const familyName = draft.familyId
+        ? assist.models.families.find((family) => family.id === draft.familyId)?.name ?? ''
+        : draft.familyName
+      const safeLink = Boolean(existing && isSafeExistingModelPrediction(reference.sourceValue, existing.model))
+      const confidence = action === 'LINK'
+        ? safeLink ? 1 : reference.suggestionScore ?? 0
+        : proposal?.normalizationConfidence ?? 0.6
+      const confident = action === 'LINK' ? safeLink : Boolean(proposal?.normalizationRuleKey && confidence >= 0.98)
+      const groupLabel = [draft.vendorName, familyName || draft.deviceTypeName].filter(Boolean).join(' · ') || 'Other Models'
+      const warning = !existing && suggested && !isSafeExistingModelPrediction(reference.sourceValue, suggested.model)
+        ? `Similar existing Model ${suggested.model} was not selected because its hardware identity differs.`
+        : null
+      return [{
+        referenceId: reference.id,
+        sourceValue: reference.sourceValue,
+        occurrenceCount: reference.occurrenceCount,
+        groupKey: `${normalized(draft.vendorName)}|${normalized(familyName || draft.deviceTypeName)}`,
+        groupLabel,
+        action,
+        targetLabel: existing ? `${existing.vendor.name} · ${existing.model}` : `${draft.vendorName} · ${draft.model}`,
+        detail: action === 'LINK'
+          ? 'Existing Model'
+          : [familyName || 'No Product Family', draft.platform || draft.platforms || 'No Software Platform'].join(' · '),
+        confidence,
+        confident,
+        warning,
+      }]
+    }).sort((left, right) => left.groupLabel.localeCompare(right.groupLabel) || left.sourceValue.localeCompare(right.sourceValue))
+  }, [assist, modelDrafts, modelRefs])
+  const modelPredictionGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; items: ModelPrediction[] }>()
+    for (const prediction of modelPredictions) {
+      const group = groups.get(prediction.groupKey)
+      if (group) group.items.push(prediction)
+      else groups.set(prediction.groupKey, { key: prediction.groupKey, label: prediction.groupLabel, items: [prediction] })
+    }
+    return [...groups.values()]
+  }, [modelPredictions])
 
   const normalizedQuery = normalized(query)
   const matchesQuery = useCallback((reference: Reference) => {
@@ -490,6 +572,29 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       for (const referenceId of missing) next.add(referenceId)
       return next
     })
+    setDeferredModelReferences((current) => {
+      if (!referenceIds.some((referenceId) => current.has(referenceId))) return current
+      const next = new Set(current)
+      for (const referenceId of referenceIds) next.delete(referenceId)
+      return next
+    })
+  }
+
+  function openPredictionReview() {
+    setPredictionSelection(new Set(modelPredictions.filter((prediction) => editedReferences.has(prediction.referenceId) || (prediction.confident && !deferredModelReferences.has(prediction.referenceId))).map((prediction) => prediction.referenceId)))
+    setPredictionOpen(true)
+  }
+
+  function confirmPredictionSelection() {
+    const candidateIds = new Set(modelPredictions.map((prediction) => prediction.referenceId))
+    setEditedReferences((current) => {
+      const next = new Set([...current].filter((referenceId) => !candidateIds.has(referenceId)))
+      for (const referenceId of predictionSelection) next.add(referenceId)
+      return next
+    })
+    setDeferredModelReferences(new Set(modelPredictions.filter((prediction) => !predictionSelection.has(prediction.referenceId)).map((prediction) => prediction.referenceId)))
+    setPredictionOpen(false)
+    setNotice(`${predictionSelection.size.toLocaleString()} Model prediction${predictionSelection.size === 1 ? '' : 's'} selected for Final Review; ${(modelPredictions.length - predictionSelection.size).toLocaleString()} deferred.`)
   }
 
   function markEdited(referenceId: string) {
@@ -786,6 +891,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const prepared = plan.items.length + plan.families.length
   const reviewLinks = plan.items.filter((item) => item.action === 'LINK').length
   const reviewCreates = plan.items.filter((item) => item.action === 'CREATE').length
+  const confidentPredictions = modelPredictions.filter((prediction) => prediction.confident).length
 
   return <section className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
     <datalist id={vendorListId}>{vendorRecords.map((record) => <option key={record.id} value={record.name}>{record.code ? `${record.code} · ${record.name}` : record.name}</option>)}</datalist>
@@ -797,11 +903,11 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Reconciliation worksheet</div>
           <h2 className="mt-1 text-lg font-semibold">Match and correct imported values in place</h2>
-          <p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">Existing matches and logical source values are prefilled as suggestions only. A row enters Final Review only after you change or select something in that row. Nothing is committed until Confirm & apply.</p>
+          <p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">Predicted links and creations stay in a selectable queue. Review them in groups, defer questionable items, then inspect the selected changes in Final Review. Nothing is committed until Confirm &amp; apply.</p>
         </div>
         <div className="text-right text-xs text-[var(--muted)]"><div><strong className="text-[var(--foreground)]">{prepared.toLocaleString()}</strong> ready</div><div><strong className={pending ? 'text-amber-200' : 'text-[var(--foreground)]'}>{pending.toLocaleString()}</strong> need input</div></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{recommendedModelReferenceIds.length ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { markEditedReferences(recommendedModelReferenceIds); setNotice(`${recommendedModelReferenceIds.length.toLocaleString()} deterministic Model classification${recommendedModelReferenceIds.length === 1 ? '' : 's'} added to Final Review.`) }}>Review {recommendedModelReferenceIds.length.toLocaleString()} recommendations</Button> : null}</div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{modelPredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openPredictionReview}>Review {modelPredictions.length.toLocaleString()} Model predictions ({confidentPredictions.toLocaleString()} confident)</Button> : null}</div>
     </div>
 
     {error ? <div className="mx-4 mt-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0] sm:mx-5" role="alert">{error}</div> : null}
@@ -842,7 +948,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           const reviewed = editedReferences.has(reference.id)
           const familyValue = draft.familyId ? vendorFamilies.find((family) => family.id === draft.familyId)?.name ?? '' : draft.familyName
           return <div key={reference.id} className="px-4 py-4 sm:px-5">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Model</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">{reference.occurrenceCount.toLocaleString()} device row{reference.occurrenceCount === 1 ? '' : 's'} · rows {(reference.metadata.rowNumbers ?? []).join(', ') || '—'}</div></div><div className={`rounded-md border px-2 py-1 text-xs font-semibold ${reviewed && willLink ? 'border-[#285f48] text-[#a9e8c6]' : reviewed ? 'border-[var(--accent-muted)] text-[var(--accent-light)]' : draft.normalizationRuleKey ? 'border-[#6c5b2b] text-amber-200' : 'border-[var(--border)] text-[var(--muted)]'}`}>{reviewed ? (willLink ? 'LINK EXISTING' : 'NEW MODEL') : draft.normalizationRuleKey ? 'RECOMMENDED' : 'NEEDS REVIEW'}</div></div>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Model</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">{reference.occurrenceCount.toLocaleString()} device row{reference.occurrenceCount === 1 ? '' : 's'} · rows {(reference.metadata.rowNumbers ?? []).join(', ') || '—'}</div></div><div className={`rounded-md border px-2 py-1 text-xs font-semibold ${reviewed && willLink ? 'border-[#285f48] text-[#a9e8c6]' : reviewed ? 'border-[var(--accent-muted)] text-[var(--accent-light)]' : deferredModelReferences.has(reference.id) ? 'border-[#5e536e] text-[#c7b8db]' : draft.normalizationRuleKey ? 'border-[#6c5b2b] text-amber-200' : 'border-[var(--border)] text-[var(--muted)]'}`}>{reviewed ? (willLink ? 'LINK EXISTING' : 'NEW MODEL') : deferredModelReferences.has(reference.id) ? 'DEFERRED' : draft.normalizationRuleKey ? 'PREDICTED CREATE' : 'NEEDS REVIEW'}</div></div>
             <div className="grid gap-3 xl:grid-cols-[minmax(260px,1.2fr)_minmax(170px,.7fr)_minmax(170px,.7fr)] xl:items-end">
               {field({ label: 'Existing Model (optional)', children: <SearchableReferencePicker id={`sheet-model-existing-${reference.id}`} value={draft.existingModelId} options={existingModelOptions} disabled={busy} placeholder="Search existing model; leave blank to create…" onChange={(value) => updateModel(reference, { existingModelId: value })} />, hint: reference.suggestedTargetLabel && !draft.existingModelId ? `Suggestion: ${reference.suggestedTargetLabel}` : undefined })}
               <FreeTextSuggestions id={`sheet-vendor-${reference.id}`} label="Vendor (existing or new, required)" value={draft.vendorName} listId={vendorListId} disabled={busy || willLink} placeholder="Type or select Vendor" onChange={(value) => updateModel(reference, { vendorName: value })} />
@@ -914,6 +1020,37 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm"><strong>{prepared.toLocaleString()}</strong> mappings ready · <strong className={pending ? 'text-amber-200' : ''}>{pending.toLocaleString()}</strong> need input · Contract Type is intentionally not imported.</div><Button type="button" variant="primary" disabled={busy || !prepared} onClick={() => setReviewOpen(true)}>{`Review worksheet (${prepared.toLocaleString()})`}</Button></div>
       {plan.errors.length ? <div className="mt-2 text-xs text-amber-200">{plan.errors.join(' · ')}{pending > plan.errors.length ? ` · +${pending - plan.errors.length} more` : ''}</div> : null}
     </div>
+
+    {predictionOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Review predicted Model mappings">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+          <div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Prediction queue</div><h3 className="mt-1 text-xl font-semibold">Select links and creations to review</h3><p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Confident canonical matches and known classification rules are preselected. Similar-looking hardware with a different identity remains unselected or becomes a new Model proposal.</p></div>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionOpen(false)}>Back to worksheet</Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-5 py-3">
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionSelection(new Set(modelPredictions.filter((prediction) => prediction.confident).map((prediction) => prediction.referenceId)))}>Select confident ({confidentPredictions.toLocaleString()})</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionSelection(new Set(modelPredictions.map((prediction) => prediction.referenceId)))}>Select all predictions</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionSelection(new Set())}>Defer all</Button>
+          <span className="ml-auto text-sm"><strong>{predictionSelection.size.toLocaleString()}</strong> selected · <strong>{(modelPredictions.length - predictionSelection.size).toLocaleString()}</strong> deferred</span>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+          {modelPredictionGroups.map((group) => {
+            const groupIds = group.items.map((prediction) => prediction.referenceId)
+            const selectedInGroup = groupIds.filter((referenceId) => predictionSelection.has(referenceId)).length
+            return <section key={group.key} className="overflow-hidden rounded-lg border border-[var(--border)]">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-[var(--surface-raised)] px-4 py-3"><div><div className="font-semibold">{group.label}</div><div className="text-xs text-[var(--muted)]">{group.items.length.toLocaleString()} prediction{group.items.length === 1 ? '' : 's'} · {selectedInGroup.toLocaleString()} selected</div></div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionSelection((current) => new Set([...current, ...groupIds]))}>Select group</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionSelection((current) => new Set([...current].filter((referenceId) => !groupIds.includes(referenceId))))}>Defer group</Button></div></div>
+              <div className="divide-y divide-[var(--border)]">{group.items.map((prediction) => <label key={prediction.referenceId} className="grid cursor-pointer gap-3 px-4 py-3 hover:bg-[var(--surface-raised)] md:grid-cols-[28px_minmax(220px,1fr)_110px_minmax(260px,1.2fr)] md:items-start">
+                <input type="checkbox" className="mt-1 h-4 w-4 accent-[var(--accent)]" checked={predictionSelection.has(prediction.referenceId)} disabled={busy} onChange={(event) => setPredictionSelection((current) => { const next = new Set(current); if (event.target.checked) next.add(prediction.referenceId); else next.delete(prediction.referenceId); return next })} />
+                <div><div className="font-mono text-xs font-semibold">{prediction.sourceValue}</div><div className="mt-1 text-[11px] text-[var(--muted)]">{prediction.occurrenceCount.toLocaleString()} device row{prediction.occurrenceCount === 1 ? '' : 's'}</div></div>
+                <div><span className={`rounded border px-2 py-1 text-[11px] font-semibold ${prediction.confident ? 'border-[#285f48] text-[#a9e8c6]' : 'border-[#6c5b2b] text-amber-200'}`}>{prediction.confident ? 'CONFIDENT' : 'REVIEW'}</span><div className="mt-2 text-[11px] text-[var(--muted)]">{Math.round(prediction.confidence * 100)}%</div></div>
+                <div className="text-sm"><div><strong>{prediction.action === 'LINK' ? 'Link existing → ' : 'Create new → '}</strong>{prediction.targetLabel}</div><div className="mt-1 text-xs text-[var(--muted)]">{prediction.detail}</div>{prediction.warning ? <div className="mt-1 text-xs text-amber-200">{prediction.warning}</div> : null}</div>
+              </label>)}</div>
+            </section>
+          })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-4"><div className="text-xs text-[var(--muted)]">Deferred predictions remain in the worksheet and can be reviewed later.</div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionOpen(false)}>Cancel</Button><Button type="button" variant="primary" disabled={busy} onClick={confirmPredictionSelection}>Use {predictionSelection.size.toLocaleString()} selected</Button></div></div>
+      </div>
+    </div> : null}
 
     {reviewOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Review worksheet changes">
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl">

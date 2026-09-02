@@ -112,7 +112,11 @@ Built-in classifications include:
 - `AP-315` -> Aruba WLAN with AOS 8/AOS 10 support;
 - `AP-515` -> Aruba WLAN + AOS 10.
 
-The worksheet can add all high-confidence Model classifications to Final Review in one action. Confirmed values are stored as profile-scoped `NORMALIZE` rules, including the normalized Model, Product Family, Software Platform(s), and Device Type. Existing profile aliases continue to remember entity links such as `Aruba -> HPE Aruba` (or the selected canonical Vendor).
+The worksheet presents predicted Model links and creations in a grouped selection queue. Canonical matches and high-confidence classifications are preselected; an engineer can select or defer individual predictions, a whole Product Family group, all confident predictions, or the complete queue before Final Review. Deferred predictions remain visible for a later pass.
+
+Existing-Model predictions use strict hardware identity. Vendor, Product Family, and punctuation prefixes may differ, but `70G` is never treated as `70F`, `100F` as `101F`, or `C9300-24P` as `C9300-48P` merely because the labels look similar.
+
+Confirmed values are stored as profile-scoped `NORMALIZE` rules, including the normalized Model, Product Family, Software Platform(s), and Device Type. Existing profile aliases continue to remember entity links such as `Aruba -> HPE Aruba` (or the selected canonical Vendor).
 
 Weak or ambiguous similarities produce no suggestion.
 

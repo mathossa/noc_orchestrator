@@ -8,6 +8,7 @@ import {
 describe('device import classification hierarchy', () => {
   it.each([
     ['Fortinet FortiGate-100F', 'FG-100F', 'FortiGate', 'FORTIOS', 'Firewall'],
+    ['Fortinet Fortigate-120G', 'FG-120G', 'FortiGate', 'FORTIOS', 'Firewall'],
     [
       'FortiSwitch FS-124F',
       'FS-124F',
