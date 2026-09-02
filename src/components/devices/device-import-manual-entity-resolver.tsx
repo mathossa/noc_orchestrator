@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { SearchableReferencePicker } from '@/components/devices/searchable-reference-picker'
 import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextInput } from '@/components/ui/form-controls'
@@ -151,11 +151,16 @@ export function DeviceImportManualEntityResolver({ batchId }: { batchId: string 
     return payload.data
   }
 
-  useEffect(() => {
-    if (!open || assist) return
+  async function openResolver() {
+    setOpen(true)
+    if (assist) return
     setError(null)
-    void load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Missing-entity data could not be loaded.'))
-  }, [open, assist])
+    try {
+      await load()
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Missing-entity data could not be loaded.')
+    }
+  }
 
   const references = useMemo(() => assist?.workspace.references.filter((reference) => reference.status !== 'LINKED') ?? [], [assist])
   const selectedReference = references.find((reference) => reference.id === referenceId) ?? null
@@ -285,7 +290,7 @@ export function DeviceImportManualEntityResolver({ batchId }: { batchId: string 
 
   return <>
     <div className="fixed bottom-6 left-6 z-40">
-      <Button type="button" variant="primary" onClick={() => setOpen(true)}>Create / fill missing entities</Button>
+      <Button type="button" variant="primary" onClick={() => void openResolver()}>Create / fill missing entities</Button>
     </div>
 
     {open ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Create or fill missing import entities">

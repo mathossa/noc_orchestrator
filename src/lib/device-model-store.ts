@@ -176,18 +176,6 @@ async function assertUniqueWithinVendor(vendorId: string, model: string, exclude
   }
 }
 
-async function replaceSupportedPlatforms(deviceModelId: string, platforms: string[]) {
-  await prisma.$transaction(async (tx) => {
-    await tx.deviceModelPlatform.deleteMany({ where: { deviceModelId } })
-    if (platforms.length) {
-      await tx.deviceModelPlatform.createMany({
-        data: platforms.map((platform) => ({ deviceModelId, platform })),
-        skipDuplicates: true,
-      })
-    }
-  })
-}
-
 export async function listDeviceModels() {
   const records = await prisma.deviceModel.findMany({
     orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { model: 'asc' }],
