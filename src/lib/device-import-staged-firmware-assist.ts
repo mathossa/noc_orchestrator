@@ -130,6 +130,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
 export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   const rawItems = Array.isArray(input.items) ? input.items : []
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   if (!rawItems.length) throw new DeviceImportStagingError('Choose at least one prepared Firmware Release.')
@@ -232,5 +233,5 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   await prisma.$transaction(operations)
   const unresolved = await prisma.deviceImportStagedReference.count({ where: { batchId, status: { not: 'LINKED' } } })
   await prisma.deviceImportBatch.update({ where: { id: batchId }, data: { status: unresolved === 0 ? 'READY' : 'STAGED' } })
-  return { created: created.length, linkedExisting: links.length, assist: await getDeviceImportFirmwareAssist(batchId) }
+  return { created: created.length, linkedExisting: links.length, assist: deferRefresh ? null : await getDeviceImportFirmwareAssist(batchId) }
 }

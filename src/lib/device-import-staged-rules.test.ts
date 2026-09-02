@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   batchFindUnique: vi.fn(),
   rowFindMany: vi.fn(),
   rowUpdate: vi.fn(),
+  rowUpdateMany: vi.fn(),
   rowGroupBy: vi.fn(),
   ruleFindMany: vi.fn(),
   ruleUpsert: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('@/lib/prisma', () => ({
     deviceImportStagedRow: {
       findMany: mocks.rowFindMany,
       update: mocks.rowUpdate,
+      updateMany: mocks.rowUpdateMany,
       groupBy: mocks.rowGroupBy,
     },
     deviceImportProfileRule: {
@@ -88,6 +90,7 @@ describe('staged import ignore rules', () => {
     vi.clearAllMocks()
     mocks.batchFindUnique.mockResolvedValue(batch())
     mocks.rowUpdate.mockResolvedValue({})
+    mocks.rowUpdateMany.mockResolvedValue({ count: 1 })
     mocks.rowGroupBy.mockResolvedValue([
       { status: 'STAGED', _count: { _all: 1 } },
       { status: 'IGNORED', _count: { _all: 1 } },
@@ -139,15 +142,14 @@ describe('staged import ignore rules', () => {
       },
       create: expect.objectContaining({ value: 'Phone', normalizedValue: 'phone' }),
     }))
-    expect(mocks.rowUpdate).toHaveBeenCalledWith({
-      where: { id: 'row-phone' },
+    expect(mocks.rowUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['row-phone'] } },
       data: {
         status: 'IGNORED',
         statusSource: 'PROFILE_RULE',
         statusReason: 'deviceType = Phone',
       },
     })
-    expect(mocks.rowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'row-switch' } }))
   })
 
   it('ignores a Firmware value and remembers it for the import profile', async () => {
@@ -182,8 +184,8 @@ describe('staged import ignore rules', () => {
         },
       },
     }))
-    expect(mocks.rowUpdate).toHaveBeenCalledWith({
-      where: { id: 'row-fw' },
+    expect(mocks.rowUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['row-fw'] } },
       data: {
         status: 'IGNORED',
         statusSource: 'PROFILE_RULE',
@@ -209,14 +211,13 @@ describe('staged import ignore rules', () => {
         operator: 'EQUALS',
       },
     }))
-    expect(mocks.rowUpdate).toHaveBeenCalledWith({
-      where: { id: 'row-phone' },
+    expect(mocks.rowUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['row-phone'] } },
       data: {
         status: 'IGNORED',
         statusSource: 'PROFILE_RULE',
         statusReason: 'deviceType = Phone',
       },
     })
-    expect(mocks.rowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'row-switch' } }))
   })
 })

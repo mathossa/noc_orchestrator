@@ -151,6 +151,7 @@ function parseProposalItems(rawInput: unknown): SiteProposalInput[] {
 export async function bulkCreateDeviceImportSites(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   const items = parseProposalItems(rawInput)
   const allReferenceIds = items.flatMap((item) => item.referenceIds)
@@ -229,7 +230,7 @@ export async function bulkCreateDeviceImportSites(rawInput: unknown) {
   const unresolved = await prisma.deviceImportStagedReference.count({ where: { batchId, status: { not: 'LINKED' } } })
   await prisma.deviceImportBatch.update({ where: { id: batchId }, data: { status: unresolved === 0 ? 'READY' : 'STAGED' } })
   return {
-    workspace: await getDeviceImportBatchWorkspace(batchId),
+    workspace: deferRefresh ? null : await getDeviceImportBatchWorkspace(batchId),
     created: created.length,
     linkedExisting: existingLinks.length,
   }

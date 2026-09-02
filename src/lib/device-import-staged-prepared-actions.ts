@@ -202,6 +202,7 @@ async function applyLinkActions(
         (item) => item.referenceId,
         (current) => resolveDeviceImportStagedReferencesBulk({
           batchId,
+          deferRefresh: true,
           items: current.map((item) => ({ referenceId: item.referenceId, targetId: item.targetId, remember: item.remember })),
         }),
         failures,
@@ -308,6 +309,7 @@ async function applyCreateActions(
       (item) => item.referenceId,
       (current) => bulkCreateDeviceImportCoreReferences({
         batchId,
+        deferRefresh: true,
         items: current.map((item) => ({
           referenceId: item.referenceId,
           name: text(item.values.name),
@@ -325,21 +327,23 @@ async function applyCreateActions(
     }
   }
 
+  if (coreItems.length) await refreshDeviceImportBatchReferences(batchId)
+
   const siteItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'SITE')
   for (const part of chunks(siteItems)) {
-    const prepared: Array<{ source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareSiteCreate>> }> = []
-    for (const item of part) {
+    const prepared = (await Promise.all(part.map(async (item) => {
       try {
-        prepared.push({ source: item, value: await prepareSiteCreate(batchId, item) })
+        return { source: item, value: await prepareSiteCreate(batchId, item) }
       } catch (error) {
         failures.push({ key: item.referenceId, message: failureMessage(error) })
+        return null
       }
-    }
+    }))).filter((entry): entry is { source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareSiteCreate>> } => Boolean(entry))
     if (prepared.length) {
       applied += await applyChunkWithFallback(
         prepared,
         (entry) => entry.source.referenceId,
-        (current) => bulkCreateDeviceImportSites({ batchId, items: current.map((entry) => entry.value) }),
+        (current) => bulkCreateDeviceImportSites({ batchId, deferRefresh: true, items: current.map((entry) => entry.value) }),
         failures,
       )
       rememberedKinds.add('SITE')
@@ -349,21 +353,20 @@ async function applyCreateActions(
   const modelItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'DEVICE_MODEL')
   const successfulModelFamilyDrafts: Array<{ referenceId: string; name: string }> = []
   for (const part of chunks(modelItems)) {
-    const prepared: Array<{ source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareModelCreate>> }> = []
-    for (const item of part) {
+    const prepared = (await Promise.all(part.map(async (item) => {
       try {
-        const value = await prepareModelCreate(batchId, item)
-        prepared.push({ source: item, value })
+        return { source: item, value: await prepareModelCreate(batchId, item) }
       } catch (error) {
         failures.push({ key: item.referenceId, message: failureMessage(error) })
+        return null
       }
-    }
+    }))).filter((entry): entry is { source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareModelCreate>> } => Boolean(entry))
     if (prepared.length) {
       const beforeFailures = failures.length
       const succeeded = await applyChunkWithFallback(
         prepared,
         (entry) => entry.source.referenceId,
-        (current) => bulkCreateDeviceImportModels({ batchId, items: current.map((entry) => entry.value) }),
+        (current) => bulkCreateDeviceImportModels({ batchId, deferRefresh: true, items: current.map((entry) => entry.value) }),
         failures,
       )
       applied += succeeded
@@ -401,6 +404,7 @@ async function applyCreateActions(
       try {
         await bulkCreateAndAssignDeviceImportModelFamilies({
           batchId,
+          deferRefresh: true,
           items: part.map((group) => ({ vendorId: group.vendorId, name: group.name, modelIds: group.modelIds })),
         })
       } catch (error) {
@@ -411,21 +415,23 @@ async function applyCreateActions(
     }
   }
 
+  if (modelItems.length) await refreshDeviceImportBatchReferences(batchId)
+
   const firmwareItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'FIRMWARE_RELEASE')
   for (const part of chunks(firmwareItems)) {
-    const prepared: Array<{ source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareFirmwareCreate>> }> = []
-    for (const item of part) {
+    const prepared = (await Promise.all(part.map(async (item) => {
       try {
-        prepared.push({ source: item, value: await prepareFirmwareCreate(batchId, item) })
+        return { source: item, value: await prepareFirmwareCreate(batchId, item) }
       } catch (error) {
         failures.push({ key: item.referenceId, message: failureMessage(error) })
+        return null
       }
-    }
+    }))).filter((entry): entry is { source: PreparedReferenceAction; value: Awaited<ReturnType<typeof prepareFirmwareCreate>> } => Boolean(entry))
     if (prepared.length) {
       applied += await applyChunkWithFallback(
         prepared,
         (entry) => entry.source.referenceId,
-        (current) => bulkCreateDeviceImportFirmware({ batchId, items: current.map((entry) => entry.value) }),
+        (current) => bulkCreateDeviceImportFirmware({ batchId, deferRefresh: true, items: current.map((entry) => entry.value) }),
         failures,
       )
       rememberedKinds.add('FIRMWARE_RELEASE')
@@ -445,6 +451,7 @@ async function applyFamilyActions(batchId: string, items: PreparedFamilyAction[]
       (item) => `family:${item.modelId}`,
       (current) => bulkAssignDeviceImportModelFamilies({
         batchId,
+        deferRefresh: true,
         items: current.map((item) => ({ modelId: item.modelId, familyId: item.familyId })),
       }),
       failures,
@@ -462,7 +469,7 @@ async function applyFamilyActions(batchId: string, items: PreparedFamilyAction[]
   }
   for (const part of chunks([...grouped.values()])) {
     try {
-      await bulkCreateAndAssignDeviceImportModelFamilies({ batchId, items: part })
+      await bulkCreateAndAssignDeviceImportModelFamilies({ batchId, deferRefresh: true, items: part })
       applied += part.reduce((sum, item) => sum + item.modelIds.length, 0)
     } catch (error) {
       for (const group of part) {

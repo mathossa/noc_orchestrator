@@ -106,6 +106,8 @@ async function inChunks<T>(items: T[], action: (item: T) => Promise<unknown>) {
 }
 
 export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown) {
+  const rawRecord = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
+  const deferRefresh = rawRecord.deferRefresh === true
   let parsed
   try {
     parsed = parseBulkReferenceResolutionInput(rawInput)
@@ -160,6 +162,8 @@ export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown)
     })
   })
 
-  // One dependency refresh for the whole bulk action. This replaces N full request/refresh cycles.
+  // Prepared-action orchestration can defer this and perform one dependency
+  // refresh after the whole dependency layer has been applied.
+  if (deferRefresh) return null
   return refreshDeviceImportBatchReferences(batchId)
 }

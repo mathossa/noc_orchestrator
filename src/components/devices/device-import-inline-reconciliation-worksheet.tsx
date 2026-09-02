@@ -551,8 +551,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       })
       const payload = await readJson<{ data?: { affected: number } } & ApiError>(response, 'The ignore rule could not be saved.')
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The ignore rule could not be saved.')
-      setNotice(`${payload.data.affected.toLocaleString()} matching device row${payload.data.affected === 1 ? '' : 's'} ignored and remembered for ${assist.workspace.batch.profileName ?? 'this import profile'}.`)
-      window.location.reload()
+      const affected = payload.data.affected
+      await load()
+      setNotice(`${affected.toLocaleString()} matching device row${affected === 1 ? '' : 's'} ignored and remembered for ${assist.workspace.batch.profileName ?? 'this import profile'}.`)
     } catch (ignoreError) {
       setError(ignoreError instanceof Error ? ignoreError.message : 'The ignore rule could not be saved.')
     } finally {
@@ -694,10 +695,18 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       })
       const payload = await readJson<ApplyPayload>(response, 'The worksheet changes could not be applied.')
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The worksheet changes could not be applied.')
-      setFailures(Object.fromEntries(payload.data.failures.map((failure) => [failure.key, failure.message])))
-      setNotice(`${payload.data.applied.toLocaleString()} mapping${payload.data.applied === 1 ? '' : 's'} applied. ${payload.data.failed ? `${payload.data.failed.toLocaleString()} need correction. ` : ''}${payload.data.remaining.toLocaleString()} references remain.`)
+      const nextFailures = Object.fromEntries(payload.data.failures.map((failure) => [failure.key, failure.message]))
+      const applied = payload.data.applied
+      const failed = payload.data.failed
+      const remaining = payload.data.remaining
+      await load()
+      setFailures(nextFailures)
+      if (failed) {
+        const firstFailure = payload.data.failures[0]?.message
+        setError(`${failed.toLocaleString()} worksheet action${failed === 1 ? '' : 's'} failed.${firstFailure ? ` ${firstFailure}` : ''}`)
+      }
+      setNotice(`${applied.toLocaleString()} mapping${applied === 1 ? '' : 's'} applied. ${failed ? `${failed.toLocaleString()} need correction. ` : ''}${remaining.toLocaleString()} references remain.`)
       setReviewOpen(false)
-      window.location.reload()
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : 'The worksheet changes could not be applied.')
     } finally {

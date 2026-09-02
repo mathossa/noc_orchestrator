@@ -221,6 +221,7 @@ function parseModelCreateItems(rawInput: Record<string, unknown>, references: Mo
 export async function bulkCreateDeviceImportModels(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   await assertMutableBatch(batchId)
 
@@ -354,13 +355,14 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     })),
   ]
   await prisma.$transaction(operations)
-  const workspace = await refreshDeviceImportBatchReferences(batchId)
+  const workspace = deferRefresh ? null : await refreshDeviceImportBatchReferences(batchId)
   return { workspace, created: pending.length, linkedExisting: links.length }
 }
 
 export async function bulkAssignDeviceImportModelFamilies(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   const rawItems = Array.isArray(input.items) ? input.items : []
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   if (!rawItems.length) throw new DeviceImportStagingError('Choose at least one Model family assignment.')
@@ -398,12 +400,13 @@ export async function bulkAssignDeviceImportModelFamilies(rawInput: unknown) {
 
   const changed = items.filter((item) => modelsById.get(item.modelId)?.familyId !== item.familyId)
   await prisma.$transaction(changed.map((item) => prisma.deviceModel.update({ where: { id: item.modelId }, data: { familyId: item.familyId } })))
-  return { updated: changed.length, assist: await getDeviceImportModelAssist(batchId) }
+  return { updated: changed.length, assist: deferRefresh ? null : await getDeviceImportModelAssist(batchId) }
 }
 
 export async function bulkCreateAndAssignDeviceImportModelFamilies(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   const rawItems = Array.isArray(input.items) ? input.items : []
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   if (!rawItems.length) throw new DeviceImportStagingError('Choose at least one proposed Model family.')
@@ -472,6 +475,6 @@ export async function bulkCreateAndAssignDeviceImportModelFamilies(rawInput: unk
     createdFamilies: createdFamilies.length,
     reusedFamilies: existingFamilyCount,
     assignedModels: allModelIds.length,
-    assist: await getDeviceImportModelAssist(batchId),
+    assist: deferRefresh ? null : await getDeviceImportModelAssist(batchId),
   }
 }

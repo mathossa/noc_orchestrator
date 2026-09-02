@@ -113,6 +113,7 @@ function parseItems(raw: unknown): CoreItem[] {
 export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
+  const deferRefresh = input.deferRefresh === true
   if (!batchId) throw new DeviceImportStagingError('Import batch is required.')
   await assertMutable(batchId)
   const items = parseItems(rawInput)
@@ -197,5 +198,9 @@ export async function bulkCreateDeviceImportCoreReferences(rawInput: unknown) {
     }
   })
 
-  return { created, linkedExisting, workspace: await refreshDeviceImportBatchReferences(batchId) }
+  return {
+    created,
+    linkedExisting,
+    workspace: deferRefresh ? null : await refreshDeviceImportBatchReferences(batchId),
+  }
 }

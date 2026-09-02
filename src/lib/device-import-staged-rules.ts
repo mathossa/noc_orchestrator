@@ -140,12 +140,19 @@ export async function applySavedImportProfileRules(batchId: string) {
   }
 
   if (!matched.size) return getDeviceImportBatchWorkspace(batchId)
-  await prisma.$transaction([...matched.entries()].map(([id, match]) => prisma.deviceImportStagedRow.update({
-    where: { id },
+  const groupedMatches = new Map<string, { ids: string[]; reason: string }>()
+  for (const [id, match] of matched) {
+    const reason = `${match.field} = ${match.value}`
+    const current = groupedMatches.get(reason) ?? { ids: [], reason }
+    current.ids.push(id)
+    groupedMatches.set(reason, current)
+  }
+  await prisma.$transaction([...groupedMatches.values()].map((group) => prisma.deviceImportStagedRow.updateMany({
+    where: { id: { in: group.ids } },
     data: {
       status: 'IGNORED',
       statusSource: 'PROFILE_RULE',
-      statusReason: `${match.field} = ${match.value}`,
+      statusReason: group.reason,
     },
   })))
   return rebuildActiveReferences(batchId)
@@ -239,8 +246,8 @@ export async function applyDeviceImportRowAction(rawInput: unknown) {
     })
   }
 
-  await prisma.$transaction(selected.map((row) => prisma.deviceImportStagedRow.update({
-    where: { id: row.id },
+  await prisma.deviceImportStagedRow.updateMany({
+    where: { id: { in: selected.map((row) => row.id) } },
     data: action === 'RESTORE'
       ? { status: 'STAGED', statusSource: null, statusReason: null }
       : {
@@ -248,7 +255,7 @@ export async function applyDeviceImportRowAction(rawInput: unknown) {
           statusSource: remember ? 'PROFILE_RULE' : 'USER',
           statusReason: field && value ? `${field} = ${value}` : 'Selected rows',
         },
-  })))
+  })
 
   const workspace = await rebuildActiveReferences(batchId)
   return { affected: selected.length, workspace, smartGroups: await getDeviceImportSmartGroups(batchId) }
