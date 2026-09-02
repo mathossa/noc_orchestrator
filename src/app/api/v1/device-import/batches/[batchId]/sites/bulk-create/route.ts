@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { bulkCreateDeviceImportSites, getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import {
   countNormalizableStagedGenericSites,
@@ -35,7 +36,9 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.action === 'NORMALIZE_GENERIC_SITES') {
       return NextResponse.json({ data: await normalizeExistingStagedGenericSites(batchId) })
     }
-    return NextResponse.json({ data: await bulkCreateDeviceImportSites({ ...body, batchId }) })
+    const data = await bulkCreateDeviceImportSites({ ...body, batchId })
+    await rememberReviewedBatchReferences(batchId, ['SITE'])
+    return NextResponse.json({ data })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: { code: 'INVALID_JSON', message: 'Request body must contain valid JSON.' } }, { status: 400 })
