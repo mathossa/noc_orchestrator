@@ -25,15 +25,31 @@ type ProposalPayload = {
     rawReferenceCount: number
     proposalCount: number
     duplicateReferenceCount: number
+    normalizableGenericRowCount: number
   }
 } & ApiError
 type CreatePayload = { data?: { created: number; linkedExisting: number } } & ApiError
+type NormalizePayload = { data?: { normalizedRows: number; rebuiltSiteReferences: number } } & ApiError
 
 type DraftSite = SiteProposal & { include: boolean }
 
+type Summary = {
+  rawReferenceCount: number
+  proposalCount: number
+  duplicateReferenceCount: number
+  normalizableGenericRowCount: number
+}
+
+const EMPTY_SUMMARY: Summary = {
+  rawReferenceCount: 0,
+  proposalCount: 0,
+  duplicateReferenceCount: 0,
+  normalizableGenericRowCount: 0,
+}
+
 export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
   const [drafts, setDrafts] = useState<DraftSite[]>([])
-  const [summary, setSummary] = useState({ rawReferenceCount: 0, proposalCount: 0, duplicateReferenceCount: 0 })
+  const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -47,6 +63,7 @@ export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
       rawReferenceCount: payload.data.rawReferenceCount,
       proposalCount: payload.data.proposalCount,
       duplicateReferenceCount: payload.data.duplicateReferenceCount,
+      normalizableGenericRowCount: payload.data.normalizableGenericRowCount,
     })
   }
 
@@ -62,7 +79,12 @@ export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
         (data) => {
           if (cancelled) return
           setDrafts(data.proposals.map((proposal) => ({ ...proposal, include: true })))
-          setSummary({ rawReferenceCount: data.rawReferenceCount, proposalCount: data.proposalCount, duplicateReferenceCount: data.duplicateReferenceCount })
+          setSummary({
+            rawReferenceCount: data.rawReferenceCount,
+            proposalCount: data.proposalCount,
+            duplicateReferenceCount: data.duplicateReferenceCount,
+            normalizableGenericRowCount: data.normalizableGenericRowCount,
+          })
         },
         (loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'The Site proposals could not be prepared.') },
       )
@@ -73,6 +95,28 @@ export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
 
   function patch(key: string, values: Partial<DraftSite>) {
     setDrafts((current) => current.map((draft) => draft.key === key ? { ...draft, ...values } : draft))
+  }
+
+  async function normalizeLegacyGenericSites() {
+    if (!summary.normalizableGenericRowCount) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await fetch(`/api/v1/device-import/batches/${batchId}/sites/bulk-create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'NORMALIZE_GENERIC_SITES' }),
+      })
+      const payload = await response.json() as NormalizePayload
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The existing staged Sites could not be normalized.')
+      await load()
+      setNotice(`Normalized ${payload.data.normalizedRows.toLocaleString()} staged row${payload.data.normalizedRows === 1 ? '' : 's'} and rebuilt ${payload.data.rebuiltSiteReferences.toLocaleString()} Site reference${payload.data.rebuiltSiteReferences === 1 ? '' : 's'} without resetting the rest of the import.`)
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'The existing staged Sites could not be normalized.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function createSelected() {
@@ -116,6 +160,20 @@ export function DeviceImportSiteAssist({ batchId }: { batchId: string }) {
 
     {error ? <div className="mb-5 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">{error}</div> : null}
     {notice ? <div className="mb-5 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]">{notice}</div> : null}
+
+    {summary.normalizableGenericRowCount ? <section className="mb-5 rounded-lg border border-amber-700/60 bg-amber-950/20 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold">Existing batch uses generic Site placeholders</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-[var(--muted)]">
+            {summary.normalizableGenericRowCount.toLocaleString()} staged row{summary.normalizableGenericRowCount === 1 ? '' : 's'} still use values such as “Open internet”, while their Organization/Site field contains a more specific location. Normalize only those staged rows and rebuild Site references without resetting your other resolved import work.
+          </p>
+        </div>
+        <Button type="button" variant="primary" disabled={busy} onClick={() => void normalizeLegacyGenericSites()}>
+          {busy ? 'Normalizing…' : `Normalize ${summary.normalizableGenericRowCount.toLocaleString()} generic Site row${summary.normalizableGenericRowCount === 1 ? '' : 's'}`}
+        </Button>
+      </div>
+    </section> : null}
 
     <section className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
