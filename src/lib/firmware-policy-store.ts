@@ -58,7 +58,7 @@ function cleanModelIds(value: unknown) {
   return ids
 }
 
-function modelBaselineWhere(deviceModelId: string) {
+function modelBaselineScope(deviceModelId: string) {
   return {
     deviceModelId,
     isActive: true,
@@ -70,7 +70,7 @@ function modelBaselineWhere(deviceModelId: string) {
   } as const
 }
 
-const modelBaselineScope = {
+const allModelBaselineScope = {
   isActive: true,
   customerId: null,
   contractTypeId: null,
@@ -82,6 +82,7 @@ const modelBaselineScope = {
 function serializePolicy(record: {
   id: string
   targetFirmwareReleaseId: string
+  platform: string | null
   isActive: boolean
   notes: string | null
   deviceModelId: string | null
@@ -101,6 +102,7 @@ function serializePolicy(record: {
   return {
     id: record.id,
     targetFirmwareReleaseId: record.targetFirmwareReleaseId,
+    platform: record.platform ?? record.targetFirmwareRelease.platform,
     isActive: record.isActive,
     notes: record.notes,
     deviceModelId: record.deviceModelId,
@@ -116,7 +118,13 @@ function serializePolicy(record: {
 async function loadModels(modelIds: string[]) {
   const models = await prisma.deviceModel.findMany({
     where: { id: { in: modelIds } },
-    select: { id: true, vendorId: true, platform: true, model: true },
+    select: {
+      id: true,
+      vendorId: true,
+      platform: true,
+      model: true,
+      supportedPlatforms: { select: { platform: true } },
+    },
   })
   if (models.length !== modelIds.length) {
     const found = new Set(models.map((model) => model.id))
@@ -129,21 +137,32 @@ async function loadModels(modelIds: string[]) {
   return modelIds.map((id) => byId.get(id)!)
 }
 
-async function loadCurrentPolicies(modelIds: string[]) {
+async function loadCurrentPolicies(modelIds: string[], platform?: string | null) {
   const policies = await prisma.firmwarePolicy.findMany({
-    where: { ...modelBaselineScope, deviceModelId: { in: modelIds } },
+    where: { ...allModelBaselineScope, deviceModelId: { in: modelIds } },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
   })
+  const normalized = platform ? normalizePlatform(platform) : null
   const byModel = new Map<string, (typeof policies)[number]>()
   for (const policy of policies) {
-    if (policy.deviceModelId && !byModel.has(policy.deviceModelId)) byModel.set(policy.deviceModelId, policy)
+    if (!policy.deviceModelId || byModel.has(policy.deviceModelId)) continue
+    if (normalized && normalizePlatform(policy.platform ?? policy.targetFirmwareRelease.platform) !== normalized) continue
+    byModel.set(policy.deviceModelId, policy)
   }
   return byModel
 }
 
+function supportedPlatforms(model: { platform: string | null; supportedPlatforms: Array<{ platform: string }> }) {
+  const platforms = new Set<string>()
+  if (model.platform) platforms.add(normalizePlatform(model.platform))
+  for (const entry of model.supportedPlatforms) platforms.add(normalizePlatform(entry.platform))
+  platforms.delete('')
+  return platforms
+}
+
 function assertReleaseCompatibleWithModels(
-  models: Array<{ id: string; vendorId: string; platform: string | null; model: string }>,
+  models: Array<{ id: string; vendorId: string; platform: string | null; model: string; supportedPlatforms: Array<{ platform: string }> }>,
   release: {
     id: string
     vendorId: string
@@ -171,26 +190,45 @@ function assertReleaseCompatibleWithModels(
   }
 
   const releasePlatform = normalizePlatform(release.platform)
-  const incompatible = models.filter(
-    (model) => model.platform && normalizePlatform(model.platform) !== releasePlatform,
-  )
+  const incompatible = models.filter((model) => {
+    const supported = supportedPlatforms(model)
+    return supported.size > 0 && !supported.has(releasePlatform)
+  })
   if (incompatible.length > 0) {
     throw new FirmwarePolicyCompatibilityError(
       incompatible.length === 1
-        ? `Desired firmware is not compatible with selected model ${incompatible[0].model}.`
-        : `Desired firmware is not compatible with ${incompatible.length} selected models.`,
+        ? `Desired firmware platform ${release.platform} is not supported by selected model ${incompatible[0].model}.`
+        : `Desired firmware platform ${release.platform} is not supported by ${incompatible.length} selected models.`,
     )
   }
 }
 
-export async function getActiveModelDesiredPolicy(deviceModelId: string) {
-  const record = await prisma.firmwarePolicy.findFirst({
-    where: modelBaselineWhere(deviceModelId),
+export async function getActiveModelDesiredPolicy(deviceModelId: string, platform?: string | null) {
+  const records = await prisma.firmwarePolicy.findMany({
+    where: modelBaselineScope(deviceModelId),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
   })
-
+  const normalized = platform ? normalizePlatform(platform) : null
+  const record = normalized
+    ? records.find((policy) => normalizePlatform(policy.platform ?? policy.targetFirmwareRelease.platform) === normalized) ?? null
+    : records[0] ?? null
   return record ? serializePolicy(record) : null
+}
+
+export async function getActiveModelDesiredPolicies(deviceModelId: string) {
+  const records = await prisma.firmwarePolicy.findMany({
+    where: modelBaselineScope(deviceModelId),
+    orderBy: [{ platform: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
+  })
+  const seen = new Set<string>()
+  return records.flatMap((record) => {
+    const platform = normalizePlatform(record.platform ?? record.targetFirmwareRelease.platform)
+    if (seen.has(platform)) return []
+    seen.add(platform)
+    return [serializePolicy(record)]
+  })
 }
 
 export async function bulkSetModelDesiredFirmwarePolicies(
@@ -209,7 +247,7 @@ export async function bulkSetModelDesiredFirmwarePolicies(
   if (!release) throw new FirmwarePolicyReferenceError('The selected firmware release does not exist.')
   assertReleaseCompatibleWithModels(models, release)
 
-  const currentByModel = await loadCurrentPolicies(modelIds)
+  const currentByModel = await loadCurrentPolicies(modelIds, release.platform)
   const changedModels = models.filter(
     (model) => currentByModel.get(model.id)?.targetFirmwareReleaseId !== firmwareReleaseId,
   )
@@ -221,14 +259,18 @@ export async function bulkSetModelDesiredFirmwarePolicies(
   await prisma.$transaction(async (tx) => {
     for (const model of changedModels) {
       const current = currentByModel.get(model.id)
-      await tx.firmwarePolicy.updateMany({
-        where: modelBaselineWhere(model.id),
-        data: { isActive: false },
-      })
+      const currentPolicies = await tx.firmwarePolicy.findMany({ where: modelBaselineScope(model.id), select: { id: true, platform: true } })
+      const samePlatformIds = currentPolicies
+        .filter((policy) => normalizePlatform(policy.platform) === normalizePlatform(release.platform))
+        .map((policy) => policy.id)
+      if (samePlatformIds.length) {
+        await tx.firmwarePolicy.updateMany({ where: { id: { in: samePlatformIds } }, data: { isActive: false } })
+      }
       const next = await tx.firmwarePolicy.create({
         data: {
           deviceModelId: model.id,
           targetFirmwareReleaseId: firmwareReleaseId,
+          platform: release.platform,
           isActive: true,
         },
         select: { id: true, targetFirmwareReleaseId: true },
@@ -244,15 +286,17 @@ export async function bulkSetModelDesiredFirmwarePolicies(
             firmwareReleaseId: current?.targetFirmwareReleaseId ?? null,
             version: current?.targetFirmwareRelease.version ?? null,
             status: current?.targetFirmwareRelease.status ?? null,
+            platform: current?.platform ?? current?.targetFirmwareRelease.platform ?? null,
           },
           after: {
             policyId: next.id,
             firmwareReleaseId: next.targetFirmwareReleaseId,
             version: release.version,
             status: release.status,
+            platform: release.platform,
           },
           metadata: {
-            platform: model.platform ?? release.platform,
+            platform: release.platform,
             bulk: modelIds.length > 1,
           },
         },
@@ -273,8 +317,11 @@ export async function bulkClearModelDesiredFirmwarePolicies(
 ) {
   const modelIds = cleanModelIds(modelIdsValue)
   await loadModels(modelIds)
-  const currentByModel = await loadCurrentPolicies(modelIds)
-  const changedIds = modelIds.filter((id) => currentByModel.has(id))
+  const currentPolicies = await prisma.firmwarePolicy.findMany({
+    where: { ...allModelBaselineScope, deviceModelId: { in: modelIds } },
+    include: { targetFirmwareRelease: { select: targetFirmwareSelect } },
+  })
+  const changedIds = [...new Set(currentPolicies.map((policy) => policy.deviceModelId).filter((id): id is string => Boolean(id)))]
 
   if (changedIds.length === 0) {
     return { changed: 0, unchanged: modelIds.length, modelIds }
@@ -282,9 +329,9 @@ export async function bulkClearModelDesiredFirmwarePolicies(
 
   await prisma.$transaction(async (tx) => {
     for (const modelId of changedIds) {
-      const current = currentByModel.get(modelId)!
+      const policies = currentPolicies.filter((policy) => policy.deviceModelId === modelId)
       await tx.firmwarePolicy.updateMany({
-        where: modelBaselineWhere(modelId),
+        where: modelBaselineScope(modelId),
         data: { isActive: false },
       })
       await tx.auditEvent.create({
@@ -294,17 +341,15 @@ export async function bulkClearModelDesiredFirmwarePolicies(
           entityType: 'DeviceModel',
           entityId: modelId,
           before: {
-            policyId: current.id,
-            firmwareReleaseId: current.targetFirmwareReleaseId,
-            version: current.targetFirmwareRelease.version,
-            status: current.targetFirmwareRelease.status,
+            policies: policies.map((policy) => ({
+              policyId: policy.id,
+              firmwareReleaseId: policy.targetFirmwareReleaseId,
+              version: policy.targetFirmwareRelease.version,
+              status: policy.targetFirmwareRelease.status,
+              platform: policy.platform ?? policy.targetFirmwareRelease.platform,
+            })),
           },
-          after: {
-            policyId: null,
-            firmwareReleaseId: null,
-            version: null,
-            status: null,
-          },
+          after: { policies: [] },
           metadata: { bulk: modelIds.length > 1 },
         },
       })
@@ -325,8 +370,10 @@ export async function setModelDesiredFirmwarePolicy(
 ) {
   const deviceModelId = cleanId(deviceModelIdValue)
   if (!deviceModelId) throw new FirmwarePolicyValidationError('Device model is required.')
-  await bulkSetModelDesiredFirmwarePolicies([deviceModelId], firmwareReleaseIdValue, actorUserId)
-  const policy = await getActiveModelDesiredPolicy(deviceModelId)
+  const firmwareReleaseId = cleanId(firmwareReleaseIdValue)
+  await bulkSetModelDesiredFirmwarePolicies([deviceModelId], firmwareReleaseId, actorUserId)
+  const release = await prisma.firmwareRelease.findUnique({ where: { id: firmwareReleaseId }, select: { platform: true } })
+  const policy = await getActiveModelDesiredPolicy(deviceModelId, release?.platform)
   if (!policy) throw new FirmwarePolicyNotFoundError('Desired-firmware policy was not found after saving.')
   return policy
 }
