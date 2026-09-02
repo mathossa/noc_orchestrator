@@ -40,29 +40,54 @@ const GENERIC_SITE_VALUES = new Set([
   'na',
 ])
 
+export function isGenericImportSiteValue(value: string | null | undefined) {
+  return GENERIC_SITE_VALUES.has(normalized(value))
+}
+
 /**
- * When an upstream system uses a generic Site value, the raw organization
- * string often still contains the actual location after the canonical Customer
- * name. This only proposes that suffix for review; it is never silently saved.
+ * When an upstream system uses a generic Site value, the combined
+ * Organization/Site column can still contain the actual location. This only
+ * proposes that suffix for review; it is never silently saved.
  */
 export function suggestedImportSiteName(
   siteSourceValue: string,
-  customerSourceValue: string | null | undefined,
+  organizationSiteSourceValue: string | null | undefined,
   canonicalCustomerName: string,
 ) {
   const site = clean(siteSourceValue)
-  const rawCustomer = clean(customerSourceValue)
+  const rawOrganizationSite = clean(organizationSiteSourceValue)
   const customer = clean(canonicalCustomerName)
-  if (!site || !rawCustomer || !customer || !GENERIC_SITE_VALUES.has(normalized(site))) return site
+  if (!site || !rawOrganizationSite || !customer || !isGenericImportSiteValue(site)) return site
 
-  const rawNormalized = normalized(rawCustomer)
+  const rawNormalized = normalized(rawOrganizationSite)
   const customerNormalized = normalized(customer)
   if (!rawNormalized.startsWith(customerNormalized)) return site
-  const remainder = rawCustomer.slice(customer.length).replace(/^[\s._/|:;>-]+/, '').trim()
+  const remainder = rawOrganizationSite.slice(customer.length).replace(/^[\s._/|:;>-]+/, '').trim()
   return remainder || site
 }
 
-export function importSiteProfileContext(customerTargetId: string, customerSourceValue: string | null | undefined) {
-  const rawCustomer = normalized(customerSourceValue)
-  return rawCustomer ? `${customerTargetId}|raw:${rawCustomer}` : customerTargetId
+/** Preferred profile context for Site aliases. The raw combined organization /
+ * site value keeps generic upstream labels such as “Open internet” distinct.
+ */
+export function importSiteProfileContext(
+  customerTargetId: string,
+  organizationSiteSourceValue: string | null | undefined,
+) {
+  const rawOrganizationSite = normalized(organizationSiteSourceValue)
+  return rawOrganizationSite ? `${customerTargetId}|organization-site:${rawOrganizationSite}` : customerTargetId
+}
+
+/**
+ * Read contexts in safest-first order. Generic Site labels with a raw
+ * Organization/Site value deliberately do not fall back to the old
+ * Customer-only alias, because that could map multiple physical Sites to one.
+ */
+export function importSiteProfileContextCandidates(
+  customerTargetId: string,
+  organizationSiteSourceValue: string | null | undefined,
+  siteSourceValue: string | null | undefined,
+) {
+  const preferred = importSiteProfileContext(customerTargetId, organizationSiteSourceValue)
+  if (preferred === customerTargetId || isGenericImportSiteValue(siteSourceValue)) return [preferred]
+  return [preferred, customerTargetId]
 }
