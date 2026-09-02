@@ -14,6 +14,7 @@ export type DeviceImportMappedValues = Record<DeviceImportField, string | null>
 
 export type DeviceImportStagedReferenceMetadata = {
   rowNumbers?: number[]
+  organizationSiteSourceValue?: string | null
   customerSourceValue?: string | null
   customerTargetId?: string | null
   vendorSourceValue?: string | null
@@ -43,6 +44,7 @@ function clean(value: string | null | undefined) {
 
 function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenceKind, options: DeviceImportOptions) {
   if (kind === 'SITE') {
+    if (values.organizationSite) return `organization-site:${normalizeImportText(values.organizationSite)}`
     if (values.customer) return `customer:${normalizeImportText(values.customer)}`
     if (options.defaults.customerId) return `customer-id:${options.defaults.customerId}`
     return 'customer:'
@@ -59,6 +61,7 @@ function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenc
 function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferenceKind, options: DeviceImportOptions) {
   const base: DeviceImportStagedReferenceMetadata = {}
   if (kind === 'SITE') {
+    base.organizationSiteSourceValue = clean(values.organizationSite)
     base.customerSourceValue = clean(values.customer)
     base.customerTargetId = values.customer ? null : options.defaults.customerId
   }
