@@ -6,6 +6,7 @@ import { SearchableReferencePicker, type SearchableReferenceOption } from '@/com
 import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
+import { inferImportedModelVendor } from '@/lib/device-import-model-identity'
 
 const SAFE_SCORE = 0.97
 const INITIAL_VISIBLE = 50
@@ -351,9 +352,12 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     for (const reference of next.workspace.references.filter((item) => item.kind === 'DEVICE_MODEL' && item.status !== 'LINKED')) {
       const vendorRef = sourceReference(next, 'VENDOR', reference.metadata.vendorSourceValue)
       const typeRef = sourceReference(next, 'DEVICE_TYPE', reference.metadata.deviceTypeSourceValue)
-      const vendorId = reference.metadata.vendorTargetId ?? vendorRef?.targetId ?? safeSuggestedTarget(vendorRef)
+      const inferredVendor = reference.metadata.vendorSourceValue
+        ? null
+        : inferImportedModelVendor(reference.sourceValue, activeVendors)
+      const vendorId = reference.metadata.vendorTargetId ?? vendorRef?.targetId ?? (safeSuggestedTarget(vendorRef) || inferredVendor?.id || '')
       const deviceTypeId = reference.metadata.deviceTypeTargetId ?? typeRef?.targetId ?? safeSuggestedTarget(typeRef)
-      const vendorName = selectedName(vendorId, activeVendors) || reference.metadata.vendorSourceValue || ''
+      const vendorName = selectedName(vendorId, activeVendors) || reference.metadata.vendorSourceValue || inferredVendor?.name || ''
       const deviceTypeName = selectedName(deviceTypeId, activeTypes) || reference.metadata.deviceTypeSourceValue || ''
       const proposal = next.models.readyToCreate.find((item) => item.id === reference.id)
       const platform = proposal?.proposedPlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
