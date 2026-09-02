@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { bulkCreateDeviceImportFirmware, getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
+import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
@@ -25,7 +26,9 @@ export async function POST(request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
     const body = await request.json()
-    return NextResponse.json({ data: await bulkCreateDeviceImportFirmware({ ...body, batchId }) })
+    const data = await bulkCreateDeviceImportFirmware({ ...body, batchId })
+    await rememberReviewedBatchReferences(batchId, ['FIRMWARE_RELEASE'])
+    return NextResponse.json({ data })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: { code: 'INVALID_JSON', message: 'Request body must contain valid JSON.' } }, { status: 400 })
