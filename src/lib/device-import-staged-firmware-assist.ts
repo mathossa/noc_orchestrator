@@ -85,7 +85,10 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
 
   const proposals = [...grouped.values()].map((proposal) => {
     const vendor = vendorById.get(proposal.vendorId)!
-    const proposalModels = proposal.modelIds.map((id) => modelById.get(id)).filter((model): model is NonNullable<typeof model> => Boolean(model))
+    const proposalModels = proposal.modelIds.flatMap((id) => {
+      const model = modelById.get(id)
+      return model ? [model] : []
+    })
     const existingTarget = proposal.platform
       ? existingReleases.find((release) =>
           release.vendorId === proposal.vendorId &&
@@ -165,7 +168,7 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   if (vendors.length !== vendorIds.length) throw new DeviceImportStagingError('One or more Firmware Vendors no longer exist or are archived.')
 
   const created: Array<{ id: string; vendorId: string; platform: string; version: string; status: string; refs: FirmwareReference[] }> = []
-  const links: Array<{ targetId: string; refs: FirmwareReference[] }> = []
+  const links: Array<{ targetId: string; vendorId: string; platform: string; refs: FirmwareReference[] }> = []
   for (const item of canonical) {
     const exact = existing.find((release) =>
       release.vendorId === item.vendorId &&
@@ -173,7 +176,7 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
       normalizeImportText(release.version) === normalizeImportText(item.version),
     )
     if (exact) {
-      links.push({ targetId: exact.id, refs: item.refs })
+      links.push({ targetId: exact.id, vendorId: exact.vendorId, platform: exact.platform, refs: item.refs })
     } else {
       created.push({ id: randomUUID(), vendorId: item.vendorId, platform: item.platform, version: item.version, status: item.status, refs: item.refs })
     }
@@ -202,7 +205,10 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
     }))),
     ...links.flatMap((link) => link.refs.map((reference) => prisma.deviceImportStagedReference.update({
       where: { id: reference.id },
-      data: { status: 'LINKED', targetId: link.targetId, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT' },
+      data: {
+        status: 'LINKED', targetId: link.targetId, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT',
+        metadata: { ...metadata(reference.metadata), vendorTargetId: link.vendorId, platform: link.platform, waitingFor: [] },
+      },
     }))),
   ]
   await prisma.$transaction(operations)
