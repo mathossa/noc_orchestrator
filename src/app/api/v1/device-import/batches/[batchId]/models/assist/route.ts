@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import {
   bulkAssignDeviceImportModelFamilies,
+  bulkCreateAndAssignDeviceImportModelFamilies,
   bulkCreateDeviceImportModels,
   getDeviceImportModelAssist,
 } from '@/lib/device-import-staged-model-assist'
@@ -34,6 +35,9 @@ export async function POST(request: Request, context: RouteContext) {
     }
     if (body.action === 'ASSIGN_FAMILIES') {
       return NextResponse.json({ data: await bulkAssignDeviceImportModelFamilies({ ...body, batchId }) })
+    }
+    if (body.action === 'CREATE_FAMILIES') {
+      return NextResponse.json({ data: await bulkCreateAndAssignDeviceImportModelFamilies({ ...body, batchId }) })
     }
     return NextResponse.json({ error: { code: 'INVALID_ACTION', message: 'Choose a supported Model assistant action.' } }, { status: 400 })
   } catch (error) {
