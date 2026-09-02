@@ -17,6 +17,14 @@ function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
 }
 
+function singleSupportedModelPlatform(model: { platform: string | null; supportedPlatforms: Array<{ platform: string }> }) {
+  const platforms = new Map<string, string>()
+  if (model.platform) platforms.set(normalizedFirmwarePlatform(model.platform), model.platform)
+  for (const entry of model.supportedPlatforms) platforms.set(normalizedFirmwarePlatform(entry.platform), entry.platform)
+  platforms.delete('')
+  return platforms.size === 1 ? [...platforms.values()][0] : ''
+}
+
 async function assertMutableBatch(batchId: string) {
   const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, status: true } })
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
@@ -29,7 +37,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     where: { batchId, kind: 'FIRMWARE_RELEASE', status: 'UNRESOLVED' },
     orderBy: { sourceValue: 'asc' },
     select: { id: true, sourceValue: true, metadata: true },
-  }) as FirmwareReference[]
+  }) as Promise<FirmwareReference[]>
 
   const vendorIds = [...new Set(references.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
   const modelIds = [...new Set(references.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id)))]
@@ -37,7 +45,14 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     vendorIds.length ? prisma.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, code: true, name: true, isActive: true } }) : Promise.resolve([]),
     modelIds.length ? prisma.deviceModel.findMany({
       where: { id: { in: modelIds } },
-      select: { id: true, vendorId: true, model: true, platform: true, isActive: true },
+      select: {
+        id: true,
+        vendorId: true,
+        model: true,
+        platform: true,
+        supportedPlatforms: { select: { platform: true } },
+        isActive: true,
+      },
     }) : Promise.resolve([]),
     vendorIds.length ? prisma.firmwareRelease.findMany({
       where: { vendorId: { in: vendorIds } },
@@ -62,7 +77,10 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     const modelId = meta.modelTargetId
     if (!vendorId || !vendorById.get(vendorId)?.isActive || !modelId || !modelById.get(modelId)?.isActive) continue
     const model = modelById.get(modelId)!
-    const platform = meta.platform ?? model.platform ?? ''
+    // Never turn an ambiguous multi-platform model back into its legacy/default
+    // platform. Only staged device evidence or a genuinely single supported
+    // model platform can make a Firmware proposal safe enough to prepare.
+    const platform = meta.platform ?? singleSupportedModelPlatform(model)
     const platformContext = platform ? normalizedFirmwarePlatform(platform) : `model:${modelId}`
     const key = `${vendorId}|${platformContext}|${normalizeImportText(reference.sourceValue)}`
     const current = grouped.get(key)
@@ -136,7 +154,7 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   const references = await prisma.deviceImportStagedReference.findMany({
     where: { batchId, kind: 'FIRMWARE_RELEASE', status: 'UNRESOLVED', id: { in: allReferenceIds } },
     select: { id: true, sourceValue: true, metadata: true },
-  }) as FirmwareReference[]
+  }) as Promise<FirmwareReference[]>
   if (references.length !== allReferenceIds.length) throw new DeviceImportStagingError('One or more prepared Firmware references are no longer unresolved.')
   const referenceById = new Map(references.map((reference) => [reference.id, reference]))
 
