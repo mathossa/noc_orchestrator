@@ -1,7 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { normalizedDeviceModelName, parseDeviceModelInput, type DeviceModelFirmwareReference } from '@/lib/device-models'
-import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
+import {
+  getActiveModelDesiredPolicies,
+  NORMAL_DESIRED_FIRMWARE_STATUSES,
+} from '@/lib/firmware-policy-store'
 import {
   emptyTechnicalFirmwareStateCounts,
   incrementTechnicalFirmwareStateCount,
@@ -53,6 +56,7 @@ const deviceModelInclude = {
   vendor: { select: referenceSelect },
   deviceType: { select: referenceSelect },
   family: { select: familySelect },
+  supportedPlatforms: { select: { id: true, platform: true }, orderBy: { platform: 'asc' as const } },
   _count: { select: { devices: true } },
 } as const
 
@@ -72,6 +76,7 @@ type IncludedDeviceModel = {
   familyId: string | null
   model: string
   platform: string | null
+  supportedPlatforms: Array<{ id: string; platform: string }>
   notes: string | null
   isActive: boolean
   source: string
@@ -86,6 +91,16 @@ type IncludedDeviceModel = {
 
 function normalizedFirmwarePlatform(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
+
+function configuredPlatforms(record: { platform: string | null; supportedPlatforms: Array<{ platform: string }> }) {
+  const platforms = new Map<string, string>()
+  if (record.platform) platforms.set(normalizedFirmwarePlatform(record.platform), record.platform)
+  for (const entry of record.supportedPlatforms) {
+    platforms.set(normalizedFirmwarePlatform(entry.platform), entry.platform)
+  }
+  platforms.delete('')
+  return platforms
 }
 
 function serializeFirmware(release: {
@@ -115,6 +130,7 @@ function serializeDeviceModel(
     familyId: record.familyId,
     model: record.model,
     platform: record.platform,
+    supportedPlatforms: record.supportedPlatforms,
     notes: record.notes,
     isActive: record.isActive,
     source: record.source,
@@ -160,6 +176,18 @@ async function assertUniqueWithinVendor(vendorId: string, model: string, exclude
   }
 }
 
+async function replaceSupportedPlatforms(deviceModelId: string, platforms: string[]) {
+  await prisma.$transaction(async (tx) => {
+    await tx.deviceModelPlatform.deleteMany({ where: { deviceModelId } })
+    if (platforms.length) {
+      await tx.deviceModelPlatform.createMany({
+        data: platforms.map((platform) => ({ deviceModelId, platform })),
+        skipDuplicates: true,
+      })
+    }
+  })
+}
+
 export async function listDeviceModels() {
   const records = await prisma.deviceModel.findMany({
     orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { model: 'asc' }],
@@ -172,14 +200,18 @@ export async function listDeviceModels() {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: {
           deviceModelId: true,
+          platform: true,
           targetFirmwareRelease: { select: firmwareSelect },
         },
       })
     : []
   const desiredByModel = new Map<string, DeviceModelFirmwareReference>()
-  for (const policy of policies) {
-    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
-    desiredByModel.set(policy.deviceModelId, serializeFirmware(policy.targetFirmwareRelease))
+  for (const record of records) {
+    const modelPolicies = policies.filter((policy) => policy.deviceModelId === record.id)
+    const preferred = record.platform
+      ? modelPolicies.find((policy) => normalizedFirmwarePlatform(policy.platform ?? policy.targetFirmwareRelease.platform) === normalizedFirmwarePlatform(record.platform))
+      : modelPolicies[0]
+    if (preferred) desiredByModel.set(record.id, serializeFirmware(preferred.targetFirmwareRelease))
   }
 
   return records.map((record) =>
@@ -226,6 +258,7 @@ export async function getDeviceModel(id: string) {
       devices: {
         select: {
           id: true,
+          platform: true,
           customer: { select: { id: true, name: true } },
           currentFirmwareReleaseId: true,
           currentFirmwareRelease: {
@@ -238,8 +271,8 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
-  const [desiredPolicy, vendorReleases, auditHistory] = await Promise.all([
-    getActiveModelDesiredPolicy(record.id),
+  const [desiredPolicies, vendorReleases, auditHistory] = await Promise.all([
+    getActiveModelDesiredPolicies(record.id),
     prisma.firmwareRelease.findMany({
       where: { vendorId: record.vendorId },
       orderBy: [{ isActive: 'desc' }, { releasedAt: 'desc' }, { version: 'asc' }],
@@ -248,11 +281,17 @@ export async function getDeviceModel(id: string) {
     listAuditEventsForEntity('DeviceModel', id),
   ])
 
-  const availableReleases = record.platform
-    ? vendorReleases.filter(
-        (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform),
-      )
+  const supported = configuredPlatforms(record)
+  const availableReleases = supported.size
+    ? vendorReleases.filter((release) => supported.has(normalizedFirmwarePlatform(release.platform)))
     : vendorReleases
+
+  const desiredByPlatform = new Map(
+    desiredPolicies.map((policy) => [normalizedFirmwarePlatform(policy.platform), policy]),
+  )
+  const preferredPolicy = record.platform
+    ? desiredByPlatform.get(normalizedFirmwarePlatform(record.platform)) ?? desiredPolicies[0] ?? null
+    : desiredPolicies[0] ?? null
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<
@@ -273,18 +312,20 @@ export async function getDeviceModel(id: string) {
     if (customer) customer.deviceCount += 1
     else customerMap.set(device.customer.id, { id: device.customer.id, name: device.customer.name, deviceCount: 1 })
 
-    const firmwareKey = device.currentFirmwareReleaseId ?? 'unrecorded'
+    const firmwareKey = device.currentFirmwareReleaseId ?? `unrecorded:${normalizedFirmwarePlatform(device.platform)}`
     const firmware = firmwareMap.get(firmwareKey)
     if (firmware) firmware.deviceCount += 1
     else {
       firmwareMap.set(firmwareKey, {
         firmwareReleaseId: device.currentFirmwareRelease?.id ?? null,
         version: device.currentFirmwareRelease?.version ?? 'Unrecorded',
-        platform: device.currentFirmwareRelease?.platform ?? null,
+        platform: device.platform ?? device.currentFirmwareRelease?.platform ?? null,
         deviceCount: 1,
       })
     }
 
+    const devicePlatform = device.platform ?? device.currentFirmwareRelease?.platform ?? record.platform
+    const desiredPolicy = devicePlatform ? desiredByPlatform.get(normalizedFirmwarePlatform(devicePlatform)) ?? null : preferredPolicy
     incrementTechnicalFirmwareStateCount(
       technicalStateCounts,
       resolveTechnicalFirmwareState({
@@ -311,7 +352,7 @@ export async function getDeviceModel(id: string) {
     }
   }
 
-  const desiredRelease = desiredPolicy?.release ?? null
+  const desiredRelease = preferredPolicy?.release ?? null
 
   return {
     ...serializeDeviceModel(record as IncludedDeviceModel, desiredRelease),
@@ -323,9 +364,14 @@ export async function getDeviceModel(id: string) {
     technicalStateCounts,
     desiredFirmware: {
       available: true as const,
-      policyId: desiredPolicy?.id ?? null,
+      policyId: preferredPolicy?.id ?? null,
       release: desiredRelease,
     },
+    desiredFirmwareByPlatform: desiredPolicies.map((policy) => ({
+      policyId: policy.id,
+      platform: policy.platform,
+      release: policy.release,
+    })),
     availableFirmware: {
       available: true as const,
       releases: availableReleases.map((release) => ({
@@ -345,12 +391,25 @@ export async function createDeviceModel(rawInput: unknown) {
   const input = parseDeviceModelInput(rawInput)
   await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
   await assertUniqueWithinVendor(input.vendorId, input.model)
-  const record = await prisma.deviceModel.create({ data: input, include: deviceModelInclude })
+  const { supportedPlatforms, ...data } = input
+  const record = await prisma.$transaction(async (tx) => {
+    const created = await tx.deviceModel.create({ data })
+    if (supportedPlatforms.length) {
+      await tx.deviceModelPlatform.createMany({
+        data: supportedPlatforms.map((platform) => ({ deviceModelId: created.id, platform })),
+        skipDuplicates: true,
+      })
+    }
+    return tx.deviceModel.findUniqueOrThrow({ where: { id: created.id }, include: deviceModelInclude })
+  })
   return serializeDeviceModel(record as IncludedDeviceModel)
 }
 
 export async function updateDeviceModel(id: string, rawInput: unknown) {
-  const current = await prisma.deviceModel.findUnique({ where: { id } })
+  const current = await prisma.deviceModel.findUnique({
+    where: { id },
+    include: { supportedPlatforms: { select: { platform: true } } },
+  })
   if (!current) throw new DeviceModelNotFoundError()
 
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
@@ -360,6 +419,7 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
     familyId: current.familyId,
     model: current.model,
     platform: current.platform,
+    supportedPlatforms: current.supportedPlatforms.map((entry) => entry.platform),
     notes: current.notes,
     isActive: current.isActive,
     source: current.source,
@@ -370,7 +430,18 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
 
   await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
   await assertUniqueWithinVendor(input.vendorId, input.model, id)
-  const record = await prisma.deviceModel.update({ where: { id }, data: input, include: deviceModelInclude })
+  const { supportedPlatforms, ...data } = input
+  const record = await prisma.$transaction(async (tx) => {
+    await tx.deviceModel.update({ where: { id }, data })
+    await tx.deviceModelPlatform.deleteMany({ where: { deviceModelId: id } })
+    if (supportedPlatforms.length) {
+      await tx.deviceModelPlatform.createMany({
+        data: supportedPlatforms.map((platform) => ({ deviceModelId: id, platform })),
+        skipDuplicates: true,
+      })
+    }
+    return tx.deviceModel.findUniqueOrThrow({ where: { id }, include: deviceModelInclude })
+  })
   return serializeDeviceModel(record as IncludedDeviceModel)
 }
 
