@@ -81,14 +81,6 @@ type Workspace = {
 }
 
 type WorkspacePayload = { data?: Workspace } & ApiError
-type BulkSitePayload = {
-  data?: {
-    workspace: Workspace
-    created: number
-    linkedExisting: number
-    sites: Array<{ id: string; name: string; code: string; customerId: string }>
-  }
-} & ApiError
 
 type KindDefinition = { kind: DeviceImportReferenceKind; label: string }
 const KINDS: KindDefinition[] = [
@@ -159,6 +151,23 @@ function referenceOptions(reference: StagedReference, options: WorkspaceOptions)
       label: `${record.vendor.name} · ${record.platform} · ${record.version} · ${record.status}`,
       keywords: [record.version, record.platform, record.vendor.name, record.status],
     }))
+}
+
+function referenceContext(reference: StagedReference, options: WorkspaceOptions) {
+  if (reference.kind === 'SITE') {
+    const customer = options.customers.find((record) => record.id === reference.metadata.customerTargetId)
+    return customer ? `Customer: ${customer.name}${customer.code ? ` (${customer.code})` : ''}` : 'Customer not resolved yet'
+  }
+  if (reference.kind === 'DEVICE_MODEL') {
+    const vendor = options.vendors.find((record) => record.id === reference.metadata.vendorTargetId)
+    const deviceType = options.deviceTypes.find((record) => record.id === reference.metadata.deviceTypeTargetId)
+    return `Vendor: ${vendor?.name ?? 'not resolved'} · Type: ${deviceType?.name ?? 'not resolved'}`
+  }
+  if (reference.kind === 'FIRMWARE_RELEASE') {
+    const vendor = options.vendors.find((record) => record.id === reference.metadata.vendorTargetId)
+    return `Vendor: ${vendor?.name ?? 'not resolved'} · Platform: ${reference.metadata.platform || 'not set'}`
+  }
+  return null
 }
 
 export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
@@ -235,37 +244,6 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
     }
   }
 
-  async function createAllReadySites() {
-    if (!workspace || section !== 'SITE' || !activeReferences.length) return
-    const siteReferences = activeReferences.slice(0, 250)
-    const batchText = activeReferences.length > siteReferences.length
-      ? `${siteReferences.length.toLocaleString()} of ${activeReferences.length.toLocaleString()}`
-      : siteReferences.length.toLocaleString()
-    if (!window.confirm(`Create ${batchText} unresolved Site${siteReferences.length === 1 ? '' : 's'} using the imported names and generated codes? You can edit them afterward.`)) return
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const response = await fetch(`/api/v1/device-import/batches/${batchId}/sites/bulk-create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ referenceIds: siteReferences.map((reference) => reference.id) }),
-      })
-      const payload = await response.json() as BulkSitePayload
-      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The staged Sites could not be created.')
-      setWorkspace(payload.data.workspace)
-      setChoices({})
-      const linkedText = payload.data.linkedExisting ? ` ${payload.data.linkedExisting} already-existing Site${payload.data.linkedExisting === 1 ? ' was' : 's were'} linked instead.` : ''
-      const remaining = payload.data.workspace.counts.references.byKind.SITE?.unresolved ?? 0
-      const remainingText = remaining ? ` ${remaining.toLocaleString()} unresolved Site${remaining === 1 ? '' : 's'} remain; click again for the next batch.` : ''
-      setNotice(`Created and linked ${payload.data.created.toLocaleString()} Site${payload.data.created === 1 ? '' : 's'} with generated codes.${linkedText}${remainingText}`)
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'The staged Sites could not be created.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   if (!workspace) {
     return <>
       <PageHeader eyebrow="Inventory import" title="Bulk resolve mappings" description="Loading staged entity mappings." />
@@ -292,12 +270,14 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
         <div>
           <h2 className="text-sm font-semibold">Bulk action</h2>
           <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-            Type to filter by code or label. Press Enter when only one result remains. Only mappings you explicitly choose are submitted.
+            Type to filter by code or label. Press Enter when only one result remains. Missing canonical records use review-first creation assistants instead of being created immediately.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="mr-1 text-sm font-semibold">{chosen.length.toLocaleString()} chosen</span>
-          {section === 'SITE' && activeReferences.length ? <Button type="button" variant="primary" disabled={busy} onClick={() => void createAllReadySites()}>{activeReferences.length > 250 ? 'Create next 250 Sites' : `Create all ${activeReferences.length} Site${activeReferences.length === 1 ? '' : 's'}`}</Button> : null}
+          {section === 'SITE' && activeReferences.length ? <Link href={`/devices/import/${batchId}/sites`} className="rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-semibold text-[var(--accent-light)] hover:brightness-110">Review/create Sites</Link> : null}
+          {section === 'DEVICE_MODEL' && activeReferences.length ? <Link href={`/devices/import/${batchId}/models`} className="rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-semibold text-[var(--accent-light)] hover:brightness-110">Review/create Models</Link> : null}
+          {section === 'FIRMWARE_RELEASE' && activeReferences.length ? <Link href={`/devices/import/${batchId}/firmware`} className="rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-semibold text-[var(--accent-light)] hover:brightness-110">Review/create Firmware</Link> : null}
           <Button type="button" variant="ghost" disabled={busy || !activeReferences.some((reference) => reference.suggestedTargetId)} onClick={useSuggestions}>Use all suggestions</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={clearCurrentChoices}>Clear</Button>
           <Button type="button" variant="ghost" disabled={busy || !chosen.length} onClick={() => void applyBulk(false)}>{busy ? 'Applying…' : `Link ${chosen.length || ''} once`}</Button>
@@ -329,7 +309,7 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
       </div>
 
       {section === 'SITE' && activeReferences.length ? <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3 text-xs text-[var(--muted)] sm:px-5">
-        Bulk-create uses each imported Site name as-is and generates a readable Site code. Code collisions within a Customer receive a numeric suffix. Created Sites can be edited afterward.
+        Sites are scoped to the resolved Customer shown on each row. Use Review/create Sites to collapse duplicate raw Site values, edit proposed names/codes, and create them in one approval action.
       </div> : null}
 
       {sectionCount.waiting ? <div className="border-b border-[var(--border)] bg-[#282416] px-4 py-3 text-xs text-amber-100 sm:px-5">
@@ -340,9 +320,11 @@ export function DeviceImportBulkResolve({ batchId }: { batchId: string }) {
         {activeReferences.map((reference) => {
           const options = referenceOptions(reference, workspace.options)
           const selected = choices[reference.id] ?? ''
+          const context = referenceContext(reference, workspace.options)
           return <div key={reference.id} className="grid gap-3 p-4 sm:p-5 lg:grid-cols-[minmax(220px,0.8fr)_minmax(300px,1.2fr)] lg:items-end">
             <div>
               <div className="font-mono text-sm font-semibold">{reference.sourceValue}</div>
+              {context ? <div className="mt-1 text-xs font-medium text-[var(--muted-strong)]">{context}</div> : null}
               <div className="mt-1 text-xs text-[var(--muted)]">{reference.occurrenceCount.toLocaleString()} occurrence{reference.occurrenceCount === 1 ? '' : 's'}</div>
               {reference.suggestedTargetId ? <div className="mt-2 text-xs">
                 <span className="text-[var(--muted)]">Suggestion:</span> <strong>{reference.suggestedTargetLabel}</strong>
