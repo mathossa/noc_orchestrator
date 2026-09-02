@@ -29,6 +29,8 @@ function safeSuggestions(workspace: Workspace) {
   )
 }
 
+const linkClass = 'rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]'
+
 export function DeviceImportAssistedActions({ batchId }: { batchId: string }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [busy, setBusy] = useState(false)
@@ -92,7 +94,7 @@ export function DeviceImportAssistedActions({ batchId }: { batchId: string }) {
       <div>
         <div className="text-sm font-semibold">Assisted actions</div>
         <p className="mt-1 max-w-3xl text-xs leading-5 text-[var(--muted)]">
-          Exact and remembered mappings are automatic. Near-exact suggestions at 97%+ can be accepted together; ambiguous values remain for review.
+          Exact and remembered mappings are automatic. Apply only high-confidence suggestions in one click, then review prefilled Site, Model/Family, and Firmware creation proposals instead of creating records one by one.
         </p>
         {error ? <p className="mt-2 text-xs font-medium text-[#f0a0a0]">{error}</p> : null}
       </div>
@@ -100,8 +102,10 @@ export function DeviceImportAssistedActions({ batchId }: { batchId: string }) {
         <Button type="button" variant="primary" disabled={busy || !safeCount} onClick={() => void applySafeSuggestions()}>
           {busy ? 'Applying safe suggestions…' : `Apply ${safeCount} safe suggestion${safeCount === 1 ? '' : 's'}`}
         </Button>
-        <Link href={`/devices/import/${batchId}/bulk`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Bulk resolve exceptions</Link>
-        <Link href={`/devices/import/${batchId}/models`} className="rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-semibold text-[var(--accent-light)] hover:brightness-110">Model + family assistant</Link>
+        <Link href={`/devices/import/${batchId}/sites`} className={linkClass}>Review/create Sites</Link>
+        <Link href={`/devices/import/${batchId}/models`} className={linkClass}>Models + Families</Link>
+        <Link href={`/devices/import/${batchId}/firmware`} className={linkClass}>Review/create Firmware</Link>
+        <Link href={`/devices/import/${batchId}/bulk`} className={linkClass}>Bulk resolve exceptions</Link>
       </div>
     </div>
   </section>
