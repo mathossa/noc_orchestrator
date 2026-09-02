@@ -1,8 +1,24 @@
 import { NextResponse } from 'next/server'
-import { bulkCreateDeviceImportSites } from '@/lib/device-import-staged-site-bulk-create'
+import { bulkCreateDeviceImportSites, getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
+
+export async function GET(_request: Request, context: RouteContext) {
+  const { batchId } = await context.params
+  try {
+    return NextResponse.json({ data: await getDeviceImportSiteCreateProposals(batchId) })
+  } catch (error) {
+    if (error instanceof DeviceImportStagingError) {
+      return NextResponse.json({ error: { code: 'INVALID_BULK_SITE_CREATE', message: error.message } }, { status: 400 })
+    }
+    console.error('Failed to prepare staged import Sites', error)
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'The staged Site proposals could not be prepared.' } },
+      { status: 500 },
+    )
+  }
+}
 
 export async function POST(request: Request, context: RouteContext) {
   const { batchId } = await context.params
