@@ -5,6 +5,7 @@ import {
   suggestedImportSiteCode,
   suggestedImportSiteName,
 } from '@/lib/device-import-site-code'
+import { rememberReviewedBatchReferences } from '@/lib/device-import-staged-profile-aliases'
 import { getDeviceImportBatchWorkspace, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
@@ -65,7 +66,7 @@ export async function getDeviceImportSiteCreateProposals(batchId: string) {
     customerId: string
     referenceIds: string[]
     sourceValues: string[]
-    customerSourceValues: string[]
+    organizationSiteSourceValues: string[]
     name: string
   }>()
   for (const reference of references) {
@@ -73,21 +74,21 @@ export async function getDeviceImportSiteCreateProposals(batchId: string) {
     const customerId = meta.customerTargetId!
     const customer = customerById.get(customerId)
     if (!customer) continue
-    const proposedName = suggestedImportSiteName(reference.sourceValue, meta.customerSourceValue, customer.name)
+    const proposedName = suggestedImportSiteName(reference.sourceValue, meta.organizationSiteSourceValue, customer.name)
     const key = `${customerId}|${normalizeImportText(proposedName)}`
     const current = grouped.get(key)
     if (current) {
       current.referenceIds.push(reference.id)
       if (!current.sourceValues.includes(reference.sourceValue)) current.sourceValues.push(reference.sourceValue)
-      if (meta.customerSourceValue && !current.customerSourceValues.includes(meta.customerSourceValue)) {
-        current.customerSourceValues.push(meta.customerSourceValue)
+      if (meta.organizationSiteSourceValue && !current.organizationSiteSourceValues.includes(meta.organizationSiteSourceValue)) {
+        current.organizationSiteSourceValues.push(meta.organizationSiteSourceValue)
       }
     } else {
       grouped.set(key, {
         customerId,
         referenceIds: [reference.id],
         sourceValues: [reference.sourceValue],
-        customerSourceValues: meta.customerSourceValue ? [meta.customerSourceValue] : [],
+        organizationSiteSourceValues: meta.organizationSiteSourceValue ? [meta.organizationSiteSourceValue] : [],
         name: proposedName,
       })
     }
@@ -114,7 +115,7 @@ export async function getDeviceImportSiteCreateProposals(batchId: string) {
       customerCode: customer.code,
       referenceIds: group.referenceIds,
       sourceValues: group.sourceValues,
-      customerSourceValues: group.customerSourceValues,
+      organizationSiteSourceValues: group.organizationSiteSourceValues,
       name: group.name,
       code,
       existingTarget: existing ? { id: existing.id, name: existing.name, code: existing.code } : null,
@@ -223,6 +224,7 @@ export async function bulkCreateDeviceImportSites(rawInput: unknown) {
     }))),
   ]
   await prisma.$transaction(operations)
+  await rememberReviewedBatchReferences(batchId, ['SITE'])
 
   const unresolved = await prisma.deviceImportStagedReference.count({ where: { batchId, status: { not: 'LINKED' } } })
   await prisma.deviceImportBatch.update({ where: { id: batchId }, data: { status: unresolved === 0 ? 'READY' : 'STAGED' } })
