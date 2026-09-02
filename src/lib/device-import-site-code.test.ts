@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   importSiteProfileContext,
+  importSiteProfileContextCandidates,
   nextAvailableImportSiteCode,
   suggestedImportSiteCode,
   suggestedImportSiteName,
@@ -34,5 +35,12 @@ describe('import Site codes', () => {
   it('keeps same generic Site labels distinguishable by raw organization context', () => {
     expect(importSiteProfileContext('customer-1', 'Unica Groep - Deventer'))
       .not.toBe(importSiteProfileContext('customer-1', 'Unica Groep - Zwolle'))
+  })
+
+  it('never falls a generic Site label back to a Customer-wide remembered mapping', () => {
+    expect(importSiteProfileContextCandidates('customer-1', 'Unica Groep - Deventer', 'Open internet'))
+      .toEqual(['customer-1|organization-site:unica groep - deventer'])
+    expect(importSiteProfileContextCandidates('customer-1', 'Unica Groep - Deventer', 'Deventer'))
+      .toEqual(['customer-1|organization-site:unica groep - deventer', 'customer-1'])
   })
 })
