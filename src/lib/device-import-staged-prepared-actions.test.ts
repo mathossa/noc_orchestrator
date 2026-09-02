@@ -17,12 +17,14 @@ const mocks = vi.hoisted(() => ({
   bulkCreateFamilies: vi.fn(),
   remember: vi.fn(),
   rememberAliases: vi.fn(),
+  rememberNormalizations: vi.fn(),
   resolveBulk: vi.fn(),
   bulkSites: vi.fn(),
   refresh: vi.fn(),
 }))
 
 vi.mock('@/lib/device-import-staged-core-assist', () => ({ bulkCreateDeviceImportCoreReferences: mocks.bulkCore }))
+vi.mock('@/lib/device-import-normalization-store', () => ({ rememberConfirmedModelNormalizations: mocks.rememberNormalizations }))
 vi.mock('@/lib/device-import-staged-firmware-assist', () => ({ bulkCreateDeviceImportFirmware: mocks.bulkFirmware }))
 vi.mock('@/lib/device-import-staged-model-assist', () => ({
   bulkAssignDeviceImportModelFamilies: mocks.bulkAssignFamilies,
@@ -65,6 +67,7 @@ describe('prepared staged import actions', () => {
     }])
     mocks.referenceFindFirst.mockResolvedValue({
       id: 'model-ref',
+      sourceValue: 'Aerohive AP305',
       metadata: { vendorSourceValue: 'Aerohive', deviceTypeSourceValue: 'Access Point', deviceTypeTargetId: 'type-ap' },
     })
     mocks.referenceUpdate.mockResolvedValue({})
@@ -76,6 +79,7 @@ describe('prepared staged import actions', () => {
     mocks.bulkModels.mockResolvedValue({})
     mocks.remember.mockResolvedValue(undefined)
     mocks.rememberAliases.mockResolvedValue(undefined)
+    mocks.rememberNormalizations.mockResolvedValue(1)
     mocks.refresh.mockResolvedValue({ counts: { references: { unresolved: 0 } } })
   })
 
@@ -122,6 +126,7 @@ describe('prepared staged import actions', () => {
     expect(mocks.rememberAliases).toHaveBeenCalledWith('profile-auvik', [
       { kind: 'VENDOR', sourceValue: 'Aruba', contextKey: '', targetId: 'vendor-aerohive' },
     ])
+    expect(mocks.rememberNormalizations).toHaveBeenCalledWith('batch-1', [expect.objectContaining({ sourceValue: 'Aerohive AP305', model: 'AP305', deviceTypeName: 'Access Point' })])
     expect(result.applied).toBe(1)
     expect(result.failed).toBe(0)
     expect(mocks.refresh).toHaveBeenCalledTimes(1)

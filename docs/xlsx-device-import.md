@@ -15,7 +15,7 @@ The workflow is:
 1. **Inspect** — upload the XLSX, inspect a bounded sample, choose worksheet/header and map columns.
 2. **Choose/save source profile** — e.g. `AUVIK EXPORT`.
 3. **Stage** — persist raw + mapped rows and unique external reference values. Nothing is globally visible yet.
-4. **Resolve entities** — work through Customers, Sites, Vendors, Device Types, Models, Firmware and Contract values. Repeated source values are collapsed into one task.
+4. **Resolve entities** — work through Customers, Sites, Vendors, Product Families, Software Platforms, Device Types, Models and Firmware. Repeated source values are collapsed into one task.
 5. **Final device validation** — reuse the normal Device duplicate/domain validation engine.
 6. **Accept and publish** — only a clean, explicitly accepted batch becomes normal inventory.
 
@@ -52,8 +52,25 @@ Child references do not become errors only because their parent is unresolved.
 Dependencies include:
 
 - Customer -> Site;
-- Vendor + Device Type -> concrete Device Model;
-- Device Model/platform -> Firmware Release.
+- Vendor + Product Family + Software Platform + Device Type -> concrete Device Model;
+- Device Model/Software Platform -> Firmware Release and Firmware Train.
+
+## Device classification hierarchy
+
+The importer keeps commercial classification separate from the software stack:
+
+`Vendor -> Product Family -> Software Platform -> Model -> Firmware Release`
+
+Device Type remains a separate functional classification attached to the Model/device.
+
+- **Vendor** is the manufacturer/brand, such as Fortinet, Cisco, or HPE Aruba.
+- **Product Family** uses the existing `DeviceModelFamily` entity for commercial lines such as FortiGate, Catalyst, Aruba CX, and Aruba WLAN.
+- **Software Platform** is an explicit catalog entity for FortiOS, IOS, IOS XE, AOS-S, AOS-CX, AOS 8, and AOS 10.
+- **Device Type** describes function: Firewall, Switch, Access Point, Router, or Controller.
+- **Model** is the concrete hardware identifier.
+- **Firmware Release** is the installed/available software version and is linked to an inferred Firmware Train where possible.
+
+Legacy platform strings remain during the compatibility migration, but new importer writes also link `DeviceModelPlatform`, `FirmwareTrain`, and `FirmwareRelease` to `SoftwarePlatform`.
 
 For example, a Site can display `Waiting for Customer`. After that Customer is linked or created, staged references are refreshed and the Site becomes actionable.
 
@@ -77,20 +94,25 @@ The workspace supports explicit creation of:
 - Vendor;
 - Device Type;
 - concrete Device Model;
-- Contract Type;
 - Firmware Release.
 
-Device Model creation preserves the exact external model notation by default. Vendor prefixes are not silently stripped.
+Device Model creation preserves unrecognized external model notation by default. Deterministic, visible normalization proposals handle known product syntax, for example `FortiGate-100F` -> `FG-100F`. These proposals still require Final Review.
 
-## Conservative suggestions
+## Classification and reusable normalization
 
-The staging layer can suggest likely matches for punctuation/notation differences. Suggestions are never automatically accepted.
+The staging layer can suggest likely matches for punctuation/notation differences and deterministic classifications. Suggestions are never automatically accepted.
 
-Examples include variants such as:
+Built-in classifications include:
 
-`Fortinet FortiGate-100F`
+- `Fortigate`, `FortiGate`, and `FG-` -> FortiGate + FortiOS + Firewall;
+- `C9300-*` -> Catalyst + IOS XE + Switch;
+- `WS-C2960X-*` -> Catalyst + IOS + Switch;
+- `2530-*` -> Aruba Switch + AOS-S + Switch;
+- `CX 6200*` -> Aruba CX + AOS-CX + Switch;
+- `AP-315` -> Aruba WLAN with AOS 8/AOS 10 support;
+- `AP-515` -> Aruba WLAN + AOS 10.
 
-and an existing label using spaces/punctuation differently.
+The worksheet can add all high-confidence Model classifications to Final Review in one action. Confirmed values are stored as profile-scoped `NORMALIZE` rules, including the normalized Model, Product Family, Software Platform(s), and Device Type. Existing profile aliases continue to remember entity links such as `Aruba -> HPE Aruba` (or the selected canonical Vendor).
 
 Weak or ambiguous similarities produce no suggestion.
 
@@ -106,6 +128,8 @@ Exports such as Auvik normally keep a stable structure and vocabulary. `DeviceIm
 - Organization/Site split delimiter.
 
 `DeviceImportProfileAlias` stores explicit remembered semantic decisions.
+
+`DeviceImportProfileRule` stores both reusable device-row Ignore rules and confirmed Model normalization/classification results.
 
 When a profile is selected, only that profile's aliases are used. Auvik-specific vocabulary therefore cannot leak into an unrelated CMDB export.
 
@@ -139,7 +163,7 @@ Verbose Software Version strings can yield an embedded dotted firmware version, 
 - `S424EF-v7.4.9-build946,...` -> `7.4.9`
 - `FP231G-v7.4.7-build0802` -> `7.4.7`
 
-Firmware still has to resolve to a release compatible with the resolved Model Vendor/platform.
+Firmware still has to resolve to a release compatible with the resolved Model Vendor/Software Platform. Import-created observed releases remain `AVAILABLE`; they are never automatically made approved, recommended, or desired. Their Firmware Train is inferred conservatively (for example `7.4.7` -> `7.4`, `17.12.5` -> `17.12`, and `WC.16.11.0020` -> `WC.16.11`).
 
 ## Column mapping
 
@@ -152,6 +176,8 @@ Supported destination fields include:
 - Hostname;
 - Serial number;
 - Vendor;
+- Product Family;
+- Software Platform;
 - concrete Device Model;
 - Device Type;
 - Management address;
@@ -222,6 +248,8 @@ Browser rendering remains bounded:
 - final validation returns bounded row detail while full counts cover the batch;
 - unique reference values, not thousands of repeated row errors, drive cleanup.
 
+Ignore, Exclude, and Restore recalculate only references touched by the changed device rows. Normal row/group actions do not delete and reconstruct the complete staged reference set.
+
 Current workbook safeguards include:
 
 - maximum uploaded XLSX: 8 MB;
@@ -240,6 +268,8 @@ Issue #38 currently adds:
 2. `20260901152000_device_import_profiles`
 3. `20260901163000_device_import_profile_schema_alignment`
 4. `20260901185500_device_import_staging`
+5. `20260902023000_import_automation_multiplatform`
+6. `20260902213000_product_family_software_platform_import_rules`
 
 The staging migration adds the persistent quarantine tables without changing normal inventory ownership.
 

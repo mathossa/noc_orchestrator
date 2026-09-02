@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextInput } from '@/components/ui/form-controls'
@@ -74,7 +74,7 @@ const FIELD_LABELS: Record<DeviceImportField, string> = {
   serialNumber: 'Serial number',
   vendor: 'Vendor',
   model: 'Concrete device model',
-  platform: 'Platform',
+  platform: 'Software Platform',
   deviceType: 'Device type',
   managementAddress: 'Management address',
   currentFirmware: 'Current firmware (generic)',
@@ -101,7 +101,7 @@ export function DeviceImportWorkspace() {
   const [profiles, setProfiles] = useState<ImportProfile[]>([])
   const [batches, setBatches] = useState<BatchListItem[]>([])
   const [batchesLoaded, setBatchesLoaded] = useState(false)
-  const [autoProfileAttempted, setAutoProfileAttempted] = useState(false)
+  const autoProfileAttempted = useRef(false)
   const [profileId, setProfileId] = useState('')
   const [profileName, setProfileName] = useState('')
   const [sheetName, setSheetName] = useState('')
@@ -141,7 +141,7 @@ export function DeviceImportWorkspace() {
     setInspection(null)
     setReferences(EMPTY_REFERENCES)
     setProfiles([])
-    setAutoProfileAttempted(false)
+    autoProfileAttempted.current = false
     setProfileId('')
     setProfileName('')
     setSheetName('')
@@ -189,8 +189,8 @@ export function DeviceImportWorkspace() {
   }, [inspection, profiles])
 
   useEffect(() => {
-    if (!inspection || !batchesLoaded || autoProfileAttempted || !profiles.length) return
-    setAutoProfileAttempted(true)
+    if (!inspection || !batchesLoaded || autoProfileAttempted.current || !profiles.length) return
+    autoProfileAttempted.current = true
     if (profileId) return
     const repeatedProfileId = profileIdForRepeatedWorkbook(
       inspection.fileName,
@@ -200,9 +200,14 @@ export function DeviceImportWorkspace() {
     )
     if (!repeatedProfileId) return
     const profile = profiles.find((candidate) => candidate.id === repeatedProfileId)
-    applyProfile(repeatedProfileId)
-    setNotice(`Automatically loaded ${profile?.name ?? 'the previous import profile'} because the latest batch with this workbook filename used it.`)
-  }, [applyProfile, autoProfileAttempted, batches, batchesLoaded, inspection, profileId, profiles])
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      applyProfile(repeatedProfileId)
+      setNotice(`Automatically loaded ${profile?.name ?? 'the previous import profile'} because the latest batch with this workbook filename used it.`)
+    })
+    return () => { cancelled = true }
+  }, [applyProfile, batches, batchesLoaded, inspection, profileId, profiles])
 
   function changeHeaderRow(nextRow: number) {
     if (!currentSheet) return

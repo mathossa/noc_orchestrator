@@ -1,4 +1,5 @@
 import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
+import { rememberConfirmedModelNormalizations, type ConfirmedModelNormalization } from '@/lib/device-import-normalization-store'
 import { bulkCreateDeviceImportCoreReferences } from '@/lib/device-import-staged-core-assist'
 import { bulkCreateDeviceImportFirmware } from '@/lib/device-import-staged-firmware-assist'
 import {
@@ -300,7 +301,7 @@ function cachedModelDependency(
 }
 
 async function prepareModelCreate(batchId: string, item: PreparedReferenceAction, dependencyCache: ModelDependencyCache) {
-  const reference = await prisma.deviceImportStagedReference.findFirst({ where: { id: item.referenceId, batchId }, select: { id: true, metadata: true } })
+  const reference = await prisma.deviceImportStagedReference.findFirst({ where: { id: item.referenceId, batchId }, select: { id: true, sourceValue: true, metadata: true } })
   if (!reference) throw new DeviceImportStagingError('The prepared Model reference no longer exists.')
   const current = metadata(reference.metadata)
 
@@ -358,6 +359,16 @@ async function prepareModelCreate(batchId: string, item: PreparedReferenceAction
     familyId: optionalText(item.values.familyId),
     vendorAliasSource: optionalText(item.values.vendorSourceValue) ?? current.vendorSourceValue ?? null,
     vendorId,
+    normalization: item.remember ? {
+      sourceValue: reference.sourceValue,
+      model: text(item.values.model),
+      productFamilyId: optionalText(item.values.familyId),
+      productFamilyName: optionalText(item.values.newFamilyName),
+      softwarePlatforms: platforms,
+      preferredSoftwarePlatform: platform,
+      deviceTypeName,
+      classificationKey: optionalText(item.values.normalizationRuleKey),
+    } satisfies ConfirmedModelNormalization : null,
   }
 }
 
@@ -449,6 +460,7 @@ async function applyCreateActions(
   const modelDependencyCache: ModelDependencyCache = new Map()
   const successfulModelFamilyDrafts: Array<{ referenceId: string; name: string }> = []
   const successfulVendorAliases: Array<{ sourceValue: string; targetId: string }> = []
+  const successfulNormalizations: ConfirmedModelNormalization[] = []
   for (const part of chunks(modelItems)) {
     const prepared = (await Promise.all(part.map(async (item) => {
       try {
@@ -469,6 +481,7 @@ async function applyCreateActions(
       applied += succeeded
       const failedKeys = new Set(failures.slice(beforeFailures).map((failure) => failure.key))
       for (const entry of prepared) {
+        if (!failedKeys.has(entry.source.referenceId) && entry.value.normalization) successfulNormalizations.push(entry.value.normalization)
         if (!failedKeys.has(entry.source.referenceId) && entry.value.vendorAliasSource) {
           successfulVendorAliases.push({ sourceValue: entry.value.vendorAliasSource, targetId: entry.value.vendorId })
         }
@@ -526,6 +539,8 @@ async function applyCreateActions(
       }
     }
   }
+
+  if (successfulNormalizations.length) await rememberConfirmedModelNormalizations(batchId, successfulNormalizations)
 
   const firmwareItems = items.filter((item) => referenceById.get(item.referenceId)?.kind === 'FIRMWARE_RELEASE')
   if (modelItems.length && firmwareItems.length) await refreshDeviceImportBatchReferences(batchId)

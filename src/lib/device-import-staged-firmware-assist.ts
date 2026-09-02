@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
+import { inferFirmwareTrainName } from '@/lib/device-import-normalization'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
+import { ensureFirmwareTrainForRelease } from '@/lib/software-platform-store'
 
 const MAX_BULK_FIRMWARE = 250
 
@@ -120,6 +122,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       vendorCode: vendor.code,
       modelNames: proposalModels.map((model) => model.model),
       status: 'AVAILABLE',
+      firmwareTrainName: proposal.platform ? inferFirmwareTrainName(proposal.platform, proposal.version) : '',
       existingTarget: existingTarget ? { id: existingTarget.id, version: existingTarget.version, platform: existingTarget.platform, status: existingTarget.status } : null,
     }
   }).sort((left, right) => left.vendorName.localeCompare(right.vendorName) || left.platform.localeCompare(right.platform) || left.version.localeCompare(right.version))
@@ -180,24 +183,29 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   }
   const canonical = [...merged.values()]
   const vendorIds = [...new Set(canonical.map((item) => item.vendorId))]
-  const [vendors, existing] = await Promise.all([
+  const modelIds = [...new Set(canonical.flatMap((item) => item.refs.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id))))]
+  const [vendors, existing, models] = await Promise.all([
     prisma.vendor.findMany({ where: { id: { in: vendorIds }, isActive: true }, select: { id: true } }),
     prisma.firmwareRelease.findMany({ where: { vendorId: { in: vendorIds } }, select: { id: true, vendorId: true, platform: true, version: true } }),
+    modelIds.length ? prisma.deviceModel.findMany({ where: { id: { in: modelIds } }, select: { id: true, familyId: true } }) : Promise.resolve([]),
   ])
   if (vendors.length !== vendorIds.length) throw new DeviceImportStagingError('One or more Firmware Vendors no longer exist or are archived.')
 
-  const created: Array<{ id: string; vendorId: string; platform: string; version: string; status: string; refs: FirmwareReference[] }> = []
-  const links: Array<{ targetId: string; vendorId: string; platform: string; refs: FirmwareReference[] }> = []
+  const familyByModelId = new Map(models.map((model) => [model.id, model.familyId]))
+  const created: Array<{ id: string; vendorId: string; platform: string; version: string; status: string; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
+  const links: Array<{ targetId: string; vendorId: string; platform: string; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
   for (const item of canonical) {
+    const familyIds = [...new Set(item.refs.map((reference) => metadata(reference.metadata).modelTargetId).map((id) => id ? familyByModelId.get(id) : null).filter((id): id is string => Boolean(id)))]
+    const catalog = await ensureFirmwareTrainForRelease({ vendorId: item.vendorId, platform: item.platform, version: item.version, productFamilyId: familyIds.length === 1 ? familyIds[0] : null })
     const exact = existing.find((release) =>
       release.vendorId === item.vendorId &&
       normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(item.platform) &&
       normalizeImportText(release.version) === normalizeImportText(item.version),
     )
     if (exact) {
-      links.push({ targetId: exact.id, vendorId: exact.vendorId, platform: exact.platform, refs: item.refs })
+      links.push({ targetId: exact.id, vendorId: exact.vendorId, platform: exact.platform, refs: item.refs, ...catalog })
     } else {
-      created.push({ id: randomUUID(), vendorId: item.vendorId, platform: item.platform, version: item.version, status: item.status, refs: item.refs })
+      created.push({ id: randomUUID(), vendorId: item.vendorId, platform: item.platform, version: item.version, status: item.status, refs: item.refs, ...catalog })
     }
   }
 
@@ -206,7 +214,8 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
       data: created.map((release) => ({
         id: release.id,
         vendorId: release.vendorId,
-        firmwareTrainId: null,
+        firmwareTrainId: release.firmwareTrainId,
+        softwarePlatformId: release.softwarePlatformId,
         platform: release.platform,
         version: release.version,
         status: release.status,
@@ -215,6 +224,10 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
         isActive: true,
       })),
     })] : []),
+    ...links.map((link) => prisma.firmwareRelease.updateMany({
+      where: { id: link.targetId },
+      data: { firmwareTrainId: link.firmwareTrainId, softwarePlatformId: link.softwarePlatformId },
+    })),
     ...created.flatMap((release) => release.refs.map((reference) => prisma.deviceImportStagedReference.update({
       where: { id: reference.id },
       data: {

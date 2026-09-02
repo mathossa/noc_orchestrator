@@ -2,6 +2,7 @@ import { normalizeImportText, parseDeviceImportOptions } from '@/lib/device-impo
 import {
   buildDeviceImportStagedReferenceSeeds,
   type DeviceImportMappedValues,
+  type DeviceImportStagedReferenceMetadata,
 } from '@/lib/device-import-staging'
 import {
   DeviceImportStagingError,
@@ -13,98 +14,74 @@ import { prisma } from '@/lib/prisma'
 export const IMPORT_RULE_FIELDS = ['customer', 'site', 'vendor', 'deviceType', 'model', 'currentFirmware', 'name', 'hostname', 'externalId'] as const
 export type ImportRuleField = (typeof IMPORT_RULE_FIELDS)[number]
 
-const REBUILD_CHUNK = 500
-
-type StagedReferenceSnapshot = {
-  kind: string
-  normalizedSourceValue: string
-  contextKey: string
-  status: string
-  targetId: string | null
-  suggestedTargetId: string | null
-  suggestionScore: number | null
-  resolutionSource: string | null
-  metadata: unknown
-}
-
 function cleanField(value: unknown): ImportRuleField | null {
   return typeof value === 'string' && IMPORT_RULE_FIELDS.includes(value as ImportRuleField)
     ? value as ImportRuleField
     : null
 }
 
-function chunks<T>(items: T[], size: number) {
-  const result: T[][] = []
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size))
-  return result
-}
-
 function mappedData(value: unknown): DeviceImportMappedValues {
   return (typeof value === 'object' && value !== null ? value : {}) as DeviceImportMappedValues
+}
+
+function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
+  return (typeof value === 'object' && value !== null ? value : {}) as DeviceImportStagedReferenceMetadata
 }
 
 function rowMatches(field: ImportRuleField, rawValue: string, data: DeviceImportMappedValues) {
   return normalizeImportText(data[field]) === normalizeImportText(rawValue)
 }
 
-async function rebuildActiveReferences(batchId: string) {
-  const [batch, rows, previous] = await Promise.all([
-    prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, settings: true, status: true } }),
-    prisma.deviceImportStagedRow.findMany({
-      where: { batchId, status: 'STAGED' },
-      orderBy: { rowNumber: 'asc' },
-      select: { rowNumber: true, mappedData: true },
-    }),
-    prisma.deviceImportStagedReference.findMany({
-      where: { batchId },
-      select: {
-        kind: true,
-        normalizedSourceValue: true,
-        contextKey: true,
-        status: true,
-        targetId: true,
-        suggestedTargetId: true,
-        suggestionScore: true,
-        resolutionSource: true,
-        metadata: true,
-      },
-    }) as Promise<StagedReferenceSnapshot[]>,
-  ])
+function referenceKey(reference: { kind: string; contextKey: string; normalizedSourceValue: string }) {
+  return `${reference.kind}|${reference.contextKey}|${reference.normalizedSourceValue}`
+}
+
+async function refreshAffectedReferences(batchId: string, changes: Array<{ rowNumber: number; mappedData: unknown; delta: -1 | 1 }>) {
+  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, settings: true, status: true } })
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
   if (batch.status === 'PUBLISHED') throw new DeviceImportStagingError('Published import batches can no longer be changed.')
 
   const options = parseDeviceImportOptions(batch.settings)
-  const seeds = buildDeviceImportStagedReferenceSeeds(
-    rows.map((row) => ({ rowNumber: row.rowNumber, values: mappedData(row.mappedData) })),
-    options,
-  )
-  const previousByKey = new Map(previous.map((reference) => [
-    `${reference.kind}|${reference.contextKey}|${reference.normalizedSourceValue}`,
-    reference,
-  ]))
-
-  await prisma.$transaction(async (tx) => {
-    await tx.deviceImportStagedReference.deleteMany({ where: { batchId } })
-    const next = seeds.map((seed) => {
-      const old = previousByKey.get(`${seed.kind}|${seed.contextKey}|${seed.normalizedSourceValue}`)
-      const preserve = old?.status === 'LINKED' && old.targetId
-      return {
-        batchId,
-        kind: seed.kind,
-        sourceValue: seed.sourceValue,
-        normalizedSourceValue: seed.normalizedSourceValue,
-        contextKey: seed.contextKey,
-        metadata: seed.metadata,
-        occurrenceCount: seed.occurrenceCount,
-        status: preserve ? 'LINKED' : 'UNRESOLVED',
-        targetId: preserve ? old.targetId : null,
-        suggestedTargetId: null,
-        suggestionScore: null,
-        resolutionSource: preserve ? old.resolutionSource : null,
+  const deltas = new Map<string, { seed: ReturnType<typeof buildDeviceImportStagedReferenceSeeds>[number]; count: number; addedRows: number[]; removedRows: number[] }>()
+  for (const delta of [-1, 1] as const) {
+    const deltaRows = changes.filter((change) => change.delta === delta)
+    if (!deltaRows.length) continue
+    const seeds = buildDeviceImportStagedReferenceSeeds(deltaRows.map((change) => ({ rowNumber: change.rowNumber, values: mappedData(change.mappedData) })), options)
+    for (const seed of seeds) {
+      const key = referenceKey(seed)
+      const current = deltas.get(key) ?? { seed, count: 0, addedRows: [], removedRows: [] }
+      current.count += delta * seed.occurrenceCount
+      ;(delta > 0 ? current.addedRows : current.removedRows).push(...(seed.metadata.rowNumbers ?? []))
+      deltas.set(key, current)
+    }
+  }
+  if (!deltas.size) return refreshDeviceImportBatchReferences(batchId)
+  const keys = [...deltas.values()].map(({ seed }) => ({ kind: seed.kind, contextKey: seed.contextKey, normalizedSourceValue: seed.normalizedSourceValue }))
+  const existing = await prisma.deviceImportStagedReference.findMany({ where: { batchId, OR: keys }, select: { id: true, kind: true, contextKey: true, normalizedSourceValue: true, occurrenceCount: true, metadata: true } })
+  const existingByKey = new Map(existing.map((reference) => [referenceKey(reference), reference]))
+  const operations = [...deltas].flatMap(([key, change]) => {
+    const current = existingByKey.get(key)
+    const occurrenceCount = (current?.occurrenceCount ?? 0) + change.count
+    if (occurrenceCount <= 0) return current ? [prisma.deviceImportStagedReference.delete({ where: { id: current.id } })] : []
+    const oldMetadata = metadata(current?.metadata)
+    const rowNumbers = [...new Set([...(oldMetadata.rowNumbers ?? []).filter((row) => !change.removedRows.includes(row)), ...change.addedRows])].slice(0, 20)
+    const nextMetadata: DeviceImportStagedReferenceMetadata = { ...oldMetadata, rowNumbers }
+    if (change.addedRows.length) {
+      const platforms = [...new Map([...(oldMetadata.platforms ?? []), ...(change.seed.metadata.platforms ?? [])].map((value) => [normalizeImportText(value), value])).values()].filter(Boolean)
+      if (platforms.length) {
+        nextMetadata.platforms = platforms
+        nextMetadata.platform = platforms.length === 1 ? platforms[0] : null
       }
-    })
-    for (const part of chunks(next, REBUILD_CHUNK)) await tx.deviceImportStagedReference.createMany({ data: part })
+      const deviceTypes = [...new Map([...(oldMetadata.deviceTypeSourceValues ?? []), ...(change.seed.metadata.deviceTypeSourceValues ?? [])].map((value) => [normalizeImportText(value), value])).values()].filter(Boolean)
+      if (deviceTypes.length) {
+        nextMetadata.deviceTypeSourceValues = deviceTypes
+        nextMetadata.deviceTypeSourceValue = deviceTypes[0]
+      }
+    }
+    if (current) return [prisma.deviceImportStagedReference.update({ where: { id: current.id }, data: { occurrenceCount, metadata: nextMetadata } })]
+    return [prisma.deviceImportStagedReference.create({ data: { batchId, kind: change.seed.kind, sourceValue: change.seed.sourceValue, normalizedSourceValue: change.seed.normalizedSourceValue, contextKey: change.seed.contextKey, metadata: change.seed.metadata, occurrenceCount, status: 'UNRESOLVED' } })]
   })
+  if (operations.length) await prisma.$transaction(operations)
 
   return refreshDeviceImportBatchReferences(batchId)
 }
@@ -124,7 +101,7 @@ export async function applySavedImportProfileRules(batchId: string) {
     }),
     prisma.deviceImportStagedRow.findMany({
       where: { batchId, status: 'STAGED' },
-      select: { id: true, mappedData: true },
+      select: { id: true, rowNumber: true, mappedData: true },
     }),
   ])
 
@@ -155,7 +132,7 @@ export async function applySavedImportProfileRules(batchId: string) {
       statusReason: group.reason,
     },
   })))
-  return rebuildActiveReferences(batchId)
+  return refreshAffectedReferences(batchId, rows.filter((row) => matched.has(row.id)).map((row) => ({ ...row, delta: -1 as const })))
 }
 
 export async function getDeviceImportSmartGroups(batchId: string) {
@@ -257,7 +234,12 @@ export async function applyDeviceImportRowAction(rawInput: unknown) {
         },
   })
 
-  const workspace = await rebuildActiveReferences(batchId)
+  const nextActive = action === 'RESTORE'
+  const changed = selected.flatMap((row) => {
+    const currentActive = row.status === 'STAGED'
+    return currentActive === nextActive ? [] : [{ ...row, delta: (nextActive ? 1 : -1) as -1 | 1 }]
+  })
+  const workspace = await refreshAffectedReferences(batchId, changed)
   return { affected: selected.length, workspace }
 }
 

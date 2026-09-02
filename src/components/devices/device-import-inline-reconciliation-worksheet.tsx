@@ -74,6 +74,12 @@ type ReadyModel = {
   proposedPlatforms: string[]
   suggestedFamilyId: string | null
   proposedNewFamilyName: string | null
+  proposedDeviceTypeId: string
+  proposedDeviceTypeName: string
+  proposedDeviceTypeCode: string
+  normalizationRuleKey: string | null
+  normalizationSource: 'BUILT_IN' | 'PROFILE_RULE' | null
+  normalizationConfidence: number | null
 }
 type LinkedModel = {
   id: string
@@ -97,6 +103,7 @@ type FirmwareProposal = {
   version: string
   platform: string
   status: string
+  firmwareTrainName: string
   existingTarget: { id: string; version: string; platform: string; status: string } | null
 }
 type Assist = {
@@ -143,6 +150,7 @@ type ModelDraft = {
   familyId: string
   familyName: string
   vendorSourceValue: string
+  normalizationRuleKey: string
 }
 type FirmwareDraft = {
   existingReleaseId: string
@@ -363,8 +371,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       const vendorId = rememberedVendorId || reference.metadata.vendorTargetId || vendorRef?.targetId || safeSuggestedTarget(vendorRef) || inferredVendor?.vendor.id || ''
       const deviceTypeId = reference.metadata.deviceTypeTargetId ?? typeRef?.targetId ?? safeSuggestedTarget(typeRef)
       const vendorName = selectedName(vendorId, activeVendors) || inferredVendor?.vendor.name || reference.metadata.vendorSourceValue || ''
-      const deviceTypeName = selectedName(deviceTypeId, activeTypes) || reference.metadata.deviceTypeSourceValue || ''
       const proposal = next.models.readyToCreate.find((item) => item.id === reference.id)
+      const proposedDeviceTypeId = proposal?.proposedDeviceTypeId || deviceTypeId
+      const deviceTypeName = proposal?.proposedDeviceTypeName || selectedName(proposedDeviceTypeId, activeTypes) || reference.metadata.deviceTypeSourceValue || ''
       const platform = proposal?.proposedPlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
       const platforms = proposal?.proposedPlatforms?.length ? proposal.proposedPlatforms.join(', ') : reference.metadata.platforms?.join(', ') ?? (platform ? platform : '')
       nextModels[reference.id] = {
@@ -372,15 +381,16 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         vendorId,
         vendorName,
         vendorCode: suggestedCode(vendorName),
-        deviceTypeId,
+        deviceTypeId: proposedDeviceTypeId,
         deviceTypeName,
-        deviceTypeCode: suggestedCode(deviceTypeName),
+        deviceTypeCode: proposal?.proposedDeviceTypeCode || suggestedCode(deviceTypeName),
         model: proposal?.proposedModel ?? stripVendorPrefix(reference.sourceValue, vendorName),
         platform,
         platforms,
         familyId: proposal?.suggestedFamilyId ?? '',
         familyName: proposal?.proposedNewFamilyName ?? '',
         vendorSourceValue,
+        normalizationRuleKey: proposal?.normalizationRuleKey ?? '',
       }
     }
     setModelDrafts(nextModels)
@@ -450,6 +460,10 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const firmwareRefs = useMemo(() => references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE'), [references])
   const coreRefs = useMemo(() => references.filter((reference) => Boolean(coreDrafts[reference.id])), [coreDrafts, references])
   const linkedFamilyTasks = useMemo(() => assist?.models.linkedModels.filter((model) => !model.familyId) ?? [], [assist])
+  const recommendedModelReferenceIds = useMemo(() => modelRefs.flatMap((reference) => {
+    const proposal = assist?.models.readyToCreate.find((item) => item.id === reference.id)
+    return proposal?.normalizationRuleKey && (proposal.normalizationConfidence ?? 0) >= 0.98 ? [reference.id] : []
+  }), [assist, modelRefs])
   const referenceBySource = useMemo(() => {
     const index = new Map<string, Reference>()
     for (const reference of assist?.workspace.references ?? []) index.set(`${reference.kind}|${normalized(reference.sourceValue)}`, reference)
@@ -673,6 +687,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
             platforms: draft.platforms,
             familyId: draft.familyId || null,
             newFamilyName: draft.familyId ? null : draft.familyName || null,
+            normalizationRuleKey: draft.normalizationRuleKey || null,
           },
         })
       } else {
@@ -786,7 +801,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         </div>
         <div className="text-right text-xs text-[var(--muted)]"><div><strong className="text-[var(--foreground)]">{prepared.toLocaleString()}</strong> ready</div><div><strong className={pending ? 'text-amber-200' : 'text-[var(--foreground)]'}>{pending.toLocaleString()}</strong> need input</div></div>
       </div>
-      <div className="mt-3"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{recommendedModelReferenceIds.length ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { markEditedReferences(recommendedModelReferenceIds); setNotice(`${recommendedModelReferenceIds.length.toLocaleString()} deterministic Model classification${recommendedModelReferenceIds.length === 1 ? '' : 's'} added to Final Review.`) }}>Review {recommendedModelReferenceIds.length.toLocaleString()} recommendations</Button> : null}</div>
     </div>
 
     {error ? <div className="mx-4 mt-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0] sm:mx-5" role="alert">{error}</div> : null}
@@ -827,7 +842,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           const reviewed = editedReferences.has(reference.id)
           const familyValue = draft.familyId ? vendorFamilies.find((family) => family.id === draft.familyId)?.name ?? '' : draft.familyName
           return <div key={reference.id} className="px-4 py-4 sm:px-5">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Model</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">{reference.occurrenceCount.toLocaleString()} device row{reference.occurrenceCount === 1 ? '' : 's'} · rows {(reference.metadata.rowNumbers ?? []).join(', ') || '—'}</div></div><div className={`rounded-md border px-2 py-1 text-xs font-semibold ${reviewed && willLink ? 'border-[#285f48] text-[#a9e8c6]' : reviewed ? 'border-[var(--accent-muted)] text-[var(--accent-light)]' : 'border-[var(--border)] text-[var(--muted)]'}`}>{reviewed ? (willLink ? 'LINK EXISTING' : 'NEW MODEL') : 'NEEDS REVIEW'}</div></div>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Model</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">{reference.occurrenceCount.toLocaleString()} device row{reference.occurrenceCount === 1 ? '' : 's'} · rows {(reference.metadata.rowNumbers ?? []).join(', ') || '—'}</div></div><div className={`rounded-md border px-2 py-1 text-xs font-semibold ${reviewed && willLink ? 'border-[#285f48] text-[#a9e8c6]' : reviewed ? 'border-[var(--accent-muted)] text-[var(--accent-light)]' : draft.normalizationRuleKey ? 'border-[#6c5b2b] text-amber-200' : 'border-[var(--border)] text-[var(--muted)]'}`}>{reviewed ? (willLink ? 'LINK EXISTING' : 'NEW MODEL') : draft.normalizationRuleKey ? 'RECOMMENDED' : 'NEEDS REVIEW'}</div></div>
             <div className="grid gap-3 xl:grid-cols-[minmax(260px,1.2fr)_minmax(170px,.7fr)_minmax(170px,.7fr)] xl:items-end">
               {field({ label: 'Existing Model (optional)', children: <SearchableReferencePicker id={`sheet-model-existing-${reference.id}`} value={draft.existingModelId} options={existingModelOptions} disabled={busy} placeholder="Search existing model; leave blank to create…" onChange={(value) => updateModel(reference, { existingModelId: value })} />, hint: reference.suggestedTargetLabel && !draft.existingModelId ? `Suggestion: ${reference.suggestedTargetLabel}` : undefined })}
               <FreeTextSuggestions id={`sheet-vendor-${reference.id}`} label="Vendor (existing or new, required)" value={draft.vendorName} listId={vendorListId} disabled={busy || willLink} placeholder="Type or select Vendor" onChange={(value) => updateModel(reference, { vendorName: value })} />
@@ -835,9 +850,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
             </div>
             {!willLink ? <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4 xl:items-end">
               {field({ label: 'Model name (required for new)', children: <TextInput value={draft.model} disabled={busy} onChange={(event) => updateModel(reference, { model: event.target.value })} /> })}
-              {field({ label: 'Preferred Platform (optional)', children: <TextInput list={platformListId} value={draft.platform} disabled={busy} placeholder="Empty allowed" onChange={(event) => updateModel(reference, { platform: event.target.value })} />, hint: 'Existing value, new value, or empty.' })}
-              {field({ label: 'Supported Platforms (optional)', children: <TextInput value={draft.platforms} disabled={busy} placeholder="Empty allowed; e.g. AOS-8, AOS-10" onChange={(event) => updateModel(reference, { platforms: event.target.value })} /> })}
-              <FreeTextSuggestions id={`sheet-family-${reference.id}`} label="Family (existing, new, or empty)" value={familyValue} listId={familyListId} disabled={busy} placeholder="Empty allowed" onChange={(value) => { const match = vendorFamilies.find((family) => normalized(family.name) === normalized(value)); updateModel(reference, { familyId: match?.id ?? '', familyName: match ? '' : value }) }} />
+              {field({ label: 'Preferred Software Platform (optional)', children: <TextInput list={platformListId} value={draft.platform} disabled={busy} placeholder="Empty allowed" onChange={(event) => updateModel(reference, { platform: event.target.value })} />, hint: 'Existing value, new value, or empty.' })}
+              {field({ label: 'Supported Software Platforms (optional)', children: <TextInput value={draft.platforms} disabled={busy} placeholder="Empty allowed; e.g. AOS-8, AOS-10" onChange={(event) => updateModel(reference, { platforms: event.target.value })} /> })}
+              <FreeTextSuggestions id={`sheet-family-${reference.id}`} label="Product Family (existing, new, or empty)" value={familyValue} listId={familyListId} disabled={busy} placeholder="Empty allowed" onChange={(value) => { const match = vendorFamilies.find((family) => normalized(family.name) === normalized(value)); updateModel(reference, { familyId: match?.id ?? '', familyName: match ? '' : value }) }} />
             </div> : null}
             <div className="mt-3 flex flex-wrap items-center gap-2"><Button type="button" variant="ghost" disabled={busy || rawLoading === reference.id} onMouseEnter={() => { if (!rawRows[reference.id]) void fetch(`/api/v1/device-import/batches/${batchId}/references/${reference.id}/raw`).then((response) => response.arrayBuffer()).catch(() => undefined) }} onClick={() => void toggleRaw(reference)}>{rawRows[reference.id] ? 'Hide raw rows' : rawLoading === reference.id ? 'Loading raw…' : 'Raw / deep dive'}</Button><Button type="button" variant="ghost" disabled={busy || !assist.workspace.batch.profileId} onClick={() => void ignoreAndRemember('model', reference.sourceValue)}>Ignore model + remember</Button>{reference.metadata.deviceTypeSourceValue ? <Button type="button" variant="ghost" disabled={busy || !assist.workspace.batch.profileId} onClick={() => void ignoreAndRemember('deviceType', reference.metadata.deviceTypeSourceValue!)}>Ignore type + remember</Button> : null}<span className="text-xs text-[var(--muted)]">Ignore + remember removes all matching device rows for this import profile.</span></div>
             {rawRows[reference.id] ? <RawRowsPanel data={rawRows[reference.id]!} /> : null}
@@ -863,7 +878,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
             <div className="grid gap-3 xl:grid-cols-[minmax(220px,.8fr)_minmax(280px,1.1fr)_minmax(150px,.55fr)_minmax(150px,.55fr)_minmax(150px,.55fr)] xl:items-end">
               <div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Firmware</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">Model: {reference.metadata.modelSourceValue ?? 'waiting'} · {reference.occurrenceCount.toLocaleString()} row{reference.occurrenceCount === 1 ? '' : 's'}</div></div>
               {field({ label: 'Existing Release (optional)', children: <SearchableReferencePicker id={`sheet-fw-existing-${reference.id}`} value={draft.existingReleaseId} options={releaseOptions} disabled={busy} placeholder="Search release; leave blank to create…" onChange={(value) => updateFirmware(reference.id, { existingReleaseId: value })} /> })}
-              {field({ label: 'Platform', children: <TextInput value={effectivePlatform} disabled={busy || willLink} placeholder="Auto-filled where possible" onChange={(event) => updateFirmware(reference.id, { platform: event.target.value })} /> })}
+              {field({ label: 'Software Platform', children: <TextInput value={effectivePlatform} disabled={busy || willLink} placeholder="Auto-filled where possible" onChange={(event) => updateFirmware(reference.id, { platform: event.target.value })} />, hint: assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))?.firmwareTrainName ? `Firmware train: ${assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))?.firmwareTrainName}` : undefined })}
               {field({ label: 'Version', children: <TextInput value={draft.version} disabled={busy || willLink} onChange={(event) => updateFirmware(reference.id, { version: event.target.value })} /> })}
               {field({ label: 'Status', children: <SelectInput value={draft.status} disabled={busy || willLink} onChange={(event) => updateFirmware(reference.id, { status: event.target.value })}>{STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</SelectInput> })}
             </div>
@@ -877,11 +892,11 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     </details>
 
     {linkedFamilyTasks.length ? <details className="border-b border-[var(--border)]">
-      <summary className="cursor-pointer px-4 py-4 font-semibold sm:px-5">Model Families · {linkedFamilyTasks.length.toLocaleString()} linked Models without Family</summary>
+      <summary className="cursor-pointer px-4 py-4 font-semibold sm:px-5">Product Families · {linkedFamilyTasks.length.toLocaleString()} linked Models without Product Family</summary>
       <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{linkedFamilyTasks.map((model) => {
         const draft = familyDrafts[model.id] ?? { familyId: '', name: '' }
         const options = assist.models.families.filter((family) => family.isActive && family.vendorId === model.vendorId).map((family) => ({ id: family.id, label: family.name, keywords: [family.name] }))
-        return <div key={model.id} className="grid gap-3 px-4 py-3 sm:px-5 lg:grid-cols-[minmax(250px,.9fr)_minmax(260px,1fr)_minmax(230px,.8fr)] lg:items-end"><div><div className="text-sm font-semibold">{model.vendor.name} · {model.model}</div><div className="text-xs text-[var(--muted)]">{model.supportedPlatforms.map((item) => item.platform).join(', ') || model.platform || 'Platform unknown'}</div></div>{field({ label: 'Existing Family', children: <SearchableReferencePicker id={`linked-family-${model.id}`} value={draft.familyId} options={options} disabled={busy} placeholder="Search Family…" onChange={(value) => { markFamilyEdited(model.id); setFamilyDrafts((current) => ({ ...current, [model.id]: { familyId: value, name: value ? '' : draft.name } })) }} /> })}{field({ label: 'Or new Family name', children: <TextInput value={draft.name} disabled={busy || Boolean(draft.familyId)} onChange={(event) => { markFamilyEdited(model.id); setFamilyDrafts((current) => ({ ...current, [model.id]: { familyId: '', name: event.target.value } })) }} /> })}</div>
+        return <div key={model.id} className="grid gap-3 px-4 py-3 sm:px-5 lg:grid-cols-[minmax(250px,.9fr)_minmax(260px,1fr)_minmax(230px,.8fr)] lg:items-end"><div><div className="text-sm font-semibold">{model.vendor.name} · {model.model}</div><div className="text-xs text-[var(--muted)]">{model.supportedPlatforms.map((item) => item.platform).join(', ') || model.platform || 'Software Platform unknown'}</div></div>{field({ label: 'Existing Product Family', children: <SearchableReferencePicker id={`linked-family-${model.id}`} value={draft.familyId} options={options} disabled={busy} placeholder="Search Product Family…" onChange={(value) => { markFamilyEdited(model.id); setFamilyDrafts((current) => ({ ...current, [model.id]: { familyId: value, name: value ? '' : draft.name } })) }} /> })}{field({ label: 'Or new Product Family name', children: <TextInput value={draft.name} disabled={busy || Boolean(draft.familyId)} onChange={(event) => { markFamilyEdited(model.id); setFamilyDrafts((current) => ({ ...current, [model.id]: { familyId: '', name: event.target.value } })) }} /> })}</div>
       })}</div>
     </details> : null}
 
@@ -907,10 +922,10 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           <Button type="button" variant="ghost" disabled={busy} onClick={() => setReviewOpen(false)}>Back to worksheet</Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="mb-4 grid gap-3 sm:grid-cols-4"><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Link existing</div><div className="mt-1 text-xl font-semibold">{reviewLinks.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Create new</div><div className="mt-1 text-xl font-semibold">{reviewCreates.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Family changes</div><div className="mt-1 text-xl font-semibold">{plan.families.length.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Left for later</div><div className="mt-1 text-xl font-semibold">{pending.toLocaleString()}</div></div></div>
+          <div className="mb-4 grid gap-3 sm:grid-cols-4"><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Link existing</div><div className="mt-1 text-xl font-semibold">{reviewLinks.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Create new</div><div className="mt-1 text-xl font-semibold">{reviewCreates.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Product Family changes</div><div className="mt-1 text-xl font-semibold">{plan.families.length.toLocaleString()}</div></div><div className="rounded-md border border-[var(--border)] p-3"><div className="text-xs text-[var(--muted)]">Left for later</div><div className="mt-1 text-xl font-semibold">{pending.toLocaleString()}</div></div></div>
           <div className="divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">{plan.items.slice(0, 100).map((item) => { const reference = assist.workspace.references.find((candidate) => candidate.id === item.referenceId); if (!reference) return null; return <div key={item.referenceId} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[150px_minmax(220px,1fr)_minmax(260px,1.2fr)]"><span className="text-xs font-semibold uppercase text-[var(--muted)]">{reference.kind.replaceAll('_', ' ')}</span><span className="font-mono text-xs">{reference.sourceValue}</span><span><strong>{item.action === 'LINK' ? 'Link → ' : 'Create → '}</strong>{item.action === 'LINK' ? reviewTargetLabel(reference, item.targetId, assist) : reviewCreateLabel(reference, item.values)}</span></div> })}</div>
           {plan.items.length > 100 ? <div className="mt-2 text-xs text-[var(--muted)]">+{(plan.items.length - 100).toLocaleString()} additional prepared mappings are included.</div> : null}
-          {plan.families.length ? <div className="mt-4 rounded-md border border-[var(--border)] p-3 text-sm"><strong>{plan.families.length.toLocaleString()} Model Family change{plan.families.length === 1 ? '' : 's'}</strong> will also be applied.</div> : null}
+          {plan.families.length ? <div className="mt-4 rounded-md border border-[var(--border)] p-3 text-sm"><strong>{plan.families.length.toLocaleString()} Product Family change{plan.families.length === 1 ? '' : 's'}</strong> will also be applied.</div> : null}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-4"><div className="text-xs text-[var(--muted)]">{pending.toLocaleString()} unfinished row{pending === 1 ? '' : 's'} will remain for a later pass.</div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setReviewOpen(false)}>Cancel</Button><Button type="button" variant="primary" disabled={busy} onClick={() => void applyAll()}>{busy ? 'Applying…' : `Confirm & apply ${prepared.toLocaleString()}`}</Button></div></div>
       </div>

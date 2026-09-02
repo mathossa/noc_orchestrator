@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { suggestImportModelFamily, suggestNewImportModelFamilyName } from '@/lib/device-import-model-family'
+import { classifyImportedDeviceModel, softwarePlatformLegacyValue, type StoredDeviceImportNormalizationRule } from '@/lib/device-import-normalization'
 import { refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
+import { synchronizeModelSoftwarePlatforms } from '@/lib/software-platform-store'
 
 const MAX_BULK_MODELS = 250
 const MAX_FAMILY_ASSIGNMENTS = 250
@@ -46,14 +48,14 @@ function cleanPlatforms(value: unknown, preferred: string | null) {
 }
 
 async function assertMutableBatch(batchId: string) {
-  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, status: true } })
+  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, status: true, profileId: true } })
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
   if (batch.status === 'PUBLISHED') throw new DeviceImportStagingError('Published import batches can no longer be changed.')
   return batch
 }
 
 export async function getDeviceImportModelAssist(batchId: string) {
-  await assertMutableBatch(batchId)
+  const batch = await assertMutableBatch(batchId)
   const references = await prisma.deviceImportStagedReference.findMany({
     where: { batchId, kind: 'DEVICE_MODEL' },
     orderBy: { sourceValue: 'asc' },
@@ -62,8 +64,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
 
   const targetIds = [...new Set(references.map((reference) => reference.targetId).filter((id): id is string => Boolean(id)))]
   const vendorIds = [...new Set(references.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
-  const typeIds = [...new Set(references.map((reference) => metadata(reference.metadata).deviceTypeTargetId).filter((id): id is string => Boolean(id)))]
-  const [models, families, vendors, deviceTypes] = await Promise.all([
+  const [models, families, vendors, deviceTypes, normalizationRules] = await Promise.all([
     targetIds.length ? prisma.deviceModel.findMany({
       where: { id: { in: targetIds } },
       select: {
@@ -89,10 +90,15 @@ export async function getDeviceImportModelAssist(batchId: string) {
       where: { id: { in: vendorIds } },
       select: { id: true, code: true, name: true, isActive: true },
     }) : Promise.resolve([]),
-    typeIds.length ? prisma.deviceType.findMany({
-      where: { id: { in: typeIds } },
+    prisma.deviceType.findMany({
+      where: { isActive: true },
       select: { id: true, code: true, name: true, isActive: true },
-    }) : Promise.resolve([]),
+    }),
+    batch.profileId ? prisma.deviceImportProfileRule.findMany({
+      where: { profileId: batch.profileId, isActive: true, action: 'NORMALIZE', field: 'model' },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      select: { operator: true, value: true, normalizedValue: true, result: true, priority: true },
+    }) as Promise<StoredDeviceImportNormalizationRule[]> : Promise.resolve([]),
   ])
   const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]))
   const typeById = new Map(deviceTypes.map((deviceType) => [deviceType.id, deviceType]))
@@ -126,16 +132,23 @@ export async function getDeviceImportModelAssist(batchId: string) {
     })
     .sort((left, right) => left.vendor.name.localeCompare(right.vendor.name) || left.model.localeCompare(right.model))
 
+  const classificationByReference = new Map(references.map((reference) => [reference.id, classifyImportedDeviceModel(reference.sourceValue, normalizationRules)]))
   const readyToCreate = references.filter((reference) => {
     if (reference.status !== 'UNRESOLVED') return false
     const meta = metadata(reference.metadata)
-    return Boolean(meta.vendorTargetId && meta.deviceTypeTargetId && vendorById.get(meta.vendorTargetId)?.isActive && typeById.get(meta.deviceTypeTargetId)?.isActive)
+    const classification = classificationByReference.get(reference.id)
+    const classifiedType = classification ? deviceTypes.find((item) => normalizeImportText(item.name) === normalizeImportText(classification.deviceTypeName)) : null
+    return Boolean(meta.vendorTargetId && vendorById.get(meta.vendorTargetId)?.isActive && (typeById.get(meta.deviceTypeTargetId ?? '')?.isActive || classifiedType?.isActive))
   }).map((reference) => {
     const meta = metadata(reference.metadata)
     const vendor = vendorById.get(meta.vendorTargetId!)!
-    const deviceType = typeById.get(meta.deviceTypeTargetId!)!
-    const existingSuggestion = suggestImportModelFamily(reference.sourceValue, vendor.id, families)
-    const inferredPlatforms = cleanPlatforms(meta.platforms ?? [], meta.platform ?? null)
+    const classification = classificationByReference.get(reference.id)
+    const classifiedType = classification ? deviceTypes.find((item) => normalizeImportText(item.name) === normalizeImportText(classification.deviceTypeName)) : null
+    const deviceType = classifiedType ?? typeById.get(meta.deviceTypeTargetId!)!
+    const classifiedFamily = classification ? families.find((item) => item.vendorId === vendor.id && normalizeImportText(item.name) === normalizeImportText(classification.productFamilyName)) : null
+    const existingSuggestion = classifiedFamily ?? suggestImportModelFamily(reference.sourceValue, vendor.id, families)
+    const inferredPlatforms = cleanPlatforms([...(meta.platforms ?? []), ...(classification?.softwarePlatforms.map(softwarePlatformLegacyValue) ?? [])], meta.platform ?? null)
+    const preferredPlatform = classification?.preferredSoftwarePlatformCode ? classification.softwarePlatforms.find((item) => item.code === classification.preferredSoftwarePlatformCode) : null
     return {
       id: reference.id,
       sourceValue: reference.sourceValue,
@@ -145,12 +158,18 @@ export async function getDeviceImportModelAssist(batchId: string) {
       deviceTypeTargetId: deviceType.id,
       deviceTypeName: deviceType.name,
       deviceTypeCode: deviceType.code,
-      proposedModel: reference.sourceValue,
-      proposedPlatform: inferredPlatforms.length === 1 ? inferredPlatforms[0] : '',
+      proposedModel: classification?.model ?? reference.sourceValue,
+      proposedPlatform: preferredPlatform ? softwarePlatformLegacyValue(preferredPlatform) : inferredPlatforms.length === 1 ? inferredPlatforms[0] : '',
       proposedPlatforms: inferredPlatforms,
       suggestedFamilyId: existingSuggestion?.id ?? null,
       suggestedFamilyName: existingSuggestion?.name ?? null,
-      proposedNewFamilyName: existingSuggestion ? null : suggestNewImportModelFamilyName(reference.sourceValue, vendor.name, vendor.code),
+      proposedNewFamilyName: existingSuggestion ? null : classification?.productFamilyName ?? suggestNewImportModelFamilyName(reference.sourceValue, vendor.name, vendor.code),
+      proposedDeviceTypeId: deviceType.id,
+      proposedDeviceTypeName: deviceType.name,
+      proposedDeviceTypeCode: deviceType.code,
+      normalizationRuleKey: classification?.classificationKey ?? null,
+      normalizationSource: classification?.source ?? null,
+      normalizationConfidence: classification?.confidence ?? null,
     }
   })
 
@@ -355,6 +374,7 @@ export async function bulkCreateDeviceImportModels(rawInput: unknown) {
     })),
   ]
   await prisma.$transaction(operations)
+  await synchronizeModelSoftwarePlatforms([...pending.map((model) => model.id), ...links.map((link) => link.targetId)])
   const workspace = deferRefresh ? null : await refreshDeviceImportBatchReferences(batchId)
   return { workspace, created: pending.length, linkedExisting: links.length }
 }
@@ -400,6 +420,7 @@ export async function bulkAssignDeviceImportModelFamilies(rawInput: unknown) {
 
   const changed = items.filter((item) => modelsById.get(item.modelId)?.familyId !== item.familyId)
   await prisma.$transaction(changed.map((item) => prisma.deviceModel.update({ where: { id: item.modelId }, data: { familyId: item.familyId } })))
+  await synchronizeModelSoftwarePlatforms(changed.map((item) => item.modelId))
   return { updated: changed.length, assist: deferRefresh ? null : await getDeviceImportModelAssist(batchId) }
 }
 
@@ -471,6 +492,7 @@ export async function bulkCreateAndAssignDeviceImportModelFamilies(rawInput: unk
     }))),
   ]
   await prisma.$transaction(operations)
+  await synchronizeModelSoftwarePlatforms(allModelIds)
   return {
     createdFamilies: createdFamilies.length,
     reusedFamilies: existingFamilyCount,
