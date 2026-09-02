@@ -74,6 +74,7 @@ const deviceInclude = {
       id: true,
       model: true,
       platform: true,
+      supportedPlatforms: { select: { id: true, platform: true } },
       isActive: true,
       vendor: { select: { id: true, code: true, name: true, isActive: true } },
       deviceType: { select: { id: true, code: true, name: true, isActive: true } },
@@ -112,6 +113,7 @@ type IncludedDevice = {
   customerId: string
   siteId: string | null
   deviceModelId: string
+  platform: string | null
   name: string
   hostname: string | null
   serialNumber: string | null
@@ -143,6 +145,7 @@ type IncludedDevice = {
     id: string
     model: string
     platform: string | null
+    supportedPlatforms: Array<{ id: string; platform: string }>
     isActive: boolean
     vendor: { id: string; code: string; name: string; isActive: boolean }
     deviceType: { id: string; code: string; name: string; isActive: boolean }
@@ -183,6 +186,7 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
     customerId: record.customerId,
     siteId: record.siteId,
     deviceModelId: record.deviceModelId,
+    platform: record.platform,
     name: record.name,
     hostname: record.hostname,
     serialNumber: record.serialNumber,
@@ -232,33 +236,63 @@ async function assertUniqueWithinCustomer(customerId: string, name: string, excl
   if (conflict) throw new DeviceConflictError(`Device “${name}” already exists for this customer.`)
 }
 
-async function assertReferences(input: ReturnType<typeof parseDeviceInput>) {
-  const [customer, model] = await Promise.all([
+function modelPlatformSet(model: {
+  platform: string | null
+  supportedPlatforms: Array<{ platform: string }>
+}) {
+  const platforms = new Map<string, string>()
+  if (model.platform) platforms.set(normalizedPlatform(model.platform), model.platform)
+  for (const entry of model.supportedPlatforms) platforms.set(normalizedPlatform(entry.platform), entry.platform)
+  platforms.delete('')
+  return platforms
+}
+
+async function validateAndInferReferences(input: ReturnType<typeof parseDeviceInput>) {
+  const [customer, model, release] = await Promise.all([
     prisma.customer.findUnique({ where: { id: input.customerId }, select: { id: true } }),
     prisma.deviceModel.findUnique({
       where: { id: input.deviceModelId },
-      select: { id: true, vendorId: true, platform: true },
+      select: {
+        id: true,
+        vendorId: true,
+        platform: true,
+        supportedPlatforms: { select: { platform: true } },
+      },
     }),
+    input.currentFirmwareReleaseId
+      ? prisma.firmwareRelease.findUnique({
+          where: { id: input.currentFirmwareReleaseId },
+          select: { id: true, vendorId: true, platform: true },
+        })
+      : Promise.resolve(null),
   ])
 
   if (!customer) throw new DeviceReferenceError('The selected customer does not exist.')
   if (!model) throw new DeviceReferenceError('The selected device model does not exist.')
-
   await assertSiteBelongsToCustomer(input.siteId, input.customerId)
 
-  if (!input.currentFirmwareReleaseId) return
-
-  const release = await prisma.firmwareRelease.findUnique({
-    where: { id: input.currentFirmwareReleaseId },
-    select: { id: true, vendorId: true, platform: true },
-  })
-  if (!release) throw new DeviceReferenceError('The selected current firmware release does not exist.')
-  if (release.vendorId !== model.vendorId) {
+  if (input.currentFirmwareReleaseId && !release) {
+    throw new DeviceReferenceError('The selected current firmware release does not exist.')
+  }
+  if (release && release.vendorId !== model.vendorId) {
     throw new DeviceReferenceError('Current firmware must belong to the same vendor as the selected device model.')
   }
-  if (model.platform && normalizedPlatform(release.platform) !== normalizedPlatform(model.platform)) {
-    throw new DeviceReferenceError('Current firmware must match the platform/family of the selected device model.')
+
+  const supported = modelPlatformSet(model)
+  const inferredPlatform = input.platform ?? release?.platform ?? (supported.size === 1 ? [...supported.values()][0] : null)
+  if (!inferredPlatform && supported.size > 1) {
+    throw new DeviceReferenceError(
+      `Choose a device platform because this model supports multiple platforms (${[...supported.values()].join(', ')}).`,
+    )
   }
+  if (inferredPlatform && supported.size > 0 && !supported.has(normalizedPlatform(inferredPlatform))) {
+    throw new DeviceReferenceError(`Platform “${inferredPlatform}” is not supported by the selected device model.`)
+  }
+  if (release && inferredPlatform && normalizedPlatform(release.platform) !== normalizedPlatform(inferredPlatform)) {
+    throw new DeviceReferenceError('Current firmware must match the selected device platform.')
+  }
+
+  return { ...input, platform: inferredPlatform }
 }
 
 export async function listDevices() {
@@ -298,6 +332,7 @@ export async function listDeviceReferences(): Promise<DeviceReferenceData> {
         id: true,
         model: true,
         platform: true,
+        supportedPlatforms: { select: { id: true, platform: true } },
         isActive: true,
         vendor: { select: { id: true, code: true, name: true, isActive: true } },
         deviceType: { select: { id: true, code: true, name: true, isActive: true } },
@@ -323,8 +358,9 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
+  const effectivePlatform = record.platform ?? record.currentFirmwareRelease?.platform ?? record.deviceModel.platform
   const [desiredPolicy, auditHistory] = await Promise.all([
-    getActiveModelDesiredPolicy(record.deviceModelId),
+    getActiveModelDesiredPolicy(record.deviceModelId, effectivePlatform),
     listAuditEventsForEntity('Device', id),
   ])
   const desiredRelease = desiredPolicy
@@ -354,8 +390,7 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
 }
 
 export async function createDevice(rawInput: unknown, actorUserId: string | null = null) {
-  const input = parseDeviceInput(rawInput)
-  await assertReferences(input)
+  const input = await validateAndInferReferences(parseDeviceInput(rawInput))
   await assertUniqueWithinCustomer(input.customerId, input.name)
 
   if (!input.currentFirmwareReleaseId) {
@@ -377,12 +412,14 @@ export async function createDevice(rawInput: unknown, actorUserId: string | null
           version: null,
           observedAt: null,
           source: null,
+          platform: null,
         },
         after: {
           firmwareReleaseId: next.currentFirmwareReleaseId,
           version: next.currentFirmwareRelease?.version ?? null,
           observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
           source: next.currentFirmwareSource,
+          platform: next.platform,
         },
         metadata: { context: 'DEVICE_CREATED' },
       },
@@ -402,10 +439,11 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
   if (!current) throw new DeviceNotFoundError()
 
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
-  const input = parseDeviceInput({
+  const input = await validateAndInferReferences(parseDeviceInput({
     customerId: current.customerId,
     siteId: current.siteId,
     deviceModelId: current.deviceModelId,
+    platform: current.platform,
     name: current.name,
     hostname: current.hostname,
     serialNumber: current.serialNumber,
@@ -419,9 +457,8 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
     externalId: current.externalId,
     isActive: current.isActive,
     ...patch,
-  })
+  }))
 
-  await assertReferences(input)
   await assertUniqueWithinCustomer(input.customerId, input.name, id)
 
   const currentObservedAt = current.currentFirmwareObservedAt?.getTime() ?? null
@@ -429,7 +466,8 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
   const firmwareChanged =
     current.currentFirmwareReleaseId !== input.currentFirmwareReleaseId ||
     currentObservedAt !== nextObservedAt ||
-    current.currentFirmwareSource !== input.currentFirmwareSource
+    current.currentFirmwareSource !== input.currentFirmwareSource ||
+    current.platform !== input.platform
 
   if (!firmwareChanged) {
     const record = await prisma.device.update({ where: { id }, data: input, include: deviceInclude })
@@ -450,12 +488,14 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
           version: current.currentFirmwareRelease?.version ?? null,
           observedAt: current.currentFirmwareObservedAt?.toISOString() ?? null,
           source: current.currentFirmwareSource,
+          platform: current.platform,
         },
         after: {
           firmwareReleaseId: next.currentFirmwareReleaseId,
           version: next.currentFirmwareRelease?.version ?? null,
           observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
           source: next.currentFirmwareSource,
+          platform: next.platform,
         },
         metadata: { context: 'DEVICE_UPDATED' },
       },
