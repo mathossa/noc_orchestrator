@@ -55,6 +55,29 @@ describe('staged device import references', () => {
     ]))
   })
 
+  it('replaces generic upstream Site placeholders with the split Organization/Site location before staging', () => {
+    const rows = [
+      { rowNumber: 2, values: values({ organizationSite: 'Unica Groep - UICTS Working Spirit Deventer', customer: 'Unica Groep', site: 'Open internet' }) },
+      { rowNumber: 3, values: values({ organizationSite: 'Unica Groep - Zwolle', customer: 'Unica Groep', site: 'Open internet' }) },
+    ]
+
+    const references = buildDeviceImportStagedReferenceSeeds(rows, options)
+    const sites = references.filter((reference) => reference.kind === 'SITE')
+
+    expect(rows[0].values.site).toBe('UICTS Working Spirit Deventer')
+    expect(rows[1].values.site).toBe('Zwolle')
+    expect(sites).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceValue: 'UICTS Working Spirit Deventer',
+        contextKey: 'organization-site:unica groep - uicts working spirit deventer',
+      }),
+      expect.objectContaining({
+        sourceValue: 'Zwolle',
+        contextKey: 'organization-site:unica groep - zwolle',
+      }),
+    ]))
+  })
+
   it('offers a strong suggestion for punctuation/prefix variations but does not call weak matches strong', () => {
     expect(importReferenceSimilarity('Fortinet FortiGate-100F', 'Fortinet FortiGate 100F')).toBeGreaterThan(0.9)
     expect(importReferenceSimilarity('Firewall', 'Wireless Access Point')).toBeLessThan(0.55)
