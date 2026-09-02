@@ -352,7 +352,7 @@ function resolveModel(raw: string | null, vendor: VendorRef | null, type: Device
 function supportedPlatforms(model: ModelRef) {
   const result = new Map<string, string>()
   if (model.platform) result.set(normalizedPlatform(model.platform), model.platform)
-  for (const entry of model.supportedPlatforms) result.set(normalizedPlatform(entry.platform), entry.platform)
+  for (const entry of model.supportedPlatforms ?? []) result.set(normalizedPlatform(entry.platform), entry.platform)
   result.delete('')
   return result
 }
