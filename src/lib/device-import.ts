@@ -10,6 +10,7 @@ export const DEVICE_IMPORT_FIELDS = [
   'vendor',
   'model',
   'deviceType',
+  'platform',
   'managementAddress',
   'currentFirmware',
   'firmwareVersion',
@@ -149,6 +150,7 @@ const aliases: Record<DeviceImportField, string[]> = {
   vendor: ['vendor', 'manufacturer', 'fabrikant', 'merk', 'make'],
   model: ['device model', 'hardware model', 'model', 'product model', 'product'],
   deviceType: ['device type', 'hardware type', 'category', 'categorie', 'soort apparaat'],
+  platform: ['platform', 'firmware platform', 'software platform', 'os platform', 'operating system family'],
   managementAddress: [
     'management address',
     'management ip',
@@ -189,6 +191,30 @@ export function extractFirmwareVersion(value: string | null) {
   if (explicitV) return explicitV[1]
   const dotted = cleaned.match(/\b(\d+(?:\.\d+){1,5})\b/)
   return dotted?.[1] ?? cleaned
+}
+
+export function inferImportPlatform(values: {
+  platform?: string | null
+  vendor?: string | null
+  model?: string | null
+  currentFirmware?: string | null
+  softwareVersion?: string | null
+}) {
+  const explicit = values.platform?.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  if (explicit) return explicit
+
+  const vendor = normalizeImportText(values.vendor)
+  const model = normalizeImportText(values.model)
+  const software = normalizeImportText(values.softwareVersion)
+  const firmware = extractFirmwareVersion(values.currentFirmware ?? values.softwareVersion ?? null)
+
+  const arubaLike = vendor.includes('aruba') || model.includes('aruba') || model.startsWith('ap-') || /^ap\d{2,4}/.test(model)
+  if (arubaLike) {
+    if (software.includes('aos-8') || software.includes('arubaos 8') || firmware?.startsWith('8.')) return 'AOS-8'
+    if (software.includes('aos-10') || software.includes('arubaos 10') || firmware?.startsWith('10.')) return 'AOS-10'
+  }
+
+  return null
 }
 
 export function splitOrganizationSite(value: string | null, delimiter = ' - ') {
@@ -357,6 +383,8 @@ export function mappedRows(sheet: XlsxSheet, options: DeviceImportOptions) {
 
       if (values.firmwareVersion) values.currentFirmware = values.firmwareVersion
       else if (!values.currentFirmware && values.softwareVersion) values.currentFirmware = extractFirmwareVersion(values.softwareVersion)
+
+      if (!values.platform) values.platform = inferImportPlatform(values)
 
       return { rowNumber: row.rowNumber, values }
     })
