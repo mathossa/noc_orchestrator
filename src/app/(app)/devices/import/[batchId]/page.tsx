@@ -1,12 +1,8 @@
-import { DeviceImportAssistedActions } from '@/components/devices/device-import-assisted-actions'
-import { DeviceImportBatchWorkspace } from '@/components/devices/device-import-batch'
+import { DeviceImportReconciliationWorkspace } from '@/components/devices/device-import-reconciliation-workspace'
 
 type PageProps = { params: Promise<{ batchId: string }> }
 
 export default async function DeviceImportBatchPage({ params }: PageProps) {
   const { batchId } = await params
-  return <>
-    <DeviceImportAssistedActions batchId={batchId} />
-    <DeviceImportBatchWorkspace batchId={batchId} />
-  </>
+  return <DeviceImportReconciliationWorkspace batchId={batchId} />
 }
