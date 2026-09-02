@@ -1,9 +1,11 @@
 import {
   normalizeImportText,
+  splitOrganizationSite,
   type DeviceImportField,
   type DeviceImportOptions,
   type DeviceImportReferenceKind,
 } from '@/lib/device-import'
+import { isGenericImportSiteValue } from '@/lib/device-import-site-code'
 
 export const DEVICE_IMPORT_BATCH_STATUSES = ['STAGED', 'READY', 'PUBLISHED', 'PARTIAL'] as const
 export const DEVICE_IMPORT_STAGED_REFERENCE_STATUSES = ['UNRESOLVED', 'WAITING', 'LINKED'] as const
@@ -107,12 +109,25 @@ function addSeed(
   })
 }
 
+function normalizeGenericSiteValue(values: DeviceImportMappedValues, options: DeviceImportOptions) {
+  if (!values.organizationSite || !values.site || !isGenericImportSiteValue(values.site)) return
+  const split = splitOrganizationSite(values.organizationSite, options.organizationSiteDelimiter)
+  if (!split.site || isGenericImportSiteValue(split.site)) return
+  values.site = split.site
+}
+
 export function buildDeviceImportStagedReferenceSeeds(
   rows: Array<{ rowNumber: number; values: DeviceImportMappedValues }>,
   options: DeviceImportOptions,
 ) {
   const result = new Map<string, DeviceImportStagedReferenceSeed>()
   for (const row of rows) {
+    // Staged rows are intentionally normalized in-place here. createDeviceImportBatch
+    // persists the same mapped row objects after building references, so final
+    // validation sees the reviewed Site candidate instead of the upstream
+    // placeholder (for example “Open internet”).
+    normalizeGenericSiteValue(row.values, options)
+
     addSeed(result, 'CUSTOMER', row.values.customer, row.values, row.rowNumber, options)
     addSeed(result, 'SITE', row.values.site, row.values, row.rowNumber, options)
     addSeed(result, 'VENDOR', row.values.vendor, row.values, row.rowNumber, options)
