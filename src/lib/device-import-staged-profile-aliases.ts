@@ -1,4 +1,6 @@
 import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
+import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
+import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 
 const ALIAS_CHUNK = 200
@@ -8,6 +10,20 @@ type ProfileAliasInput = {
   sourceValue: string
   contextKey: string
   targetId: string
+}
+
+function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
+  return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
+}
+
+function contextKey(kind: DeviceImportReferenceKind, value: unknown) {
+  const meta = metadata(value)
+  if (kind === 'SITE') return meta.customerTargetId ?? ''
+  if (kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
+  if (kind === 'FIRMWARE_RELEASE') {
+    return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
+  }
+  return ''
 }
 
 export async function rememberReviewedImportAliases(profileId: string | null, inputs: ProfileAliasInput[]) {
@@ -44,4 +60,24 @@ export async function rememberReviewedImportAliases(profileId: string | null, in
       }),
     ])
   }
+}
+
+export async function rememberReviewedBatchReferences(batchId: string, kinds: DeviceImportReferenceKind[]) {
+  if (!kinds.length) return
+  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { profileId: true } })
+  if (!batch?.profileId) return
+  const references = await prisma.deviceImportStagedReference.findMany({
+    where: { batchId, kind: { in: kinds }, status: 'LINKED', targetId: { not: null } },
+    select: { kind: true, sourceValue: true, targetId: true, metadata: true },
+  })
+  await rememberReviewedImportAliases(batch.profileId, references.flatMap((reference) => {
+    if (!reference.targetId) return []
+    const kind = reference.kind as DeviceImportReferenceKind
+    return [{
+      kind,
+      sourceValue: reference.sourceValue,
+      contextKey: contextKey(kind, reference.metadata),
+      targetId: reference.targetId,
+    }]
+  }))
 }
