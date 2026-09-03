@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
-vi.mock('@/lib/device-import-store', () => ({ commitDeviceImport: vi.fn(), previewDeviceImport: vi.fn() }))
+vi.mock('@/lib/device-import-store', () => ({
+  commitDeviceImport: vi.fn(),
+  previewDeviceImport: vi.fn(),
+  reviewDeviceImportBlockers: vi.fn(),
+}))
 
 import { DEVICE_IMPORT_FIELDS, type DeviceImportField } from '@/lib/device-import'
 import {
