@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
-import { classifyImportedDeviceModel, inferFirmwareTrainName, softwarePlatformLegacyValue } from '@/lib/device-import-normalization'
+import { classifyImportedDeviceModel, inferFirmwareTrainName, softwarePlatformLegacyValue, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
 import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
@@ -18,6 +18,25 @@ type FirmwareReference = {
 
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
+}
+
+function sourceMetadata(value: unknown) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function firmwareVariants(value: unknown) {
+  const current = sourceMetadata(value).firmwareVariants
+  return Array.isArray(current)
+    ? current.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())).map((entry) => entry.trim().toUpperCase())
+    : []
+}
+
+function mergeFirmwareVariants(value: unknown, variants: string[]) {
+  const current = sourceMetadata(value)
+  const merged = [...new Set([...firmwareVariants(value), ...variants.map((variant) => variant.trim().toUpperCase()).filter(Boolean)])]
+  return merged.length ? { ...current, firmwareVariants: merged } : current
 }
 
 function singleSupportedModelPlatform(model: { platform: string | null; supportedPlatforms: Array<{ platform: string }> }) {
@@ -89,6 +108,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     vendorId: string
     referenceIds: string[]
     versions: string[]
+    variants: string[]
     version: string
     platform: string
     modelIds: string[]
@@ -114,18 +134,22 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       firmwareVersion: meta.firmwareVersionSourceValue,
       softwareVersion: meta.softwareVersionSourceValue,
     }, appliedRules.prediction.firmwareSource)
-    const version = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
+    const transformedVersion = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
     // Prefer explicit/profile evidence first. If an already-configured model has
     // no platform metadata yet, built-in model classification can still provide
     // a safe single-platform proposal (for example Catalyst 9200/9300/9120 -> IOS XE).
     const modelPlatform = singleSupportedModelPlatform(model) || builtInPreferredModelPlatform(model.model)
     const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? modelPlatform
+    const parsedVersion = splitFirmwareVersionVariant(platform, transformedVersion)
+    const version = parsedVersion.version
+    const variants = parsedVersion.variant ? [parsedVersion.variant] : []
     const platformContext = platform ? normalizedFirmwarePlatform(platform) : `model:${modelId}`
     const key = `${vendorId}|${platformContext}|${normalizeImportText(version)}`
     const current = grouped.get(key)
     if (current) {
       current.referenceIds.push(reference.id)
       if (!current.versions.includes(reference.sourceValue)) current.versions.push(reference.sourceValue)
+      for (const variant of variants) if (!current.variants.includes(variant)) current.variants.push(variant)
       if (!current.modelIds.includes(modelId)) current.modelIds.push(modelId)
       for (const ruleId of appliedRules.matchedRuleIds) if (!current.matchedPredictionRuleIds.includes(ruleId)) current.matchedPredictionRuleIds.push(ruleId)
     } else {
@@ -134,6 +158,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
         vendorId,
         referenceIds: [reference.id],
         versions: [reference.sourceValue],
+        variants,
         version,
         platform,
         modelIds: [modelId],
@@ -184,12 +209,13 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
     const referenceIds = Array.isArray(item.referenceIds)
       ? item.referenceIds.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map((value) => value.trim())
       : []
-    const version = typeof item.version === 'string' ? item.version.normalize('NFKC').trim() : ''
+    const rawVersion = typeof item.version === 'string' ? item.version.normalize('NFKC').trim() : ''
     const platform = typeof item.platform === 'string' ? item.platform.normalize('NFKC').trim().replace(/\s+/g, ' ') : ''
+    const { version, variant } = splitFirmwareVersionVariant(platform, rawVersion)
     const status = typeof item.status === 'string' ? item.status.trim().toUpperCase() : 'AVAILABLE'
     if (!referenceIds.length || !version || !platform) throw new DeviceImportStagingError('Every prepared Firmware Release needs source references, Platform, and Version.')
     if (!firmwareReleaseStatuses.includes(status as (typeof firmwareReleaseStatuses)[number])) throw new DeviceImportStagingError(`Firmware status “${status}” is not supported.`)
-    return { referenceIds, version, platform, status }
+    return { referenceIds, version, platform, status, variants: variant ? [variant] : [] }
   })
   const allReferenceIds = items.flatMap((item) => item.referenceIds)
   if (new Set(allReferenceIds).size !== allReferenceIds.length) throw new DeviceImportStagingError('A staged Firmware reference can only appear in one prepared release.')
@@ -205,7 +231,11 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
     const refs = item.referenceIds.map((id) => referenceById.get(id)!)
     const vendorIds = [...new Set(refs.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
     if (vendorIds.length !== 1) throw new DeviceImportStagingError(`Prepared Firmware ${item.version} must belong to exactly one resolved Vendor.`)
-    return { ...item, vendorId: vendorIds[0], refs }
+    const observedVariants = refs.flatMap((reference) => {
+      const parsed = splitFirmwareVersionVariant(item.platform, reference.sourceValue)
+      return parsed.variant ? [parsed.variant] : []
+    })
+    return { ...item, vendorId: vendorIds[0], refs, variants: [...new Set([...item.variants, ...observedVariants])] }
   })
 
   const merged = new Map<string, typeof prepared[number]>()
@@ -216,8 +246,9 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
       if (current.status !== item.status) throw new DeviceImportStagingError(`Firmware ${item.version} was prepared twice with different statuses. Make the proposals consistent.`)
       current.referenceIds.push(...item.referenceIds)
       current.refs.push(...item.refs)
+      current.variants = [...new Set([...current.variants, ...item.variants])]
     } else {
-      merged.set(key, { ...item, referenceIds: [...item.referenceIds], refs: [...item.refs] })
+      merged.set(key, { ...item, referenceIds: [...item.referenceIds], refs: [...item.refs], variants: [...item.variants] })
     }
   }
   const canonical = [...merged.values()]
@@ -225,14 +256,14 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
   const modelIds = [...new Set(canonical.flatMap((item) => item.refs.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id))))]
   const [vendors, existing, models] = await Promise.all([
     prisma.vendor.findMany({ where: { id: { in: vendorIds }, isActive: true }, select: { id: true } }),
-    prisma.firmwareRelease.findMany({ where: { vendorId: { in: vendorIds } }, select: { id: true, vendorId: true, platform: true, version: true } }),
+    prisma.firmwareRelease.findMany({ where: { vendorId: { in: vendorIds } }, select: { id: true, vendorId: true, platform: true, version: true, sourceMetadata: true } }),
     modelIds.length ? prisma.deviceModel.findMany({ where: { id: { in: modelIds } }, select: { id: true, familyId: true } }) : Promise.resolve([]),
   ])
   if (vendors.length !== vendorIds.length) throw new DeviceImportStagingError('One or more Firmware Vendors no longer exist or are archived.')
 
   const familyByModelId = new Map(models.map((model) => [model.id, model.familyId]))
-  const created: Array<{ id: string; vendorId: string; platform: string; version: string; status: string; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
-  const links: Array<{ targetId: string; vendorId: string; platform: string; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
+  const created: Array<{ id: string; vendorId: string; platform: string; version: string; status: string; variants: string[]; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
+  const links: Array<{ targetId: string; vendorId: string; platform: string; variants: string[]; sourceMetadata: unknown; refs: FirmwareReference[]; firmwareTrainId: string; softwarePlatformId: string }> = []
   for (const item of canonical) {
     const familyIds = [...new Set(item.refs.map((reference) => metadata(reference.metadata).modelTargetId).map((id) => id ? familyByModelId.get(id) : null).filter((id): id is string => Boolean(id)))]
     const catalog = await ensureFirmwareTrainForRelease({ vendorId: item.vendorId, platform: item.platform, version: item.version, productFamilyId: familyIds.length === 1 ? familyIds[0] : null })
@@ -242,9 +273,9 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
       normalizeImportText(release.version) === normalizeImportText(item.version),
     )
     if (exact) {
-      links.push({ targetId: exact.id, vendorId: exact.vendorId, platform: exact.platform, refs: item.refs, ...catalog })
+      links.push({ targetId: exact.id, vendorId: exact.vendorId, platform: exact.platform, variants: item.variants, sourceMetadata: exact.sourceMetadata, refs: item.refs, ...catalog })
     } else {
-      created.push({ id: randomUUID(), vendorId: item.vendorId, platform: item.platform, version: item.version, status: item.status, refs: item.refs, ...catalog })
+      created.push({ id: randomUUID(), vendorId: item.vendorId, platform: item.platform, version: item.version, status: item.status, variants: item.variants, refs: item.refs, ...catalog })
     }
   }
 
@@ -260,12 +291,17 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
         status: release.status,
         notes: 'Created from staged XLSX inventory import.',
         source: 'IMPORT',
+        sourceMetadata: release.variants.length ? { firmwareVariants: release.variants } : undefined,
         isActive: true,
       })),
     })] : []),
-    ...links.map((link) => prisma.firmwareRelease.updateMany({
+    ...links.map((link) => prisma.firmwareRelease.update({
       where: { id: link.targetId },
-      data: { firmwareTrainId: link.firmwareTrainId, softwarePlatformId: link.softwarePlatformId },
+      data: {
+        firmwareTrainId: link.firmwareTrainId,
+        softwarePlatformId: link.softwarePlatformId,
+        sourceMetadata: mergeFirmwareVariants(link.sourceMetadata, link.variants),
+      },
     })),
     ...created.flatMap((release) => release.refs.map((reference) => prisma.deviceImportStagedReference.update({
       where: { id: reference.id },
