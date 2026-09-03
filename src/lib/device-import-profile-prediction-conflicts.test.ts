@@ -43,21 +43,28 @@ describe('deterministic import prediction decisions', () => {
   })
 
   it('does not silently choose between conflicting equal-priority decisions', () => {
-    const result = applyDeviceImportPredictionRules(
+    const iosXe = rule('ios-xe', 500, { preferredSoftwarePlatform: 'IOS-XE' })
+    const ios = rule('ios', 500, { preferredSoftwarePlatform: 'IOS' })
+    const forward = applyDeviceImportPredictionRules(
       { model: 'C9300-24P' },
-      [
-        rule('ios-xe', 500, { preferredSoftwarePlatform: 'IOS-XE' }),
-        rule('ios', 500, { preferredSoftwarePlatform: 'IOS' }),
-      ],
+      [iosXe, ios],
+    )
+    const reversed = applyDeviceImportPredictionRules(
+      { model: 'C9300-24P' },
+      [ios, iosXe],
     )
 
-    expect(result.prediction.preferredSoftwarePlatform).toBeUndefined()
-    expect('conflicts' in result ? result.conflicts : undefined).toEqual([
+    expect(forward.prediction.preferredSoftwarePlatform).toBeUndefined()
+    expect(reversed.prediction.preferredSoftwarePlatform).toBeUndefined()
+    expect('conflicts' in reversed ? reversed.conflicts : undefined).toEqual(
+      'conflicts' in forward ? forward.conflicts : undefined,
+    )
+    expect('conflicts' in forward ? forward.conflicts : undefined).toEqual([
       {
         field: 'preferredSoftwarePlatform',
         priority: 500,
-        ruleIds: ['ios', 'ios-xe'],
-        values: ['IOS', 'IOS-XE'],
+        ruleIds: ['ios-xe', 'ios'],
+        values: ['IOS-XE', 'IOS'],
       },
     ])
   })
