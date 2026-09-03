@@ -198,6 +198,9 @@ export function DeviceImportPublicationControl({ batchId }: { batchId: string })
   const selectedPlatforms = selectedReason ? platformChoices(selectedReason.message) : []
   const selectedPageRows = blockedReview?.rows.map((row) => row.rowNumber) ?? []
   const allPageSelected = selectedPageRows.length > 0 && selectedPageRows.every((row) => selectedRows.includes(row))
+  const scopedPlatformRow = selectedRows.length === 1
+    ? blockedReview?.rows.find((row) => row.rowNumber === selectedRows[0]) ?? null
+    : null
   const filteredReasons = useMemo(() => {
     if (!blockedReview) return []
     const query = reasonQuery.trim().toLocaleLowerCase('en-US')
@@ -298,9 +301,13 @@ export function DeviceImportPublicationControl({ batchId }: { batchId: string })
             </div> : null}
 
             {selectedPlatforms.length ? <div className="mt-3 rounded-md border border-[#315d82] bg-[#122131] p-3">
-              <div className="text-sm font-semibold">Choose the platform once for this model</div>
-              <p className="mt-1 text-xs text-[var(--muted-strong)]">The choice is applied to every remaining staged row with the same source model as the first row in this reason group.</p>
-              <div className="mt-3 flex flex-wrap gap-2">{selectedPlatforms.map((platform) => <Button key={platform} type="button" variant="primary" disabled={repairBusy || !blockedReview.rows[0]} onClick={() => void repair({ scope: 'SAME_MODEL_AS_ROW', action: 'SET_FIELD', editField: 'platform', editValue: platform, sampleRowNumber: blockedReview.rows[0]?.rowNumber }, `Set ${platform} on`)}>{repairBusy ? 'Applying…' : `Use ${platform}`}</Button>)}</div>
+              <div className="text-sm font-semibold">Choose platform by customer or site</div>
+              <p className="mt-1 text-xs text-[var(--muted-strong)]">This model supports multiple platforms, so there is deliberately no model-wide choice. Select exactly one representative device below, then apply the platform to that model for its Site or Customer.</p>
+              {scopedPlatformRow ? <div className="mt-2 text-xs text-[var(--muted-strong)]">Selected: <strong>{scopedPlatformRow.identity}</strong> · {scopedPlatformRow.customer ?? 'Unknown customer'}{scopedPlatformRow.site ? ` / ${scopedPlatformRow.site}` : ''}</div> : <div className="mt-2 text-xs text-amber-200">Select exactly one row from the table below to choose the customer/site scope.</div>}
+              <div className="mt-3 flex flex-wrap gap-2">{selectedPlatforms.flatMap((platform) => [
+                <Button key={`${platform}-site`} type="button" variant="primary" disabled={repairBusy || !scopedPlatformRow?.site} onClick={() => void repair({ scope: 'SAME_SITE_MODEL_AS_ROW', action: 'SET_FIELD', editField: 'platform', editValue: platform, sampleRowNumber: scopedPlatformRow?.rowNumber }, `Set ${platform} for this site/model on`)}>{repairBusy ? 'Applying…' : `Use ${platform} for this site`}</Button>,
+                <Button key={`${platform}-customer`} type="button" variant="secondary" disabled={repairBusy || !scopedPlatformRow?.customer} onClick={() => void repair({ scope: 'SAME_CUSTOMER_MODEL_AS_ROW', action: 'SET_FIELD', editField: 'platform', editValue: platform, sampleRowNumber: scopedPlatformRow?.rowNumber }, `Set ${platform} for this customer/model on`)}>{repairBusy ? 'Applying…' : `Use ${platform} for this customer`}</Button>,
+              ])}</div>
             </div> : null}
           </> : <p className="mt-2 text-sm text-[var(--muted)]">Select a reason group on the left for bulk-fix options. The table below still supports row-level repair.</p>}
 
