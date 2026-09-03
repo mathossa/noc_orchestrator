@@ -91,8 +91,8 @@ describe('firmware source fan-out', () => {
       },
     ]
     const targets = [
-      { id: 'release-20', platform: 'AOS-S', version: 'WC.16.01.0020' },
-      { id: 'release-30', platform: 'AOS-S', version: 'WC.16.01.0030' },
+      { id: 'release-20', vendorId: 'vendor-hp', platform: 'AOS-S', version: 'WC.16.01.0020' },
+      { id: 'release-30', vendorId: 'vendor-hp', platform: 'AOS-S', version: 'WC.16.01.0030' },
     ]
 
     expect(firmwareValuesForPublication(row20, references, targets)).toEqual({
