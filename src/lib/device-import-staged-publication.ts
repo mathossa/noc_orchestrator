@@ -1,5 +1,6 @@
 import {
   importResolutionKey,
+  normalizeImportText,
   parseDeviceImportOptions,
   type DeviceImportField,
   type DeviceImportPreview,
@@ -32,7 +33,7 @@ type BatchRecord = {
   status: string
 }
 
-type PublicationFirmwareReference = {
+type PublicationReference = {
   kind: string
   normalizedSourceValue: string
   contextKey: string
@@ -49,6 +50,9 @@ type PublicationSiteTarget = {
 type PublicationModelTarget = {
   id: string
   vendorId: string
+  model: string
+  vendor: { name: string }
+  deviceType: { name: string }
 }
 
 type PublicationFirmwareTarget = {
@@ -100,9 +104,50 @@ export function publicationResolutionContext(
   return ''
 }
 
+export function stagedModelReferenceForRow(
+  values: DeviceImportMappedValues,
+  references: PublicationReference[],
+) {
+  if (!values.model) return null
+  const sourceModel = normalizeImportText(values.model)
+  const sourceVendor = normalizeImportText(values.vendor)
+  const candidates = references.filter((reference) =>
+    reference.kind === 'DEVICE_MODEL' && reference.normalizedSourceValue === sourceModel,
+  )
+  if (!candidates.length) return null
+  return candidates.find((reference) =>
+    normalizeImportText(metadata(reference.metadata).vendorSourceValue) === sourceVendor,
+  ) ?? candidates[0]
+}
+
+/**
+ * Final publication must use the concrete model that the engineer already
+ * accepted during staged reconciliation. In particular, upstream Device Type
+ * labels (Stack/Switch/etc.) are source evidence only; the canonical Model owns
+ * its Vendor and Device Type. Replaying stale source labels here used to make a
+ * previously linked model fail again during final validation.
+ */
+export function modelValuesForPublication(
+  values: DeviceImportMappedValues,
+  references: PublicationReference[],
+  targets: PublicationModelTarget[],
+) {
+  const reference = stagedModelReferenceForRow(values, references)
+  if (!reference?.targetId) {
+    return { vendor: values.vendor, model: values.model, deviceType: values.deviceType }
+  }
+  const target = targets.find((model) => model.id === reference.targetId)
+  if (!target) return { vendor: values.vendor, model: values.model, deviceType: values.deviceType }
+  return {
+    vendor: target.vendor.name,
+    model: target.model,
+    deviceType: target.deviceType.name,
+  }
+}
+
 export function stagedFirmwareReferenceForRow(
   values: DeviceImportMappedValues,
-  references: PublicationFirmwareReference[],
+  references: PublicationReference[],
 ) {
   if (!values.currentFirmware) return null
   const sourceValue = values.currentFirmware.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
@@ -121,7 +166,7 @@ export function stagedFirmwareReferenceForRow(
 
 export function firmwareValuesForPublication(
   values: DeviceImportMappedValues,
-  references: PublicationFirmwareReference[],
+  references: PublicationReference[],
   targets: PublicationFirmwareTarget[],
 ) {
   const reference = stagedFirmwareReferenceForRow(values, references)
@@ -141,18 +186,13 @@ export function firmwareValuesForPublication(
 
 export function isUnclassifiedFirmwareRow(
   values: DeviceImportMappedValues,
-  references: PublicationFirmwareReference[],
+  references: PublicationReference[],
 ) {
   return stagedFirmwareReferenceForRow(values, references)?.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM'
 }
 
-// Device Type is deliberately not replayed into the final canonical device
-// validator. It is source evidence used while resolving a model; once a
-// concrete model has been accepted, that model's canonical Device Type is
-// authoritative. Replaying an upstream label such as Stack/Switch here could
-// invalidate an explicitly linked model during publication.
 const PUBLISH_FIELDS = [
-  'customer', 'site', 'name', 'hostname', 'serialNumber', 'vendor', 'model', 'platform',
+  'customer', 'site', 'name', 'hostname', 'serialNumber', 'vendor', 'model', 'deviceType', 'platform',
   'managementAddress', 'currentFirmware', 'contract', 'externalProvider', 'externalId', 'notes',
 ] as const satisfies readonly DeviceImportField[]
 
@@ -184,7 +224,13 @@ async function publicationInput(batchId: string) {
     modelTargetIds.length
       ? prisma.deviceModel.findMany({
           where: { id: { in: modelTargetIds } },
-          select: { id: true, vendorId: true },
+          select: {
+            id: true,
+            vendorId: true,
+            model: true,
+            vendor: { select: { name: true } },
+            deviceType: { select: { name: true } },
+          },
         }) as Promise<PublicationModelTarget[]>
       : Promise.resolve([] as PublicationModelTarget[]),
     firmwareTargetIds.length
@@ -239,9 +285,16 @@ async function publicationInput(batchId: string) {
     { rowNumber: batch.headerRow, values: PUBLISH_FIELDS.map((field) => field) },
     ...rows.map((row) => {
       const values = row.mappedData as unknown as DeviceImportMappedValues
-      const firmware = firmwareValuesForPublication(values, references, firmwareTargets)
-      const publishValues: DeviceImportMappedValues = {
+      const model = modelValuesForPublication(values, references, modelTargets)
+      const canonicalModelValues: DeviceImportMappedValues = {
         ...values,
+        vendor: model.vendor,
+        model: model.model,
+        deviceType: model.deviceType,
+      }
+      const firmware = firmwareValuesForPublication(canonicalModelValues, references, firmwareTargets)
+      const publishValues: DeviceImportMappedValues = {
+        ...canonicalModelValues,
         currentFirmware: firmware.currentFirmware,
         platform: firmware.platform,
       }
