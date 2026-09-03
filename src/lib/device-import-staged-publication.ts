@@ -1,6 +1,5 @@
 import {
   importResolutionKey,
-  normalizeImportText,
   parseDeviceImportOptions,
   type DeviceImportField,
   type DeviceImportPreview,
@@ -8,6 +7,10 @@ import {
   type DeviceImportResult,
 } from '@/lib/device-import'
 import { commitDeviceImport, previewDeviceImport } from '@/lib/device-import-store'
+import {
+  stagedFirmwareEvidenceContext,
+  stagedFirmwareLegacyRawContext,
+} from '@/lib/device-import-staged-firmware-platforms'
 import type { DeviceImportMappedValues, DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
@@ -24,6 +27,21 @@ type BatchRecord = {
   status: string
 }
 
+type PublicationFirmwareReference = {
+  kind: string
+  normalizedSourceValue: string
+  contextKey: string
+  resolutionSource: string | null
+  targetId?: string | null
+  metadata?: unknown
+}
+
+type PublicationFirmwareTarget = {
+  id: string
+  platform: string
+  version: string
+}
+
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
 }
@@ -38,28 +56,50 @@ function aliasContext(kind: string, rawMetadata: unknown) {
   return ''
 }
 
-function rawFirmwareContext(values: DeviceImportMappedValues) {
-  return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+export function stagedFirmwareReferenceForRow(
+  values: DeviceImportMappedValues,
+  references: PublicationFirmwareReference[],
+) {
+  if (!values.currentFirmware) return null
+  const sourceValue = values.currentFirmware.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+  const evidenceContext = stagedFirmwareEvidenceContext(values)
+  const legacyContext = stagedFirmwareLegacyRawContext(values)
+  return references.find((reference) =>
+    reference.kind === 'FIRMWARE_RELEASE' &&
+    reference.normalizedSourceValue === sourceValue &&
+    reference.contextKey === evidenceContext,
+  ) ?? references.find((reference) =>
+    reference.kind === 'FIRMWARE_RELEASE' &&
+    reference.normalizedSourceValue === sourceValue &&
+    reference.contextKey === legacyContext,
+  ) ?? null
+}
+
+export function firmwareValuesForPublication(
+  values: DeviceImportMappedValues,
+  references: PublicationFirmwareReference[],
+  targets: PublicationFirmwareTarget[],
+) {
+  const reference = stagedFirmwareReferenceForRow(values, references)
+  if (!reference) return { currentFirmware: values.currentFirmware, platform: values.platform }
+  const referenceMetadata = metadata(reference.metadata)
+  if (reference.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM') {
+    return { currentFirmware: null, platform: values.platform ?? referenceMetadata.platform ?? null }
+  }
+  if (!reference.targetId) return { currentFirmware: values.currentFirmware, platform: values.platform ?? referenceMetadata.platform ?? null }
+  const target = targets.find((release) => release.id === reference.targetId)
+  if (!target) return { currentFirmware: values.currentFirmware, platform: values.platform ?? referenceMetadata.platform ?? null }
+  return {
+    currentFirmware: target.version,
+    platform: values.platform ?? referenceMetadata.platform ?? target.platform,
+  }
 }
 
 export function isUnclassifiedFirmwareRow(
   values: DeviceImportMappedValues,
-  references: Array<{
-    kind: string
-    normalizedSourceValue: string
-    contextKey: string
-    resolutionSource: string | null
-  }>,
+  references: PublicationFirmwareReference[],
 ) {
-  if (!values.currentFirmware) return false
-  const sourceValue = normalizeImportText(values.currentFirmware)
-  const contextKey = rawFirmwareContext(values)
-  return references.some((reference) =>
-    reference.kind === 'FIRMWARE_RELEASE' &&
-    reference.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM' &&
-    reference.normalizedSourceValue === sourceValue &&
-    reference.contextKey === contextKey,
-  )
+  return stagedFirmwareReferenceForRow(values, references)?.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM'
 }
 
 const PUBLISH_FIELDS = [
@@ -78,14 +118,30 @@ async function publicationInput(batchId: string) {
     throw new DeviceImportStagingError('Resolve all active staged reference values before validating devices.')
   }
 
+  const firmwareTargetIds = [...new Set(references
+    .filter((reference) => reference.kind === 'FIRMWARE_RELEASE' && reference.targetId)
+    .map((reference) => reference.targetId as string))]
+  const firmwareTargets = firmwareTargetIds.length
+    ? await prisma.firmwareRelease.findMany({
+        where: { id: { in: firmwareTargetIds } },
+        select: { id: true, platform: true, version: true },
+      })
+    : []
+  const firmwareTargetById = new Map(firmwareTargets.map((release) => [release.id, release]))
+
   const resolutions: Record<string, string> = {}
   for (const reference of references) {
     if (!reference.targetId) continue
+    const context = aliasContext(reference.kind, reference.metadata)
     resolutions[importResolutionKey(
       reference.kind as DeviceImportReferenceKind,
       reference.sourceValue,
-      aliasContext(reference.kind, reference.metadata),
+      context,
     )] = reference.targetId
+    if (reference.kind === 'FIRMWARE_RELEASE') {
+      const target = firmwareTargetById.get(reference.targetId)
+      if (target) resolutions[importResolutionKey('FIRMWARE_RELEASE', target.version, context)] = target.id
+    }
   }
 
   const stored = parseDeviceImportOptions(batch.settings)
@@ -101,10 +157,15 @@ async function publicationInput(batchId: string) {
     { rowNumber: batch.headerRow, values: PUBLISH_FIELDS.map((field) => field) },
     ...rows.map((row) => {
       const values = row.mappedData as unknown as DeviceImportMappedValues
-      const unclassifiedFirmware = isUnclassifiedFirmwareRow(values, references)
+      const firmware = firmwareValuesForPublication(values, references, firmwareTargets)
+      const publishValues: DeviceImportMappedValues = {
+        ...values,
+        currentFirmware: firmware.currentFirmware,
+        platform: firmware.platform,
+      }
       return {
         rowNumber: row.rowNumber,
-        values: PUBLISH_FIELDS.map((field) => field === 'currentFirmware' && unclassifiedFirmware ? '' : values[field] ?? ''),
+        values: PUBLISH_FIELDS.map((field) => publishValues[field] ?? ''),
       }
     }),
   ]

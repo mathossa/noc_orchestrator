@@ -1,5 +1,9 @@
-import { normalizeImportText } from '@/lib/device-import'
-import { bestImportReferenceSuggestion, type DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
+import { extractFirmwareVersion, normalizeImportText } from '@/lib/device-import'
+import {
+  bestImportReferenceSuggestion,
+  type DeviceImportMappedValues,
+  type DeviceImportStagedReferenceMetadata,
+} from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 
@@ -16,8 +20,26 @@ type PlatformRelease = {
   version: string
 }
 
+type FirmwareReference = {
+  id: string
+  kind: string
+  sourceValue: string
+  normalizedSourceValue: string
+  contextKey: string
+  metadata: unknown
+  status: string
+  targetId: string | null
+  suggestedTargetId: string | null
+  suggestionScore: number | null
+  resolutionSource: string | null
+}
+
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
+}
+
+function clean(value: string | null | undefined) {
+  return value?.normalize('NFKC').trim().replace(/\s+/g, ' ') || null
 }
 
 function platformSet(model: Pick<PlatformModel, 'platform' | 'supportedPlatforms'>) {
@@ -35,6 +57,123 @@ function importedPlatformSet(meta: DeviceImportStagedReferenceMetadata) {
   }
   values.delete('')
   return values
+}
+
+export function stagedFirmwareLegacyRawContext(values: DeviceImportMappedValues) {
+  return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+}
+
+export function stagedFirmwareEvidenceContext(values: DeviceImportMappedValues) {
+  const base = stagedFirmwareLegacyRawContext(values)
+  const firmwareVersion = normalizeImportText(values.firmwareVersion)
+  const softwareVersion = normalizeImportText(values.softwareVersion)
+  if (!firmwareVersion && !softwareVersion) return base
+  return `${base}|firmware-version:${firmwareVersion}|software-version:${softwareVersion}`
+}
+
+function normalizedEvidence(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => normalizeImportText(value)).filter(Boolean))]
+}
+
+export function hasCompetingFirmwareSourceEvidence(sourceValue: string, meta: DeviceImportStagedReferenceMetadata) {
+  const effective = normalizeImportText(sourceValue)
+  const candidates = [
+    ...(meta.firmwareVersionSourceValues ?? []),
+    ...(meta.softwareVersionSourceValues ?? []),
+    meta.firmwareVersionSourceValue,
+    meta.softwareVersionSourceValue,
+  ]
+  return candidates.some((candidate) => {
+    const extracted = extractFirmwareVersion(candidate ?? null)
+    return Boolean(extracted) && normalizeImportText(extracted) !== effective
+  })
+}
+
+export function firmwareEvidenceGroupsForReference(
+  reference: Pick<FirmwareReference, 'normalizedSourceValue' | 'contextKey'>,
+  rows: Array<{ rowNumber: number; values: DeviceImportMappedValues }>,
+) {
+  const groups = new Map<string, Array<{ rowNumber: number; values: DeviceImportMappedValues }>>()
+  for (const row of rows) {
+    if (normalizeImportText(row.values.currentFirmware) !== reference.normalizedSourceValue) continue
+    if (stagedFirmwareLegacyRawContext(row.values) !== reference.contextKey) continue
+    const key = stagedFirmwareEvidenceContext(row.values)
+    const current = groups.get(key) ?? []
+    current.push(row)
+    groups.set(key, current)
+  }
+  return [...groups.entries()].map(([contextKey, groupRows]) => ({ contextKey, rows: groupRows }))
+}
+
+function needsSourceSplit(reference: FirmwareReference) {
+  if (reference.contextKey.includes('|firmware-version:')) return false
+  const meta = metadata(reference.metadata)
+  return normalizedEvidence(meta.firmwareVersionSourceValues ?? []).length > 1 ||
+    normalizedEvidence(meta.softwareVersionSourceValues ?? []).length > 1
+}
+
+async function splitCollapsedFirmwareSourceReferences(batchId: string, references: FirmwareReference[]) {
+  const candidates = references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE' && needsSourceSplit(reference))
+  if (!candidates.length) return 0
+
+  const stagedRows = await prisma.deviceImportStagedRow.findMany({
+    where: { batchId, status: 'STAGED' },
+    orderBy: { rowNumber: 'asc' },
+    select: { rowNumber: true, mappedData: true },
+  })
+  const rows = stagedRows.map((row) => ({
+    rowNumber: row.rowNumber,
+    values: row.mappedData as unknown as DeviceImportMappedValues,
+  }))
+  const replacements = []
+  const deleteIds: string[] = []
+
+  for (const reference of candidates) {
+    const groups = firmwareEvidenceGroupsForReference(reference, rows)
+    if (groups.length <= 1) continue
+    const current = metadata(reference.metadata)
+    deleteIds.push(reference.id)
+
+    for (const group of groups) {
+      const first = group.rows[0].values
+      const firmwareVersions = normalizedEvidence(group.rows.map((row) => row.values.firmwareVersion))
+      const softwareVersions = normalizedEvidence(group.rows.map((row) => row.values.softwareVersion))
+      const rawPlatform = clean(first.platform)
+      replacements.push({
+        batchId,
+        kind: 'FIRMWARE_RELEASE',
+        sourceValue: clean(first.currentFirmware) ?? reference.sourceValue,
+        normalizedSourceValue: normalizeImportText(first.currentFirmware ?? reference.sourceValue),
+        contextKey: group.contextKey,
+        occurrenceCount: group.rows.length,
+        metadata: {
+          ...current,
+          vendorSourceValue: clean(first.vendor) ?? current.vendorSourceValue ?? null,
+          modelSourceValue: clean(first.model) ?? current.modelSourceValue ?? null,
+          platform: current.platform ?? rawPlatform,
+          platforms: current.platforms?.length ? current.platforms : rawPlatform ? [rawPlatform] : [],
+          firmwareVersionSourceValue: clean(first.firmwareVersion),
+          firmwareVersionSourceValues: firmwareVersions,
+          softwareVersionSourceValue: clean(first.softwareVersion),
+          softwareVersionSourceValues: softwareVersions,
+          rowNumbers: group.rows.slice(0, 20).map((row) => row.rowNumber),
+          waitingFor: current.waitingFor ?? [],
+        },
+        status: 'UNRESOLVED',
+        targetId: null,
+        suggestedTargetId: null,
+        suggestionScore: null,
+        resolutionSource: null,
+      })
+    }
+  }
+
+  if (!deleteIds.length) return 0
+  await prisma.$transaction(async (tx) => {
+    await tx.deviceImportStagedReference.deleteMany({ where: { id: { in: deleteIds } } })
+    await tx.deviceImportStagedReference.createMany({ data: replacements, skipDuplicates: true })
+  })
+  return deleteIds.length
 }
 
 function majorVersion(sourceValue: string) {
@@ -61,27 +200,15 @@ export function resolveStagedFirmwarePlatform(
   sourceValue = '',
   releases: PlatformRelease[] = [],
 ) {
-  // `platforms` is the durable evidence collected from staged source rows. It
-  // deliberately wins over `metadata.platform`, because older resolver passes
-  // could have filled that field from the legacy DeviceModel.platform default.
   const imported = importedPlatformSet(meta)
   if (imported.size === 1) return [...imported.values()][0]
   if (imported.size > 1) return null
 
   const supported = platformSet(model)
-
-  // For Aruba AOS dual-platform hardware, the firmware major is stronger
-  // evidence than a legacy DeviceModel.platform default. A stale AOS-10
-  // default must never turn an imported 8.x release into AOS-10 (or vice
-  // versa). Explicit staged `platforms` evidence above still wins.
   const aosPlatform = inferAosPlatformFromVersion(sourceValue, supported)
   if (aosPlatform) return aosPlatform
-
   if (supported.size === 1) return [...supported.values()][0]
 
-  // For a multi-platform model, a version can safely identify the platform only
-  // when that exact version exists on exactly one of the model's supported
-  // platforms. Otherwise the platform stays review-only.
   if (sourceValue && supported.size > 1) {
     const exactPlatforms = new Map<string, string>()
     for (const release of releases) {
@@ -100,11 +227,6 @@ export function canDeferUnclassifiedFirmwarePlatform(
   meta: DeviceImportStagedReferenceMetadata,
   model: Pick<PlatformModel, 'platform' | 'supportedPlatforms'>,
 ) {
-  // An absent Software Platform is different from an ambiguous Software
-  // Platform. If neither the source rows nor the canonical Model define any
-  // platform at all, the observed firmware value cannot be classified into the
-  // Firmware catalog and must not block inventory import. Multi-platform or
-  // conflicting evidence remains review-required.
   return importedPlatformSet(meta).size === 0 && platformSet(model).size === 0
 }
 
@@ -138,29 +260,37 @@ function needsUpdate(
     JSON.stringify(current.waitingFor ?? []) !== JSON.stringify(next.metadata.waitingFor ?? [])
 }
 
+async function loadReferences(batchId: string) {
+  return prisma.deviceImportStagedReference.findMany({
+    where: { batchId },
+    select: {
+      id: true,
+      kind: true,
+      sourceValue: true,
+      normalizedSourceValue: true,
+      contextKey: true,
+      metadata: true,
+      status: true,
+      targetId: true,
+      suggestedTargetId: true,
+      suggestionScore: true,
+      resolutionSource: true,
+    },
+  }) as Promise<FirmwareReference[]>
+}
+
 export async function resolveStagedFirmwarePlatforms(batchId: string) {
-  const [batch, references] = await Promise.all([
+  const [batch, initialReferences] = await Promise.all([
     prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { profileId: true, status: true } }),
-    prisma.deviceImportStagedReference.findMany({
-      where: { batchId },
-      select: {
-        id: true,
-        kind: true,
-        sourceValue: true,
-        normalizedSourceValue: true,
-        metadata: true,
-        status: true,
-        targetId: true,
-        suggestedTargetId: true,
-        suggestionScore: true,
-        resolutionSource: true,
-      },
-    }),
+    loadReferences(batchId),
   ])
   if (!batch || batch.status === 'PUBLISHED') return { updated: 0 }
 
+  const splitCount = await splitCollapsedFirmwareSourceReferences(batchId, initialReferences)
+  const references = splitCount ? await loadReferences(batchId) : initialReferences
   const firmwareReferences = references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE')
-  if (!firmwareReferences.length) return { updated: 0 }
+  if (!firmwareReferences.length) return { updated: splitCount }
+
   const modelIds = [...new Set(firmwareReferences.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id)))]
   const [models, releases, aliases] = await Promise.all([
     modelIds.length ? prisma.deviceModel.findMany({
@@ -182,7 +312,7 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
     }) : Promise.resolve([]),
   ])
   const modelById = new Map(models.map((model) => [model.id, model]))
-  let updated = 0
+  let updated = splitCount
 
   for (const reference of firmwareReferences) {
     const meta = metadata(reference.metadata)
@@ -208,10 +338,7 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
         metadata: nextMetadata,
       }
       if (needsUpdate(reference, next)) {
-        await prisma.deviceImportStagedReference.update({
-          where: { id: reference.id },
-          data: next,
-        })
+        await prisma.deviceImportStagedReference.update({ where: { id: reference.id }, data: next })
         updated += 1
       }
       continue
@@ -224,11 +351,14 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
     const manualTarget = reference.targetId && ['USER', 'CREATED'].includes(reference.resolutionSource ?? '')
       ? compatible.find((release) => release.id === reference.targetId) ?? null
       : null
-    const remembered = aliases.find((alias) =>
+    const competingEvidence = hasCompetingFirmwareSourceEvidence(reference.sourceValue, meta)
+    const remembered = competingEvidence ? null : aliases.find((alias) =>
       alias.normalizedSourceValue === reference.normalizedSourceValue && alias.contextKey === contextKey,
     )?.targetId ?? null
     const rememberedTarget = remembered ? compatible.find((release) => release.id === remembered) ?? null : null
-    const exact = compatible.filter((release) => normalizeImportText(release.version) === reference.normalizedSourceValue)
+    const exact = competingEvidence
+      ? []
+      : compatible.filter((release) => normalizeImportText(release.version) === reference.normalizedSourceValue)
     const target = manualTarget ?? rememberedTarget ?? (exact.length === 1 ? exact[0] : null)
 
     if (target) {
@@ -246,16 +376,13 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
         metadata: nextMetadata,
       }
       if (needsUpdate(reference, next)) {
-        await prisma.deviceImportStagedReference.update({
-          where: { id: reference.id },
-          data: next,
-        })
+        await prisma.deviceImportStagedReference.update({ where: { id: reference.id }, data: next })
         updated += 1
       }
       continue
     }
 
-    const best = bestImportReferenceSuggestion(reference.sourceValue, compatible, (release) => release.version)
+    const best = competingEvidence ? null : bestImportReferenceSuggestion(reference.sourceValue, compatible, (release) => release.version)
     const next = {
       status: 'UNRESOLVED',
       targetId: null,
@@ -265,10 +392,7 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
       metadata: nextMetadata,
     }
     if (needsUpdate(reference, next)) {
-      await prisma.deviceImportStagedReference.update({
-        where: { id: reference.id },
-        data: next,
-      })
+      await prisma.deviceImportStagedReference.update({ where: { id: reference.id }, data: next })
       updated += 1
     }
   }
