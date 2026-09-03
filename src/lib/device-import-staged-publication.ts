@@ -59,6 +59,11 @@ type PublicationResolutionTarget = {
   platform?: string | null
 }
 
+export type StagedDevicePublishSelection =
+  | { mode: 'ALL' }
+  | { mode: 'VALID' }
+  | { mode: 'ROWS'; rows: number[] }
+
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
 }
@@ -250,30 +255,74 @@ export async function validateActiveDeviceImportBatch(batchId: string): Promise<
   return previewDeviceImport(workbook, options, batch.fileName)
 }
 
-export async function publishActiveDeviceImportBatch(batchId: string, actorUserId: string | null): Promise<DeviceImportResult> {
+function normalizedSelectedRows(rows: number[]) {
+  return [...new Set(rows.map(Number).filter((row) => Number.isInteger(row) && row > 0))]
+}
+
+export async function publishActiveDeviceImportBatch(
+  batchId: string,
+  actorUserId: string | null,
+  selection: StagedDevicePublishSelection = { mode: 'ALL' },
+): Promise<DeviceImportResult> {
   const { batch, rows, workbook, options } = await publicationInput(batchId)
   if (batch.status === 'PUBLISHED') throw new DeviceImportStagingError('This import batch has already been published.')
+  if (!rows.length) throw new DeviceImportStagingError('There are no remaining staged device rows to publish.')
+
   const preview = await previewDeviceImport(workbook, options, batch.fileName)
-  if (preview.counts.error || preview.counts.conflict) {
-    throw new DeviceImportStagingError(`The staged batch still has ${preview.counts.error} error row(s) and ${preview.counts.conflict} conflict row(s). Review device validation before publishing.`)
+  const blockers = preview.counts.error + preview.counts.conflict
+  if (selection.mode === 'ALL' && blockers) {
+    throw new DeviceImportStagingError(
+      `Full publish is blocked by ${preview.counts.error} error row(s) and ${preview.counts.conflict} conflict row(s). Import the valid devices now or correct the remaining rows first.`,
+    )
   }
 
-  const result = preview.counts.importable
-    ? await commitDeviceImport(workbook, options, { mode: 'ALL_IMPORTABLE' }, batch.fileName, actorUserId)
-    : {
-        created: 0,
-        updated: 0,
-        failed: 0,
-        skipped: preview.counts.unchanged,
-        importedRows: [],
-      }
+  let result: DeviceImportResult
+  let publishedRowNumbers: number[] = []
+
+  if (selection.mode === 'ROWS') {
+    const selectedRows = normalizedSelectedRows(selection.rows)
+    if (!selectedRows.length) throw new DeviceImportStagingError('Select one or more validated CREATE/UPDATE rows to import.')
+    result = await commitDeviceImport(workbook, options, selectedRows, batch.fileName, actorUserId)
+    publishedRowNumbers = result.importedRows
+  } else if (preview.counts.importable) {
+    result = await commitDeviceImport(workbook, options, { mode: 'ALL_IMPORTABLE' }, batch.fileName, actorUserId)
+    publishedRowNumbers = result.importedRows
+  } else {
+    if (selection.mode === 'VALID' && blockers) {
+      throw new DeviceImportStagingError('There are no valid CREATE/UPDATE rows left to import; correct or exclude the remaining blocked rows.')
+    }
+    result = {
+      created: 0,
+      updated: 0,
+      failed: blockers,
+      skipped: preview.counts.unchanged,
+      importedRows: [],
+    }
+  }
+
+  // A clean full publish also finalizes unchanged rows. A partial publish only
+  // marks rows that were actually created/updated, keeping blocked rows staged
+  // so the engineer can continue reconciliation later.
+  const finalizeAll = blockers === 0 && selection.mode !== 'ROWS'
+  if (finalizeAll) publishedRowNumbers = rows.map((row) => row.rowNumber)
+
+  const publishedSet = new Set(publishedRowNumbers)
+  const remainingStaged = rows.filter((row) => !publishedSet.has(row.rowNumber)).length
+  const finished = remainingStaged === 0
 
   await prisma.$transaction([
-    prisma.deviceImportStagedRow.updateMany({
-      where: { id: { in: rows.map((row) => row.id) } },
+    ...(publishedRowNumbers.length ? [prisma.deviceImportStagedRow.updateMany({
+      where: { batchId, status: 'STAGED', rowNumber: { in: publishedRowNumbers } },
       data: { status: 'PUBLISHED', statusSource: 'PUBLISH' },
+    })] : []),
+    prisma.deviceImportBatch.update({
+      where: { id: batchId },
+      data: {
+        status: finished ? 'PUBLISHED' : 'PARTIAL',
+        publishedAt: finished ? new Date() : null,
+      },
     }),
-    prisma.deviceImportBatch.update({ where: { id: batchId }, data: { status: 'PUBLISHED', publishedAt: new Date() } }),
   ])
+
   return result
 }
