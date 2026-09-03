@@ -191,7 +191,17 @@ function normalizeGenericSiteValue(values: DeviceImportMappedValues, options: De
   values.site = split.site
 }
 
-function normalizeFirmwareEvidence(values: DeviceImportMappedValues, options: DeviceImportOptions) {
+/**
+ * Interpret source-specific firmware evidence exactly once, before the mapped
+ * row is persisted and before references are aggregated. Keeping this separate
+ * from buildDeviceImportStagedReferenceSeeds is important: repair/delta code
+ * must be able to subtract the historical reference and add the canonical one
+ * without the seed builder silently reinterpreting both sides to the same key.
+ */
+export function interpretDeviceImportMappedFirmware(
+  values: DeviceImportMappedValues,
+  options: DeviceImportOptions,
+) {
   const interpreted = interpretDeviceImportFirmwareEvidence({
     vendor: values.vendor,
     model: values.model,
@@ -202,10 +212,9 @@ function normalizeFirmwareEvidence(values: DeviceImportMappedValues, options: De
     externalProvider: values.externalProvider ?? options.defaults.externalProvider,
   })
 
-  // Only the canonical running value is rewritten. The two raw source columns
-  // remain intact and are persisted into staged row/reference evidence.
   values.currentFirmware = interpreted.currentFirmware
   if (!values.platform && interpreted.platform) values.platform = interpreted.platform
+  return interpreted
 }
 
 export function buildDeviceImportStagedReferenceSeeds(
@@ -214,11 +223,9 @@ export function buildDeviceImportStagedReferenceSeeds(
 ) {
   const result = new Map<string, DeviceImportStagedReferenceSeed>()
   for (const row of rows) {
-    // Staged rows are intentionally normalized in-place here. createDeviceImportBatch
-    // persists the same mapped row objects after building references, so final
-    // validation consumes the same canonical interpretation that generated the
-    // unique reconciliation tasks. Raw workbook cells remain untouched in rawData.
-    normalizeFirmwareEvidence(row.values, options)
+    // Generic Site normalization remains part of seed construction because it
+    // is itself an identity normalization. Firmware interpretation deliberately
+    // happens earlier in the import pipeline (see interpretDeviceImportMappedFirmware).
     normalizeGenericSiteValue(row.values, options)
 
     addSeed(result, 'CUSTOMER', row.values.customer, row.values, row.rowNumber, options)
