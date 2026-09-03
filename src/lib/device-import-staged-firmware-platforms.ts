@@ -1,3 +1,4 @@
+import type { Prisma } from '../generated/prisma/client'
 import { extractFirmwareVersion, normalizeImportText } from '@/lib/device-import'
 import { classifyImportedDeviceModel, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
 import {
@@ -140,7 +141,7 @@ async function splitCollapsedFirmwareSourceReferences(batchId: string, reference
     rowNumber: row.rowNumber,
     values: row.mappedData as unknown as DeviceImportMappedValues,
   }))
-  const replacements = []
+  const replacements: Prisma.DeviceImportStagedReferenceCreateManyInput[] = []
   const deleteIds: string[] = []
 
   for (const reference of candidates) {
