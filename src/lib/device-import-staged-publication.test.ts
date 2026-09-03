@@ -10,6 +10,7 @@ vi.mock('@/lib/device-import-store', () => ({
 import { DEVICE_IMPORT_FIELDS, type DeviceImportField } from '@/lib/device-import'
 import {
   isUnclassifiedFirmwareRow,
+  modelValuesForPublication,
   publicationResolutionContext,
 } from '@/lib/device-import-staged-publication'
 import type { DeviceImportMappedValues } from '@/lib/device-import-staging'
@@ -48,6 +49,46 @@ describe('staged publication resolution contexts', () => {
       'DEVICE_MODEL',
       { vendorTargetId: 'legacy-vendor' },
     )).toBe('legacy-vendor')
+  })
+})
+
+describe('staged publication canonical model identity', () => {
+  it('replaces stale source vendor/type/model values with the accepted canonical model values', () => {
+    const source = values({
+      vendor: 'HP',
+      deviceType: 'Stack',
+      model: 'HP 2930F-24G-PoE+-4SFP',
+    })
+    const references = [{
+      kind: 'DEVICE_MODEL',
+      normalizedSourceValue: 'hp 2930f-24g-poe+-4sfp',
+      contextKey: 'vendor:hp',
+      resolutionSource: 'USER',
+      targetId: 'model-1',
+      metadata: { vendorSourceValue: 'HP' },
+    }]
+    const targets = [{
+      id: 'model-1',
+      vendorId: 'vendor-hpe',
+      model: '2930F-24G-PoE+-4SFP',
+      vendor: { name: 'HPE Networking' },
+      deviceType: { name: 'Switch' },
+    }]
+
+    expect(modelValuesForPublication(source, references, targets)).toEqual({
+      vendor: 'HPE Networking',
+      model: '2930F-24G-PoE+-4SFP',
+      deviceType: 'Switch',
+    })
+  })
+
+  it('keeps source values when there is no accepted model target', () => {
+    const source = values({ vendor: 'HP', deviceType: 'Stack', model: 'Unknown 24G' })
+    expect(modelValuesForPublication(source, [], [])).toEqual({
+      vendor: 'HP',
+      model: 'Unknown 24G',
+      deviceType: 'Stack',
+    })
   })
 })
 
