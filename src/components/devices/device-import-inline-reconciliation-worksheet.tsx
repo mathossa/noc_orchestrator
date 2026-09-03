@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
 import { isSafeExistingModelPrediction } from '@/lib/device-import-model-predictions'
+import { applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { resolveImportedModelVendor } from '@/lib/device-import-model-identity'
 import { modelDraftIdsForVendorSource } from '@/lib/device-import-reconciliation-memory'
 
@@ -78,9 +79,13 @@ type ReadyModel = {
   proposedDeviceTypeId: string
   proposedDeviceTypeName: string
   proposedDeviceTypeCode: string
+  proposedVendorId: string
+  proposedVendorName: string
+  proposedVendorCode: string
   normalizationRuleKey: string | null
   normalizationSource: 'BUILT_IN' | 'PROFILE_RULE' | null
   normalizationConfidence: number | null
+  matchedPredictionRuleIds: string[]
 }
 type LinkedModel = {
   id: string
@@ -92,6 +97,15 @@ type LinkedModel = {
   vendor: { id: string; code: string; name: string }
   proposedNewFamilyName: string | null
   suggestedFamilyId: string | null
+}
+type ModelRulePrediction = {
+  id: string
+  matchedRuleIds: string[]
+  vendorTargetId: string | null
+  deviceTypeTargetId: string | null
+  productFamilyId: string | null
+  softwarePlatforms: string[]
+  preferredSoftwarePlatform: string | null
 }
 type SiteProposal = {
   referenceIds: string[]
@@ -122,9 +136,32 @@ type Assist = {
     }
   }
   sites: { proposals: SiteProposal[] }
-  models: { readyToCreate: ReadyModel[]; linkedModels: LinkedModel[]; families: Family[] }
+  models: { readyToCreate: ReadyModel[]; rulePredictions: ModelRulePrediction[]; linkedModels: LinkedModel[]; families: Family[] }
   firmware: { proposals: FirmwareProposal[] }
   vendorAliases: Array<{ sourceValue: string; targetId: string }>
+  profileRules: {
+    profile: { id: string; name: string; isActive: boolean } | null
+    rules: ProfileRule[]
+    aliases: ProfileAlias[]
+  }
+}
+type ProfileRule = {
+  id: string
+  action: string
+  field: string
+  operator: string
+  value: string
+  normalizedValue: string
+  result: unknown
+  priority: number
+  isActive: boolean
+}
+type ProfileAlias = {
+  id: string
+  kind: string
+  sourceValue: string
+  contextKey: string
+  targetId: string
 }
 type AssistPayload = { data?: Assist } & ApiError
 
@@ -165,6 +202,16 @@ type CoreDraft = {
   code: string
 }
 type FamilyDraft = { familyId: string; name: string }
+type RuleDraft = {
+  field: 'vendor' | 'model' | 'deviceType' | 'platform'
+  operator: 'EQUALS' | 'PREFIX' | 'CONTAINS'
+  value: string
+  vendorTargetId: string
+  deviceTypeTargetId: string
+  productFamilyId: string
+  softwarePlatforms: string
+  preferredSoftwarePlatform: string
+}
 type ApplyFailure = { key: string; message: string }
 type ApplyPayload = {
   data?: { applied: number; failed: number; remaining: number; failures: ApplyFailure[] }
@@ -338,6 +385,67 @@ function reviewCreateLabel(reference: Reference, values: Record<string, unknown>
   return stringValue('name') || reference.sourceValue
 }
 
+function valueRecord(value: unknown) {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+}
+
+function profileAliasTargetLabel(alias: ProfileAlias, assist: Assist) {
+  if (alias.kind === 'VENDOR') return selectedName(alias.targetId, assist.workspace.options.vendors)
+  if (alias.kind === 'DEVICE_TYPE') return selectedName(alias.targetId, assist.workspace.options.deviceTypes)
+  if (alias.kind === 'CUSTOMER') return selectedName(alias.targetId, assist.workspace.options.customers)
+  if (alias.kind === 'SITE') return selectedName(alias.targetId, assist.workspace.options.sites)
+  if (alias.kind === 'DEVICE_MODEL') {
+    const model = assist.workspace.options.models.find((item) => item.id === alias.targetId)
+    return model ? `${model.vendor.name} · ${model.model}` : alias.targetId
+  }
+  const release = assist.workspace.options.firmwareReleases.find((item) => item.id === alias.targetId)
+  return release ? `${release.vendor.name} · ${release.platform} · ${release.version}` : alias.targetId
+}
+
+function profileRuleOutputLabel(rule: ProfileRule, assist: Assist) {
+  if (rule.action === 'IGNORE') return 'Ignore matching device rows'
+  const result = valueRecord(rule.result)
+  if (rule.action === 'NORMALIZE') {
+    const platforms = Array.isArray(result.softwarePlatforms)
+      ? result.softwarePlatforms.map((entry) => typeof entry === 'string' ? entry : String(valueRecord(entry).name ?? valueRecord(entry).code ?? '')).filter(Boolean)
+      : []
+    return [result.model, result.productFamilyName, ...platforms, result.deviceTypeName].filter((value) => typeof value === 'string' && value).join(' · ') || 'Learned Model classification'
+  }
+  const outputs: string[] = []
+  if (typeof result.vendorTargetId === 'string') outputs.push(`Vendor: ${selectedName(result.vendorTargetId, assist.workspace.options.vendors) || result.vendorTargetId}`)
+  if (typeof result.deviceTypeTargetId === 'string') outputs.push(`Type: ${selectedName(result.deviceTypeTargetId, assist.workspace.options.deviceTypes) || result.deviceTypeTargetId}`)
+  if (typeof result.productFamilyId === 'string') outputs.push(`Family: ${assist.models.families.find((family) => family.id === result.productFamilyId)?.name ?? result.productFamilyId}`)
+  if (Array.isArray(result.softwarePlatforms) && result.softwarePlatforms.length) outputs.push(`Platforms: ${result.softwarePlatforms.join(', ')}`)
+  if (typeof result.preferredSoftwarePlatform === 'string' && result.preferredSoftwarePlatform) outputs.push(`Preferred: ${result.preferredSoftwarePlatform}`)
+  return outputs.join(' · ') || 'No prediction output'
+}
+
+function applyLiveProfileRules(draft: ModelDraft, assist: Assist) {
+  const rules = assist.profileRules.rules.filter((rule) => rule.action === 'PREDICT') as DeviceImportPredictionRule[]
+  const { prediction } = applyDeviceImportPredictionRules({
+    vendor: draft.vendorName,
+    model: draft.model,
+    deviceType: draft.deviceTypeName,
+    platform: draft.platform,
+  }, rules)
+  let next = draft
+  if (prediction.vendorTargetId) {
+    const vendor = assist.workspace.options.vendors.find((item) => item.id === prediction.vendorTargetId && item.isActive)
+    if (vendor) next = { ...next, vendorId: vendor.id, vendorName: vendor.name, vendorCode: vendor.code ?? suggestedCode(vendor.name), existingModelId: '' }
+  }
+  if (prediction.deviceTypeTargetId) {
+    const deviceType = assist.workspace.options.deviceTypes.find((item) => item.id === prediction.deviceTypeTargetId && item.isActive)
+    if (deviceType) next = { ...next, deviceTypeId: deviceType.id, deviceTypeName: deviceType.name, deviceTypeCode: deviceType.code ?? suggestedCode(deviceType.name), existingModelId: '' }
+  }
+  if (prediction.productFamilyId) {
+    const family = assist.models.families.find((item) => item.id === prediction.productFamilyId && item.isActive && (!next.vendorId || item.vendorId === next.vendorId))
+    if (family) next = { ...next, familyId: family.id, familyName: '' }
+  }
+  if (prediction.softwarePlatforms?.length) next = { ...next, platforms: prediction.softwarePlatforms.join(', ') }
+  if (prediction.preferredSoftwarePlatform) next = { ...next, platform: prediction.preferredSoftwarePlatform }
+  return next
+}
+
 export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId: string }) {
   const [assist, setAssist] = useState<Assist | null>(null)
   const [siteDrafts, setSiteDrafts] = useState<Record<string, SiteDraft>>({})
@@ -357,6 +465,18 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const [notice, setNotice] = useState<string | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
   const [predictionOpen, setPredictionOpen] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [ruleBusy, setRuleBusy] = useState(false)
+  const [ruleDraft, setRuleDraft] = useState<RuleDraft>({
+    field: 'vendor',
+    operator: 'EQUALS',
+    value: '',
+    vendorTargetId: '',
+    deviceTypeTargetId: '',
+    productFamilyId: '',
+    softwarePlatforms: '',
+    preferredSoftwarePlatform: '',
+  })
   const [predictionSelection, setPredictionSelection] = useState<Set<string>>(() => new Set())
   const [deferredModelReferences, setDeferredModelReferences] = useState<Set<string>>(() => new Set())
   const [editedReferences, setEditedReferences] = useState<Set<string>>(() => new Set())
@@ -394,6 +514,8 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
 
     const nextModels: Record<string, ModelDraft> = {}
     for (const reference of next.workspace.references.filter((item) => item.kind === 'DEVICE_MODEL' && item.status !== 'LINKED')) {
+      const proposal = next.models.readyToCreate.find((item) => item.id === reference.id)
+      const rulePrediction = next.models.rulePredictions.find((item) => item.id === reference.id)
       const vendorRef = sourceReference(next, 'VENDOR', reference.metadata.vendorSourceValue)
       const typeRef = sourceReference(next, 'DEVICE_TYPE', reference.metadata.deviceTypeSourceValue)
       const inferredVendor = reference.metadata.vendorSourceValue
@@ -401,26 +523,25 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         : resolveImportedModelVendor(reference.sourceValue, activeVendors, next.vendorAliases)
       const vendorSourceValue = reference.metadata.vendorSourceValue || inferredVendor?.sourceValue || ''
       const rememberedVendorId = next.vendorAliases.find((alias) => normalized(alias.sourceValue) === normalized(vendorSourceValue))?.targetId ?? ''
-      const vendorId = rememberedVendorId || reference.metadata.vendorTargetId || vendorRef?.targetId || safeSuggestedTarget(vendorRef) || inferredVendor?.vendor.id || ''
-      const deviceTypeId = reference.metadata.deviceTypeTargetId ?? typeRef?.targetId ?? safeSuggestedTarget(typeRef)
-      const vendorName = selectedName(vendorId, activeVendors) || inferredVendor?.vendor.name || reference.metadata.vendorSourceValue || ''
-      const proposal = next.models.readyToCreate.find((item) => item.id === reference.id)
+      const vendorId = proposal?.proposedVendorId || rulePrediction?.vendorTargetId || rememberedVendorId || reference.metadata.vendorTargetId || vendorRef?.targetId || safeSuggestedTarget(vendorRef) || inferredVendor?.vendor.id || ''
+      const deviceTypeId = rulePrediction?.deviceTypeTargetId || reference.metadata.deviceTypeTargetId || typeRef?.targetId || safeSuggestedTarget(typeRef)
+      const vendorName = proposal?.proposedVendorName || selectedName(vendorId, activeVendors) || inferredVendor?.vendor.name || reference.metadata.vendorSourceValue || ''
       const proposedDeviceTypeId = proposal?.proposedDeviceTypeId || deviceTypeId
       const deviceTypeName = proposal?.proposedDeviceTypeName || selectedName(proposedDeviceTypeId, activeTypes) || reference.metadata.deviceTypeSourceValue || ''
-      const platform = proposal?.proposedPlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
-      const platforms = proposal?.proposedPlatforms?.length ? proposal.proposedPlatforms.join(', ') : reference.metadata.platforms?.join(', ') ?? (platform ? platform : '')
+      const platform = proposal?.proposedPlatform ?? rulePrediction?.preferredSoftwarePlatform ?? reference.metadata.platform ?? (reference.metadata.platforms?.length === 1 ? reference.metadata.platforms[0] : '') ?? ''
+      const platforms = proposal?.proposedPlatforms?.length ? proposal.proposedPlatforms.join(', ') : rulePrediction?.softwarePlatforms.length ? rulePrediction.softwarePlatforms.join(', ') : reference.metadata.platforms?.join(', ') ?? (platform ? platform : '')
       nextModels[reference.id] = {
         existingModelId: safeSuggestedModelTarget(reference, next.workspace.options.models),
         vendorId,
         vendorName,
-        vendorCode: suggestedCode(vendorName),
+        vendorCode: proposal?.proposedVendorCode || suggestedCode(vendorName),
         deviceTypeId: proposedDeviceTypeId,
         deviceTypeName,
         deviceTypeCode: proposal?.proposedDeviceTypeCode || suggestedCode(deviceTypeName),
         model: proposal?.proposedModel ?? stripVendorPrefix(reference.sourceValue, vendorName),
         platform,
         platforms,
-        familyId: proposal?.suggestedFamilyId ?? '',
+        familyId: proposal?.suggestedFamilyId ?? rulePrediction?.productFamilyId ?? '',
         familyName: proposal?.proposedNewFamilyName ?? '',
         vendorSourceValue,
         normalizationRuleKey: proposal?.normalizationRuleKey ?? '',
@@ -639,7 +760,8 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           const propagated = { id: vendorMatch?.id ?? '', name: values.vendorName, code: vendorMatch?.code ?? suggestedCode(values.vendorName) }
           queueMicrotask(() => setModelDrafts((latest) => Object.fromEntries(Object.entries(latest).map(([id, candidate]) => {
             if (id === reference.id || normalized(candidate.vendorSourceValue) !== sourceKey) return [id, candidate]
-            return [id, { ...candidate, vendorId: propagated.id, vendorName: propagated.name, vendorCode: propagated.code, existingModelId: '' }]
+            const propagatedDraft = { ...candidate, vendorId: propagated.id, vendorName: propagated.name, vendorCode: propagated.code, existingModelId: '' }
+            return [id, assist ? applyLiveProfileRules(propagatedDraft, assist) : propagatedDraft]
           }))))
         }
       }
@@ -647,6 +769,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         const typeMatch = assist ? exactOption(values.deviceTypeName, assist.workspace.options.deviceTypes) : null
         next = { ...next, deviceTypeId: typeMatch?.id ?? '', deviceTypeCode: typeMatch?.code ?? suggestedCode(values.deviceTypeName), existingModelId: '' }
       }
+      if (assist) next = applyLiveProfileRules(next, assist)
       return { ...current, [reference.id]: next }
     })
     setFailures((current) => { const next = { ...current }; delete next[reference.id]; return next })
@@ -699,6 +822,65 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       setError(ignoreError instanceof Error ? ignoreError.message : 'The ignore rule could not be saved.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function savePredictionRule() {
+    const profileId = assist?.workspace.batch.profileId
+    if (!profileId) {
+      setError('Choose an import profile before adding reusable prediction rules.')
+      return
+    }
+    setRuleBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(`/api/v1/device-import/profiles/${profileId}/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field: ruleDraft.field,
+          operator: ruleDraft.operator,
+          value: ruleDraft.value,
+          result: {
+            vendorTargetId: ruleDraft.vendorTargetId || null,
+            deviceTypeTargetId: ruleDraft.deviceTypeTargetId || null,
+            productFamilyId: ruleDraft.productFamilyId || null,
+            softwarePlatforms: ruleDraft.softwarePlatforms,
+            preferredSoftwarePlatform: ruleDraft.preferredSoftwarePlatform || null,
+          },
+        }),
+      })
+      const payload = await readJson<{ data?: { id: string } } & ApiError>(response, 'The prediction rule could not be saved.')
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The prediction rule could not be saved.')
+      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '' }))
+      await load()
+      setNotice('Prediction rule saved. All predictions were recalculated with the updated profile rules.')
+    } catch (ruleError) {
+      setError(ruleError instanceof Error ? ruleError.message : 'The prediction rule could not be saved.')
+    } finally {
+      setRuleBusy(false)
+    }
+  }
+
+  async function updatePredictionRule(ruleId: string, method: 'PATCH' | 'DELETE', isActive?: boolean) {
+    const profileId = assist?.workspace.batch.profileId
+    if (!profileId) return
+    setRuleBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(`/api/v1/device-import/profiles/${profileId}/rules/${ruleId}`, {
+        method,
+        headers: method === 'PATCH' ? { 'Content-Type': 'application/json' } : undefined,
+        body: method === 'PATCH' ? JSON.stringify({ isActive }) : undefined,
+      })
+      const payload = await readJson<{ data?: unknown } & ApiError>(response, 'The prediction rule could not be updated.')
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The prediction rule could not be updated.')
+      await load()
+      setNotice(`Prediction rule ${method === 'DELETE' ? 'deleted' : isActive ? 'enabled' : 'disabled'}. Predictions were recalculated.`)
+    } catch (ruleError) {
+      setError(ruleError instanceof Error ? ruleError.message : 'The prediction rule could not be updated.')
+    } finally {
+      setRuleBusy(false)
     }
   }
 
@@ -892,6 +1074,10 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const reviewLinks = plan.items.filter((item) => item.action === 'LINK').length
   const reviewCreates = plan.items.filter((item) => item.action === 'CREATE').length
   const confidentPredictions = modelPredictions.filter((prediction) => prediction.confident).length
+  const manualRules = assist.profileRules.rules.filter((rule) => rule.action === 'PREDICT')
+  const learnedRules = assist.profileRules.rules.filter((rule) => rule.action !== 'PREDICT')
+  const ruleCount = assist.profileRules.rules.length + assist.profileRules.aliases.length
+  const ruleFamilyOptions = assist.models.families.filter((family) => family.isActive && (!ruleDraft.vendorTargetId || family.vendorId === ruleDraft.vendorTargetId)).map((family) => ({ id: family.id, label: family.name, keywords: [family.name] }))
 
   return <section className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
     <datalist id={vendorListId}>{vendorRecords.map((record) => <option key={record.id} value={record.name}>{record.code ? `${record.code} · ${record.name}` : record.name}</option>)}</datalist>
@@ -907,7 +1093,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         </div>
         <div className="text-right text-xs text-[var(--muted)]"><div><strong className="text-[var(--foreground)]">{prepared.toLocaleString()}</strong> ready</div><div><strong className={pending ? 'text-amber-200' : 'text-[var(--foreground)]'}>{pending.toLocaleString()}</strong> need input</div></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{modelPredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openPredictionReview}>Review {modelPredictions.length.toLocaleString()} Model predictions ({confidentPredictions.toLocaleString()} confident)</Button> : null}</div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{assist.workspace.batch.profileId ? <Button type="button" variant="ghost" disabled={busy} onClick={() => setRulesOpen(true)}>Manage rules ({ruleCount.toLocaleString()})</Button> : null}{modelPredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openPredictionReview}>Review {modelPredictions.length.toLocaleString()} Model predictions ({confidentPredictions.toLocaleString()} confident)</Button> : null}</div>
     </div>
 
     {error ? <div className="mx-4 mt-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0] sm:mx-5" role="alert">{error}</div> : null}
@@ -1020,6 +1206,34 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm"><strong>{prepared.toLocaleString()}</strong> mappings ready · <strong className={pending ? 'text-amber-200' : ''}>{pending.toLocaleString()}</strong> need input · Contract Type is intentionally not imported.</div><Button type="button" variant="primary" disabled={busy || !prepared} onClick={() => setReviewOpen(true)}>{`Review worksheet (${prepared.toLocaleString()})`}</Button></div>
       {plan.errors.length ? <div className="mt-2 text-xs text-amber-200">{plan.errors.join(' · ')}{pending > plan.errors.length ? ` · +${pending - plan.errors.length} more` : ''}</div> : null}
     </div>
+
+    {rulesOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Manage import profile rules">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">{assist.profileRules.profile?.name ?? 'Import profile'}</div><h3 className="mt-1 text-xl font-semibold">Learned and manual prediction rules</h3><p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">Rules are profile-scoped. Worksheet edits recalculate the local prediction queue immediately; saving, enabling, disabling, or deleting a rule reloads all predictions for this batch.</p></div><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => setRulesOpen(false)}>Close</Button></div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <section className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Example: If Vendor equals Aruba, predict Vendor HPE Networking. Outputs are optional individually, but choose at least one.</p></div>
+            <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(220px,1fr)]">
+              {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option></SelectInput> })}
+              {field({ label: 'Condition', children: <SelectInput value={ruleDraft.operator} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, operator: event.target.value as RuleDraft['operator'] }))}><option value="EQUALS">Equals</option><option value="PREFIX">Starts with</option><option value="CONTAINS">Contains</option></SelectInput> })}
+              {field({ label: 'Source value', children: <TextInput value={ruleDraft.value} disabled={ruleBusy} placeholder="e.g. Aruba or C9300" onChange={(event) => setRuleDraft((current) => ({ ...current, value: event.target.value }))} /> })}
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {field({ label: 'Predict Vendor', children: <SearchableReferencePicker id={`rule-vendor-${batchId}`} value={ruleDraft.vendorTargetId} options={pickerOptions(assist.workspace.options.vendors)} disabled={ruleBusy} placeholder="Optional Vendor" onChange={(value) => setRuleDraft((current) => ({ ...current, vendorTargetId: value, productFamilyId: current.productFamilyId && assist.models.families.some((family) => family.id === current.productFamilyId && family.vendorId === value) ? current.productFamilyId : '' }))} /> })}
+              {field({ label: 'Predict Device Type', children: <SearchableReferencePicker id={`rule-type-${batchId}`} value={ruleDraft.deviceTypeTargetId} options={pickerOptions(assist.workspace.options.deviceTypes)} disabled={ruleBusy} placeholder="Optional Device Type" onChange={(value) => setRuleDraft((current) => ({ ...current, deviceTypeTargetId: value }))} /> })}
+              {field({ label: 'Predict Product Family', children: <SearchableReferencePicker id={`rule-family-${batchId}`} value={ruleDraft.productFamilyId} options={ruleFamilyOptions} disabled={ruleBusy} placeholder="Optional Product Family" onChange={(value) => setRuleDraft((current) => ({ ...current, productFamilyId: value }))} /> })}
+              {field({ label: 'Supported Platforms', children: <TextInput value={ruleDraft.softwarePlatforms} disabled={ruleBusy} placeholder="e.g. AOS-CX, AOS-S" onChange={(event) => setRuleDraft((current) => ({ ...current, softwarePlatforms: event.target.value }))} /> })}
+              {field({ label: 'Preferred Platform', children: <TextInput list={platformListId} value={ruleDraft.preferredSoftwarePlatform} disabled={ruleBusy} placeholder="Optional" onChange={(event) => setRuleDraft((current) => ({ ...current, preferredSoftwarePlatform: event.target.value }))} /> })}
+            </div>
+            <div className="mt-3 flex justify-end"><Button type="button" variant="primary" disabled={ruleBusy || !ruleDraft.value.trim()} onClick={() => void savePredictionRule()}>{ruleBusy ? 'Saving…' : 'Save rule and recalculate'}</Button></div>
+          </section>
+
+          <section className="mt-4 overflow-hidden rounded-lg border border-[var(--border)]"><div className="bg-[var(--surface-raised)] px-4 py-3"><h4 className="font-semibold">Manual prediction rules · {manualRules.length.toLocaleString()}</h4></div>{manualRules.length ? <div className="divide-y divide-[var(--border)]">{manualRules.map((rule) => <div key={rule.id} className="grid gap-2 px-4 py-3 text-sm lg:grid-cols-[minmax(260px,.8fr)_minmax(320px,1.2fr)_auto] lg:items-center"><div><span className={`mr-2 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${rule.isActive ? 'border-[#285f48] text-[#a9e8c6]' : 'border-[var(--border)] text-[var(--muted)]'}`}>{rule.isActive ? 'ACTIVE' : 'DISABLED'}</span><strong>If {rule.field} {rule.operator.toLocaleLowerCase()} “{rule.value}”</strong></div><div className="text-xs text-[var(--muted)]">Predict → {profileRuleOutputLabel(rule, assist)}</div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => void updatePredictionRule(rule.id, 'PATCH', !rule.isActive)}>{rule.isActive ? 'Disable' : 'Enable'}</Button><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => void updatePredictionRule(rule.id, 'DELETE')}>Delete</Button></div></div>)}</div> : <div className="px-4 py-4 text-sm text-[var(--muted)]">No manual rules yet.</div>}</section>
+
+          <details className="mt-4 overflow-hidden rounded-lg border border-[var(--border)]"><summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 font-semibold">Learned mappings and rules · {(learnedRules.length + assist.profileRules.aliases.length).toLocaleString()}</summary><div className="divide-y divide-[var(--border)]">{assist.profileRules.aliases.map((alias) => <div key={`alias-${alias.id}`} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[150px_minmax(220px,1fr)_minmax(260px,1fr)]"><span className="text-xs font-semibold uppercase text-[var(--muted)]">Learned {alias.kind.replaceAll('_', ' ')}</span><span>If value equals “{alias.sourceValue}”</span><span>Link → <strong>{profileAliasTargetLabel(alias, assist)}</strong></span></div>)}{learnedRules.map((rule) => <div key={rule.id} className="grid gap-2 px-4 py-3 text-sm lg:grid-cols-[150px_minmax(230px,.9fr)_minmax(300px,1.2fr)_auto] lg:items-center"><span className="text-xs font-semibold uppercase text-[var(--muted)]">{rule.action === 'IGNORE' ? 'Learned ignore' : 'Learned classification'}</span><span>If {rule.field} {rule.operator.toLocaleLowerCase()} “{rule.value}”</span><span>{rule.action === 'IGNORE' ? '' : 'Predict → '}<strong>{profileRuleOutputLabel(rule, assist)}</strong></span><div className="flex gap-2"><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => void updatePredictionRule(rule.id, 'PATCH', !rule.isActive)}>{rule.isActive ? 'Disable' : 'Enable'}</Button><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => void updatePredictionRule(rule.id, 'DELETE')}>Delete</Button></div></div>)}</div></details>
+        </div>
+      </div>
+    </div> : null}
 
     {predictionOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Review predicted Model mappings">
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl">

@@ -135,6 +135,17 @@ Exports such as Auvik normally keep a stable structure and vocabulary. `DeviceIm
 
 `DeviceImportProfileRule` stores both reusable device-row Ignore rules and confirmed Model normalization/classification results.
 
+The reconciliation worksheet also exposes the selected profile's rule workspace. It combines:
+
+- learned exact entity links, such as `Vendor equals Aruba -> HPE Networking`;
+- learned Model classifications created after confirmation;
+- remembered Ignore rules;
+- manually authored prediction rules.
+
+Manual prediction rules support **equals**, **starts with**, and **contains** conditions on Vendor, Model, Device Type, or Software Platform. A rule can predict Vendor, Device Type, Product Family, supported Software Platforms, and a preferred Software Platform. Rules can be enabled, disabled, or deleted. They are scoped to one import profile and participate in predictions for the current batch and later imports using that profile.
+
+Changing a worksheet link or classification recalculates the local prediction queue immediately. Saving, enabling, disabling, or deleting a profile rule reloads and recalculates the complete batch prediction set. No prediction bypasses the selectable prediction queue or Final Review.
+
 When a profile is selected, only that profile's aliases are used. Auvik-specific vocabulary therefore cannot leak into an unrelated CMDB export.
 
 On the next Auvik import, previously remembered values should link automatically. The engineer only reviews new or changed vocabulary.

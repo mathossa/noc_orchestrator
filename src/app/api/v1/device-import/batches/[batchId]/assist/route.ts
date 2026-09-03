@@ -6,6 +6,7 @@ import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmw
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
 import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-staged-model-dedup'
 import { getDeviceImportSmartGroups } from '@/lib/device-import-staged-rules'
+import { listImportProfileRuleWorkspace } from '@/lib/device-import-profile-rule-store'
 import { getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import { countNormalizableStagedGenericSites } from '@/lib/device-import-staged-site-normalize'
 import { DeviceImportStagingError, getDeviceImportBatchWorkspace } from '@/lib/device-import-staging-store'
@@ -23,10 +24,11 @@ export async function GET(_request: Request, context: RouteContext) {
           workspace,
           core: { proposals: [] },
           sites: { proposals: [], rawReferenceCount: 0, proposalCount: 0, duplicateReferenceCount: 0, normalizableGenericRowCount: 0 },
-          models: { readyToCreate: [], linkedModels: [], families: [], newFamilyProposals: [] },
+          models: { readyToCreate: [], rulePredictions: [], linkedModels: [], families: [], newFamilyProposals: [] },
           firmware: { proposals: [], rawReferenceCount: 0, proposalCount: 0 },
           rows: { profileId: workspace.batch.profileId, groups: [], rowCounts: { PUBLISHED: workspace.batch.totalRows } },
           vendorAliases: [],
+          profileRules: { profile: null, rules: [], aliases: [] },
         },
       })
     }
@@ -39,7 +41,7 @@ export async function GET(_request: Request, context: RouteContext) {
     await resolveStagedFirmwarePlatforms(batchId)
     workspace = await getDeviceImportBatchWorkspace(batchId)
 
-    const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows, vendorAliases] = await Promise.all([
+    const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows, vendorAliases, profileRules] = await Promise.all([
       getDeviceImportCoreAssist(batchId),
       getDeviceImportSiteCreateProposals(batchId),
       countNormalizableStagedGenericSites(batchId),
@@ -52,6 +54,9 @@ export async function GET(_request: Request, context: RouteContext) {
             select: { sourceValue: true, targetId: true },
           })
         : Promise.resolve([]),
+      workspace.batch.profileId
+        ? listImportProfileRuleWorkspace(workspace.batch.profileId)
+        : Promise.resolve({ profile: null, rules: [], aliases: [] }),
     ])
 
     return NextResponse.json({
@@ -63,6 +68,7 @@ export async function GET(_request: Request, context: RouteContext) {
         firmware,
         rows,
         vendorAliases,
+        profileRules,
       },
     })
   } catch (error) {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { suggestImportModelFamily, suggestNewImportModelFamilyName } from '@/lib/device-import-model-family'
 import { classifyImportedDeviceModel, softwarePlatformLegacyValue, type StoredDeviceImportNormalizationRule } from '@/lib/device-import-normalization'
+import { applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { refreshDeviceImportBatchReferences, DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
@@ -63,8 +64,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
   }) as ModelReference[]
 
   const targetIds = [...new Set(references.map((reference) => reference.targetId).filter((id): id is string => Boolean(id)))]
-  const vendorIds = [...new Set(references.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
-  const [models, families, vendors, deviceTypes, normalizationRules] = await Promise.all([
+  const [models, families, vendors, deviceTypes, profileRules] = await Promise.all([
     targetIds.length ? prisma.deviceModel.findMany({
       where: { id: { in: targetIds } },
       select: {
@@ -86,20 +86,22 @@ export async function getDeviceImportModelAssist(batchId: string) {
       orderBy: [{ vendor: { name: 'asc' } }, { name: 'asc' }],
       select: { id: true, vendorId: true, name: true, isActive: true },
     }),
-    vendorIds.length ? prisma.vendor.findMany({
-      where: { id: { in: vendorIds } },
+    prisma.vendor.findMany({
+      where: { isActive: true },
       select: { id: true, code: true, name: true, isActive: true },
-    }) : Promise.resolve([]),
+    }),
     prisma.deviceType.findMany({
       where: { isActive: true },
       select: { id: true, code: true, name: true, isActive: true },
     }),
     batch.profileId ? prisma.deviceImportProfileRule.findMany({
-      where: { profileId: batch.profileId, isActive: true, action: 'NORMALIZE', field: 'model' },
+      where: { profileId: batch.profileId, isActive: true, action: { in: ['NORMALIZE', 'PREDICT'] } },
       orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
-      select: { operator: true, value: true, normalizedValue: true, result: true, priority: true },
-    }) as Promise<StoredDeviceImportNormalizationRule[]> : Promise.resolve([]),
+      select: { id: true, action: true, field: true, operator: true, value: true, normalizedValue: true, result: true, priority: true, isActive: true },
+    }) as Promise<Array<DeviceImportPredictionRule & StoredDeviceImportNormalizationRule>> : Promise.resolve([]),
   ])
+  const normalizationRules = profileRules.filter((rule) => rule.action === 'NORMALIZE' && rule.field === 'model')
+  const predictionRules = profileRules.filter((rule) => rule.action === 'PREDICT')
   const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]))
   const typeById = new Map(deviceTypes.map((deviceType) => [deviceType.id, deviceType]))
 
@@ -133,22 +135,54 @@ export async function getDeviceImportModelAssist(batchId: string) {
     .sort((left, right) => left.vendor.name.localeCompare(right.vendor.name) || left.model.localeCompare(right.model))
 
   const classificationByReference = new Map(references.map((reference) => [reference.id, classifyImportedDeviceModel(reference.sourceValue, normalizationRules)]))
+  const predictionByReference = new Map(references.map((reference) => {
+    const meta = metadata(reference.metadata)
+    return [reference.id, applyDeviceImportPredictionRules({
+      vendor: meta.vendorSourceValue,
+      model: reference.sourceValue,
+      deviceType: meta.deviceTypeSourceValue,
+      platform: meta.platform,
+    }, predictionRules)]
+  }))
+  const rulePredictions = references.flatMap((reference) => {
+    const applied = predictionByReference.get(reference.id)
+    if (!applied?.matchedRuleIds.length) return []
+    return [{
+      id: reference.id,
+      matchedRuleIds: applied.matchedRuleIds,
+      vendorTargetId: applied.prediction.vendorTargetId ?? null,
+      deviceTypeTargetId: applied.prediction.deviceTypeTargetId ?? null,
+      productFamilyId: applied.prediction.productFamilyId ?? null,
+      softwarePlatforms: applied.prediction.softwarePlatforms ?? [],
+      preferredSoftwarePlatform: applied.prediction.preferredSoftwarePlatform ?? null,
+    }]
+  })
   const readyToCreate = references.filter((reference) => {
-    if (reference.status !== 'UNRESOLVED') return false
+    if (reference.status === 'LINKED') return false
     const meta = metadata(reference.metadata)
     const classification = classificationByReference.get(reference.id)
+    const prediction = predictionByReference.get(reference.id)?.prediction
     const classifiedType = classification ? deviceTypes.find((item) => normalizeImportText(item.name) === normalizeImportText(classification.deviceTypeName)) : null
-    return Boolean(meta.vendorTargetId && vendorById.get(meta.vendorTargetId)?.isActive && (typeById.get(meta.deviceTypeTargetId ?? '')?.isActive || classifiedType?.isActive))
+    const vendorId = prediction?.vendorTargetId ?? meta.vendorTargetId
+    const deviceTypeId = prediction?.deviceTypeTargetId ?? meta.deviceTypeTargetId
+    return Boolean(vendorId && vendorById.get(vendorId)?.isActive && (typeById.get(deviceTypeId ?? '')?.isActive || classifiedType?.isActive))
   }).map((reference) => {
     const meta = metadata(reference.metadata)
-    const vendor = vendorById.get(meta.vendorTargetId!)!
     const classification = classificationByReference.get(reference.id)
+    const profilePrediction = predictionByReference.get(reference.id)
+    const prediction = profilePrediction?.prediction
+    const vendor = vendorById.get((prediction?.vendorTargetId ?? meta.vendorTargetId)!)!
     const classifiedType = classification ? deviceTypes.find((item) => normalizeImportText(item.name) === normalizeImportText(classification.deviceTypeName)) : null
-    const deviceType = classifiedType ?? typeById.get(meta.deviceTypeTargetId!)!
+    const deviceType = typeById.get(prediction?.deviceTypeTargetId ?? '') ?? classifiedType ?? typeById.get(meta.deviceTypeTargetId!)!
     const classifiedFamily = classification ? families.find((item) => item.vendorId === vendor.id && normalizeImportText(item.name) === normalizeImportText(classification.productFamilyName)) : null
-    const existingSuggestion = classifiedFamily ?? suggestImportModelFamily(reference.sourceValue, vendor.id, families)
-    const inferredPlatforms = cleanPlatforms([...(meta.platforms ?? []), ...(classification?.softwarePlatforms.map(softwarePlatformLegacyValue) ?? [])], meta.platform ?? null)
-    const preferredPlatform = classification?.preferredSoftwarePlatformCode ? classification.softwarePlatforms.find((item) => item.code === classification.preferredSoftwarePlatformCode) : null
+    const predictedFamily = prediction?.productFamilyId ? families.find((item) => item.id === prediction.productFamilyId && item.vendorId === vendor.id) : null
+    const existingSuggestion = predictedFamily ?? classifiedFamily ?? suggestImportModelFamily(reference.sourceValue, vendor.id, families)
+    const inferredPlatforms = cleanPlatforms([...(meta.platforms ?? []), ...(prediction?.softwarePlatforms ?? []), ...(classification?.softwarePlatforms.map(softwarePlatformLegacyValue) ?? [])], prediction?.preferredSoftwarePlatform ?? meta.platform ?? null)
+    const preferredPlatform = prediction?.preferredSoftwarePlatform
+      ? cleanPlatform(prediction.preferredSoftwarePlatform)
+      : classification?.preferredSoftwarePlatformCode
+        ? classification.softwarePlatforms.find((item) => item.code === classification.preferredSoftwarePlatformCode)
+        : null
     return {
       id: reference.id,
       sourceValue: reference.sourceValue,
@@ -159,7 +193,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
       deviceTypeName: deviceType.name,
       deviceTypeCode: deviceType.code,
       proposedModel: classification?.model ?? reference.sourceValue,
-      proposedPlatform: preferredPlatform ? softwarePlatformLegacyValue(preferredPlatform) : inferredPlatforms.length === 1 ? inferredPlatforms[0] : '',
+      proposedPlatform: typeof preferredPlatform === 'string' ? preferredPlatform : preferredPlatform ? softwarePlatformLegacyValue(preferredPlatform) : inferredPlatforms.length === 1 ? inferredPlatforms[0] : '',
       proposedPlatforms: inferredPlatforms,
       suggestedFamilyId: existingSuggestion?.id ?? null,
       suggestedFamilyName: existingSuggestion?.name ?? null,
@@ -167,9 +201,13 @@ export async function getDeviceImportModelAssist(batchId: string) {
       proposedDeviceTypeId: deviceType.id,
       proposedDeviceTypeName: deviceType.name,
       proposedDeviceTypeCode: deviceType.code,
+      proposedVendorId: vendor.id,
+      proposedVendorName: vendor.name,
+      proposedVendorCode: vendor.code,
       normalizationRuleKey: classification?.classificationKey ?? null,
       normalizationSource: classification?.source ?? null,
       normalizationConfidence: classification?.confidence ?? null,
+      matchedPredictionRuleIds: profilePrediction?.matchedRuleIds ?? [],
     }
   })
 
@@ -200,7 +238,7 @@ export async function getDeviceImportModelAssist(batchId: string) {
     }
   }
 
-  return { readyToCreate, linkedModels, families, newFamilyProposals: [...groupedNewFamilies.values()] }
+  return { readyToCreate, rulePredictions, linkedModels, families, newFamilyProposals: [...groupedNewFamilies.values()] }
 }
 
 function parseModelCreateItems(rawInput: Record<string, unknown>, references: ModelReference[]): ModelCreateInput[] {
