@@ -163,9 +163,21 @@ function builtInClassification(
       confidence: 0.99,
     }
   }
-  if (/^c9300(?:[\s._/-]|$)/i.test(model)) {
+  if (/^c9120[a-z0-9]*(?:[\s._/-]|$)/i.test(model)) {
     return {
-      classificationKey: 'CISCO_C9300',
+      classificationKey: 'CISCO_C9120',
+      model: model.toUpperCase(),
+      productFamilyName: 'Catalyst',
+      softwarePlatforms: [platform('IOS XE')],
+      preferredSoftwarePlatformCode: 'IOS-XE',
+      deviceTypeName: 'Access Point',
+      source: 'BUILT_IN',
+      confidence: 0.99,
+    }
+  }
+  if (/^c(?:9200(?:l|cx)?|9300(?:l|x|cx)?)(?:[\s._/-]|$)/i.test(model)) {
+    return {
+      classificationKey: /^c9200/i.test(model) ? 'CISCO_C9200' : 'CISCO_C9300',
       model: model.toUpperCase(),
       productFamilyName: 'Catalyst',
       softwarePlatforms: [platform('IOS XE')],
