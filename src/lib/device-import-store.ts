@@ -84,7 +84,7 @@ type ImportPlan = { preview: DeviceImportPreview; rows: PlannedRow[] }
 type ImportSelection = { mode: 'ALL_IMPORTABLE'; rows: number[] } | { mode: 'ROWS'; rows: number[] }
 
 const SERVER_PREVIEW_ROW_LIMIT = 200
-const RESULT_ROW_SAMPLE_LIMIT = 200
+const RESULT_ROW_SAMPLE_LIMIT = 100_000
 
 function exactNameOrCode<T extends { name: string; code?: string | null }>(value: string, records: T[]) {
   const normalized = normalizeImportText(value)
