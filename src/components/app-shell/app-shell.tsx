@@ -19,6 +19,8 @@ const navigation: readonly NavigationItem[] = [
     ],
   },
   { label: 'Devices', href: '/devices' },
+  { label: 'Imports', href: '/devices/import' },
+  { label: 'Rule engine', href: '/rule-engine' },
   { label: 'Models', href: '/models' },
   { label: 'Vendors', href: '/vendors' },
   { label: 'Device types', href: '/device-types' },
@@ -38,6 +40,10 @@ function isActivePath(pathname: string, href: string) {
   if (href === '/sites') return isCustomerSitePath(pathname)
   if (href === '/customers') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !isCustomerSitePath(pathname)
+  }
+  if (href === '/devices/import') return pathname === href || pathname.startsWith(`${href}/`)
+  if (href === '/devices') {
+    return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
   }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
