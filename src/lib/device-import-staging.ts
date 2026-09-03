@@ -5,6 +5,7 @@ import {
   type DeviceImportOptions,
   type DeviceImportReferenceKind,
 } from '@/lib/device-import'
+import { interpretDeviceImportFirmwareEvidence } from '@/lib/device-import-firmware-interpretation'
 import { isGenericImportSiteValue } from '@/lib/device-import-site-code'
 
 export const DEVICE_IMPORT_BATCH_STATUSES = ['STAGED', 'READY', 'PUBLISHED', 'PARTIAL'] as const
@@ -190,6 +191,23 @@ function normalizeGenericSiteValue(values: DeviceImportMappedValues, options: De
   values.site = split.site
 }
 
+function normalizeFirmwareEvidence(values: DeviceImportMappedValues, options: DeviceImportOptions) {
+  const interpreted = interpretDeviceImportFirmwareEvidence({
+    vendor: values.vendor,
+    model: values.model,
+    platform: values.platform,
+    currentFirmware: values.currentFirmware,
+    firmwareVersion: values.firmwareVersion,
+    softwareVersion: values.softwareVersion,
+    externalProvider: values.externalProvider ?? options.defaults.externalProvider,
+  })
+
+  // Only the canonical running value is rewritten. The two raw source columns
+  // remain intact and are persisted into staged row/reference evidence.
+  values.currentFirmware = interpreted.currentFirmware
+  if (!values.platform && interpreted.platform) values.platform = interpreted.platform
+}
+
 export function buildDeviceImportStagedReferenceSeeds(
   rows: Array<{ rowNumber: number; values: DeviceImportMappedValues }>,
   options: DeviceImportOptions,
@@ -198,8 +216,9 @@ export function buildDeviceImportStagedReferenceSeeds(
   for (const row of rows) {
     // Staged rows are intentionally normalized in-place here. createDeviceImportBatch
     // persists the same mapped row objects after building references, so final
-    // validation sees the reviewed Site candidate instead of the upstream
-    // placeholder (for example “Open internet”).
+    // validation consumes the same canonical interpretation that generated the
+    // unique reconciliation tasks. Raw workbook cells remain untouched in rawData.
+    normalizeFirmwareEvidence(row.values, options)
     normalizeGenericSiteValue(row.values, options)
 
     addSeed(result, 'CUSTOMER', row.values.customer, row.values, row.rowNumber, options)
