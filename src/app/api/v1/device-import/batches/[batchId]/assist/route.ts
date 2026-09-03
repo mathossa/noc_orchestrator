@@ -12,6 +12,18 @@ import { prisma } from '@/lib/prisma'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
+async function installRemainingRowSample(batchId: string, workspace: Awaited<ReturnType<typeof getDeviceImportBatchWorkspace>>) {
+  const rows = await prisma.deviceImportStagedRow.findMany({
+    where: { batchId, status: { not: 'PUBLISHED' } },
+    orderBy: { rowNumber: 'asc' },
+    take: 100,
+    select: { id: true, rowNumber: true, rawData: true, mappedData: true, status: true },
+  })
+  workspace.rows = rows
+  workspace.counts.rows.sample = rows.length
+  return workspace
+}
+
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
@@ -49,7 +61,7 @@ export async function GET(_request: Request, context: RouteContext) {
     await repairPlaceholderDeviceImportFirmware(batchId)
     await repairDuplicateDeviceImportModelReferences(batchId)
 
-    const workspace = await getDeviceImportBatchWorkspace(batchId)
+    const workspace = await installRemainingRowSample(batchId, await getDeviceImportBatchWorkspace(batchId))
     const [core, sites, models, firmware, rows, vendorAliases, profileRules] = await Promise.all([
       getDeviceImportCoreAssist(batchId),
       getDeviceImportSiteCreateProposals(batchId),
