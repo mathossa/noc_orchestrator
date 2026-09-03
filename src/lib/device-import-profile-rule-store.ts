@@ -2,6 +2,7 @@ import { normalizeImportText } from '@/lib/device-import'
 import {
   IMPORT_PREDICTION_FIELDS,
   IMPORT_PREDICTION_OPERATORS,
+  type DeviceImportFirmwareTransform,
   type DeviceImportModelTransform,
   type DeviceImportPredictionResult,
 } from '@/lib/device-import-profile-predictions'
@@ -48,6 +49,40 @@ function modelTransforms(value: unknown, strict = false) {
     transforms.push({
       operation: operation as DeviceImportModelTransform['operation'],
       value: transformValue,
+      ...(operation === 'REPLACE' ? { replacement } : {}),
+    })
+  }
+  return transforms
+}
+
+function firmwareTransforms(value: unknown, strict = false) {
+  if (!Array.isArray(value)) return []
+  const transforms: DeviceImportFirmwareTransform[] = []
+  for (const entry of value) {
+    const transform = record(entry)
+    const operation = text(transform.operation).toUpperCase()
+    const transformValue = text(transform.value)
+    const replacement = text(transform.replacement)
+    const validOperation = [
+      'EXTRACT_VERSION',
+      'REMOVE_PREFIX',
+      'REPLACE',
+    ].includes(operation)
+    const needsValue = operation !== 'EXTRACT_VERSION'
+    if (!validOperation || (needsValue && !transformValue)) {
+      if (strict)
+        throw new DeviceImportProfileRuleError(
+          'Choose a valid Firmware cleanup operation and value.',
+        )
+      continue
+    }
+    if (transformValue.length > 120 || replacement.length > 120)
+      throw new DeviceImportProfileRuleError(
+        'Firmware cleanup values must be 120 characters or fewer.',
+      )
+    transforms.push({
+      operation: operation as DeviceImportFirmwareTransform['operation'],
+      ...(transformValue ? { value: transformValue } : {}),
       ...(operation === 'REPLACE' ? { replacement } : {}),
     })
   }
@@ -155,13 +190,18 @@ export async function createImportProfilePredictionRule(
     rawResult.modelTransforms,
     true,
   )
+  const requestedFirmwareTransforms = firmwareTransforms(
+    rawResult.firmwareTransforms,
+    true,
+  )
   if (
     !requestedVendorTargetId &&
     !requestedDeviceTypeTargetId &&
     !requestedProductFamilyId &&
     !requestedSoftwarePlatforms.length &&
     !requestedPreferredSoftwarePlatform &&
-    !requestedModelTransforms.length
+    !requestedModelTransforms.length &&
+    !requestedFirmwareTransforms.length
   )
     throw new DeviceImportProfileRuleError(
       'Choose at least one prediction output.',
@@ -201,6 +241,24 @@ export async function createImportProfilePredictionRule(
     ...existingModelTransforms.filter(
       (transform) =>
         !modelTransformKeys.has(
+          `${transform.operation}|${normalizeImportText(transform.value)}|${normalizeImportText(transform.replacement)}`,
+        ),
+    ),
+  ]
+  const existingFirmwareTransforms = firmwareTransforms(
+    existingResult.firmwareTransforms,
+  )
+  const firmwareTransformKeys = new Set(
+    requestedFirmwareTransforms.map(
+      (transform) =>
+        `${transform.operation}|${normalizeImportText(transform.value)}|${normalizeImportText(transform.replacement)}`,
+    ),
+  )
+  const firmwareTransformsResult = [
+    ...requestedFirmwareTransforms,
+    ...existingFirmwareTransforms.filter(
+      (transform) =>
+        !firmwareTransformKeys.has(
           `${transform.operation}|${normalizeImportText(transform.value)}|${normalizeImportText(transform.replacement)}`,
         ),
     ),
@@ -250,6 +308,7 @@ export async function createImportProfilePredictionRule(
     softwarePlatforms,
     preferredSoftwarePlatform,
     modelTransforms: modelTransformsResult,
+    firmwareTransforms: firmwareTransformsResult,
     origin: 'MANUAL',
   }
   return prisma.deviceImportProfileRule.upsert({

@@ -65,6 +65,17 @@ describe('staged device import references', () => {
     })
   })
 
+  it('keeps raw Software Version evidence on Firmware references for profile rules', () => {
+    const references = buildDeviceImportStagedReferenceSeeds([
+      { rowNumber: 2, values: values({ vendor: 'Cisco', model: 'C9300-24P', currentFirmware: '17.12.04', softwareVersion: 'Dublin 17.12.04' }) },
+    ], options)
+
+    expect(references.find((reference) => reference.kind === 'FIRMWARE_RELEASE')?.metadata).toMatchObject({
+      softwareVersionSourceValue: 'Dublin 17.12.04',
+      softwareVersionSourceValues: ['Dublin 17.12.04'],
+    })
+  })
+
   it('keeps site identity customer-scoped when the same site label occurs under multiple organizations', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
       { rowNumber: 2, values: values({ customer: 'Customer A', site: 'Main' }) },

@@ -142,9 +142,11 @@ The reconciliation worksheet also exposes the selected profile's rule workspace.
 - remembered Ignore rules;
 - manually authored prediction rules.
 
-Manual prediction rules support **equals**, **starts with**, and **contains** conditions on Vendor, Model, Device Type, or Software Platform. A rule can predict Vendor, Device Type, Product Family, supported Software Platforms, and a preferred Software Platform. Rules can be enabled, disabled, or deleted. They are scoped to one import profile and participate in predictions for the current batch and later imports using that profile.
+Manual prediction rules support **equals**, **starts with**, and **contains** conditions on Vendor, Model, Device Type, Software Platform, Firmware Version, or the raw Software Version. A rule can predict Vendor, Device Type, Product Family, supported Software Platforms, and a preferred Software Platform. Rules can be enabled, disabled, or deleted. They are scoped to one import profile and participate in predictions for the current batch and later imports using that profile.
 
 Manual rules can also normalize the proposed Model. **Remove prefix** is the safe default: a Model rule containing `HP` can assign Vendor `HPE Networking` and remove the `HP` prefix, turning `HP 2930F VSF` into `2930F VSF` without changing `HPE Aruba 2930F`. **Replace text** is available for explicit cleanup rules. Saving another output for the same condition merges it into the existing rule, so adding Model cleanup does not discard an already learned Vendor prediction.
+
+Firmware rules can extract a dotted version, remove a prefix, replace explicit text, and predict the Software Platform. For example, `Raw Software Version contains Dublin -> IOS XE + extract dotted version` proposes `17.12.04` from `Dublin 17.12.04`. Exact catalog matches and profile-rule results appear as confident items in the selectable Firmware prediction queue; inferred creations remain selectable but require review.
 
 Changing a worksheet link or classification recalculates the local prediction queue immediately. Saving, enabling, disabling, or deleting a profile rule reloads and recalculates the complete batch prediction set. No prediction bypasses the selectable prediction queue or Final Review.
 
@@ -173,6 +175,8 @@ The mapper distinguishes:
 
 - `Firmware Version` — preferred current-firmware source;
 - `Software Version` — fallback when Firmware Version is absent/blank.
+
+Known upstream placeholders `0`, `0.0`, and `0.1` are treated as missing only when Software Version contains a meaningful non-placeholder version. For example, Firmware Version `0.1` plus Software Version `Dublin 17.12.04` imports current firmware `17.12.04`. Existing staged batches are repaired when their worksheet is opened; the raw source values remain visible in the deep dive.
 
 Verbose Software Version strings can yield an embedded dotted firmware version, for example:
 

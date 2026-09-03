@@ -31,6 +31,7 @@ type ReferenceMetadata = {
   modelTargetId?: string | null
   platform?: string | null
   platforms?: string[]
+  softwareVersionSourceValue?: string | null
   waitingFor?: DeviceImportReferenceKind[]
 }
 type Reference = {
@@ -120,6 +121,7 @@ type FirmwareProposal = {
   platform: string
   status: string
   firmwareTrainName: string
+  matchedPredictionRuleIds: string[]
   existingTarget: { id: string; version: string; platform: string; status: string } | null
 }
 type Assist = {
@@ -204,7 +206,7 @@ type CoreDraft = {
 }
 type FamilyDraft = { familyId: string; name: string }
 type RuleDraft = {
-  field: 'vendor' | 'model' | 'deviceType' | 'platform'
+  field: 'vendor' | 'model' | 'deviceType' | 'platform' | 'firmware' | 'softwareVersion'
   operator: 'EQUALS' | 'PREFIX' | 'CONTAINS'
   value: string
   vendorTargetId: string
@@ -215,6 +217,9 @@ type RuleDraft = {
   modelTransformOperation: '' | 'REMOVE_PREFIX' | 'REPLACE'
   modelTransformValue: string
   modelTransformReplacement: string
+  firmwareTransformOperation: '' | 'EXTRACT_VERSION' | 'REMOVE_PREFIX' | 'REPLACE'
+  firmwareTransformValue: string
+  firmwareTransformReplacement: string
 }
 type ApplyFailure = { key: string; message: string }
 type ApplyPayload = {
@@ -253,6 +258,19 @@ type ModelPrediction = {
   confidence: number
   confident: boolean
   warning: string | null
+}
+
+type FirmwarePrediction = {
+  referenceId: string
+  sourceValue: string
+  occurrenceCount: number
+  groupKey: string
+  groupLabel: string
+  action: 'LINK' | 'CREATE'
+  targetLabel: string
+  detail: string
+  confidence: number
+  confident: boolean
 }
 
 function normalized(value: string | null | undefined) {
@@ -428,6 +446,14 @@ function profileRuleOutputLabel(rule: ProfileRule, assist: Assist) {
       if (transform.operation === 'REPLACE' && typeof transform.value === 'string') outputs.push(`Model: replace “${transform.value}” with “${typeof transform.replacement === 'string' ? transform.replacement : ''}”`)
     }
   }
+  if (Array.isArray(result.firmwareTransforms)) {
+    for (const entry of result.firmwareTransforms) {
+      const transform = valueRecord(entry)
+      if (transform.operation === 'EXTRACT_VERSION') outputs.push('Firmware: extract dotted version')
+      if (transform.operation === 'REMOVE_PREFIX' && typeof transform.value === 'string') outputs.push(`Firmware: remove prefix “${transform.value}”`)
+      if (transform.operation === 'REPLACE' && typeof transform.value === 'string') outputs.push(`Firmware: replace “${transform.value}” with “${typeof transform.replacement === 'string' ? transform.replacement : ''}”`)
+    }
+  }
   return outputs.join(' · ') || 'No prediction output'
 }
 
@@ -477,6 +503,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const [notice, setNotice] = useState<string | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
   const [predictionOpen, setPredictionOpen] = useState(false)
+  const [firmwarePredictionOpen, setFirmwarePredictionOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [ruleBusy, setRuleBusy] = useState(false)
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>({
@@ -491,9 +518,14 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     modelTransformOperation: '',
     modelTransformValue: '',
     modelTransformReplacement: '',
+    firmwareTransformOperation: '',
+    firmwareTransformValue: '',
+    firmwareTransformReplacement: '',
   })
   const [predictionSelection, setPredictionSelection] = useState<Set<string>>(() => new Set())
+  const [firmwarePredictionSelection, setFirmwarePredictionSelection] = useState<Set<string>>(() => new Set())
   const [deferredModelReferences, setDeferredModelReferences] = useState<Set<string>>(() => new Set())
+  const [deferredFirmwareReferences, setDeferredFirmwareReferences] = useState<Set<string>>(() => new Set())
   const [editedReferences, setEditedReferences] = useState<Set<string>>(() => new Set())
   const [editedFamilies, setEditedFamilies] = useState<Set<string>>(() => new Set())
 
@@ -504,6 +536,8 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     setEditedFamilies(new Set())
     setPredictionOpen(false)
     setPredictionSelection(new Set())
+    setFirmwarePredictionOpen(false)
+    setFirmwarePredictionSelection(new Set())
 
     const activeCustomers = next.workspace.options.customers.filter((item) => item.isActive)
     const activeVendors = next.workspace.options.vendors.filter((item) => item.isActive)
@@ -690,6 +724,41 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     }
     return [...groups.values()]
   }, [modelPredictions])
+  const firmwarePredictions = useMemo((): FirmwarePrediction[] => {
+    if (!assist) return []
+    return firmwareRefs.flatMap((reference) => {
+      const draft = firmwareDrafts[reference.id]
+      if (!draft) return []
+      const proposal = assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))
+      const existing = draft.existingReleaseId
+        ? assist.workspace.options.firmwareReleases.find((release) => release.id === draft.existingReleaseId) ?? null
+        : null
+      if (!existing && (!draft.version.trim() || !draft.platform.trim())) return []
+      const matchedManualRule = Boolean(proposal?.matchedPredictionRuleIds.length)
+      const groupLabel = [reference.metadata.vendorSourceValue, draft.platform].filter(Boolean).join(' · ') || 'Other Firmware'
+      return [{
+        referenceId: reference.id,
+        sourceValue: reference.sourceValue,
+        occurrenceCount: reference.occurrenceCount,
+        groupKey: `${normalized(reference.metadata.vendorSourceValue)}|${normalized(draft.platform)}`,
+        groupLabel,
+        action: existing ? 'LINK' as const : 'CREATE' as const,
+        targetLabel: existing ? `${existing.vendor.name} · ${existing.platform} · ${existing.version}` : `${draft.platform} · ${draft.version}`,
+        detail: matchedManualRule ? 'Profile firmware rule matched' : existing ? 'Exact existing release' : `Firmware train: ${proposal?.firmwareTrainName || 'inferred when applied'}`,
+        confidence: existing || matchedManualRule ? 1 : 0.7,
+        confident: Boolean(existing || matchedManualRule),
+      }]
+    }).sort((left, right) => left.groupLabel.localeCompare(right.groupLabel) || left.sourceValue.localeCompare(right.sourceValue))
+  }, [assist, firmwareDrafts, firmwareRefs])
+  const firmwarePredictionGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; items: FirmwarePrediction[] }>()
+    for (const prediction of firmwarePredictions) {
+      const group = groups.get(prediction.groupKey)
+      if (group) group.items.push(prediction)
+      else groups.set(prediction.groupKey, { key: prediction.groupKey, label: prediction.groupLabel, items: [prediction] })
+    }
+    return [...groups.values()]
+  }, [firmwarePredictions])
 
   const normalizedQuery = normalized(query)
   const matchesQuery = useCallback((reference: Reference) => {
@@ -716,6 +785,12 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       for (const referenceId of referenceIds) next.delete(referenceId)
       return next
     })
+    setDeferredFirmwareReferences((current) => {
+      if (!referenceIds.some((referenceId) => current.has(referenceId))) return current
+      const next = new Set(current)
+      for (const referenceId of referenceIds) next.delete(referenceId)
+      return next
+    })
   }
 
   function openPredictionReview() {
@@ -733,6 +808,23 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     setDeferredModelReferences(new Set(modelPredictions.filter((prediction) => !predictionSelection.has(prediction.referenceId)).map((prediction) => prediction.referenceId)))
     setPredictionOpen(false)
     setNotice(`${predictionSelection.size.toLocaleString()} Model prediction${predictionSelection.size === 1 ? '' : 's'} selected for Final Review; ${(modelPredictions.length - predictionSelection.size).toLocaleString()} deferred.`)
+  }
+
+  function openFirmwarePredictionReview() {
+    setFirmwarePredictionSelection(new Set(firmwarePredictions.filter((prediction) => editedReferences.has(prediction.referenceId) || (prediction.confident && !deferredFirmwareReferences.has(prediction.referenceId))).map((prediction) => prediction.referenceId)))
+    setFirmwarePredictionOpen(true)
+  }
+
+  function confirmFirmwarePredictionSelection() {
+    const candidateIds = new Set(firmwarePredictions.map((prediction) => prediction.referenceId))
+    setEditedReferences((current) => {
+      const next = new Set([...current].filter((referenceId) => !candidateIds.has(referenceId)))
+      for (const referenceId of firmwarePredictionSelection) next.add(referenceId)
+      return next
+    })
+    setDeferredFirmwareReferences(new Set(firmwarePredictions.filter((prediction) => !firmwarePredictionSelection.has(prediction.referenceId)).map((prediction) => prediction.referenceId)))
+    setFirmwarePredictionOpen(false)
+    setNotice(`${firmwarePredictionSelection.size.toLocaleString()} Firmware prediction${firmwarePredictionSelection.size === 1 ? '' : 's'} selected for Final Review; ${(firmwarePredictions.length - firmwarePredictionSelection.size).toLocaleString()} deferred.`)
   }
 
   function markEdited(referenceId: string) {
@@ -871,12 +963,19 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
                   replacement: ruleDraft.modelTransformOperation === 'REPLACE' ? ruleDraft.modelTransformReplacement : undefined,
                 }]
               : [],
+            firmwareTransforms: ruleDraft.firmwareTransformOperation
+              ? [{
+                  operation: ruleDraft.firmwareTransformOperation,
+                  value: ruleDraft.firmwareTransformOperation === 'EXTRACT_VERSION' ? undefined : ruleDraft.firmwareTransformValue,
+                  replacement: ruleDraft.firmwareTransformOperation === 'REPLACE' ? ruleDraft.firmwareTransformReplacement : undefined,
+                }]
+              : [],
           },
         }),
       })
       const payload = await readJson<{ data?: { id: string } } & ApiError>(response, 'The prediction rule could not be saved.')
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The prediction rule could not be saved.')
-      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '', modelTransformOperation: '', modelTransformValue: '', modelTransformReplacement: '' }))
+      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '', modelTransformOperation: '', modelTransformValue: '', modelTransformReplacement: '', firmwareTransformOperation: '', firmwareTransformValue: '', firmwareTransformReplacement: '' }))
       await load()
       setNotice('Prediction rule saved. All predictions were recalculated with the updated profile rules.')
     } catch (ruleError) {
@@ -1098,6 +1197,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
   const reviewLinks = plan.items.filter((item) => item.action === 'LINK').length
   const reviewCreates = plan.items.filter((item) => item.action === 'CREATE').length
   const confidentPredictions = modelPredictions.filter((prediction) => prediction.confident).length
+  const confidentFirmwarePredictions = firmwarePredictions.filter((prediction) => prediction.confident).length
   const manualRules = assist.profileRules.rules.filter((rule) => rule.action === 'PREDICT')
   const learnedRules = assist.profileRules.rules.filter((rule) => rule.action !== 'PREDICT')
   const ruleCount = assist.profileRules.rules.length + assist.profileRules.aliases.length
@@ -1117,7 +1217,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         </div>
         <div className="text-right text-xs text-[var(--muted)]"><div><strong className="text-[var(--foreground)]">{prepared.toLocaleString()}</strong> ready</div><div><strong className={pending ? 'text-amber-200' : 'text-[var(--foreground)]'}>{pending.toLocaleString()}</strong> need input</div></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{assist.workspace.batch.profileId ? <Button type="button" variant="ghost" disabled={busy} onClick={() => setRulesOpen(true)}>Manage rules ({ruleCount.toLocaleString()})</Button> : null}{modelPredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openPredictionReview}>Review {modelPredictions.length.toLocaleString()} Model predictions ({confidentPredictions.toLocaleString()} confident)</Button> : null}</div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><div className="min-w-[280px] flex-1"><TextInput value={query} disabled={busy} placeholder="Filter Customer, Site, Vendor, Model, Firmware…" onChange={(event) => { setQuery(event.target.value); setSiteVisible(INITIAL_VISIBLE); setModelVisible(INITIAL_VISIBLE); setFirmwareVisible(INITIAL_VISIBLE) }} /></div>{assist.workspace.batch.profileId ? <Button type="button" variant="ghost" disabled={busy} onClick={() => setRulesOpen(true)}>Manage rules ({ruleCount.toLocaleString()})</Button> : null}{modelPredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openPredictionReview}>Review {modelPredictions.length.toLocaleString()} Model predictions ({confidentPredictions.toLocaleString()} confident)</Button> : null}{firmwarePredictions.length ? <Button type="button" variant="ghost" disabled={busy} onClick={openFirmwarePredictionReview}>Review {firmwarePredictions.length.toLocaleString()} Firmware predictions ({confidentFirmwarePredictions.toLocaleString()} confident)</Button> : null}</div>
     </div>
 
     {error ? <div className="mx-4 mt-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0] sm:mx-5" role="alert">{error}</div> : null}
@@ -1185,16 +1285,19 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         {filteredFirmware.slice(0, firmwareVisible).map((reference) => {
           const draft = firmwareDrafts[reference.id]
           if (!draft) return null
+          const proposal = assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))
           const relatedModelRef = modelRefBySource.get(normalized(reference.metadata.modelSourceValue))
           const relatedDraft = relatedModelRef ? modelDrafts[relatedModelRef.id] : null
           const effectivePlatform = draft.platform || relatedDraft?.platform || reference.metadata.platform || ''
           const releaseOptions = assist.workspace.options.firmwareReleases.filter((release) => release.isActive && (!reference.metadata.vendorTargetId || release.vendorId === reference.metadata.vendorTargetId) && (!effectivePlatform || normalized(release.platform) === normalized(effectivePlatform))).map((release) => ({ id: release.id, label: `${release.vendor.name} · ${release.platform} · ${release.version} · ${release.status}`, keywords: [release.version, release.platform, release.vendor.name, release.status] }))
           const willLink = Boolean(draft.existingReleaseId)
+          const reviewed = editedReferences.has(reference.id)
+          const predicted = Boolean(willLink || proposal?.matchedPredictionRuleIds.length)
           return <div key={reference.id} className="px-4 py-4 sm:px-5">
             <div className="grid gap-3 xl:grid-cols-[minmax(220px,.8fr)_minmax(280px,1.1fr)_minmax(150px,.55fr)_minmax(150px,.55fr)_minmax(150px,.55fr)] xl:items-end">
-              <div><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Firmware</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">Model: {reference.metadata.modelSourceValue ?? 'waiting'} · {reference.occurrenceCount.toLocaleString()} row{reference.occurrenceCount === 1 ? '' : 's'}</div></div>
+              <div><div className="flex items-center gap-2"><div className="text-xs uppercase tracking-wide text-[var(--muted)]">Imported Firmware</div>{predicted ? <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${reviewed ? 'border-[#285f48] text-[#a9e8c6]' : deferredFirmwareReferences.has(reference.id) ? 'border-[#5e536e] text-[#c7b8db]' : 'border-[#6c5b2b] text-amber-200'}`}>{reviewed ? 'SELECTED' : deferredFirmwareReferences.has(reference.id) ? 'DEFERRED' : 'PREDICTED'}</span> : null}</div><div className="mt-1 font-mono text-sm font-semibold">{reference.sourceValue}</div><div className="mt-1 text-xs text-[var(--muted)]">Model: {reference.metadata.modelSourceValue ?? 'waiting'} · {reference.occurrenceCount.toLocaleString()} row{reference.occurrenceCount === 1 ? '' : 's'}</div></div>
               {field({ label: 'Existing Release (optional)', children: <SearchableReferencePicker id={`sheet-fw-existing-${reference.id}`} value={draft.existingReleaseId} options={releaseOptions} disabled={busy} placeholder="Search release; leave blank to create…" onChange={(value) => updateFirmware(reference.id, { existingReleaseId: value })} /> })}
-              {field({ label: 'Software Platform', children: <TextInput value={effectivePlatform} disabled={busy || willLink} placeholder="Auto-filled where possible" onChange={(event) => updateFirmware(reference.id, { platform: event.target.value })} />, hint: assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))?.firmwareTrainName ? `Firmware train: ${assist.firmware.proposals.find((item) => item.referenceIds.includes(reference.id))?.firmwareTrainName}` : undefined })}
+              {field({ label: 'Software Platform', children: <TextInput value={effectivePlatform} disabled={busy || willLink} placeholder="Auto-filled where possible" onChange={(event) => updateFirmware(reference.id, { platform: event.target.value })} />, hint: proposal?.firmwareTrainName ? `Firmware train: ${proposal.firmwareTrainName}` : undefined })}
               {field({ label: 'Version', children: <TextInput value={draft.version} disabled={busy || willLink} onChange={(event) => updateFirmware(reference.id, { version: event.target.value })} /> })}
               {field({ label: 'Status', children: <SelectInput value={draft.status} disabled={busy || willLink} onChange={(event) => updateFirmware(reference.id, { status: event.target.value })}>{STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</SelectInput> })}
             </div>
@@ -1236,9 +1339,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">{assist.profileRules.profile?.name ?? 'Import profile'}</div><h3 className="mt-1 text-xl font-semibold">Learned and manual prediction rules</h3><p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">Rules are profile-scoped. Worksheet edits recalculate the local prediction queue immediately; saving, enabling, disabling, or deleting a rule reloads all predictions for this batch.</p></div><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => setRulesOpen(false)}>Close</Button></div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <section className="rounded-lg border border-[var(--border)] p-4">
-            <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Example: If Model contains HP, predict Vendor HPE Networking and remove the Model prefix HP. Saving the same condition adds to its existing outputs.</p></div>
+            <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Rules can classify Models or Firmware. For example: if Firmware contains Dublin, predict IOS XE and extract 17.12.04. Saving the same condition adds to its existing outputs.</p></div>
             <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(220px,1fr)]">
-              {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option></SelectInput> })}
+              {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option><option value="firmware">Firmware Version</option><option value="softwareVersion">Raw Software Version</option></SelectInput> })}
               {field({ label: 'Condition', children: <SelectInput value={ruleDraft.operator} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, operator: event.target.value as RuleDraft['operator'] }))}><option value="EQUALS">Equals</option><option value="PREFIX">Starts with</option><option value="CONTAINS">Contains</option></SelectInput> })}
               {field({ label: 'Source value', children: <TextInput value={ruleDraft.value} disabled={ruleBusy} placeholder="e.g. Aruba or C9300" onChange={(event) => setRuleDraft((current) => ({ ...current, value: event.target.value }))} /> })}
             </div>
@@ -1255,6 +1358,12 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
               {field({ label: 'Replace with', children: <TextInput value={ruleDraft.modelTransformReplacement} disabled={ruleBusy || ruleDraft.modelTransformOperation !== 'REPLACE'} placeholder="Empty removes the text" onChange={(event) => setRuleDraft((current) => ({ ...current, modelTransformReplacement: event.target.value }))} /> })}
             </div>
             {ruleDraft.modelTransformOperation === 'REMOVE_PREFIX' ? <p className="mt-2 text-xs text-[var(--muted)]">Prefix removal is anchored to the beginning: “HP 2930F VSF” becomes “2930F VSF”, while “HPE Aruba 2930F” is unchanged.</p> : null}
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {field({ label: 'Firmware cleanup', children: <SelectInput value={ruleDraft.firmwareTransformOperation} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformOperation: event.target.value as RuleDraft['firmwareTransformOperation'], firmwareTransformValue: event.target.value === 'EXTRACT_VERSION' ? '' : current.firmwareTransformValue, firmwareTransformReplacement: event.target.value === 'REPLACE' ? current.firmwareTransformReplacement : '' }))}><option value="">No Firmware cleanup</option><option value="EXTRACT_VERSION">Extract dotted version (recommended)</option><option value="REMOVE_PREFIX">Remove prefix</option><option value="REPLACE">Replace text</option></SelectInput> })}
+              {field({ label: ruleDraft.firmwareTransformOperation === 'REMOVE_PREFIX' ? 'Prefix to remove' : 'Text to replace', children: <TextInput value={ruleDraft.firmwareTransformValue} disabled={ruleBusy || !['REMOVE_PREFIX', 'REPLACE'].includes(ruleDraft.firmwareTransformOperation)} placeholder={ruleDraft.firmwareTransformOperation === 'REMOVE_PREFIX' ? 'e.g. Dublin' : 'Text to replace'} onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformValue: event.target.value }))} /> })}
+              {field({ label: 'Replace with', children: <TextInput value={ruleDraft.firmwareTransformReplacement} disabled={ruleBusy || ruleDraft.firmwareTransformOperation !== 'REPLACE'} placeholder="Empty removes the text" onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformReplacement: event.target.value }))} /> })}
+            </div>
+            {ruleDraft.firmwareTransformOperation === 'EXTRACT_VERSION' ? <p className="mt-2 text-xs text-[var(--muted)]">Extract dotted version turns “Dublin 17.12.04” into “17.12.04” and keeps the full raw value available in the row deep dive.</p> : null}
             <div className="mt-3 flex justify-end"><Button type="button" variant="primary" disabled={ruleBusy || !ruleDraft.value.trim()} onClick={() => void savePredictionRule()}>{ruleBusy ? 'Saving…' : 'Save rule and recalculate'}</Button></div>
           </section>
 
@@ -1293,6 +1402,34 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           })}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-4"><div className="text-xs text-[var(--muted)]">Deferred predictions remain in the worksheet and can be reviewed later.</div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setPredictionOpen(false)}>Cancel</Button><Button type="button" variant="primary" disabled={busy} onClick={confirmPredictionSelection}>Use {predictionSelection.size.toLocaleString()} selected</Button></div></div>
+      </div>
+    </div> : null}
+
+    {firmwarePredictionOpen ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="Review predicted Firmware mappings">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Firmware prediction queue</div><h3 className="mt-1 text-xl font-semibold">Select Firmware links and creations</h3><p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Exact catalog matches and profile-rule results are preselected. Generic inferred releases remain available for review.</p></div><Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionOpen(false)}>Back to worksheet</Button></div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-5 py-3">
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionSelection(new Set(firmwarePredictions.filter((prediction) => prediction.confident).map((prediction) => prediction.referenceId)))}>Select confident ({confidentFirmwarePredictions.toLocaleString()})</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionSelection(new Set(firmwarePredictions.map((prediction) => prediction.referenceId)))}>Select all predictions</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionSelection(new Set())}>Defer all</Button>
+          <span className="ml-auto text-sm"><strong>{firmwarePredictionSelection.size.toLocaleString()}</strong> selected · <strong>{(firmwarePredictions.length - firmwarePredictionSelection.size).toLocaleString()}</strong> deferred</span>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+          {firmwarePredictionGroups.map((group) => {
+            const groupIds = group.items.map((prediction) => prediction.referenceId)
+            const selectedInGroup = groupIds.filter((referenceId) => firmwarePredictionSelection.has(referenceId)).length
+            return <section key={group.key} className="overflow-hidden rounded-lg border border-[var(--border)]">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-[var(--surface-raised)] px-4 py-3"><div><div className="font-semibold">{group.label}</div><div className="text-xs text-[var(--muted)]">{group.items.length.toLocaleString()} prediction{group.items.length === 1 ? '' : 's'} · {selectedInGroup.toLocaleString()} selected</div></div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionSelection((current) => new Set([...current, ...groupIds]))}>Select group</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionSelection((current) => new Set([...current].filter((referenceId) => !groupIds.includes(referenceId))))}>Defer group</Button></div></div>
+              <div className="divide-y divide-[var(--border)]">{group.items.map((prediction) => <label key={prediction.referenceId} className="grid cursor-pointer gap-3 px-4 py-3 hover:bg-[var(--surface-raised)] md:grid-cols-[28px_minmax(220px,1fr)_110px_minmax(260px,1.2fr)] md:items-start">
+                <input type="checkbox" className="mt-1 h-4 w-4 accent-[var(--accent)]" checked={firmwarePredictionSelection.has(prediction.referenceId)} disabled={busy} onChange={(event) => setFirmwarePredictionSelection((current) => { const next = new Set(current); if (event.target.checked) next.add(prediction.referenceId); else next.delete(prediction.referenceId); return next })} />
+                <div><div className="font-mono text-xs font-semibold">{prediction.sourceValue}</div><div className="mt-1 text-[11px] text-[var(--muted)]">{prediction.occurrenceCount.toLocaleString()} device row{prediction.occurrenceCount === 1 ? '' : 's'}</div></div>
+                <div><span className={`rounded border px-2 py-1 text-[11px] font-semibold ${prediction.confident ? 'border-[#285f48] text-[#a9e8c6]' : 'border-[#6c5b2b] text-amber-200'}`}>{prediction.confident ? 'CONFIDENT' : 'REVIEW'}</span><div className="mt-2 text-[11px] text-[var(--muted)]">{Math.round(prediction.confidence * 100)}%</div></div>
+                <div className="text-sm"><div><strong>{prediction.action === 'LINK' ? 'Link existing → ' : 'Create new → '}</strong>{prediction.targetLabel}</div><div className="mt-1 text-xs text-[var(--muted)]">{prediction.detail}</div></div>
+              </label>)}</div>
+            </section>
+          })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-4"><div className="text-xs text-[var(--muted)]">Deferred Firmware predictions remain available for a later pass.</div><div className="flex gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={() => setFirmwarePredictionOpen(false)}>Cancel</Button><Button type="button" variant="primary" disabled={busy} onClick={confirmFirmwarePredictionSelection}>Use {firmwarePredictionSelection.size.toLocaleString()} selected</Button></div></div>
       </div>
     </div> : null}
 

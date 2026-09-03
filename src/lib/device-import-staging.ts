@@ -28,6 +28,8 @@ export type DeviceImportStagedReferenceMetadata = {
   modelTargetId?: string | null
   platform?: string | null
   platforms?: string[]
+  softwareVersionSourceValue?: string | null
+  softwareVersionSourceValues?: string[]
   waitingFor?: DeviceImportReferenceKind[]
 }
 
@@ -85,6 +87,8 @@ function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferen
     base.modelSourceValue = clean(values.model)
     base.platform = clean(values.platform)
     base.platforms = base.platform ? [base.platform] : []
+    base.softwareVersionSourceValue = clean(values.softwareVersion)
+    base.softwareVersionSourceValues = base.softwareVersionSourceValue ? [base.softwareVersionSourceValue] : []
   }
   return base
 }
@@ -107,6 +111,16 @@ function mergeDeviceTypeMetadata(metadata: DeviceImportStagedReferenceMetadata, 
   if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(deviceType)
   metadata.deviceTypeSourceValues = values
   metadata.deviceTypeSourceValue = values[0] ?? null
+}
+
+function mergeSoftwareVersionMetadata(metadata: DeviceImportStagedReferenceMetadata, softwareVersionValue: string | null) {
+  const softwareVersion = clean(softwareVersionValue)
+  if (!softwareVersion) return
+  const values = metadata.softwareVersionSourceValues ?? (metadata.softwareVersionSourceValue ? [metadata.softwareVersionSourceValue] : [])
+  const normalized = normalizeImportText(softwareVersion)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(softwareVersion)
+  metadata.softwareVersionSourceValues = values
+  metadata.softwareVersionSourceValue = values[0] ?? null
 }
 
 function addSeed(
@@ -133,6 +147,7 @@ function addSeed(
       mergeDeviceTypeMetadata(current.metadata, values.deviceType)
     } else if (kind === 'FIRMWARE_RELEASE') {
       mergePlatformMetadata(current.metadata, values.platform)
+      mergeSoftwareVersionMetadata(current.metadata, values.softwareVersion)
     }
     return
   }

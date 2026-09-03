@@ -36,7 +36,7 @@ function referenceKey(reference: { kind: string; contextKey: string; normalizedS
   return `${reference.kind}|${reference.contextKey}|${reference.normalizedSourceValue}`
 }
 
-async function refreshAffectedReferences(batchId: string, changes: Array<{ rowNumber: number; mappedData: unknown; delta: -1 | 1 }>) {
+export async function refreshAffectedReferences(batchId: string, changes: Array<{ rowNumber: number; mappedData: unknown; delta: -1 | 1 }>) {
   const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, settings: true, status: true } })
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
   if (batch.status === 'PUBLISHED') throw new DeviceImportStagingError('Published import batches can no longer be changed.')
@@ -76,6 +76,11 @@ async function refreshAffectedReferences(batchId: string, changes: Array<{ rowNu
       if (deviceTypes.length) {
         nextMetadata.deviceTypeSourceValues = deviceTypes
         nextMetadata.deviceTypeSourceValue = deviceTypes[0]
+      }
+      const softwareVersions = [...new Map([...(oldMetadata.softwareVersionSourceValues ?? []), ...(change.seed.metadata.softwareVersionSourceValues ?? [])].map((value) => [normalizeImportText(value), value])).values()].filter(Boolean)
+      if (softwareVersions.length) {
+        nextMetadata.softwareVersionSourceValues = softwareVersions
+        nextMetadata.softwareVersionSourceValue = softwareVersions[0]
       }
     }
     if (current) return [prisma.deviceImportStagedReference.update({ where: { id: current.id }, data: { occurrenceCount, metadata: nextMetadata } })]

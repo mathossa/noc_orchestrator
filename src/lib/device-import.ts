@@ -193,6 +193,12 @@ export function extractFirmwareVersion(value: string | null) {
   return dotted?.[1] ?? cleaned
 }
 
+export function isPlaceholderFirmwareVersion(value: string | null) {
+  const version = extractFirmwareVersion(value)
+  if (!version) return false
+  return /^0+(?:\\.0+)*$/.test(version) || /^0+\\.0*1$/.test(version)
+}
+
 export function inferImportPlatform(values: {
   platform?: string | null
   vendor?: string | null
@@ -381,8 +387,13 @@ export function mappedRows(sheet: XlsxSheet, options: DeviceImportOptions) {
         if (!values.site) values.site = split.site
       }
 
-      if (values.firmwareVersion) values.currentFirmware = values.firmwareVersion
-      else if (!values.currentFirmware && values.softwareVersion) values.currentFirmware = extractFirmwareVersion(values.softwareVersion)
+      const reportedFirmware = values.firmwareVersion ?? values.currentFirmware
+      const softwareFirmware = extractFirmwareVersion(values.softwareVersion)
+      if (reportedFirmware && (!isPlaceholderFirmwareVersion(reportedFirmware) || !softwareFirmware || isPlaceholderFirmwareVersion(softwareFirmware))) {
+        values.currentFirmware = reportedFirmware
+      } else if (softwareFirmware) {
+        values.currentFirmware = softwareFirmware
+      }
 
       if (!values.platform) values.platform = inferImportPlatform(values)
 

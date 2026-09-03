@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { getDeviceImportCoreAssist } from '@/lib/device-import-staged-core-assist'
 import { getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
+import { repairPlaceholderDeviceImportFirmware } from '@/lib/device-import-staged-firmware-repair'
 import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
 import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-staged-model-dedup'
@@ -32,6 +33,8 @@ export async function GET(_request: Request, context: RouteContext) {
         },
       })
     }
+
+    await repairPlaceholderDeviceImportFirmware(batchId)
 
     // Keep old staged batches usable in place. Older batches keyed Models by
     // Vendor + Device Type + Model, which could duplicate one canonical Model.

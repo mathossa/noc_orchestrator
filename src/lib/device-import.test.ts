@@ -102,6 +102,30 @@ describe('device XLSX import mapping', () => {
     expect(mappedRows(auvikSheet, options)[0].values.currentFirmware).toBe('7.4.9')
   })
 
+  it('replaces Auvik placeholder firmware with the meaningful Software Version', () => {
+    const auvikSheet: XlsxSheet = {
+      name: 'Inventory',
+      rowCount: 2,
+      columnCount: 3,
+      rows: [
+        { rowNumber: 1, values: ['Current Firmware', 'Firmware Version', 'Software Version'] },
+        { rowNumber: 2, values: ['0.1', '0.1', 'Dublin 17.12.04'] },
+      ],
+    }
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 1,
+      mapping: { '0': 'currentFirmware', '1': 'firmwareVersion', '2': 'softwareVersion' },
+      defaults: {},
+    })
+
+    expect(mappedRows(auvikSheet, options)[0].values).toMatchObject({
+      currentFirmware: '17.12.04',
+      firmwareVersion: '0.1',
+      softwareVersion: 'Dublin 17.12.04',
+    })
+  })
+
   it('extracts mapped non-empty data rows after the selected header', () => {
     const options = parseDeviceImportOptions({
       sheetName: 'Inventory',

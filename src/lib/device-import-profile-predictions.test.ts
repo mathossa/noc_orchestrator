@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyDeviceImportFirmwareTransforms,
   applyDeviceImportModelTransforms,
   applyDeviceImportPredictionRules,
   importPredictionRuleMatches,
@@ -121,5 +122,29 @@ describe('device import profile predictions', () => {
         { operation: 'REPLACE', value: ' switch', replacement: '' },
       ]),
     ).toBe('Aruba JL256A')
+  })
+
+  it('extracts a reusable Firmware version from a named software release', () => {
+    const applied = applyDeviceImportPredictionRules(
+      { firmware: 'Dublin 17.12.04' },
+      [
+        rule({
+          field: 'firmware',
+          operator: 'CONTAINS',
+          normalizedValue: 'dublin',
+          result: {
+            preferredSoftwarePlatform: 'IOS XE',
+            firmwareTransforms: [{ operation: 'EXTRACT_VERSION' }],
+          },
+        }),
+      ],
+    )
+    expect(applied.prediction.preferredSoftwarePlatform).toBe('IOS XE')
+    expect(
+      applyDeviceImportFirmwareTransforms(
+        'Dublin 17.12.04',
+        applied.prediction.firmwareTransforms,
+      ),
+    ).toBe('17.12.04')
   })
 })

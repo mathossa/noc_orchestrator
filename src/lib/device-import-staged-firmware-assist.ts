@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { inferFirmwareTrainName } from '@/lib/device-import-normalization'
+import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
@@ -28,13 +29,14 @@ function singleSupportedModelPlatform(model: { platform: string | null; supporte
 }
 
 async function assertMutableBatch(batchId: string) {
-  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, status: true } })
+  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, status: true, profileId: true } })
   if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
   if (batch.status === 'PUBLISHED') throw new DeviceImportStagingError('Published import batches can no longer be changed.')
+  return batch
 }
 
 export async function getDeviceImportFirmwareAssist(batchId: string) {
-  await assertMutableBatch(batchId)
+  const batch = await assertMutableBatch(batchId)
   const references = await prisma.deviceImportStagedReference.findMany({
     where: { batchId, kind: 'FIRMWARE_RELEASE', status: 'UNRESOLVED' },
     orderBy: { sourceValue: 'asc' },
@@ -43,7 +45,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
 
   const vendorIds = [...new Set(references.map((reference) => metadata(reference.metadata).vendorTargetId).filter((id): id is string => Boolean(id)))]
   const modelIds = [...new Set(references.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id)))]
-  const [vendors, models, existingReleases] = await Promise.all([
+  const [vendors, models, existingReleases, profileRules] = await Promise.all([
     vendorIds.length ? prisma.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, code: true, name: true, isActive: true } }) : Promise.resolve([]),
     modelIds.length ? prisma.deviceModel.findMany({
       where: { id: { in: modelIds } },
@@ -60,9 +62,18 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       where: { vendorId: { in: vendorIds } },
       select: { id: true, vendorId: true, platform: true, version: true, status: true, isActive: true },
     }) : Promise.resolve([]),
+    batch.profileId ? prisma.deviceImportProfileRule.findMany({
+      where: { profileId: batch.profileId, isActive: true, action: 'PREDICT' },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      select: { id: true, action: true, field: true, operator: true, value: true, normalizedValue: true, result: true, priority: true, isActive: true },
+    }) as Promise<DeviceImportPredictionRule[]> : Promise.resolve([]),
   ])
   const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]))
   const modelById = new Map(models.map((model) => [model.id, model]))
+  const firmwareRules = profileRules.filter((rule) => {
+    const result = typeof rule.result === 'object' && rule.result !== null ? rule.result as Record<string, unknown> : {}
+    return Boolean(result.preferredSoftwarePlatform) || (Array.isArray(result.softwarePlatforms) && result.softwarePlatforms.length > 0) || (Array.isArray(result.firmwareTransforms) && result.firmwareTransforms.length > 0)
+  })
 
   const grouped = new Map<string, {
     key: string
@@ -72,6 +83,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     version: string
     platform: string
     modelIds: string[]
+    matchedPredictionRuleIds: string[]
   }>()
   for (const reference of references) {
     const meta = metadata(reference.metadata)
@@ -79,26 +91,37 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     const modelId = meta.modelTargetId
     if (!vendorId || !vendorById.get(vendorId)?.isActive || !modelId || !modelById.get(modelId)?.isActive) continue
     const model = modelById.get(modelId)!
+    const appliedRules = applyDeviceImportPredictionRules({
+      vendor: meta.vendorSourceValue,
+      model: meta.modelSourceValue,
+      platform: meta.platform,
+      firmware: reference.sourceValue,
+      softwareVersion: meta.softwareVersionSourceValue,
+    }, firmwareRules)
+    const predictedPlatforms = appliedRules.prediction.softwarePlatforms ?? []
+    const version = applyDeviceImportFirmwareTransforms(reference.sourceValue, appliedRules.prediction.firmwareTransforms)
     // Never turn an ambiguous multi-platform model back into its legacy/default
     // platform. Only staged device evidence or a genuinely single supported
     // model platform can make a Firmware proposal safe enough to prepare.
-    const platform = meta.platform ?? singleSupportedModelPlatform(model)
+    const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? singleSupportedModelPlatform(model)
     const platformContext = platform ? normalizedFirmwarePlatform(platform) : `model:${modelId}`
-    const key = `${vendorId}|${platformContext}|${normalizeImportText(reference.sourceValue)}`
+    const key = `${vendorId}|${platformContext}|${normalizeImportText(version)}`
     const current = grouped.get(key)
     if (current) {
       current.referenceIds.push(reference.id)
       if (!current.versions.includes(reference.sourceValue)) current.versions.push(reference.sourceValue)
       if (!current.modelIds.includes(modelId)) current.modelIds.push(modelId)
+      for (const ruleId of appliedRules.matchedRuleIds) if (!current.matchedPredictionRuleIds.includes(ruleId)) current.matchedPredictionRuleIds.push(ruleId)
     } else {
       grouped.set(key, {
         key,
         vendorId,
         referenceIds: [reference.id],
         versions: [reference.sourceValue],
-        version: reference.sourceValue,
+        version,
         platform,
         modelIds: [modelId],
+        matchedPredictionRuleIds: appliedRules.matchedRuleIds,
       })
     }
   }
