@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   batchFindUnique: vi.fn(),
+  batchUpdate: vi.fn(),
   rowFindMany: vi.fn(),
   rowUpdate: vi.fn(),
   transaction: vi.fn(),
@@ -10,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    deviceImportBatch: { findUnique: mocks.batchFindUnique },
+    deviceImportBatch: { findUnique: mocks.batchFindUnique, update: mocks.batchUpdate },
     deviceImportStagedRow: {
       findMany: mocks.rowFindMany,
       update: mocks.rowUpdate,
@@ -28,7 +29,8 @@ import { repairPlaceholderDeviceImportFirmware } from '@/lib/device-import-stage
 describe('staged placeholder firmware clearing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.batchFindUnique.mockResolvedValue({ id: 'batch-1', status: 'STAGED' })
+    mocks.batchFindUnique.mockResolvedValue({ id: 'batch-1', status: 'STAGED', settings: {} })
+    mocks.batchUpdate.mockResolvedValue({})
     mocks.transaction.mockResolvedValue([])
     mocks.refreshAffected.mockResolvedValue({})
   })
@@ -68,5 +70,6 @@ describe('staged placeholder firmware clearing', () => {
         mappedData: expect.objectContaining({ currentFirmware: null }),
       }),
     ])
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'batch-1' } }))
   })
 })
