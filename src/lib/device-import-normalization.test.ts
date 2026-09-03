@@ -3,6 +3,7 @@ import {
   canonicalSoftwarePlatform,
   classifyImportedDeviceModel,
   inferFirmwareTrainName,
+  splitFirmwareVersionVariant,
 } from '@/lib/device-import-normalization'
 
 describe('device import classification hierarchy', () => {
@@ -71,13 +72,21 @@ describe('device import classification hierarchy', () => {
     })
   })
 
+  it('separates AOS-S image family prefixes from canonical firmware versions', () => {
+    expect(splitFirmwareVersionVariant('AOS-S', 'YA.15.17')).toEqual({ version: '15.17', variant: 'YA' })
+    expect(splitFirmwareVersionVariant('AOS-S', 'YB.15.10')).toEqual({ version: '15.10', variant: 'YB' })
+    expect(splitFirmwareVersionVariant('AOS-S', 'WC.16.11.0020')).toEqual({ version: '16.11.0020', variant: 'WC' })
+    expect(splitFirmwareVersionVariant('IOS-XE', '17.15.05')).toEqual({ version: '17.15.05', variant: null })
+  })
+
   it('normalizes platform aliases and infers useful firmware trains', () => {
     expect(canonicalSoftwarePlatform('AOS 10')).toEqual({
       code: 'AOS-10',
       name: 'AOS 10',
     })
     expect(inferFirmwareTrainName('FortiOS', '7.4.7')).toBe('7.4')
-    expect(inferFirmwareTrainName('AOS-S', 'WC.16.11.0020')).toBe('WC.16.11')
+    expect(inferFirmwareTrainName('AOS-S', 'WC.16.11.0020')).toBe('16.11')
+    expect(inferFirmwareTrainName('AOS-S', 'YA.15.17')).toBe('15.17')
     expect(inferFirmwareTrainName('IOS XE', '17.12.5')).toBe('17.12')
     expect(inferFirmwareTrainName('IOS-XE', '17.15.05')).toBe('17.15')
   })
