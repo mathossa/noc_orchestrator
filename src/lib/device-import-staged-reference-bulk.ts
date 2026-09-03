@@ -29,12 +29,19 @@ function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? (value as DeviceImportStagedReferenceMetadata) : {}
 }
 
-function aliasContext(reference: StagedReferenceRecord) {
+export function stagedReferenceAliasContext(reference: { kind: string; metadata: unknown }) {
   const meta = metadata(reference.metadata)
   if (reference.kind === 'SITE') return meta.customerTargetId ?? ''
   if (reference.kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
   if (reference.kind === 'FIRMWARE_RELEASE') {
-    return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
+    const platform = normalizedPlatform(meta.platform ?? '')
+    // Firmware proposals can infer their platform from the resolved Model or a
+    // profile rule even when the original staged row had no Platform value.
+    // A partial "vendor|" context is not canonical and caused an otherwise
+    // valid selected release to fail alias validation. Passing no context lets
+    // saveImportReferenceAlias derive the canonical Vendor + Platform context
+    // from the explicitly selected release after this reference is validated.
+    return meta.vendorTargetId && platform ? `${meta.vendorTargetId}|${platform}` : ''
   }
   return ''
 }
@@ -97,6 +104,24 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
   if (meta.platform && normalizedPlatform(target.platform) !== normalizedPlatform(meta.platform)) {
     throw new DeviceImportStagingError(`Firmware target for “${reference.sourceValue}” is not compatible with the resolved model platform.`)
   }
+  if (!meta.platform && meta.modelTargetId) {
+    const model = await prisma.deviceModel.findUnique({
+      where: { id: meta.modelTargetId },
+      select: {
+        platform: true,
+        supportedPlatforms: { select: { platform: true } },
+      },
+    })
+    if (model) {
+      const allowedPlatforms = new Set([
+        model.platform,
+        ...model.supportedPlatforms.map((entry) => entry.platform),
+      ].map((platform) => normalizedPlatform(platform ?? '')).filter(Boolean))
+      if (allowedPlatforms.size && !allowedPlatforms.has(normalizedPlatform(target.platform))) {
+        throw new DeviceImportStagingError(`Firmware target for “${reference.sourceValue}” is not compatible with the resolved model platform.`)
+      }
+    }
+  }
 }
 
 async function inChunks<T>(items: T[], action: (item: T) => Promise<unknown>) {
@@ -136,16 +161,18 @@ export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown)
 
   await inChunks(items, async (item) => {
     const reference = referencesById.get(item.referenceId)!
+    // Remembered mappings must pass the same source-context validation as
+    // one-time links. Remembering changes reuse behavior; it must not weaken
+    // Vendor/Model/Firmware compatibility checks.
+    await validateOneTimeTarget(reference, item.targetId)
     if (item.remember) {
       await saveImportReferenceAlias({
         profileId: batch.profileId,
         kind: reference.kind,
         sourceValue: reference.sourceValue,
-        contextKey: aliasContext(reference),
+        contextKey: stagedReferenceAliasContext(reference),
         targetId: item.targetId,
       })
-    } else {
-      await validateOneTimeTarget(reference, item.targetId)
     }
   })
 
