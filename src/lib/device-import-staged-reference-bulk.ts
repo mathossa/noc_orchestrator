@@ -46,6 +46,24 @@ export function stagedReferenceAliasContext(reference: { kind: string; metadata:
   return ''
 }
 
+export function linkedFirmwareReferenceMetadata(
+  value: unknown,
+  target: { vendorId: string; platform: string },
+): DeviceImportStagedReferenceMetadata {
+  const current = metadata(value)
+  const platforms = [...(current.platforms ?? [])]
+  if (!platforms.some((platform) => normalizedPlatform(platform) === normalizedPlatform(target.platform))) {
+    platforms.push(target.platform)
+  }
+  return {
+    ...current,
+    vendorTargetId: target.vendorId,
+    platform: target.platform,
+    platforms,
+    waitingFor: [],
+  }
+}
+
 async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId: string) {
   const kind = reference.kind as DeviceImportReferenceKind
   const meta = metadata(reference.metadata)
@@ -53,7 +71,7 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
   if (kind === 'CUSTOMER') {
     const target = await prisma.customer.findUnique({ where: { id: targetId }, select: { id: true, isActive: true } })
     if (!target || !target.isActive) throw new DeviceImportStagingError(`Customer target for “${reference.sourceValue}” no longer exists or is archived.`)
-    return
+    return null
   }
   if (kind === 'SITE') {
     const target = await prisma.site.findUnique({ where: { id: targetId }, select: { id: true, customerId: true, isActive: true } })
@@ -61,17 +79,17 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
     if (!meta.customerTargetId || target.customerId !== meta.customerTargetId) {
       throw new DeviceImportStagingError(`Site target for “${reference.sourceValue}” belongs to another customer.`)
     }
-    return
+    return null
   }
   if (kind === 'VENDOR') {
     const target = await prisma.vendor.findUnique({ where: { id: targetId }, select: { id: true, isActive: true } })
     if (!target || !target.isActive) throw new DeviceImportStagingError(`Vendor target for “${reference.sourceValue}” no longer exists or is archived.`)
-    return
+    return null
   }
   if (kind === 'DEVICE_TYPE') {
     const target = await prisma.deviceType.findUnique({ where: { id: targetId }, select: { id: true, isActive: true } })
     if (!target || !target.isActive) throw new DeviceImportStagingError(`Device Type target for “${reference.sourceValue}” no longer exists or is archived.`)
-    return
+    return null
   }
   if (kind === 'DEVICE_MODEL') {
     const target = await prisma.deviceModel.findUnique({
@@ -85,12 +103,12 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
     if (meta.deviceTypeTargetId && target.deviceTypeId !== meta.deviceTypeTargetId) {
       throw new DeviceImportStagingError(`Model target for “${reference.sourceValue}” belongs to another device type.`)
     }
-    return
+    return null
   }
   if (kind === 'CONTRACT_TYPE') {
     const target = await prisma.contractType.findUnique({ where: { id: targetId }, select: { id: true, isActive: true } })
     if (!target || !target.isActive) throw new DeviceImportStagingError(`Contract target for “${reference.sourceValue}” no longer exists or is archived.`)
-    return
+    return null
   }
 
   const target = await prisma.firmwareRelease.findUnique({
@@ -122,6 +140,13 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
       }
     }
   }
+
+  // The worksheet can infer a concrete Platform even when the staged source
+  // reference did not contain one. Persist the explicitly accepted release's
+  // canonical Vendor + Platform before the dependency refresh. Otherwise the
+  // refresh rebuilt a partial Vendor-only context and the just-approved link
+  // became unresolved again.
+  return linkedFirmwareReferenceMetadata(meta, target)
 }
 
 async function inChunks<T>(items: T[], action: (item: T) => Promise<unknown>) {
@@ -158,25 +183,31 @@ export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown)
   if (references.length !== items.length) throw new DeviceImportStagingError('One or more staged references no longer exist in this batch.')
 
   const referencesById = new Map(references.map((reference) => [reference.id, reference]))
+  const linkedMetadata = new Map<string, DeviceImportStagedReferenceMetadata>()
 
   await inChunks(items, async (item) => {
     const reference = referencesById.get(item.referenceId)!
     // Remembered mappings must pass the same source-context validation as
     // one-time links. Remembering changes reuse behavior; it must not weaken
     // Vendor/Model/Firmware compatibility checks.
-    await validateOneTimeTarget(reference, item.targetId)
+    const canonicalMetadata = await validateOneTimeTarget(reference, item.targetId)
+    if (canonicalMetadata) linkedMetadata.set(reference.id, canonicalMetadata)
     if (item.remember) {
       await saveImportReferenceAlias({
         profileId: batch.profileId,
         kind: reference.kind,
         sourceValue: reference.sourceValue,
-        contextKey: stagedReferenceAliasContext(reference),
+        contextKey: stagedReferenceAliasContext({
+          kind: reference.kind,
+          metadata: canonicalMetadata ?? reference.metadata,
+        }),
         targetId: item.targetId,
       })
     }
   })
 
   await inChunks(items, async (item) => {
+    const canonicalMetadata = linkedMetadata.get(item.referenceId)
     await prisma.deviceImportStagedReference.update({
       where: { id: item.referenceId },
       data: {
@@ -185,6 +216,7 @@ export async function resolveDeviceImportStagedReferencesBulk(rawInput: unknown)
         suggestedTargetId: null,
         suggestionScore: null,
         resolutionSource: 'USER',
+        ...(canonicalMetadata ? { metadata: canonicalMetadata } : {}),
       },
     })
   })
