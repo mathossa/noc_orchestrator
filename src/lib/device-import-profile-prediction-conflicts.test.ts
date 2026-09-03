@@ -52,7 +52,7 @@ describe('deterministic import prediction decisions', () => {
     )
 
     expect(result.prediction.preferredSoftwarePlatform).toBeUndefined()
-    expect(result.conflicts).toEqual([
+    expect('conflicts' in result ? result.conflicts : undefined).toEqual([
       {
         field: 'preferredSoftwarePlatform',
         priority: 500,
