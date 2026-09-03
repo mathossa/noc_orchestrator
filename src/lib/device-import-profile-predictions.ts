@@ -61,10 +61,46 @@ export type DeviceImportPredictionRule = {
   isActive?: boolean
 }
 
+export type DeviceImportPredictionConflict = {
+  field:
+    | 'vendorTargetId'
+    | 'deviceTypeTargetId'
+    | 'productFamilyId'
+    | 'preferredSoftwarePlatform'
+    | 'firmwareSource'
+  priority: number
+  ruleIds: string[]
+  values: string[]
+}
+
+type MatchedPredictionRule = {
+  rule: DeviceImportPredictionRule
+  output: DeviceImportPredictionResult
+  priority: number
+}
+
 function result(value: unknown): DeviceImportPredictionResult {
   return typeof value === 'object' && value !== null
     ? (value as DeviceImportPredictionResult)
     : {}
+}
+
+function stableRuleKey(rule: DeviceImportPredictionRule) {
+  return [
+    rule.id ?? '',
+    rule.field,
+    rule.operator,
+    rule.normalizedValue || normalizeImportText(rule.value),
+    normalizeImportText(rule.value),
+  ].join('|')
+}
+
+function compareRules(
+  left: DeviceImportPredictionRule,
+  right: DeviceImportPredictionRule,
+) {
+  const priority = (right.priority ?? 100) - (left.priority ?? 100)
+  return priority || stableRuleKey(left).localeCompare(stableRuleKey(right))
 }
 
 export function importPredictionRuleMatches(
@@ -87,77 +123,128 @@ export function importPredictionRuleMatches(
   return rule.operator === 'EQUALS' && source === match
 }
 
+function scalarDecision(
+  matched: MatchedPredictionRule[],
+  field: DeviceImportPredictionConflict['field'],
+) {
+  const candidates = matched.flatMap((entry) => {
+    const value = entry.output[field]
+    return typeof value === 'string' && value
+      ? [{ ...entry, value }]
+      : []
+  })
+  if (!candidates.length)
+    return { value: null as string | null, conflict: null as DeviceImportPredictionConflict | null }
+
+  const priority = candidates[0].priority
+  const top = candidates.filter((candidate) => candidate.priority === priority)
+  const distinct = new Map<string, string>()
+  for (const candidate of top) {
+    const key = normalizeImportText(candidate.value)
+    if (!distinct.has(key)) distinct.set(key, candidate.value)
+  }
+  if (distinct.size > 1) {
+    return {
+      value: null,
+      conflict: {
+        field,
+        priority,
+        ruleIds: top.map((candidate) => candidate.rule.id).filter((id): id is string => Boolean(id)),
+        values: [...distinct.values()],
+      },
+    }
+  }
+  return { value: top[0].value, conflict: null }
+}
+
 export function applyDeviceImportPredictionRules(
   values: Partial<Record<ImportPredictionField, string | null>>,
   rules: DeviceImportPredictionRule[],
 ) {
   const prediction: DeviceImportPredictionResult = {}
-  const matchedRuleIds: string[] = []
-  const ordered = [...rules].sort(
-    (left, right) => (right.priority ?? 100) - (left.priority ?? 100),
-  )
-  for (const rule of ordered) {
-    if (!importPredictionRuleMatches(rule, values)) continue
-    const next = result(rule.result)
-    if (rule.id) matchedRuleIds.push(rule.id)
-    if (!prediction.vendorTargetId && next.vendorTargetId)
-      prediction.vendorTargetId = next.vendorTargetId
-    if (!prediction.deviceTypeTargetId && next.deviceTypeTargetId)
-      prediction.deviceTypeTargetId = next.deviceTypeTargetId
-    if (!prediction.productFamilyId && next.productFamilyId)
-      prediction.productFamilyId = next.productFamilyId
-    if (!prediction.softwarePlatforms?.length && next.softwarePlatforms?.length)
-      prediction.softwarePlatforms = next.softwarePlatforms
-    if (!prediction.preferredSoftwarePlatform && next.preferredSoftwarePlatform)
-      prediction.preferredSoftwarePlatform = next.preferredSoftwarePlatform
-    if (!prediction.firmwareSource && next.firmwareSource)
-      prediction.firmwareSource = next.firmwareSource
-    if (next.modelTransforms?.length) {
-      const transforms = prediction.modelTransforms ?? []
-      for (const transform of next.modelTransforms) {
-        if (
-          !transform?.value ||
-          !['REMOVE_PREFIX', 'REPLACE'].includes(transform.operation)
-        )
-          continue
-        const key = `${transform.operation}|${normalizeImportText(transform.value)}|${transform.replacement ?? ''}`
-        if (
-          !transforms.some(
-            (candidate) =>
-              `${candidate.operation}|${normalizeImportText(candidate.value)}|${candidate.replacement ?? ''}` ===
-              key,
-          )
-        )
-          transforms.push(transform)
-      }
-      prediction.modelTransforms = transforms
+  const matched = [...rules]
+    .sort(compareRules)
+    .filter((rule) => importPredictionRuleMatches(rule, values))
+    .map((rule) => ({
+      rule,
+      output: result(rule.result),
+      priority: rule.priority ?? 100,
+    }))
+  const matchedRuleIds = matched
+    .map((entry) => entry.rule.id)
+    .filter((id): id is string => Boolean(id))
+  const conflicts: DeviceImportPredictionConflict[] = []
+
+  for (const field of [
+    'vendorTargetId',
+    'deviceTypeTargetId',
+    'productFamilyId',
+    'preferredSoftwarePlatform',
+    'firmwareSource',
+  ] as const) {
+    const decision = scalarDecision(matched, field)
+    if (decision.conflict) {
+      conflicts.push(decision.conflict)
+      continue
     }
-    if (next.firmwareTransforms?.length) {
-      const transforms = prediction.firmwareTransforms ?? []
-      for (const transform of next.firmwareTransforms) {
-        if (
-          !transform ||
-          !['EXTRACT_VERSION', 'REMOVE_PREFIX', 'REPLACE'].includes(
-            transform.operation,
-          )
-        )
-          continue
-        if (transform.operation !== 'EXTRACT_VERSION' && !transform.value)
-          continue
-        const key = `${transform.operation}|${normalizeImportText(transform.value)}|${transform.replacement ?? ''}`
-        if (
-          !transforms.some(
-            (candidate) =>
-              `${candidate.operation}|${normalizeImportText(candidate.value)}|${candidate.replacement ?? ''}` ===
-              key,
-          )
-        )
-          transforms.push(transform)
-      }
-      prediction.firmwareTransforms = transforms
+    if (!decision.value) continue
+    if (field === 'firmwareSource') {
+      prediction.firmwareSource = decision.value as DeviceImportFirmwareSource
+    } else {
+      prediction[field] = decision.value
     }
   }
-  return { prediction, matchedRuleIds }
+
+  const platforms = new Map<string, string>()
+  for (const entry of matched) {
+    for (const platform of entry.output.softwarePlatforms ?? []) {
+      if (typeof platform !== 'string' || !platform.trim()) continue
+      const normalized = normalizeImportText(platform)
+      if (!platforms.has(normalized)) platforms.set(normalized, platform)
+    }
+  }
+  if (platforms.size) prediction.softwarePlatforms = [...platforms.values()]
+
+  const modelTransforms: DeviceImportModelTransform[] = []
+  const modelTransformKeys = new Set<string>()
+  for (const entry of matched) {
+    for (const transform of entry.output.modelTransforms ?? []) {
+      if (
+        !transform?.value ||
+        !['REMOVE_PREFIX', 'REPLACE'].includes(transform.operation)
+      )
+        continue
+      const key = `${transform.operation}|${normalizeImportText(transform.value)}|${transform.replacement ?? ''}`
+      if (modelTransformKeys.has(key)) continue
+      modelTransformKeys.add(key)
+      modelTransforms.push(transform)
+    }
+  }
+  if (modelTransforms.length) prediction.modelTransforms = modelTransforms
+
+  const firmwareTransforms: DeviceImportFirmwareTransform[] = []
+  const firmwareTransformKeys = new Set<string>()
+  for (const entry of matched) {
+    for (const transform of entry.output.firmwareTransforms ?? []) {
+      if (
+        !transform ||
+        !['EXTRACT_VERSION', 'REMOVE_PREFIX', 'REPLACE'].includes(
+          transform.operation,
+        )
+      )
+        continue
+      if (transform.operation !== 'EXTRACT_VERSION' && !transform.value) continue
+      const key = `${transform.operation}|${normalizeImportText(transform.value)}|${transform.replacement ?? ''}`
+      if (firmwareTransformKeys.has(key)) continue
+      firmwareTransformKeys.add(key)
+      firmwareTransforms.push(transform)
+    }
+  }
+  if (firmwareTransforms.length) prediction.firmwareTransforms = firmwareTransforms
+
+  return conflicts.length
+    ? { prediction, matchedRuleIds, conflicts }
+    : { prediction, matchedRuleIds }
 }
 
 function escaped(value: string) {
