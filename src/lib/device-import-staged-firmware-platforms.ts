@@ -1,4 +1,12 @@
 import { extractFirmwareVersion, normalizeImportText } from '@/lib/device-import'
+import { classifyImportedDeviceModel, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
+import {
+  applyDeviceImportFirmwareTransforms,
+  applyDeviceImportPredictionRules,
+  selectDeviceImportFirmwareSource,
+  type DeviceImportFirmwareSource,
+  type DeviceImportPredictionRule,
+} from '@/lib/device-import-profile-predictions'
 import {
   bestImportReferenceSuggestion,
   type DeviceImportMappedValues,
@@ -9,6 +17,7 @@ import { prisma } from '@/lib/prisma'
 
 type PlatformModel = {
   vendorId: string
+  model?: string
   platform: string | null
   supportedPlatforms: Array<{ platform: string }>
 }
@@ -71,8 +80,13 @@ export function stagedFirmwareEvidenceContext(values: DeviceImportMappedValues) 
   return `${base}|firmware-version:${firmwareVersion}|software-version:${softwareVersion}`
 }
 
-function normalizedEvidence(values: Array<string | null | undefined>) {
-  return [...new Set(values.map((value) => normalizeImportText(value)).filter(Boolean))]
+function uniqueEvidence(values: Array<string | null | undefined>) {
+  const result = new Map<string, string>()
+  for (const value of values) {
+    const cleaned = clean(value)
+    if (cleaned) result.set(normalizeImportText(cleaned), cleaned)
+  }
+  return [...result.values()]
 }
 
 export function hasCompetingFirmwareSourceEvidence(sourceValue: string, meta: DeviceImportStagedReferenceMetadata) {
@@ -108,8 +122,8 @@ export function firmwareEvidenceGroupsForReference(
 function needsSourceSplit(reference: FirmwareReference) {
   if (reference.contextKey.includes('|firmware-version:')) return false
   const meta = metadata(reference.metadata)
-  return normalizedEvidence(meta.firmwareVersionSourceValues ?? []).length > 1 ||
-    normalizedEvidence(meta.softwareVersionSourceValues ?? []).length > 1
+  return uniqueEvidence(meta.firmwareVersionSourceValues ?? []).length > 1 ||
+    uniqueEvidence(meta.softwareVersionSourceValues ?? []).length > 1
 }
 
 async function splitCollapsedFirmwareSourceReferences(batchId: string, references: FirmwareReference[]) {
@@ -136,8 +150,8 @@ async function splitCollapsedFirmwareSourceReferences(batchId: string, reference
 
     for (const group of groups) {
       const first = group.rows[0].values
-      const firmwareVersions = normalizedEvidence(group.rows.map((row) => row.values.firmwareVersion))
-      const softwareVersions = normalizedEvidence(group.rows.map((row) => row.values.softwareVersion))
+      const firmwareVersions = uniqueEvidence(group.rows.map((row) => row.values.firmwareVersion))
+      const softwareVersions = uniqueEvidence(group.rows.map((row) => row.values.softwareVersion))
       const rawPlatform = clean(first.platform)
       replacements.push({
         batchId,
@@ -230,6 +244,37 @@ export function canDeferUnclassifiedFirmwarePlatform(
   return importedPlatformSet(meta).size === 0 && platformSet(model).size === 0
 }
 
+function builtInFirmwareSource(modelName: string, platform: string | null): DeviceImportFirmwareSource | null {
+  const classification = classifyImportedDeviceModel(modelName)
+  if (classification?.classificationKey === 'CISCO_SX350' || normalizedPlatform(platform) === 'sx350') return 'SOFTWARE_VERSION'
+  return null
+}
+
+function interpretedFirmwareVersion(
+  reference: FirmwareReference,
+  meta: DeviceImportStagedReferenceMetadata,
+  model: PlatformModel,
+  platform: string | null,
+  rules: DeviceImportPredictionRule[],
+) {
+  const modelName = meta.modelSourceValue ?? model.model ?? ''
+  const applied = applyDeviceImportPredictionRules({
+    vendor: meta.vendorSourceValue,
+    model: modelName,
+    platform,
+    firmware: reference.sourceValue,
+    firmwareVersion: meta.firmwareVersionSourceValue,
+    softwareVersion: meta.softwareVersionSourceValue,
+  }, rules)
+  const source = applied.prediction.firmwareSource ?? builtInFirmwareSource(modelName, platform) ?? 'EFFECTIVE'
+  const selected = selectDeviceImportFirmwareSource({
+    effective: reference.sourceValue,
+    firmwareVersion: meta.firmwareVersionSourceValue,
+    softwareVersion: meta.softwareVersionSourceValue,
+  }, source)
+  return applyDeviceImportFirmwareTransforms(selected, applied.prediction.firmwareTransforms)
+}
+
 function needsUpdate(
   reference: {
     status: string
@@ -292,12 +337,13 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
   if (!firmwareReferences.length) return { updated: splitCount }
 
   const modelIds = [...new Set(firmwareReferences.map((reference) => metadata(reference.metadata).modelTargetId).filter((id): id is string => Boolean(id)))]
-  const [models, releases, aliases] = await Promise.all([
+  const [models, releases, aliases, profileRules] = await Promise.all([
     modelIds.length ? prisma.deviceModel.findMany({
       where: { id: { in: modelIds } },
       select: {
         id: true,
         vendorId: true,
+        model: true,
         platform: true,
         supportedPlatforms: { select: { platform: true } },
       },
@@ -310,6 +356,11 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
       where: { profileId: batch.profileId, kind: 'FIRMWARE_RELEASE' },
       select: { normalizedSourceValue: true, contextKey: true, targetId: true },
     }) : Promise.resolve([]),
+    batch.profileId ? prisma.deviceImportProfileRule.findMany({
+      where: { profileId: batch.profileId, isActive: true, action: 'PREDICT' },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      select: { id: true, action: true, field: true, operator: true, value: true, normalizedValue: true, result: true, priority: true, isActive: true },
+    }) as Promise<DeviceImportPredictionRule[]> : Promise.resolve([]),
   ])
   const modelById = new Map(models.map((model) => [model.id, model]))
   let updated = splitCount
@@ -318,7 +369,11 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
     const meta = metadata(reference.metadata)
     const model = meta.modelTargetId ? modelById.get(meta.modelTargetId) : null
     if (!model) continue
-    const platform = resolveStagedFirmwarePlatform(meta, model, reference.sourceValue, releases)
+
+    const preliminaryFirmware = interpretedFirmwareVersion(reference, meta, model, meta.platform ?? model.platform, profileRules)
+    const platform = resolveStagedFirmwarePlatform(meta, model, preliminaryFirmware, releases)
+    const interpreted = interpretedFirmwareVersion(reference, meta, model, platform, profileRules)
+    const selectedVersion = splitFirmwareVersionVariant(platform ?? '', interpreted).version
     const nextMetadata: DeviceImportStagedReferenceMetadata = {
       ...meta,
       modelTargetId: model.id,
@@ -351,14 +406,12 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
     const manualTarget = reference.targetId && ['USER', 'CREATED'].includes(reference.resolutionSource ?? '')
       ? compatible.find((release) => release.id === reference.targetId) ?? null
       : null
-    const competingEvidence = hasCompetingFirmwareSourceEvidence(reference.sourceValue, meta)
-    const remembered = competingEvidence ? null : aliases.find((alias) =>
+    const sourceDiffersFromRaw = normalizeImportText(selectedVersion) !== reference.normalizedSourceValue
+    const remembered = sourceDiffersFromRaw ? null : aliases.find((alias) =>
       alias.normalizedSourceValue === reference.normalizedSourceValue && alias.contextKey === contextKey,
     )?.targetId ?? null
     const rememberedTarget = remembered ? compatible.find((release) => release.id === remembered) ?? null : null
-    const exact = competingEvidence
-      ? []
-      : compatible.filter((release) => normalizeImportText(release.version) === reference.normalizedSourceValue)
+    const exact = compatible.filter((release) => normalizeImportText(release.version) === normalizeImportText(selectedVersion))
     const target = manualTarget ?? rememberedTarget ?? (exact.length === 1 ? exact[0] : null)
 
     if (target) {
@@ -382,7 +435,7 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
       continue
     }
 
-    const best = competingEvidence ? null : bestImportReferenceSuggestion(reference.sourceValue, compatible, (release) => release.version)
+    const best = bestImportReferenceSuggestion(selectedVersion, compatible, (release) => release.version)
     const next = {
       status: 'UNRESOLVED',
       targetId: null,

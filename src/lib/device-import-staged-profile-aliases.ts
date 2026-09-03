@@ -1,4 +1,5 @@
 import { normalizeImportText, type DeviceImportReferenceKind } from '@/lib/device-import'
+import { hasCompetingFirmwareSourceEvidence } from '@/lib/device-import-staged-firmware-platforms'
 import { importSiteProfileContextCandidates } from '@/lib/device-import-site-code'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { normalizedPlatform } from '@/lib/devices'
@@ -82,6 +83,11 @@ export async function rememberReviewedBatchReferences(batchId: string, kinds: De
   await rememberReviewedImportAliases(batch.profileId, references.flatMap((reference) => {
     if (!reference.targetId) return []
     const kind = reference.kind as DeviceImportReferenceKind
+    const meta = metadata(reference.metadata)
+    // A raw firmware value can legitimately fan out to multiple Software
+    // Versions. Such a value is not a stable alias and must be interpreted by
+    // the profile's firmware-source rule on every import instead.
+    if (kind === 'FIRMWARE_RELEASE' && hasCompetingFirmwareSourceEvidence(reference.sourceValue, meta)) return []
     return contextKeys(kind, reference.metadata, reference.sourceValue).map((contextKey) => ({
       kind,
       sourceValue: reference.sourceValue,
