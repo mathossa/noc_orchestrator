@@ -33,7 +33,12 @@ export async function POST(request: Request, context: RouteContext) {
     }
     console.error('Failed to publish staged import batch', error)
     return NextResponse.json(
-      { error: { code: 'INTERNAL_ERROR', message: 'The staged import batch could not be published.' } },
+      {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Device publication stopped unexpectedly. Completed chunks remain published; reload the batch to see what is still staged and retry the remainder.',
+        },
+      },
       { status: 500 },
     )
   }
