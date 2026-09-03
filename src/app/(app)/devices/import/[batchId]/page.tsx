@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { DeviceImportIgnoredRowsPanel } from '@/components/devices/device-import-ignored-rows-panel'
 import { DeviceImportInlineReconciliationWorksheet } from '@/components/devices/device-import-inline-reconciliation-worksheet'
 import { DeviceImportProfileMemoryPanel } from '@/components/devices/device-import-profile-memory-panel'
+import { DeviceImportPublicationControl } from '@/components/devices/device-import-publication-control'
 import { DeviceImportReconciliationWorkspace } from '@/components/devices/device-import-reconciliation-workspace'
 
 type PageProps = { params: Promise<{ batchId: string }> }
@@ -18,6 +19,7 @@ export default async function DeviceImportBatchPage({ params }: PageProps) {
       <DeviceImportIgnoredRowsPanel batchId={batchId} />
       <DeviceImportProfileMemoryPanel batchId={batchId} />
       <DeviceImportInlineReconciliationWorksheet batchId={batchId} />
+      <DeviceImportPublicationControl batchId={batchId} />
     </>}
   />
 }
