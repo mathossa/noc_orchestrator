@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
-import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
 import { getDeviceImportCoreAssist } from '@/lib/device-import-staged-core-assist'
 import { getDeviceImportFirmwareAssist } from '@/lib/device-import-staged-firmware-assist'
 import { repairPlaceholderDeviceImportFirmware } from '@/lib/device-import-staged-firmware-repair'
-import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
 import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-staged-model-dedup'
 import { listImportProfileRuleWorkspace } from '@/lib/device-import-profile-rule-store'
@@ -16,11 +14,8 @@ type RouteContext = { params: Promise<{ batchId: string }> }
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
-    // The old route built the entire reconciliation workspace twice for every
-    // request: once only to inspect batch status, then again after repair passes.
-    // Workspace construction loads the complete reference/options universe, so
-    // that duplicate read was one of the most expensive parts of opening the
-    // worksheet. Read only the batch state first and build the workspace once.
+    // Read only the lightweight batch state first. Building the complete
+    // workspace loads the reference/options universe and should happen once.
     const batch = await prisma.deviceImportBatch.findUnique({
       where: { id: batchId },
       select: { id: true, status: true, profileId: true },
@@ -42,14 +37,13 @@ export async function GET(_request: Request, context: RouteContext) {
       })
     }
 
-    await repairPlaceholderDeviceImportFirmware(batchId)
-
-    // Keep old staged batches usable in place. Older batches keyed Models by
-    // Vendor + Device Type + Model, which could duplicate one canonical Model.
-    // Repair that identity once before the other dependency passes.
-    await repairDuplicateDeviceImportModelReferences(batchId)
-    await synchronizeImportedModelPlatforms(batchId)
-    await resolveStagedFirmwarePlatforms(batchId)
+    // These are version-marked legacy migrations. They execute at most once
+    // for an old staged batch. Normal page loads must not repeatedly rewrite
+    // Model/Firmware state just because the worksheet was opened.
+    await Promise.all([
+      repairPlaceholderDeviceImportFirmware(batchId),
+      repairDuplicateDeviceImportModelReferences(batchId),
+    ])
 
     const workspace = await getDeviceImportBatchWorkspace(batchId)
     const [core, sites, models, firmware, vendorAliases, profileRules] = await Promise.all([
