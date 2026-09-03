@@ -103,10 +103,12 @@ export async function repairPlaceholderDeviceImportFirmware(batchId: string) {
   await prisma.deviceImportBatch.update({
     where: { id: batchId },
     data: {
-      settings: {
-        ...batchSettings,
-        [RUNNING_FIRMWARE_REPAIR_KEY]: RUNNING_FIRMWARE_REPAIR_VERSION,
-      },
+      settings: JSON.parse(
+        JSON.stringify({
+          ...batchSettings,
+          [RUNNING_FIRMWARE_REPAIR_KEY]: RUNNING_FIRMWARE_REPAIR_VERSION,
+        }),
+      ),
     },
   })
 
