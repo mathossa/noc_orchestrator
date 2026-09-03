@@ -331,7 +331,7 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
       data: {
         firmwareTrainId: link.firmwareTrainId,
         softwarePlatformId: link.softwarePlatformId,
-        sourceMetadata: mergeFirmwareVariants(link.sourceMetadata, link.variants),
+        sourceMetadata: JSON.parse(JSON.stringify(mergeFirmwareVariants(link.sourceMetadata, link.variants))),
       },
     })),
     ...created.flatMap((release) => release.refs.map((reference) => prisma.deviceImportStagedReference.update({
