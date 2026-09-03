@@ -6,6 +6,8 @@ import {
   builtInFirmwareInterpretation,
   builtInPreferredModelPlatform,
 } from '@/lib/device-import-staged-firmware-assist'
+import { inferFirmwareTrainName } from '@/lib/device-import-normalization'
+import { selectDeviceImportFirmwareSource } from '@/lib/device-import-profile-predictions'
 
 describe('staged firmware built-in platform inference', () => {
   it.each([
@@ -32,6 +34,20 @@ describe('staged firmware built-in platform inference', () => {
       firmwareSource: null,
       reason: null,
     })
+  })
+
+  it('maps the SG350 Auvik example to Sx350 2.5.0.83 in train 2.5', () => {
+    const platform = builtInPreferredModelPlatform('Cisco SG350-28P')
+    const interpretation = builtInFirmwareInterpretation('Cisco SG350-28P', platform)
+    const version = selectDeviceImportFirmwareSource({
+      effective: '2.5.18',
+      firmwareVersion: '2.5.18',
+      softwareVersion: '2.5.0.83',
+    }, interpretation.firmwareSource)
+
+    expect(platform).toBe('Sx350')
+    expect(version).toBe('2.5.0.83')
+    expect(inferFirmwareTrainName(platform, version)).toBe('2.5')
   })
 
   it('does not guess for an unknown model', () => {
