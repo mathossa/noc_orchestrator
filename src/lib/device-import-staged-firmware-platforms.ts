@@ -119,15 +119,16 @@ export function firmwareEvidenceGroupsForReference(
   return [...groups.entries()].map(([contextKey, groupRows]) => ({ contextKey, rows: groupRows }))
 }
 
-function needsSourceSplit(reference: FirmwareReference) {
-  if (reference.contextKey.includes('|firmware-version:')) return false
-  const meta = metadata(reference.metadata)
-  return uniqueEvidence(meta.firmwareVersionSourceValues ?? []).length > 1 ||
-    uniqueEvidence(meta.softwareVersionSourceValues ?? []).length > 1
+export function shouldInspectFirmwareSourceSplit(reference: { kind: string; contextKey: string }) {
+  // Old staged batches grouped Firmware Releases only by the effective/raw
+  // firmware value. Always inspect those legacy references against the actual
+  // staged rows; their historical metadata may contain only one of several
+  // Software Versions and therefore cannot safely decide whether a split is needed.
+  return reference.kind === 'FIRMWARE_RELEASE' && !reference.contextKey.includes('|firmware-version:')
 }
 
 async function splitCollapsedFirmwareSourceReferences(batchId: string, references: FirmwareReference[]) {
-  const candidates = references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE' && needsSourceSplit(reference))
+  const candidates = references.filter(shouldInspectFirmwareSourceSplit)
   if (!candidates.length) return 0
 
   const stagedRows = await prisma.deviceImportStagedRow.findMany({

@@ -65,7 +65,14 @@ function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenc
     return `vendor:${normalizeImportText(values.vendor)}`
   }
   if (kind === 'FIRMWARE_RELEASE') {
-    return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+    const base = `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+    const firmwareVersion = normalizeImportText(values.firmwareVersion)
+    const softwareVersion = normalizeImportText(values.softwareVersion)
+    // The same upstream Firmware Version can describe devices that actually run
+    // different Software Versions. Keep the raw source evidence in the staged
+    // identity so those rows can fan out into separate canonical releases.
+    if (!firmwareVersion && !softwareVersion) return base
+    return `${base}|firmware-version:${firmwareVersion}|software-version:${softwareVersion}`
   }
   return ''
 }

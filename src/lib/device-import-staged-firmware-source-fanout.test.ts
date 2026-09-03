@@ -7,6 +7,7 @@ import { DEVICE_IMPORT_FIELDS, type DeviceImportField } from '@/lib/device-impor
 import {
   firmwareEvidenceGroupsForReference,
   hasCompetingFirmwareSourceEvidence,
+  shouldInspectFirmwareSourceSplit,
   stagedFirmwareEvidenceContext,
   stagedFirmwareLegacyRawContext,
 } from '@/lib/device-import-staged-firmware-platforms'
@@ -33,6 +34,17 @@ describe('firmware source fan-out', () => {
     currentFirmware: 'WC.16.01.0010',
     firmwareVersion: 'WC.16.01.0010',
     softwareVersion: 'WC.16.01.0030',
+  })
+
+  it('always inspects legacy firmware references instead of trusting incomplete collapsed metadata', () => {
+    expect(shouldInspectFirmwareSourceSplit({
+      kind: 'FIRMWARE_RELEASE',
+      contextKey: stagedFirmwareLegacyRawContext(row20),
+    })).toBe(true)
+    expect(shouldInspectFirmwareSourceSplit({
+      kind: 'FIRMWARE_RELEASE',
+      contextKey: stagedFirmwareEvidenceContext(row20),
+    })).toBe(false)
   })
 
   it('splits one raw Firmware Version into separate source-evidence groups', () => {

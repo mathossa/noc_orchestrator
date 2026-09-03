@@ -43,6 +43,41 @@ describe('staged device import references', () => {
     expect(firmware.contextKey).toBe('vendor:fortinet|model:fortinet fortigate-100f|platform:')
   })
 
+  it('keeps the same raw Firmware Version separate when Software Version differs', () => {
+    const references = buildDeviceImportStagedReferenceSeeds([
+      {
+        rowNumber: 2,
+        values: values({
+          vendor: 'HP',
+          model: 'HP 2530-24G',
+          platform: 'AOS-S',
+          currentFirmware: 'WC.16.01.0010',
+          firmwareVersion: 'WC.16.01.0010',
+          softwareVersion: 'WC.16.01.0020',
+        }),
+      },
+      {
+        rowNumber: 3,
+        values: values({
+          vendor: 'HP',
+          model: 'HP 2530-24G',
+          platform: 'AOS-S',
+          currentFirmware: 'WC.16.01.0010',
+          firmwareVersion: 'WC.16.01.0010',
+          softwareVersion: 'WC.16.01.0030',
+        }),
+      },
+    ], options)
+
+    const firmware = references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE')
+    expect(firmware).toHaveLength(2)
+    expect(firmware.map((reference) => reference.metadata.softwareVersionSourceValue)).toEqual(expect.arrayContaining([
+      'WC.16.01.0020',
+      'WC.16.01.0030',
+    ]))
+    expect(firmware.every((reference) => reference.occurrenceCount === 1)).toBe(true)
+  })
+
   it('collapses the same Vendor + Model even when upstream Device Type labels differ', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
       { rowNumber: 2, values: values({ vendor: 'Cisco', deviceType: 'Switch', model: 'Cisco WS-C2960X-24PS-L' }) },
