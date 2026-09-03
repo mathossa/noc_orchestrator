@@ -192,11 +192,9 @@ function normalizeGenericSiteValue(values: DeviceImportMappedValues, options: De
 }
 
 /**
- * Interpret source-specific firmware evidence exactly once, before the mapped
- * row is persisted and before references are aggregated. Keeping this separate
- * from buildDeviceImportStagedReferenceSeeds is important: repair/delta code
- * must be able to subtract the historical reference and add the canonical one
- * without the seed builder silently reinterpreting both sides to the same key.
+ * Interpret source-specific firmware evidence before a mapped row is persisted
+ * and before references are aggregated. Raw firmwareVersion/softwareVersion
+ * remain untouched for deep-dive and rule evaluation.
  */
 export function interpretDeviceImportMappedFirmware(
   values: DeviceImportMappedValues,
@@ -220,12 +218,15 @@ export function interpretDeviceImportMappedFirmware(
 export function buildDeviceImportStagedReferenceSeeds(
   rows: Array<{ rowNumber: number; values: DeviceImportMappedValues }>,
   options: DeviceImportOptions,
+  behavior: { interpretFirmware?: boolean } = {},
 ) {
   const result = new Map<string, DeviceImportStagedReferenceSeed>()
+  const interpretFirmware = behavior.interpretFirmware !== false
   for (const row of rows) {
-    // Generic Site normalization remains part of seed construction because it
-    // is itself an identity normalization. Firmware interpretation deliberately
-    // happens earlier in the import pipeline (see interpretDeviceImportMappedFirmware).
+    // Normal staging interprets running firmware exactly before aggregation.
+    // Delta/repair callers can disable it so a historical key can be removed
+    // before the canonical replacement is added.
+    if (interpretFirmware) interpretDeviceImportMappedFirmware(row.values, options)
     normalizeGenericSiteValue(row.values, options)
 
     addSeed(result, 'CUSTOMER', row.values.customer, row.values, row.rowNumber, options)
