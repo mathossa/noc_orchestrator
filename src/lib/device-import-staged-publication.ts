@@ -146,8 +146,13 @@ export function isUnclassifiedFirmwareRow(
   return stagedFirmwareReferenceForRow(values, references)?.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM'
 }
 
+// Device Type is deliberately not replayed into the final canonical device
+// validator. It is source evidence used while resolving a model; once a
+// concrete model has been accepted, that model's canonical Device Type is
+// authoritative. Replaying an upstream label such as Stack/Switch here could
+// invalidate an explicitly linked model during publication.
 const PUBLISH_FIELDS = [
-  'customer', 'site', 'name', 'hostname', 'serialNumber', 'vendor', 'model', 'deviceType', 'platform',
+  'customer', 'site', 'name', 'hostname', 'serialNumber', 'vendor', 'model', 'platform',
   'managementAddress', 'currentFirmware', 'contract', 'externalProvider', 'externalId', 'notes',
 ] as const satisfies readonly DeviceImportField[]
 
