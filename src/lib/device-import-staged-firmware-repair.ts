@@ -1,7 +1,5 @@
-import {
-  extractFirmwareVersion,
-  isPlaceholderFirmwareVersion,
-} from '@/lib/device-import'
+import { normalizeImportText } from '@/lib/device-import'
+import { selectImportedRunningFirmware } from '@/lib/device-import-running-firmware'
 import { refreshAffectedReferences } from '@/lib/device-import-staged-rules'
 import type { DeviceImportMappedValues } from '@/lib/device-import-staging'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
@@ -13,6 +11,14 @@ function mappedData(value: unknown) {
   ) as DeviceImportMappedValues
 }
 
+/**
+ * Reinterpret the staged row's effective Current Firmware from the raw source
+ * evidence. The function name is retained because existing staged-batch assist
+ * code already calls it, but this now repairs more than placeholder values:
+ * Cisco ROMMON/bootstrap values and AOS-S boot firmware are also prevented from
+ * becoming the canonical running release when Software Version contains the
+ * actual running software.
+ */
 export async function repairPlaceholderDeviceImportFirmware(batchId: string) {
   const batch = await prisma.deviceImportBatch.findUnique({
     where: { id: batchId },
@@ -27,11 +33,17 @@ export async function repairPlaceholderDeviceImportFirmware(batchId: string) {
   })
   const repairs = rows.flatMap((row) => {
     const before = mappedData(row.mappedData)
-    if (!isPlaceholderFirmwareVersion(before.currentFirmware)) return []
-    const softwareFirmware = extractFirmwareVersion(before.softwareVersion)
-    const replacement = softwareFirmware && !isPlaceholderFirmwareVersion(softwareFirmware) && /\d/.test(softwareFirmware)
-      ? softwareFirmware
-      : null
+    const selection = selectImportedRunningFirmware({
+      currentFirmware: before.currentFirmware,
+      firmwareVersion: before.firmwareVersion,
+      softwareVersion: before.softwareVersion,
+    })
+    const replacement = selection.version
+    if (
+      normalizeImportText(replacement) === normalizeImportText(before.currentFirmware)
+    )
+      return []
+
     return [
       {
         id: row.id,
