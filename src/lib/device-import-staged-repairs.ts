@@ -7,7 +7,11 @@ import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportMappedValues } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
 
-type RepairScope = 'ROWS' | 'INVALID_MANAGEMENT_ADDRESS' | 'SAME_MODEL_AS_ROW'
+type RepairScope =
+  | 'ROWS'
+  | 'INVALID_MANAGEMENT_ADDRESS'
+  | 'SAME_CUSTOMER_MODEL_AS_ROW'
+  | 'SAME_SITE_MODEL_AS_ROW'
 type RepairAction = 'SET_FIELD' | 'CLEAR_FIELD' | 'EXCLUDE'
 
 function mappedData(value: unknown): DeviceImportMappedValues {
@@ -36,9 +40,11 @@ export async function applyDeviceImportBlockedRepair(rawInput: unknown) {
     ? 'ROWS'
     : input.scope === 'INVALID_MANAGEMENT_ADDRESS'
       ? 'INVALID_MANAGEMENT_ADDRESS'
-      : input.scope === 'SAME_MODEL_AS_ROW'
-        ? 'SAME_MODEL_AS_ROW'
-        : null
+      : input.scope === 'SAME_CUSTOMER_MODEL_AS_ROW'
+        ? 'SAME_CUSTOMER_MODEL_AS_ROW'
+        : input.scope === 'SAME_SITE_MODEL_AS_ROW'
+          ? 'SAME_SITE_MODEL_AS_ROW'
+          : null
   const action: RepairAction | null = input.action === 'SET_FIELD'
     ? 'SET_FIELD'
     : input.action === 'CLEAR_FIELD'
@@ -91,20 +97,37 @@ export async function applyDeviceImportBlockedRepair(rawInput: unknown) {
   }
 
   if (!Number.isInteger(sampleRowNumber) || sampleRowNumber <= 0) {
-    throw new DeviceImportStagingError('Choose a sample row for the model-scoped repair.')
+    throw new DeviceImportStagingError('Choose one representative row before applying a customer/site platform repair.')
   }
   if (action !== 'SET_FIELD' || editField !== 'platform' || !editValue) {
-    throw new DeviceImportStagingError('Model-scoped platform repair requires a Software Platform value.')
+    throw new DeviceImportStagingError('Customer/site platform repair requires a Software Platform value.')
   }
+
   const sample = rows.find((row) => row.rowNumber === sampleRowNumber)
-  if (!sample) throw new DeviceImportStagingError('The selected sample row is no longer staged.')
-  const model = mappedData(sample.mappedData).model
-  if (!model) throw new DeviceImportStagingError('The selected sample row has no source model value.')
+  if (!sample) throw new DeviceImportStagingError('The selected representative row is no longer staged.')
+  const sampleValues = mappedData(sample.mappedData)
+  const model = sampleValues.model
+  const customer = sampleValues.customer
+  const site = sampleValues.site
+  if (!model) throw new DeviceImportStagingError('The selected row has no source model value.')
+  if (!customer) throw new DeviceImportStagingError('The selected row has no customer value, so a scoped platform choice cannot be applied safely.')
+  if (scope === 'SAME_SITE_MODEL_AS_ROW' && !site) {
+    throw new DeviceImportStagingError('The selected row has no site value. Choose a customer-scoped platform repair instead.')
+  }
+
   const normalizedModel = normalizeImportText(model)
+  const normalizedCustomer = normalizeImportText(customer)
+  const normalizedSite = normalizeImportText(site)
   const affected = rows
-    .filter((row) => normalizeImportText(mappedData(row.mappedData).model) === normalizedModel)
+    .filter((row) => {
+      const values = mappedData(row.mappedData)
+      if (normalizeImportText(values.model) !== normalizedModel) return false
+      if (normalizeImportText(values.customer) !== normalizedCustomer) return false
+      if (scope === 'SAME_SITE_MODEL_AS_ROW' && normalizeImportText(values.site) !== normalizedSite) return false
+      return true
+    })
     .map((row) => row.rowNumber)
-  if (!affected.length) throw new DeviceImportStagingError('No staged rows match the selected source model.')
+  if (!affected.length) throw new DeviceImportStagingError('No staged rows match the selected customer/site and model.')
 
   return applyDeviceImportRowAction({
     batchId,
