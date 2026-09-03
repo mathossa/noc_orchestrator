@@ -36,22 +36,54 @@ type PublicationFirmwareReference = {
   metadata?: unknown
 }
 
+type PublicationSiteTarget = {
+  id: string
+  customerId: string
+}
+
+type PublicationModelTarget = {
+  id: string
+  vendorId: string
+}
+
 type PublicationFirmwareTarget = {
   id: string
+  vendorId: string
   platform: string
   version: string
+}
+
+type PublicationResolutionTarget = {
+  customerId?: string | null
+  vendorId?: string | null
+  platform?: string | null
 }
 
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
 }
 
-function aliasContext(kind: string, rawMetadata: unknown) {
+/**
+ * Build the context key expected by the canonical import resolver.
+ *
+ * A staged reference's accepted target is authoritative. Staged metadata is
+ * useful evidence, but it can be incomplete or stale after dependencies are
+ * linked/repaired. Publication therefore derives scoped keys from the actual
+ * canonical Site/Model/Firmware target whenever possible and only falls back
+ * to metadata for backwards compatibility with older staged batches.
+ */
+export function publicationResolutionContext(
+  kind: string,
+  rawMetadata: unknown,
+  target: PublicationResolutionTarget | null = null,
+) {
   const meta = metadata(rawMetadata)
-  if (kind === 'SITE') return meta.customerTargetId ?? ''
-  if (kind === 'DEVICE_MODEL') return meta.vendorTargetId ?? ''
+  if (kind === 'SITE') return target?.customerId ?? meta.customerTargetId ?? ''
+  if (kind === 'DEVICE_MODEL') return target?.vendorId ?? meta.vendorTargetId ?? ''
   if (kind === 'FIRMWARE_RELEASE') {
-    return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
+    const vendorId = target?.vendorId ?? meta.vendorTargetId ?? null
+    const platform = target?.platform ?? meta.platform ?? ''
+    return vendorId ? `${vendorId}|${normalizedPlatform(platform)}` : ''
   }
   return ''
 }
@@ -118,29 +150,62 @@ async function publicationInput(batchId: string) {
     throw new DeviceImportStagingError('Resolve all active staged reference values before validating devices.')
   }
 
-  const firmwareTargetIds = [...new Set(references
-    .filter((reference) => reference.kind === 'FIRMWARE_RELEASE' && reference.targetId)
+  const targetIds = (kind: string) => [...new Set(references
+    .filter((reference) => reference.kind === kind && reference.targetId)
     .map((reference) => reference.targetId as string))]
-  const firmwareTargets = firmwareTargetIds.length
-    ? await prisma.firmwareRelease.findMany({
-        where: { id: { in: firmwareTargetIds } },
-        select: { id: true, platform: true, version: true },
-      })
-    : []
+  const siteTargetIds = targetIds('SITE')
+  const modelTargetIds = targetIds('DEVICE_MODEL')
+  const firmwareTargetIds = targetIds('FIRMWARE_RELEASE')
+
+  const [siteTargets, modelTargets, firmwareTargets] = await Promise.all([
+    siteTargetIds.length
+      ? prisma.site.findMany({
+          where: { id: { in: siteTargetIds } },
+          select: { id: true, customerId: true },
+        }) as Promise<PublicationSiteTarget[]>
+      : Promise.resolve([] as PublicationSiteTarget[]),
+    modelTargetIds.length
+      ? prisma.deviceModel.findMany({
+          where: { id: { in: modelTargetIds } },
+          select: { id: true, vendorId: true },
+        }) as Promise<PublicationModelTarget[]>
+      : Promise.resolve([] as PublicationModelTarget[]),
+    firmwareTargetIds.length
+      ? prisma.firmwareRelease.findMany({
+          where: { id: { in: firmwareTargetIds } },
+          select: { id: true, vendorId: true, platform: true, version: true },
+        }) as Promise<PublicationFirmwareTarget[]>
+      : Promise.resolve([] as PublicationFirmwareTarget[]),
+  ])
+
+  const siteTargetById = new Map(siteTargets.map((site) => [site.id, site]))
+  const modelTargetById = new Map(modelTargets.map((model) => [model.id, model]))
   const firmwareTargetById = new Map(firmwareTargets.map((release) => [release.id, release]))
 
   const resolutions: Record<string, string> = {}
   for (const reference of references) {
     if (!reference.targetId) continue
-    const context = aliasContext(reference.kind, reference.metadata)
+
+    const target = reference.kind === 'SITE'
+      ? siteTargetById.get(reference.targetId) ?? null
+      : reference.kind === 'DEVICE_MODEL'
+        ? modelTargetById.get(reference.targetId) ?? null
+        : reference.kind === 'FIRMWARE_RELEASE'
+          ? firmwareTargetById.get(reference.targetId) ?? null
+          : null
+    const context = publicationResolutionContext(reference.kind, reference.metadata, target)
+
     resolutions[importResolutionKey(
       reference.kind as DeviceImportReferenceKind,
       reference.sourceValue,
       context,
     )] = reference.targetId
     if (reference.kind === 'FIRMWARE_RELEASE') {
-      const target = firmwareTargetById.get(reference.targetId)
-      if (target) resolutions[importResolutionKey('FIRMWARE_RELEASE', target.version, context)] = target.id
+      const firmwareTarget = firmwareTargetById.get(reference.targetId)
+      if (firmwareTarget) {
+        const canonicalContext = publicationResolutionContext(reference.kind, reference.metadata, firmwareTarget)
+        resolutions[importResolutionKey('FIRMWARE_RELEASE', firmwareTarget.version, canonicalContext)] = firmwareTarget.id
+      }
     }
   }
 
