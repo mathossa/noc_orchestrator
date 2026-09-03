@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { classifyImportedDeviceModel, inferFirmwareTrainName, softwarePlatformLegacyValue, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
-import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
+import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
@@ -54,6 +54,21 @@ export function builtInPreferredModelPlatform(modelName: string) {
     (candidate) => candidate.code === classification.preferredSoftwarePlatformCode,
   )
   return preferred ? softwarePlatformLegacyValue(preferred) : ''
+}
+
+export function builtInFirmwareInterpretation(modelName: string, platformName = ''): {
+  firmwareSource: DeviceImportFirmwareSource | null
+  reason: string | null
+} {
+  const classification = classifyImportedDeviceModel(modelName)
+  const platform = normalizedFirmwarePlatform(platformName || builtInPreferredModelPlatform(modelName))
+  if (classification?.classificationKey === 'CISCO_SX350' || platform === 'sx350') {
+    return {
+      firmwareSource: 'SOFTWARE_VERSION',
+      reason: 'Cisco Sx350: use Software Version as the canonical running release; keep Firmware Version as raw source evidence.',
+    }
+  }
+  return { firmwareSource: null, reason: null }
 }
 
 async function assertMutableBatch(batchId: string) {
@@ -113,6 +128,9 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     platform: string
     modelIds: string[]
     matchedPredictionRuleIds: string[]
+    firmwareSources: DeviceImportFirmwareSource[]
+    resolutionSources: Array<'RULE' | 'BUILT_IN' | 'PREDICTION'>
+    interpretationReasons: string[]
   }>()
   for (const reference of references) {
     const meta = metadata(reference.metadata)
@@ -129,20 +147,30 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       softwareVersion: meta.softwareVersionSourceValue,
     }, firmwareRules)
     const predictedPlatforms = appliedRules.prediction.softwarePlatforms ?? []
-    const selectedFirmware = selectDeviceImportFirmwareSource({
-      effective: reference.sourceValue,
-      firmwareVersion: meta.firmwareVersionSourceValue,
-      softwareVersion: meta.softwareVersionSourceValue,
-    }, appliedRules.prediction.firmwareSource)
-    const transformedVersion = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
     // Prefer explicit/profile evidence first. If an already-configured model has
     // no platform metadata yet, built-in model classification can still provide
     // a safe single-platform proposal (for example Catalyst 9200/9300/9120 -> IOS XE).
     const modelPlatform = singleSupportedModelPlatform(model) || builtInPreferredModelPlatform(model.model)
     const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? modelPlatform
+    const builtInInterpretation = builtInFirmwareInterpretation(model.model, platform)
+    const firmwareSource = appliedRules.prediction.firmwareSource ?? builtInInterpretation.firmwareSource ?? 'EFFECTIVE'
+    const selectedFirmware = selectDeviceImportFirmwareSource({
+      effective: reference.sourceValue,
+      firmwareVersion: meta.firmwareVersionSourceValue,
+      softwareVersion: meta.softwareVersionSourceValue,
+    }, firmwareSource)
+    const transformedVersion = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
     const parsedVersion = splitFirmwareVersionVariant(platform, transformedVersion)
     const version = parsedVersion.version
     const variants = parsedVersion.variant ? [parsedVersion.variant] : []
+    const resolutionSource: 'RULE' | 'BUILT_IN' | 'PREDICTION' = appliedRules.matchedRuleIds.length
+      ? 'RULE'
+      : builtInInterpretation.firmwareSource || (!meta.platform && Boolean(modelPlatform))
+        ? 'BUILT_IN'
+        : 'PREDICTION'
+    const interpretationReason = appliedRules.prediction.firmwareSource
+      ? `Profile rule selected ${appliedRules.prediction.firmwareSource.replaceAll('_', ' ')} as the firmware source.`
+      : builtInInterpretation.reason
     const platformContext = platform ? normalizedFirmwarePlatform(platform) : `model:${modelId}`
     const key = `${vendorId}|${platformContext}|${normalizeImportText(version)}`
     const current = grouped.get(key)
@@ -152,6 +180,9 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       for (const variant of variants) if (!current.variants.includes(variant)) current.variants.push(variant)
       if (!current.modelIds.includes(modelId)) current.modelIds.push(modelId)
       for (const ruleId of appliedRules.matchedRuleIds) if (!current.matchedPredictionRuleIds.includes(ruleId)) current.matchedPredictionRuleIds.push(ruleId)
+      if (!current.firmwareSources.includes(firmwareSource)) current.firmwareSources.push(firmwareSource)
+      if (!current.resolutionSources.includes(resolutionSource)) current.resolutionSources.push(resolutionSource)
+      if (interpretationReason && !current.interpretationReasons.includes(interpretationReason)) current.interpretationReasons.push(interpretationReason)
     } else {
       grouped.set(key, {
         key,
@@ -163,6 +194,9 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
         platform,
         modelIds: [modelId],
         matchedPredictionRuleIds: appliedRules.matchedRuleIds,
+        firmwareSources: [firmwareSource],
+        resolutionSources: [resolutionSource],
+        interpretationReasons: interpretationReason ? [interpretationReason] : [],
       })
     }
   }
@@ -180,12 +214,22 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
           normalizeImportText(release.version) === normalizeImportText(proposal.version),
         ) ?? null
       : null
+    const resolutionSource = existingTarget
+      ? 'CATALOG'
+      : proposal.resolutionSources.includes('RULE')
+        ? 'RULE'
+        : proposal.resolutionSources.includes('BUILT_IN')
+          ? 'BUILT_IN'
+          : 'PREDICTION'
     return {
       ...proposal,
       vendorName: vendor.name,
       vendorCode: vendor.code,
       modelNames: proposalModels.map((model) => model.model),
       status: 'AVAILABLE',
+      firmwareSource: proposal.firmwareSources.length === 1 ? proposal.firmwareSources[0] : 'MIXED',
+      resolutionSource,
+      confidence: resolutionSource === 'CATALOG' || resolutionSource === 'RULE' ? 1 : resolutionSource === 'BUILT_IN' ? 0.99 : 0.7,
       firmwareTrainName: proposal.platform ? inferFirmwareTrainName(proposal.platform, proposal.version) : '',
       existingTarget: existingTarget ? { id: existingTarget.id, version: existingTarget.version, platform: existingTarget.platform, status: existingTarget.status } : null,
     }
