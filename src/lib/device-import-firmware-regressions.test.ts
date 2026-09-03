@@ -103,6 +103,48 @@ describe('firmware import regressions', () => {
     },
   )
 
+  it('can preserve a historical ROMMON reference key while a repair subtracts it', () => {
+    const options = parseDeviceImportOptions({
+      sheetName: 'Inventory',
+      headerRow: 1,
+      mapping: { '0': 'vendor' },
+      defaults: {},
+    })
+    const values = {
+      organizationSite: null,
+      customer: null,
+      site: null,
+      name: null,
+      hostname: null,
+      serialNumber: null,
+      vendor: 'Cisco',
+      model: 'Cisco C9800-L-F',
+      deviceType: null,
+      platform: null,
+      managementAddress: null,
+      currentFirmware: '16.12(3r)',
+      firmwareVersion: '16.12(3r)',
+      softwareVersion: '17.12.5',
+      contract: null,
+      externalProvider: 'Auvik',
+      externalId: null,
+      notes: null,
+    }
+
+    const canonical = buildDeviceImportStagedReferenceSeeds(
+      [{ rowNumber: 2, values: { ...values } }],
+      options,
+    ).find((reference) => reference.kind === 'FIRMWARE_RELEASE')
+    const historical = buildDeviceImportStagedReferenceSeeds(
+      [{ rowNumber: 2, values: { ...values } }],
+      options,
+      { interpretFirmware: false },
+    ).find((reference) => reference.kind === 'FIRMWARE_RELEASE')
+
+    expect(canonical?.sourceValue).toBe('17.12.5')
+    expect(historical?.sourceValue).toBe('16.12(3r)')
+  })
+
   it('stages AOS-S Software Version instead of boot Firmware Version', () => {
     const sheet: XlsxSheet = {
       name: 'Inventory',
