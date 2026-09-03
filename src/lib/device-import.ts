@@ -189,7 +189,18 @@ export function extractFirmwareVersion(value: string | null) {
   const cleaned = value.normalize('NFKC').trim()
   const explicitV = cleaned.match(/(?:^|[\s_-])v(\d+(?:\.\d+){1,5})\b/i)
   if (explicitV) return explicitV[1]
-  const dotted = cleaned.match(/\b(\d+(?:\.\d+){1,5})\b/)
+
+  // Prefer a complete token after an explicit Version label. Cisco IOS
+  // versions such as 15.2(7)E13 carry important train/suffix information
+  // after the dotted prefix and must not collapse to only 15.2.
+  const labelled = cleaned.match(/\bversion\s+([A-Za-z0-9][A-Za-z0-9._()/-]*)/i)
+  if (labelled) return labelled[1].replace(/[,:;]+$/, '')
+
+  // A compact source value is already a version token. Preserve vendor train
+  // prefixes/suffixes such as YA.16.11.0021 and 12.2(53)SE2 verbatim.
+  if (!/\s/.test(cleaned) && !/,/.test(cleaned)) return cleaned.replace(/[,:;]+$/, '')
+
+  const dotted = cleaned.match(/\b(\d+(?:\.\d+){1,5}(?:\([^)]+\))?(?:[A-Za-z][A-Za-z0-9._-]*)?)\b/)
   return dotted?.[1] ?? cleaned
 }
 
@@ -213,6 +224,8 @@ export function inferImportPlatform(values: {
   const model = normalizeImportText(values.model)
   const software = normalizeImportText(values.softwareVersion)
   const firmware = extractFirmwareVersion(values.currentFirmware ?? values.softwareVersion ?? null)
+
+  if (vendor.includes('meraki') || model.startsWith('meraki ')) return 'Meraki'
 
   const arubaLike = vendor.includes('aruba') || model.includes('aruba') || model.startsWith('ap-') || /^ap\d{2,4}/.test(model)
   if (arubaLike) {
@@ -389,10 +402,18 @@ export function mappedRows(sheet: XlsxSheet, options: DeviceImportOptions) {
 
       const reportedFirmware = values.firmwareVersion ?? values.currentFirmware
       const softwareFirmware = extractFirmwareVersion(values.softwareVersion)
-      if (reportedFirmware && (!isPlaceholderFirmwareVersion(reportedFirmware) || !softwareFirmware || isPlaceholderFirmwareVersion(softwareFirmware))) {
+      const meaningfulSoftwareFirmware = softwareFirmware && !isPlaceholderFirmwareVersion(softwareFirmware) && /\d/.test(softwareFirmware)
+        ? softwareFirmware
+        : null
+      if (reportedFirmware && !isPlaceholderFirmwareVersion(reportedFirmware)) {
         values.currentFirmware = reportedFirmware
-      } else if (softwareFirmware) {
-        values.currentFirmware = softwareFirmware
+      } else if (meaningfulSoftwareFirmware) {
+        values.currentFirmware = meaningfulSoftwareFirmware
+      } else if (reportedFirmware || softwareFirmware) {
+        // Upstream placeholder values such as 0 / 0.1 / 1 are not releases.
+        // Preserve the raw columns for deep-dive/rules, but keep effective
+        // current firmware unknown so they do not create reconciliation tasks.
+        values.currentFirmware = null
       }
 
       if (!values.platform) values.platform = inferImportPlatform(values)

@@ -29,14 +29,15 @@ export async function repairPlaceholderDeviceImportFirmware(batchId: string) {
     const before = mappedData(row.mappedData)
     if (!isPlaceholderFirmwareVersion(before.currentFirmware)) return []
     const softwareFirmware = extractFirmwareVersion(before.softwareVersion)
-    if (!softwareFirmware || isPlaceholderFirmwareVersion(softwareFirmware))
-      return []
+    const replacement = softwareFirmware && !isPlaceholderFirmwareVersion(softwareFirmware) && /\d/.test(softwareFirmware)
+      ? softwareFirmware
+      : null
     return [
       {
         id: row.id,
         rowNumber: row.rowNumber,
         before,
-        after: { ...before, currentFirmware: softwareFirmware },
+        after: { ...before, currentFirmware: replacement },
       },
     ]
   })
