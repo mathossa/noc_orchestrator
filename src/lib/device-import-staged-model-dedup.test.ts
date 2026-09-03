@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   batchFindUnique: vi.fn(),
+  batchUpdate: vi.fn(),
   referenceFindMany: vi.fn(),
   referenceDeleteMany: vi.fn(),
   referenceCreateMany: vi.fn(),
@@ -11,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    deviceImportBatch: { findUnique: mocks.batchFindUnique },
+    deviceImportBatch: { findUnique: mocks.batchFindUnique, update: mocks.batchUpdate },
     deviceImportStagedReference: { findMany: mocks.referenceFindMany },
     $transaction: mocks.transaction,
   },
@@ -23,7 +24,8 @@ import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-
 describe('staged Model reference identity repair', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.batchFindUnique.mockResolvedValue({ status: 'STAGED' })
+    mocks.batchFindUnique.mockResolvedValue({ status: 'STAGED', settings: {} })
+    mocks.batchUpdate.mockResolvedValue({})
     mocks.referenceFindMany.mockResolvedValue([
       { id: 'one', sourceValue: 'Cisco WS-C2960X-24PS-L', normalizedSourceValue: 'cisco ws-c2960x-24ps-l', contextKey: 'vendor:cisco|type:switch', metadata: { vendorSourceValue: 'Cisco', vendorTargetId: 'vendor-cisco', deviceTypeSourceValue: 'Switch', deviceTypeTargetId: 'type-switch', rowNumbers: [10, 11] }, status: 'UNRESOLVED', targetId: null, suggestedTargetId: null, suggestionScore: null, resolutionSource: null, occurrenceCount: 2 },
       { id: 'two', sourceValue: 'Cisco WS-C2960X-24PS-L', normalizedSourceValue: 'cisco ws-c2960x-24ps-l', contextKey: 'vendor:cisco|type:stack', metadata: { vendorSourceValue: 'Cisco', vendorTargetId: 'vendor-cisco', deviceTypeSourceValue: 'Stack', deviceTypeTargetId: 'type-switch', rowNumbers: [12] }, status: 'LINKED', targetId: 'model-2960', suggestedTargetId: null, suggestionScore: null, resolutionSource: 'USER', occurrenceCount: 1 },
@@ -55,5 +57,6 @@ describe('staged Model reference identity repair', () => {
       }),
     })] })
     expect(mocks.refresh).toHaveBeenCalledWith('batch-1')
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'batch-1' } }))
   })
 })
