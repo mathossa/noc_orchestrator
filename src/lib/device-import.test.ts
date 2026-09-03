@@ -3,6 +3,7 @@ import {
   detectHeaderRow,
   extractFirmwareVersion,
   headersFromRow,
+  isPlaceholderFirmwareVersion,
   importResolutionKey,
   mappedRows,
   parseDeviceImportOptions,
@@ -109,7 +110,7 @@ describe('device XLSX import mapping', () => {
       columnCount: 3,
       rows: [
         { rowNumber: 1, values: ['Current Firmware', 'Firmware Version', 'Software Version'] },
-        { rowNumber: 2, values: ['0.1', '0.1', 'Dublin 17.12.04'] },
+        { rowNumber: 2, values: ['0.1', '0.1', 'Cupertino 17.09.05'] },
       ],
     }
     const options = parseDeviceImportOptions({
@@ -120,10 +121,13 @@ describe('device XLSX import mapping', () => {
     })
 
     expect(mappedRows(auvikSheet, options)[0].values).toMatchObject({
-      currentFirmware: '17.12.04',
+      currentFirmware: '17.09.05',
       firmwareVersion: '0.1',
-      softwareVersion: 'Dublin 17.12.04',
+      softwareVersion: 'Cupertino 17.09.05',
     })
+    expect(isPlaceholderFirmwareVersion('0')).toBe(true)
+    expect(isPlaceholderFirmwareVersion('0.1')).toBe(true)
+    expect(isPlaceholderFirmwareVersion('1')).toBe(true)
   })
 
   it('extracts mapped non-empty data rows after the selected header', () => {

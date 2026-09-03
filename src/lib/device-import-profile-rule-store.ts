@@ -3,6 +3,7 @@ import {
   IMPORT_PREDICTION_FIELDS,
   IMPORT_PREDICTION_OPERATORS,
   type DeviceImportFirmwareTransform,
+  type DeviceImportFirmwareSource,
   type DeviceImportModelTransform,
   type DeviceImportPredictionResult,
 } from '@/lib/device-import-profile-predictions'
@@ -194,6 +195,16 @@ export async function createImportProfilePredictionRule(
     rawResult.firmwareTransforms,
     true,
   )
+  const rawFirmwareSource = text(rawResult.firmwareSource).toUpperCase()
+  if (
+    rawFirmwareSource &&
+    !['EFFECTIVE', 'FIRMWARE_VERSION', 'SOFTWARE_VERSION'].includes(
+      rawFirmwareSource,
+    )
+  )
+    throw new DeviceImportProfileRuleError('Choose a valid Firmware source.')
+  const requestedFirmwareSource = rawFirmwareSource as
+    DeviceImportFirmwareSource | ''
   if (
     !requestedVendorTargetId &&
     !requestedDeviceTypeTargetId &&
@@ -201,7 +212,8 @@ export async function createImportProfilePredictionRule(
     !requestedSoftwarePlatforms.length &&
     !requestedPreferredSoftwarePlatform &&
     !requestedModelTransforms.length &&
-    !requestedFirmwareTransforms.length
+    !requestedFirmwareTransforms.length &&
+    !requestedFirmwareSource
   )
     throw new DeviceImportProfileRuleError(
       'Choose at least one prediction output.',
@@ -263,6 +275,16 @@ export async function createImportProfilePredictionRule(
         ),
     ),
   ]
+  const existingFirmwareSource = text(
+    existingResult.firmwareSource,
+  ).toUpperCase()
+  const firmwareSource = (requestedFirmwareSource ||
+    (['EFFECTIVE', 'FIRMWARE_VERSION', 'SOFTWARE_VERSION'].includes(
+      existingFirmwareSource,
+    )
+      ? existingFirmwareSource
+      : '') ||
+    null) as DeviceImportFirmwareSource | null
 
   const [vendor, deviceType, family] = await Promise.all([
     vendorTargetId
@@ -309,6 +331,7 @@ export async function createImportProfilePredictionRule(
     preferredSoftwarePlatform,
     modelTransforms: modelTransformsResult,
     firmwareTransforms: firmwareTransformsResult,
+    firmwareSource,
     origin: 'MANUAL',
   }
   return prisma.deviceImportProfileRule.upsert({

@@ -1,4 +1,7 @@
-import { normalizeImportText } from '@/lib/device-import'
+import {
+  extractFirmwareVersion,
+  normalizeImportText,
+} from '@/lib/device-import'
 
 export const IMPORT_PREDICTION_FIELDS = [
   'vendor',
@@ -6,6 +9,7 @@ export const IMPORT_PREDICTION_FIELDS = [
   'deviceType',
   'platform',
   'firmware',
+  'firmwareVersion',
   'softwareVersion',
 ] as const
 export type ImportPredictionField = (typeof IMPORT_PREDICTION_FIELDS)[number]
@@ -26,6 +30,7 @@ export type DeviceImportPredictionResult = {
   preferredSoftwarePlatform?: string | null
   modelTransforms?: DeviceImportModelTransform[]
   firmwareTransforms?: DeviceImportFirmwareTransform[]
+  firmwareSource?: DeviceImportFirmwareSource | null
   origin?: 'MANUAL' | 'LEARNED'
 }
 
@@ -40,6 +45,9 @@ export type DeviceImportFirmwareTransform = {
   value?: string
   replacement?: string
 }
+
+export type DeviceImportFirmwareSource =
+  'EFFECTIVE' | 'FIRMWARE_VERSION' | 'SOFTWARE_VERSION'
 
 export type DeviceImportPredictionRule = {
   id?: string
@@ -102,6 +110,8 @@ export function applyDeviceImportPredictionRules(
       prediction.softwarePlatforms = next.softwarePlatforms
     if (!prediction.preferredSoftwarePlatform && next.preferredSoftwarePlatform)
       prediction.preferredSoftwarePlatform = next.preferredSoftwarePlatform
+    if (!prediction.firmwareSource && next.firmwareSource)
+      prediction.firmwareSource = next.firmwareSource
     if (next.modelTransforms?.length) {
       const transforms = prediction.modelTransforms ?? []
       for (const transform of next.modelTransforms) {
@@ -208,4 +218,21 @@ export function applyDeviceImportFirmwareTransforms(
     transformed = transformed.trim().replace(/\s+/g, ' ')
   }
   return transformed || original
+}
+
+export function selectDeviceImportFirmwareSource(
+  values: {
+    effective: string
+    firmwareVersion?: string | null
+    softwareVersion?: string | null
+  },
+  source: DeviceImportFirmwareSource | null | undefined,
+) {
+  const selected =
+    source === 'FIRMWARE_VERSION'
+      ? values.firmwareVersion || values.effective
+      : source === 'SOFTWARE_VERSION'
+        ? values.softwareVersion || values.effective
+        : values.effective
+  return extractFirmwareVersion(selected) ?? selected
 }

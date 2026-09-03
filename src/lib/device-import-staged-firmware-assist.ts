@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
 import { inferFirmwareTrainName } from '@/lib/device-import-normalization'
-import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
+import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
@@ -72,7 +72,7 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
   const modelById = new Map(models.map((model) => [model.id, model]))
   const firmwareRules = profileRules.filter((rule) => {
     const result = typeof rule.result === 'object' && rule.result !== null ? rule.result as Record<string, unknown> : {}
-    return Boolean(result.preferredSoftwarePlatform) || (Array.isArray(result.softwarePlatforms) && result.softwarePlatforms.length > 0) || (Array.isArray(result.firmwareTransforms) && result.firmwareTransforms.length > 0)
+    return Boolean(result.preferredSoftwarePlatform) || Boolean(result.firmwareSource) || (Array.isArray(result.softwarePlatforms) && result.softwarePlatforms.length > 0) || (Array.isArray(result.firmwareTransforms) && result.firmwareTransforms.length > 0)
   })
 
   const grouped = new Map<string, {
@@ -96,10 +96,16 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       model: meta.modelSourceValue,
       platform: meta.platform,
       firmware: reference.sourceValue,
+      firmwareVersion: meta.firmwareVersionSourceValue,
       softwareVersion: meta.softwareVersionSourceValue,
     }, firmwareRules)
     const predictedPlatforms = appliedRules.prediction.softwarePlatforms ?? []
-    const version = applyDeviceImportFirmwareTransforms(reference.sourceValue, appliedRules.prediction.firmwareTransforms)
+    const selectedFirmware = selectDeviceImportFirmwareSource({
+      effective: reference.sourceValue,
+      firmwareVersion: meta.firmwareVersionSourceValue,
+      softwareVersion: meta.softwareVersionSourceValue,
+    }, appliedRules.prediction.firmwareSource)
+    const version = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
     // Never turn an ambiguous multi-platform model back into its legacy/default
     // platform. Only staged device evidence or a genuinely single supported
     // model platform can make a Firmware proposal safe enough to prepare.

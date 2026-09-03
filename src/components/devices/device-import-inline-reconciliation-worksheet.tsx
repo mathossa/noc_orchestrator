@@ -32,6 +32,7 @@ type ReferenceMetadata = {
   platform?: string | null
   platforms?: string[]
   softwareVersionSourceValue?: string | null
+  firmwareVersionSourceValue?: string | null
   waitingFor?: DeviceImportReferenceKind[]
 }
 type Reference = {
@@ -206,7 +207,7 @@ type CoreDraft = {
 }
 type FamilyDraft = { familyId: string; name: string }
 type RuleDraft = {
-  field: 'vendor' | 'model' | 'deviceType' | 'platform' | 'firmware' | 'softwareVersion'
+  field: 'vendor' | 'model' | 'deviceType' | 'platform' | 'firmware' | 'firmwareVersion' | 'softwareVersion'
   operator: 'EQUALS' | 'PREFIX' | 'CONTAINS'
   value: string
   vendorTargetId: string
@@ -220,6 +221,7 @@ type RuleDraft = {
   firmwareTransformOperation: '' | 'EXTRACT_VERSION' | 'REMOVE_PREFIX' | 'REPLACE'
   firmwareTransformValue: string
   firmwareTransformReplacement: string
+  firmwareSource: '' | 'FIRMWARE_VERSION' | 'SOFTWARE_VERSION'
 }
 type ApplyFailure = { key: string; message: string }
 type ApplyPayload = {
@@ -454,6 +456,8 @@ function profileRuleOutputLabel(rule: ProfileRule, assist: Assist) {
       if (transform.operation === 'REPLACE' && typeof transform.value === 'string') outputs.push(`Firmware: replace “${transform.value}” with “${typeof transform.replacement === 'string' ? transform.replacement : ''}”`)
     }
   }
+  if (result.firmwareSource === 'FIRMWARE_VERSION') outputs.push('Firmware source: Firmware Version column')
+  if (result.firmwareSource === 'SOFTWARE_VERSION') outputs.push('Firmware source: Raw Software Version')
   return outputs.join(' · ') || 'No prediction output'
 }
 
@@ -521,6 +525,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     firmwareTransformOperation: '',
     firmwareTransformValue: '',
     firmwareTransformReplacement: '',
+    firmwareSource: '',
   })
   const [predictionSelection, setPredictionSelection] = useState<Set<string>>(() => new Set())
   const [firmwarePredictionSelection, setFirmwarePredictionSelection] = useState<Set<string>>(() => new Set())
@@ -970,12 +975,13 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
                   replacement: ruleDraft.firmwareTransformOperation === 'REPLACE' ? ruleDraft.firmwareTransformReplacement : undefined,
                 }]
               : [],
+            firmwareSource: ruleDraft.firmwareSource || null,
           },
         }),
       })
       const payload = await readJson<{ data?: { id: string } } & ApiError>(response, 'The prediction rule could not be saved.')
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The prediction rule could not be saved.')
-      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '', modelTransformOperation: '', modelTransformValue: '', modelTransformReplacement: '', firmwareTransformOperation: '', firmwareTransformValue: '', firmwareTransformReplacement: '' }))
+      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '', modelTransformOperation: '', modelTransformValue: '', modelTransformReplacement: '', firmwareTransformOperation: '', firmwareTransformValue: '', firmwareTransformReplacement: '', firmwareSource: '' }))
       await load()
       setNotice('Prediction rule saved. All predictions were recalculated with the updated profile rules.')
     } catch (ruleError) {
@@ -1341,7 +1347,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
           <section className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Rules can classify Models or Firmware. For example: if Firmware contains Dublin, predict IOS XE and extract 17.12.04. Saving the same condition adds to its existing outputs.</p></div>
             <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(220px,1fr)]">
-              {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option><option value="firmware">Firmware Version</option><option value="softwareVersion">Raw Software Version</option></SelectInput> })}
+              {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option><option value="firmware">Effective Firmware</option><option value="firmwareVersion">Raw Firmware Version</option><option value="softwareVersion">Raw Software Version</option></SelectInput> })}
               {field({ label: 'Condition', children: <SelectInput value={ruleDraft.operator} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, operator: event.target.value as RuleDraft['operator'] }))}><option value="EQUALS">Equals</option><option value="PREFIX">Starts with</option><option value="CONTAINS">Contains</option></SelectInput> })}
               {field({ label: 'Source value', children: <TextInput value={ruleDraft.value} disabled={ruleBusy} placeholder="e.g. Aruba or C9300" onChange={(event) => setRuleDraft((current) => ({ ...current, value: event.target.value }))} /> })}
             </div>
@@ -1358,7 +1364,8 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
               {field({ label: 'Replace with', children: <TextInput value={ruleDraft.modelTransformReplacement} disabled={ruleBusy || ruleDraft.modelTransformOperation !== 'REPLACE'} placeholder="Empty removes the text" onChange={(event) => setRuleDraft((current) => ({ ...current, modelTransformReplacement: event.target.value }))} /> })}
             </div>
             {ruleDraft.modelTransformOperation === 'REMOVE_PREFIX' ? <p className="mt-2 text-xs text-[var(--muted)]">Prefix removal is anchored to the beginning: “HP 2930F VSF” becomes “2930F VSF”, while “HPE Aruba 2930F” is unchanged.</p> : null}
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {field({ label: 'Firmware source', children: <SelectInput value={ruleDraft.firmwareSource} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareSource: event.target.value as RuleDraft['firmwareSource'] }))}><option value="">Automatic / effective value</option><option value="FIRMWARE_VERSION">Use Firmware Version column</option><option value="SOFTWARE_VERSION">Use Raw Software Version</option></SelectInput>, hint: 'Stored with this profile and reused on future imports.' })}
               {field({ label: 'Firmware cleanup', children: <SelectInput value={ruleDraft.firmwareTransformOperation} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformOperation: event.target.value as RuleDraft['firmwareTransformOperation'], firmwareTransformValue: event.target.value === 'EXTRACT_VERSION' ? '' : current.firmwareTransformValue, firmwareTransformReplacement: event.target.value === 'REPLACE' ? current.firmwareTransformReplacement : '' }))}><option value="">No Firmware cleanup</option><option value="EXTRACT_VERSION">Extract dotted version (recommended)</option><option value="REMOVE_PREFIX">Remove prefix</option><option value="REPLACE">Replace text</option></SelectInput> })}
               {field({ label: ruleDraft.firmwareTransformOperation === 'REMOVE_PREFIX' ? 'Prefix to remove' : 'Text to replace', children: <TextInput value={ruleDraft.firmwareTransformValue} disabled={ruleBusy || !['REMOVE_PREFIX', 'REPLACE'].includes(ruleDraft.firmwareTransformOperation)} placeholder={ruleDraft.firmwareTransformOperation === 'REMOVE_PREFIX' ? 'e.g. Dublin' : 'Text to replace'} onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformValue: event.target.value }))} /> })}
               {field({ label: 'Replace with', children: <TextInput value={ruleDraft.firmwareTransformReplacement} disabled={ruleBusy || ruleDraft.firmwareTransformOperation !== 'REPLACE'} placeholder="Empty removes the text" onChange={(event) => setRuleDraft((current) => ({ ...current, firmwareTransformReplacement: event.target.value }))} /> })}

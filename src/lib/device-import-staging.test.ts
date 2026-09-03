@@ -67,12 +67,14 @@ describe('staged device import references', () => {
 
   it('keeps raw Software Version evidence on Firmware references for profile rules', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
-      { rowNumber: 2, values: values({ vendor: 'Cisco', model: 'C9300-24P', currentFirmware: '17.12.04', softwareVersion: 'Dublin 17.12.04' }) },
+      { rowNumber: 2, values: values({ vendor: 'Cisco', model: 'C9300-24P', currentFirmware: '17.12.04', firmwareVersion: '0.1', softwareVersion: 'Dublin 17.12.04' }) },
     ], options)
 
     expect(references.find((reference) => reference.kind === 'FIRMWARE_RELEASE')?.metadata).toMatchObject({
       softwareVersionSourceValue: 'Dublin 17.12.04',
       softwareVersionSourceValues: ['Dublin 17.12.04'],
+      firmwareVersionSourceValue: '0.1',
+      firmwareVersionSourceValues: ['0.1'],
     })
   })
 

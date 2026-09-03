@@ -28,6 +28,8 @@ export type DeviceImportStagedReferenceMetadata = {
   modelTargetId?: string | null
   platform?: string | null
   platforms?: string[]
+  firmwareVersionSourceValue?: string | null
+  firmwareVersionSourceValues?: string[]
   softwareVersionSourceValue?: string | null
   softwareVersionSourceValues?: string[]
   waitingFor?: DeviceImportReferenceKind[]
@@ -87,6 +89,8 @@ function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferen
     base.modelSourceValue = clean(values.model)
     base.platform = clean(values.platform)
     base.platforms = base.platform ? [base.platform] : []
+    base.firmwareVersionSourceValue = clean(values.firmwareVersion)
+    base.firmwareVersionSourceValues = base.firmwareVersionSourceValue ? [base.firmwareVersionSourceValue] : []
     base.softwareVersionSourceValue = clean(values.softwareVersion)
     base.softwareVersionSourceValues = base.softwareVersionSourceValue ? [base.softwareVersionSourceValue] : []
   }
@@ -111,6 +115,16 @@ function mergeDeviceTypeMetadata(metadata: DeviceImportStagedReferenceMetadata, 
   if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(deviceType)
   metadata.deviceTypeSourceValues = values
   metadata.deviceTypeSourceValue = values[0] ?? null
+}
+
+function mergeFirmwareVersionMetadata(metadata: DeviceImportStagedReferenceMetadata, firmwareVersionValue: string | null) {
+  const firmwareVersion = clean(firmwareVersionValue)
+  if (!firmwareVersion) return
+  const values = metadata.firmwareVersionSourceValues ?? (metadata.firmwareVersionSourceValue ? [metadata.firmwareVersionSourceValue] : [])
+  const normalized = normalizeImportText(firmwareVersion)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(firmwareVersion)
+  metadata.firmwareVersionSourceValues = values
+  metadata.firmwareVersionSourceValue = values[0] ?? null
 }
 
 function mergeSoftwareVersionMetadata(metadata: DeviceImportStagedReferenceMetadata, softwareVersionValue: string | null) {
@@ -147,6 +161,7 @@ function addSeed(
       mergeDeviceTypeMetadata(current.metadata, values.deviceType)
     } else if (kind === 'FIRMWARE_RELEASE') {
       mergePlatformMetadata(current.metadata, values.platform)
+      mergeFirmwareVersionMetadata(current.metadata, values.firmwareVersion)
       mergeSoftwareVersionMetadata(current.metadata, values.softwareVersion)
     }
     return

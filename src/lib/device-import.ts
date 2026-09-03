@@ -196,7 +196,7 @@ export function extractFirmwareVersion(value: string | null) {
 export function isPlaceholderFirmwareVersion(value: string | null) {
   const version = extractFirmwareVersion(value)
   if (!version) return false
-  return /^0+(?:\\.0+)*$/.test(version) || /^0+\\.0*1$/.test(version)
+  return /^0+(?:\.0+)*$/.test(version) || /^0+\.0*1$/.test(version) || /^1(?:\.0+)*$/.test(version)
 }
 
 export function inferImportPlatform(values: {

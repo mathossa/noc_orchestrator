@@ -82,6 +82,11 @@ export async function refreshAffectedReferences(batchId: string, changes: Array<
         nextMetadata.softwareVersionSourceValues = softwareVersions
         nextMetadata.softwareVersionSourceValue = softwareVersions[0]
       }
+      const firmwareVersions = [...new Map([...(oldMetadata.firmwareVersionSourceValues ?? []), ...(change.seed.metadata.firmwareVersionSourceValues ?? [])].map((value) => [normalizeImportText(value), value])).values()].filter(Boolean)
+      if (firmwareVersions.length) {
+        nextMetadata.firmwareVersionSourceValues = firmwareVersions
+        nextMetadata.firmwareVersionSourceValue = firmwareVersions[0]
+      }
     }
     if (current) return [prisma.deviceImportStagedReference.update({ where: { id: current.id }, data: { occurrenceCount, metadata: nextMetadata } })]
     return [prisma.deviceImportStagedReference.create({ data: { batchId, kind: change.seed.kind, sourceValue: change.seed.sourceValue, normalizedSourceValue: change.seed.normalizedSourceValue, contextKey: change.seed.contextKey, metadata: change.seed.metadata, occurrenceCount, status: 'UNRESOLVED' } })]

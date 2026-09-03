@@ -4,6 +4,7 @@ import {
   applyDeviceImportModelTransforms,
   applyDeviceImportPredictionRules,
   importPredictionRuleMatches,
+  selectDeviceImportFirmwareSource,
   type DeviceImportPredictionRule,
 } from '@/lib/device-import-profile-predictions'
 
@@ -146,5 +147,30 @@ describe('device import profile predictions', () => {
         applied.prediction.firmwareTransforms,
       ),
     ).toBe('17.12.04')
+  })
+
+  it('can explicitly switch a placeholder Firmware Version to raw Software Version', () => {
+    const applied = applyDeviceImportPredictionRules(
+      { firmwareVersion: '0.1', softwareVersion: 'Cupertino 17.09.05' },
+      [
+        rule({
+          field: 'firmwareVersion',
+          operator: 'EQUALS',
+          normalizedValue: '0.1',
+          result: { firmwareSource: 'SOFTWARE_VERSION' },
+        }),
+      ],
+    )
+    expect(applied.prediction.firmwareSource).toBe('SOFTWARE_VERSION')
+    expect(
+      selectDeviceImportFirmwareSource(
+        {
+          effective: '0.1',
+          firmwareVersion: '0.1',
+          softwareVersion: 'Cupertino 17.09.05',
+        },
+        applied.prediction.firmwareSource,
+      ),
+    ).toBe('17.09.05')
   })
 })
