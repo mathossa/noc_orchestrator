@@ -38,12 +38,11 @@ export async function GET(_request: Request, context: RouteContext) {
     }
 
     // These are version-marked legacy migrations. They execute at most once
-    // for an old staged batch. Normal page loads must not repeatedly rewrite
-    // Model/Firmware state just because the worksheet was opened.
-    await Promise.all([
-      repairPlaceholderDeviceImportFirmware(batchId),
-      repairDuplicateDeviceImportModelReferences(batchId),
-    ])
+    // for an old staged batch. Keep them serial: each migration can rewrite and
+    // refresh staged references, so running them concurrently risks one repair
+    // rebuilding state while the other repair is deleting/merging it.
+    await repairPlaceholderDeviceImportFirmware(batchId)
+    await repairDuplicateDeviceImportModelReferences(batchId)
 
     const workspace = await getDeviceImportBatchWorkspace(batchId)
     const [core, sites, models, firmware, vendorAliases, profileRules] = await Promise.all([
