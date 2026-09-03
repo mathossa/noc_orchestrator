@@ -17,7 +17,12 @@ describe('device import classification hierarchy', () => {
       'Switch',
     ],
     ['FortiAP FAP-231F', 'FAP-231F', 'FortiAP', 'FORTIAP-OS', 'Access Point'],
+    ['Cisco C9200L-24P-4G', 'C9200L-24P-4G', 'Catalyst', 'IOS-XE', 'Switch'],
+    ['Cisco C9200L-24P-4X', 'C9200L-24P-4X', 'Catalyst', 'IOS-XE', 'Switch'],
     ['Cisco C9300-24P', 'C9300-24P', 'Catalyst', 'IOS-XE', 'Switch'],
+    ['Cisco C9300CX-8P-2X2G', 'C9300CX-8P-2X2G', 'Catalyst', 'IOS-XE', 'Switch'],
+    ['Cisco C9120AXI-E', 'C9120AXI-E', 'Catalyst', 'IOS-XE', 'Access Point'],
+    ['Cisco C9120AXE-E', 'C9120AXE-E', 'Catalyst', 'IOS-XE', 'Access Point'],
     ['WS-C2960X-24PS-L', 'WS-C2960X-24PS-L', 'Catalyst', 'IOS', 'Switch'],
     ['Aruba 2530-48G', '2530-48G', 'Aruba Switch', 'AOS-S', 'Switch'],
     ['CX 6200F', 'CX 6200F', 'Aruba CX', 'AOS-CX', 'Switch'],
@@ -74,5 +79,6 @@ describe('device import classification hierarchy', () => {
     expect(inferFirmwareTrainName('FortiOS', '7.4.7')).toBe('7.4')
     expect(inferFirmwareTrainName('AOS-S', 'WC.16.11.0020')).toBe('WC.16.11')
     expect(inferFirmwareTrainName('IOS XE', '17.12.5')).toBe('17.12')
+    expect(inferFirmwareTrainName('IOS-XE', '17.15.05')).toBe('17.15')
   })
 })
