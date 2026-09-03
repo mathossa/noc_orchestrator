@@ -105,7 +105,7 @@ export function builtInFirmwareInterpretation(
 ): BuiltInFirmwareInterpretation
 export function builtInFirmwareInterpretation(
   inputOrModel: string | BuiltInFirmwareInput,
-  legacyPlatformName = '',
+  legacyPlatformName: string | null = '',
 ): BuiltInFirmwareInterpretation {
   const input: BuiltInFirmwareInput =
     typeof inputOrModel === 'string'
@@ -176,28 +176,31 @@ export function interpretDeviceImportFirmwareEvidence(
     model: modelName,
     platform,
   })
+  const softwareOnly = selectImportedRunningFirmware({
+    currentFirmware: null,
+    firmwareVersion: null,
+    softwareVersion: values.softwareVersion,
+    vendor: values.vendor,
+    model: modelName,
+    platform,
+  })
 
-  // A built-in rule is allowed to override the generic source selector only
-  // when that source actually contains a usable version (currently Sx350).
-  const source = builtIn.firmwareSource ?? sourceForSelection(selection) ?? 'EFFECTIVE'
-  const selected =
-    source === 'SOFTWARE_VERSION'
-      ? selectImportedRunningFirmware({
-          currentFirmware: null,
-          firmwareVersion: null,
-          softwareVersion: values.softwareVersion,
-          vendor: values.vendor,
-          model: modelName,
-          platform,
-        })
-      : selection
-  const currentFirmware = selected.version ?? selection.version
+  // A built-in Software Version rule is authoritative only when usable software
+  // evidence exists. Otherwise retain the generic selector's source/version.
+  const useBuiltInSoftware =
+    builtIn.firmwareSource === 'SOFTWARE_VERSION' && Boolean(softwareOnly.version)
+  const selected = useBuiltInSoftware ? softwareOnly : selection
+  const source = useBuiltInSoftware
+    ? 'SOFTWARE_VERSION'
+    : sourceForSelection(selection) ?? 'EFFECTIVE'
 
   return {
-    currentFirmware,
+    currentFirmware: selected.version,
     platform,
-    firmwareSource: currentFirmware ? source : 'EFFECTIVE',
-    reason: builtIn.reason ?? interpretationReason(selection),
+    firmwareSource: selected.version ? source : 'EFFECTIVE',
+    reason: useBuiltInSoftware
+      ? builtIn.reason
+      : interpretationReason(selection),
     firmwareVersionKind: isCiscoRommonVersion(values.firmwareVersion)
       ? 'ROMMON'
       : null,
