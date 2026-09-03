@@ -16,7 +16,7 @@ import {
   type DeviceImportUnresolvedReference,
   DeviceImportValidationError,
 } from '@/lib/device-import'
-import { normalizedDeviceName, normalizedPlatform, parseDeviceInput } from '@/lib/devices'
+import { DeviceValidationError, normalizedDeviceName, normalizedPlatform, parseDeviceInput } from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 import type { XlsxWorkbook } from '@/lib/xlsx-reader'
 
@@ -83,8 +83,39 @@ type PlannedRow = DeviceImportPreviewRow & {
 type ImportPlan = { preview: DeviceImportPreview; rows: PlannedRow[] }
 type ImportSelection = { mode: 'ALL_IMPORTABLE'; rows: number[] } | { mode: 'ROWS'; rows: number[] }
 
+export type DeviceImportCommitProgress = {
+  rowNumbers: number[]
+  created: number
+  updated: number
+}
+
+export type DeviceImportCommitBehavior = {
+  transactionChunkSize?: number
+  onPlanReady?: (plan: {
+    selectedRowNumbers: number[]
+    unchangedRowNumbers: number[]
+    blockedRowNumbers: number[]
+  }) => Promise<void> | void
+  onChunkCommitted?: (progress: DeviceImportCommitProgress) => Promise<void> | void
+}
+
+export type DeviceImportBlockedReview = {
+  total: number
+  filteredTotal: number
+  offset: number
+  limit: number
+  reasons: Array<{
+    key: string
+    action: 'ERROR' | 'CONFLICT'
+    message: string
+    count: number
+  }>
+  rows: DeviceImportPreviewRow[]
+}
+
 const SERVER_PREVIEW_ROW_LIMIT = 200
 const RESULT_ROW_SAMPLE_LIMIT = 100_000
+const MAX_BLOCKED_REVIEW_PAGE = 100
 
 function exactNameOrCode<T extends { name: string; code?: string | null }>(value: string, records: T[]) {
   const normalized = normalizeImportText(value)
@@ -537,6 +568,14 @@ function unresolvedReferences(rows: PlannedRow[]): DeviceImportUnresolvedReferen
   return [...unresolved.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.sourceValue.localeCompare(b.sourceValue))
 }
 
+function validationIssueMessage(error: unknown) {
+  if (error instanceof DeviceValidationError) {
+    const details = Object.entries(error.fields).map(([field, message]) => `${field}: ${message}`).join(' · ')
+    return details || error.message
+  }
+  return error instanceof Error ? error.message : 'The mapped row is not a valid device record.'
+}
+
 async function buildPlan(workbook: XlsxWorkbook, options: DeviceImportOptions, fileName: string, now: Date): Promise<ImportPlan> {
   const sheet = workbook.sheets.find((record) => record.name === options.sheetName)
   if (!sheet) throw new DeviceImportValidationError('The selected worksheet is unavailable.')
@@ -589,7 +628,7 @@ async function buildPlan(workbook: XlsxWorkbook, options: DeviceImportOptions, f
           isActive: existing?.isActive ?? true,
         })
       } catch (error) {
-        issues.push({ level: 'error', message: error instanceof Error ? error.message : 'The mapped row is not a valid device record.' })
+        issues.push({ level: 'error', message: validationIssueMessage(error) })
       }
     }
 
@@ -639,6 +678,52 @@ export async function previewDeviceImport(workbook: XlsxWorkbook, options: Devic
   return (await buildPlan(workbook, options, fileName, new Date())).preview
 }
 
+function blockedReasonKey(action: 'ERROR' | 'CONFLICT', message: string) {
+  return `${action}\u001f${message}`
+}
+
+export async function reviewDeviceImportBlockers(
+  workbook: XlsxWorkbook,
+  options: DeviceImportOptions,
+  fileName: string,
+  input: { offset?: number; limit?: number; reason?: string | null } = {},
+): Promise<DeviceImportBlockedReview> {
+  const plan = await buildPlan(workbook, options, fileName, new Date())
+  const blocked = plan.rows.filter((row): row is PlannedRow & { action: 'ERROR' | 'CONFLICT' } => row.action === 'ERROR' || row.action === 'CONFLICT')
+  const reasonCounts = new Map<string, { key: string; action: 'ERROR' | 'CONFLICT'; message: string; rows: Set<number> }>()
+
+  for (const row of blocked) {
+    const messages = row.issues.filter((issue) => issue.level === 'error').map((issue) => issue.message)
+    const uniqueMessages = [...new Set(messages.length ? messages : ['Blocked without a detailed validation message.'])]
+    for (const message of uniqueMessages) {
+      const key = blockedReasonKey(row.action, message)
+      const current = reasonCounts.get(key) ?? { key, action: row.action, message, rows: new Set<number>() }
+      current.rows.add(row.rowNumber)
+      reasonCounts.set(key, current)
+    }
+  }
+
+  const reasons = [...reasonCounts.values()]
+    .map((reason) => ({ key: reason.key, action: reason.action, message: reason.message, count: reason.rows.size }))
+    .sort((left, right) => right.count - left.count || left.message.localeCompare(right.message))
+
+  const reason = input.reason?.trim() || null
+  const filtered = reason
+    ? blocked.filter((row) => row.issues.some((issue) => blockedReasonKey(row.action, issue.message) === reason))
+    : blocked
+  const limit = Math.max(1, Math.min(MAX_BLOCKED_REVIEW_PAGE, Number.isInteger(input.limit) ? Number(input.limit) : 50))
+  const offset = Math.max(0, Math.min(filtered.length, Number.isInteger(input.offset) ? Number(input.offset) : 0))
+
+  return {
+    total: blocked.length,
+    filteredTotal: filtered.length,
+    offset,
+    limit,
+    reasons,
+    rows: filtered.slice(offset, offset + limit).map(publicRow),
+  }
+}
+
 function parseSelection(value: unknown): ImportSelection {
   if (typeof value === 'object' && value !== null && (value as { mode?: unknown }).mode === 'ALL_IMPORTABLE') {
     return { mode: 'ALL_IMPORTABLE', rows: [] }
@@ -649,7 +734,14 @@ function parseSelection(value: unknown): ImportSelection {
   return { mode: 'ROWS', rows }
 }
 
-export async function commitDeviceImport(workbook: XlsxWorkbook, options: DeviceImportOptions, selectedRowsValue: unknown, fileName: string, actorUserId: string | null): Promise<DeviceImportResult> {
+export async function commitDeviceImport(
+  workbook: XlsxWorkbook,
+  options: DeviceImportOptions,
+  selectedRowsValue: unknown,
+  fileName: string,
+  actorUserId: string | null,
+  behavior: DeviceImportCommitBehavior = {},
+): Promise<DeviceImportResult> {
   const selection = parseSelection(selectedRowsValue)
   const now = new Date()
   const plan = await buildPlan(workbook, options, fileName, now)
@@ -665,38 +757,58 @@ export async function commitDeviceImport(workbook: XlsxWorkbook, options: Device
   if (stale) throw new DeviceImportValidationError(`Spreadsheet row ${stale.rowNumber} is no longer importable. Refresh the preview before importing.`)
 
   const selectedSet = new Set(selected.map((row) => row.rowNumber))
-  await prisma.$transaction(async (tx) => {
-    for (const row of selected) {
-      const input = row.input!
-      const data = { ...input, lastSynchronizedAt: now }
-      if (row.action === 'CREATE') {
-        const created = await tx.device.create({ data, select: { id: true } })
-        if (input.currentFirmwareReleaseId) await tx.auditEvent.create({ data: {
+  await behavior.onPlanReady?.({
+    selectedRowNumbers: selected.map((row) => row.rowNumber),
+    unchangedRowNumbers: plan.rows.filter((row) => row.action === 'UNCHANGED').map((row) => row.rowNumber),
+    blockedRowNumbers: plan.rows.filter((row) => row.action === 'ERROR' || row.action === 'CONFLICT').map((row) => row.rowNumber),
+  })
+
+  const configuredChunkSize = Number(behavior.transactionChunkSize)
+  const chunkSize = Number.isInteger(configuredChunkSize) && configuredChunkSize > 0
+    ? Math.min(configuredChunkSize, selected.length)
+    : selected.length
+
+  for (let index = 0; index < selected.length; index += chunkSize) {
+    const chunk = selected.slice(index, index + chunkSize)
+    await prisma.$transaction(async (tx) => {
+      for (const row of chunk) {
+        const input = row.input!
+        const data = { ...input, lastSynchronizedAt: now }
+        if (row.action === 'CREATE') {
+          const created = await tx.device.create({ data, select: { id: true } })
+          if (input.currentFirmwareReleaseId) await tx.auditEvent.create({ data: {
+            actorUserId,
+            customerId: input.customerId,
+            action: AUDIT_ACTIONS.currentFirmwareChanged,
+            entityType: 'Device',
+            entityId: created.id,
+            before: { firmwareReleaseId: null, version: null, observedAt: null, source: null },
+            after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource },
+            metadata: { context: 'XLSX_IMPORT_CREATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId, platform: input.platform },
+          } })
+          continue
+        }
+        const existing = row.existing!
+        await tx.device.update({ where: { id: existing.id }, data })
+        if (row.firmwareMapped) await tx.auditEvent.create({ data: {
           actorUserId,
           customerId: input.customerId,
           action: AUDIT_ACTIONS.currentFirmwareChanged,
           entityType: 'Device',
-          entityId: created.id,
-          before: { firmwareReleaseId: null, version: null, observedAt: null, source: null },
-          after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource },
-          metadata: { context: 'XLSX_IMPORT_CREATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId, platform: input.platform },
+          entityId: existing.id,
+          before: { firmwareReleaseId: existing.currentFirmwareReleaseId, version: existing.currentFirmwareRelease?.version ?? null, observedAt: existing.currentFirmwareObservedAt?.toISOString() ?? null, source: existing.currentFirmwareSource, platform: existing.platform },
+          after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource, platform: input.platform },
+          metadata: { context: 'XLSX_IMPORT_UPDATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId },
         } })
-        continue
       }
-      const existing = row.existing!
-      await tx.device.update({ where: { id: existing.id }, data })
-      if (row.firmwareMapped) await tx.auditEvent.create({ data: {
-        actorUserId,
-        customerId: input.customerId,
-        action: AUDIT_ACTIONS.currentFirmwareChanged,
-        entityType: 'Device',
-        entityId: existing.id,
-        before: { firmwareReleaseId: existing.currentFirmwareReleaseId, version: existing.currentFirmwareRelease?.version ?? null, observedAt: existing.currentFirmwareObservedAt?.toISOString() ?? null, source: existing.currentFirmwareSource, platform: existing.platform },
-        after: { firmwareReleaseId: input.currentFirmwareReleaseId, version: row.currentFirmwareVersion, observedAt: input.currentFirmwareObservedAt?.toISOString() ?? null, source: input.currentFirmwareSource, platform: input.platform },
-        metadata: { context: 'XLSX_IMPORT_UPDATE', fileName, sheetName: options.sheetName, rowNumber: row.rowNumber, importProfileId: options.profileId },
-      } })
-    }
-  })
+    }, { maxWait: 10_000, timeout: 30_000 })
+
+    await behavior.onChunkCommitted?.({
+      rowNumbers: chunk.map((row) => row.rowNumber),
+      created: chunk.filter((row) => row.action === 'CREATE').length,
+      updated: chunk.filter((row) => row.action === 'UPDATE').length,
+    })
+  }
 
   return {
     created: selected.filter((row) => row.action === 'CREATE').length,
