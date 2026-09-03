@@ -4,6 +4,8 @@ import { refreshDeviceImportBatchReferences } from '@/lib/device-import-staging-
 import { prisma } from '@/lib/prisma'
 
 const ROW_SAMPLE = 20
+const MODEL_DEDUP_REPAIR_VERSION = 1
+const MODEL_DEDUP_REPAIR_KEY = '_modelReferenceDedupVersion'
 
 type ModelReference = {
   id: string
@@ -21,6 +23,12 @@ type ModelReference = {
 
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? value as DeviceImportStagedReferenceMetadata : {}
+}
+
+function settings(value: unknown) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
 }
 
 function uniqueText(values: Array<string | null | undefined>) {
@@ -96,9 +104,30 @@ function mergeGroup(batchId: string, references: ModelReference[]) {
   }
 }
 
+async function markRepairComplete(batchId: string, currentSettings: Record<string, unknown>) {
+  await prisma.deviceImportBatch.update({
+    where: { id: batchId },
+    data: {
+      settings: JSON.parse(
+        JSON.stringify({
+          ...currentSettings,
+          [MODEL_DEDUP_REPAIR_KEY]: MODEL_DEDUP_REPAIR_VERSION,
+        }),
+      ),
+    },
+  })
+}
+
 export async function repairDuplicateDeviceImportModelReferences(batchId: string) {
-  const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { status: true } })
+  const batch = await prisma.deviceImportBatch.findUnique({
+    where: { id: batchId },
+    select: { status: true, settings: true },
+  })
   if (!batch || batch.status === 'PUBLISHED') return 0
+  const batchSettings = settings(batch.settings)
+  if (batchSettings[MODEL_DEDUP_REPAIR_KEY] === MODEL_DEDUP_REPAIR_VERSION)
+    return 0
+
   const references = await prisma.deviceImportStagedReference.findMany({
     where: { batchId, kind: 'DEVICE_MODEL' },
     orderBy: [{ normalizedSourceValue: 'asc' }, { contextKey: 'asc' }],
@@ -116,7 +145,10 @@ export async function repairDuplicateDeviceImportModelReferences(batchId: string
     groups.set(key, current)
   }
   const duplicates = [...groups.values()].filter((group) => group.length > 1)
-  if (!duplicates.length) return 0
+  if (!duplicates.length) {
+    await markRepairComplete(batchId, batchSettings)
+    return 0
+  }
 
   const ids = duplicates.flatMap((group) => group.map((reference) => reference.id))
   const replacements = duplicates.map((group) => mergeGroup(batchId, group))
@@ -125,5 +157,6 @@ export async function repairDuplicateDeviceImportModelReferences(batchId: string
     await tx.deviceImportStagedReference.createMany({ data: replacements })
   })
   await refreshDeviceImportBatchReferences(batchId)
+  await markRepairComplete(batchId, batchSettings)
   return duplicates.length
 }
