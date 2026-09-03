@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
-import { inferFirmwareTrainName } from '@/lib/device-import-normalization'
+import { classifyImportedDeviceModel, inferFirmwareTrainName, softwarePlatformLegacyValue } from '@/lib/device-import-normalization'
 import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
@@ -26,6 +26,15 @@ function singleSupportedModelPlatform(model: { platform: string | null; supporte
   for (const entry of model.supportedPlatforms) platforms.set(normalizedFirmwarePlatform(entry.platform), entry.platform)
   platforms.delete('')
   return platforms.size === 1 ? [...platforms.values()][0] : ''
+}
+
+export function builtInPreferredModelPlatform(modelName: string) {
+  const classification = classifyImportedDeviceModel(modelName)
+  if (!classification?.preferredSoftwarePlatformCode) return ''
+  const preferred = classification.softwarePlatforms.find(
+    (candidate) => candidate.code === classification.preferredSoftwarePlatformCode,
+  )
+  return preferred ? softwarePlatformLegacyValue(preferred) : ''
 }
 
 async function assertMutableBatch(batchId: string) {
@@ -106,10 +115,11 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
       softwareVersion: meta.softwareVersionSourceValue,
     }, appliedRules.prediction.firmwareSource)
     const version = applyDeviceImportFirmwareTransforms(selectedFirmware, appliedRules.prediction.firmwareTransforms)
-    // Never turn an ambiguous multi-platform model back into its legacy/default
-    // platform. Only staged device evidence or a genuinely single supported
-    // model platform can make a Firmware proposal safe enough to prepare.
-    const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? singleSupportedModelPlatform(model)
+    // Prefer explicit/profile evidence first. If an already-configured model has
+    // no platform metadata yet, built-in model classification can still provide
+    // a safe single-platform proposal (for example Catalyst 9200/9300/9120 -> IOS XE).
+    const modelPlatform = singleSupportedModelPlatform(model) || builtInPreferredModelPlatform(model.model)
+    const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? modelPlatform
     const platformContext = platform ? normalizedFirmwarePlatform(platform) : `model:${modelId}`
     const key = `${vendorId}|${platformContext}|${normalizeImportText(version)}`
     const current = grouped.get(key)
