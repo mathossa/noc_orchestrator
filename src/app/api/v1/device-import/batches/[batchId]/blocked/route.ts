@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server'
-import { synchronizeImportedModelPlatforms } from '@/lib/device-import-model-platforms'
-import { resolveStagedFirmwarePlatforms } from '@/lib/device-import-staged-firmware-platforms'
 import { reviewBlockedActiveDeviceImportRows } from '@/lib/device-import-staged-publication'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 
@@ -14,9 +12,6 @@ function integerParam(value: string | null, fallback: number) {
 export async function GET(request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
-    await synchronizeImportedModelPlatforms(batchId)
-    await resolveStagedFirmwarePlatforms(batchId)
-
     const url = new URL(request.url)
     const offset = integerParam(url.searchParams.get('offset'), 0)
     const limit = integerParam(url.searchParams.get('limit'), 50)
