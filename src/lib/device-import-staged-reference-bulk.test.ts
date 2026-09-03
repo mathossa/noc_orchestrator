@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
 import { parseBulkReferenceResolutionInput } from '@/lib/device-import-staged-reference-bulk-input'
-import { stagedReferenceAliasContext } from '@/lib/device-import-staged-reference-bulk'
+import {
+  linkedFirmwareReferenceMetadata,
+  stagedReferenceAliasContext,
+} from '@/lib/device-import-staged-reference-bulk'
 
 describe('parseBulkReferenceResolutionInput', () => {
   it('accepts mixed remember modes in one backend request', () => {
@@ -54,5 +57,29 @@ describe('stagedReferenceAliasContext', () => {
       kind: 'FIRMWARE_RELEASE',
       metadata: { vendorTargetId: 'vendor-cisco', platform: ' IOS ' },
     })).toBe('vendor-cisco|ios')
+  })
+})
+
+describe('linkedFirmwareReferenceMetadata', () => {
+  it('persists the accepted release Platform so a refresh cannot reopen the same Firmware reference', () => {
+    const result = linkedFirmwareReferenceMetadata({
+      modelTargetId: 'model-c2960x-48fps',
+      vendorTargetId: 'vendor-cisco',
+      platform: null,
+      platforms: [],
+      waitingFor: [],
+    }, {
+      vendorId: 'vendor-cisco',
+      platform: 'IOS',
+    })
+
+    expect(result).toMatchObject({
+      modelTargetId: 'model-c2960x-48fps',
+      vendorTargetId: 'vendor-cisco',
+      platform: 'IOS',
+      platforms: ['IOS'],
+      waitingFor: [],
+    })
+    expect(stagedReferenceAliasContext({ kind: 'FIRMWARE_RELEASE', metadata: result })).toBe('vendor-cisco|ios')
   })
 })
