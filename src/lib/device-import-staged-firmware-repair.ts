@@ -5,7 +5,7 @@ import type { DeviceImportMappedValues } from '@/lib/device-import-staging'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import { prisma } from '@/lib/prisma'
 
-const RUNNING_FIRMWARE_REPAIR_VERSION = 1
+const RUNNING_FIRMWARE_REPAIR_VERSION = 2
 const RUNNING_FIRMWARE_REPAIR_KEY = '_runningFirmwareRepairVersion'
 
 function mappedData(value: unknown) {
@@ -57,6 +57,9 @@ export async function repairPlaceholderDeviceImportFirmware(batchId: string) {
       currentFirmware: before.currentFirmware,
       firmwareVersion: before.firmwareVersion,
       softwareVersion: before.softwareVersion,
+      vendor: before.vendor,
+      model: before.model,
+      platform: before.platform,
     })
     const replacement = selection.version
     if (
