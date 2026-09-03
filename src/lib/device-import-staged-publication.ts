@@ -329,7 +329,7 @@ export async function publishActiveDeviceImportBatch(
       throw new DeviceImportStagingError('There are no valid CREATE/UPDATE rows left to import; correct or exclude the remaining blocked rows.')
     }
 
-    if (!blockers && selection.mode !== 'ROWS') {
+    if (!blockers) {
       await markPublishedRows(batchId, rows.map((row) => row.rowNumber))
     }
     result = {
