@@ -1,5 +1,6 @@
 import {
   importResolutionKey,
+  normalizeImportText,
   parseDeviceImportOptions,
   type DeviceImportField,
   type DeviceImportPreview,
@@ -35,6 +36,30 @@ function aliasContext(kind: string, rawMetadata: unknown) {
     return meta.vendorTargetId ? `${meta.vendorTargetId}|${normalizedPlatform(meta.platform ?? '')}` : ''
   }
   return ''
+}
+
+function rawFirmwareContext(values: DeviceImportMappedValues) {
+  return `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+}
+
+export function isUnclassifiedFirmwareRow(
+  values: DeviceImportMappedValues,
+  references: Array<{
+    kind: string
+    normalizedSourceValue: string
+    contextKey: string
+    resolutionSource: string | null
+  }>,
+) {
+  if (!values.currentFirmware) return false
+  const sourceValue = normalizeImportText(values.currentFirmware)
+  const contextKey = rawFirmwareContext(values)
+  return references.some((reference) =>
+    reference.kind === 'FIRMWARE_RELEASE' &&
+    reference.resolutionSource === 'UNCLASSIFIED_NO_PLATFORM' &&
+    reference.normalizedSourceValue === sourceValue &&
+    reference.contextKey === contextKey,
+  )
 }
 
 const PUBLISH_FIELDS = [
@@ -76,7 +101,11 @@ async function publicationInput(batchId: string) {
     { rowNumber: batch.headerRow, values: PUBLISH_FIELDS.map((field) => field) },
     ...rows.map((row) => {
       const values = row.mappedData as unknown as DeviceImportMappedValues
-      return { rowNumber: row.rowNumber, values: PUBLISH_FIELDS.map((field) => values[field] ?? '') }
+      const unclassifiedFirmware = isUnclassifiedFirmwareRow(values, references)
+      return {
+        rowNumber: row.rowNumber,
+        values: PUBLISH_FIELDS.map((field) => field === 'currentFirmware' && unclassifiedFirmware ? '' : values[field] ?? ''),
+      }
     }),
   ]
   const workbook: XlsxWorkbook = {

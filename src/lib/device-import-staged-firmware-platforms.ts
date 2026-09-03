@@ -96,6 +96,18 @@ export function resolveStagedFirmwarePlatform(
   return null
 }
 
+export function canDeferUnclassifiedFirmwarePlatform(
+  meta: DeviceImportStagedReferenceMetadata,
+  model: Pick<PlatformModel, 'platform' | 'supportedPlatforms'>,
+) {
+  // An absent Software Platform is different from an ambiguous Software
+  // Platform. If neither the source rows nor the canonical Model define any
+  // platform at all, the observed firmware value cannot be classified into the
+  // Firmware catalog and must not block inventory import. Multi-platform or
+  // conflicting evidence remains review-required.
+  return importedPlatformSet(meta).size === 0 && platformSet(model).size === 0
+}
+
 function needsUpdate(
   reference: {
     status: string
@@ -186,12 +198,13 @@ export async function resolveStagedFirmwarePlatforms(batchId: string) {
     }
 
     if (!platform) {
+      const unclassified = canDeferUnclassifiedFirmwarePlatform(meta, model)
       const next = {
-        status: 'UNRESOLVED',
+        status: unclassified ? 'LINKED' : 'UNRESOLVED',
         targetId: null,
         suggestedTargetId: null,
         suggestionScore: null,
-        resolutionSource: null,
+        resolutionSource: unclassified ? 'UNCLASSIFIED_NO_PLATFORM' : null,
         metadata: nextMetadata,
       }
       if (needsUpdate(reference, next)) {

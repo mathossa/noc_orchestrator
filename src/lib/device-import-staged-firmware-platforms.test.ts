@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
-import { resolveStagedFirmwarePlatform } from '@/lib/device-import-staged-firmware-platforms'
+import {
+  canDeferUnclassifiedFirmwarePlatform,
+  resolveStagedFirmwarePlatform,
+} from '@/lib/device-import-staged-firmware-platforms'
 
 const ap315 = {
   vendorId: 'vendor-aruba',
@@ -73,5 +76,20 @@ describe('staged firmware platform resolution', () => {
       { ...ap315, platform: 'AOS-10' },
       '10.7.0.1',
     )).toBeNull()
+  })
+
+  it('defers firmware catalog classification when neither the source nor model has a software platform', () => {
+    expect(canDeferUnclassifiedFirmwarePlatform(
+      {},
+      { platform: null, supportedPlatforms: [] },
+    )).toBe(true)
+  })
+
+  it('does not defer when the platform is ambiguous or explicitly supplied', () => {
+    expect(canDeferUnclassifiedFirmwarePlatform({}, ap315)).toBe(false)
+    expect(canDeferUnclassifiedFirmwarePlatform(
+      { platforms: ['UPS OS'] },
+      { platform: null, supportedPlatforms: [] },
+    )).toBe(false)
   })
 })
