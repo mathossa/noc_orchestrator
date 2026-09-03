@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeImportText } from '@/lib/device-import'
-import { classifyImportedDeviceModel, inferFirmwareTrainName, softwarePlatformLegacyValue, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
+import {
+  builtInFirmwareInterpretation,
+  builtInPreferredModelPlatform,
+} from '@/lib/device-import-firmware-interpretation'
+import { inferFirmwareTrainName, splitFirmwareVersionVariant } from '@/lib/device-import-normalization'
 import { applyDeviceImportFirmwareTransforms, applyDeviceImportPredictionRules, selectDeviceImportFirmwareSource, type DeviceImportFirmwareSource, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { firmwareReleaseStatuses, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { DeviceImportStagingError } from '@/lib/device-import-staging-store'
 import type { DeviceImportStagedReferenceMetadata } from '@/lib/device-import-staging'
 import { prisma } from '@/lib/prisma'
 import { ensureFirmwareTrainForRelease } from '@/lib/software-platform-store'
+
+export { builtInFirmwareInterpretation, builtInPreferredModelPlatform } from '@/lib/device-import-firmware-interpretation'
 
 const MAX_BULK_FIRMWARE = 250
 
@@ -45,30 +51,6 @@ function singleSupportedModelPlatform(model: { platform: string | null; supporte
   for (const entry of model.supportedPlatforms) platforms.set(normalizedFirmwarePlatform(entry.platform), entry.platform)
   platforms.delete('')
   return platforms.size === 1 ? [...platforms.values()][0] : ''
-}
-
-export function builtInPreferredModelPlatform(modelName: string) {
-  const classification = classifyImportedDeviceModel(modelName)
-  if (!classification?.preferredSoftwarePlatformCode) return ''
-  const preferred = classification.softwarePlatforms.find(
-    (candidate) => candidate.code === classification.preferredSoftwarePlatformCode,
-  )
-  return preferred ? softwarePlatformLegacyValue(preferred) : ''
-}
-
-export function builtInFirmwareInterpretation(modelName: string, platformName = ''): {
-  firmwareSource: DeviceImportFirmwareSource | null
-  reason: string | null
-} {
-  const classification = classifyImportedDeviceModel(modelName)
-  const platform = normalizedFirmwarePlatform(platformName || builtInPreferredModelPlatform(modelName))
-  if (classification?.classificationKey === 'CISCO_SX350' || platform === 'sx350') {
-    return {
-      firmwareSource: 'SOFTWARE_VERSION',
-      reason: 'Cisco Sx350: use Software Version as the canonical running release; keep Firmware Version as raw source evidence.',
-    }
-  }
-  return { firmwareSource: null, reason: null }
 }
 
 async function assertMutableBatch(batchId: string) {
@@ -149,10 +131,15 @@ export async function getDeviceImportFirmwareAssist(batchId: string) {
     const predictedPlatforms = appliedRules.prediction.softwarePlatforms ?? []
     // Prefer explicit/profile evidence first. If an already-configured model has
     // no platform metadata yet, built-in model classification can still provide
-    // a safe single-platform proposal (for example Catalyst 9200/9300/9120 -> IOS XE).
+    // a safe single-platform proposal.
     const modelPlatform = singleSupportedModelPlatform(model) || builtInPreferredModelPlatform(model.model)
     const platform = appliedRules.prediction.preferredSoftwarePlatform ?? (predictedPlatforms.length === 1 ? predictedPlatforms[0] : null) ?? meta.platform ?? modelPlatform
-    const builtInInterpretation = builtInFirmwareInterpretation(model.model, platform)
+    const builtInInterpretation = builtInFirmwareInterpretation({
+      modelName: model.model,
+      platformName: platform,
+      firmwareVersion: meta.firmwareVersionSourceValue,
+      softwareVersion: meta.softwareVersionSourceValue,
+    })
     const firmwareSource = appliedRules.prediction.firmwareSource ?? builtInInterpretation.firmwareSource ?? 'EFFECTIVE'
     const selectedFirmware = selectDeviceImportFirmwareSource({
       effective: reference.sourceValue,
@@ -357,7 +344,10 @@ export async function bulkCreateDeviceImportFirmware(rawInput: unknown) {
     ...links.flatMap((link) => link.refs.map((reference) => prisma.deviceImportStagedReference.update({
       where: { id: reference.id },
       data: {
-        status: 'LINKED', targetId: link.targetId, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'EXACT',
+        // This exact match was reached through an engineer-approved CREATE
+        // action. Keep it terminal just like a direct manual link; later
+        // predictions must never reopen the reference.
+        status: 'LINKED', targetId: link.targetId, suggestedTargetId: null, suggestionScore: null, resolutionSource: 'USER',
         metadata: { ...metadata(reference.metadata), vendorTargetId: link.vendorId, platform: link.platform, waitingFor: [] },
       },
     }))),
