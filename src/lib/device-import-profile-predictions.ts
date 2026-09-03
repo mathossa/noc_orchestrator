@@ -95,12 +95,17 @@ function stableRuleKey(rule: DeviceImportPredictionRule) {
   ].join('|')
 }
 
+function compareStableText(left: string, right: string) {
+  if (left === right) return 0
+  return left < right ? -1 : 1
+}
+
 function compareRules(
   left: DeviceImportPredictionRule,
   right: DeviceImportPredictionRule,
 ) {
   const priority = (right.priority ?? 100) - (left.priority ?? 100)
-  return priority || stableRuleKey(left).localeCompare(stableRuleKey(right))
+  return priority || compareStableText(stableRuleKey(left), stableRuleKey(right))
 }
 
 export function importPredictionRuleMatches(
