@@ -18,8 +18,19 @@ type RouteContext = { params: Promise<{ batchId: string }> }
 export async function GET(_request: Request, context: RouteContext) {
   const { batchId } = await context.params
   try {
-    let workspace = await getDeviceImportBatchWorkspace(batchId)
-    if (workspace.batch.status === 'PUBLISHED') {
+    // The old route built the entire reconciliation workspace twice for every
+    // request: once only to inspect batch status, then again after repair passes.
+    // Workspace construction loads the complete reference/options universe, so
+    // that duplicate read was one of the most expensive parts of opening the
+    // worksheet. Read only the batch state first and build the workspace once.
+    const batch = await prisma.deviceImportBatch.findUnique({
+      where: { id: batchId },
+      select: { id: true, status: true, profileId: true },
+    })
+    if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
+
+    if (batch.status === 'PUBLISHED') {
+      const workspace = await getDeviceImportBatchWorkspace(batchId)
       return NextResponse.json({
         data: {
           workspace,
@@ -42,8 +53,8 @@ export async function GET(_request: Request, context: RouteContext) {
     await repairDuplicateDeviceImportModelReferences(batchId)
     await synchronizeImportedModelPlatforms(batchId)
     await resolveStagedFirmwarePlatforms(batchId)
-    workspace = await getDeviceImportBatchWorkspace(batchId)
 
+    const workspace = await getDeviceImportBatchWorkspace(batchId)
     const [core, siteProposals, normalizableGenericRowCount, models, firmware, rows, vendorAliases, profileRules] = await Promise.all([
       getDeviceImportCoreAssist(batchId),
       getDeviceImportSiteCreateProposals(batchId),
