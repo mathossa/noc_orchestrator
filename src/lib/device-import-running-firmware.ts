@@ -59,6 +59,10 @@ function aosSVersion(value: string | null | undefined) {
   return { prefix: match[1].toUpperCase(), version }
 }
 
+function isAosSModel(model: string) {
+  return /\b(?:2530|2540|2920|2930|3810|5400r)[a-z0-9-]*\b/.test(model)
+}
+
 function looksLikeAosSDevice(evidence: ImportedFirmwareEvidence) {
   const vendor = normalizeImportText(evidence.vendor)
   const model = normalizeImportText(evidence.model)
@@ -75,8 +79,8 @@ function looksLikeAosSDevice(evidence: ImportedFirmwareEvidence) {
     vendor.includes('hpe') ||
     vendor.includes('aruba')
   )
-    return /\b(?:2530|2540|2920|2930|3810|5400r)\b/.test(model) || !model
-  return /\b(?:2530|2540|2920|2930|3810|5400r)\b/.test(model)
+    return isAosSModel(model) || !model
+  return isAosSModel(model)
 }
 
 export function isAosSBootFirmwarePair(
