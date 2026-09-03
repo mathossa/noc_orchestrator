@@ -50,6 +50,7 @@ const SOFTWARE_PLATFORM_ALIASES: Array<[string[], CanonicalSoftwarePlatform]> =
     ],
     [['ios xe', 'ios-xe'], { code: 'IOS-XE', name: 'IOS XE' }],
     [['ios'], { code: 'IOS', name: 'IOS' }],
+    [['sx350', 's x 350', 'cisco sx350'], { code: 'SX350', name: 'Sx350' }],
   ]
 
 export function canonicalSoftwarePlatform(
@@ -159,6 +160,18 @@ function builtInClassification(
       softwarePlatforms: [platform('FortiAP OS/firmware')],
       preferredSoftwarePlatformCode: 'FORTIAP-OS',
       deviceTypeName: 'Access Point',
+      source: 'BUILT_IN',
+      confidence: 0.99,
+    }
+  }
+  if (/^(?:sg350(?:x|xg)?|sf350(?:x)?|sx350x)(?:[\s._/-]|$)/i.test(model)) {
+    return {
+      classificationKey: 'CISCO_SX350',
+      model: model.toUpperCase(),
+      productFamilyName: 'Cisco 350 Series',
+      softwarePlatforms: [platform('Sx350')],
+      preferredSoftwarePlatformCode: 'SX350',
+      deviceTypeName: 'Switch',
       source: 'BUILT_IN',
       confidence: 0.99,
     }
