@@ -14,9 +14,25 @@ import { prisma } from '@/lib/prisma'
 export const IMPORT_RULE_FIELDS = ['customer', 'site', 'vendor', 'deviceType', 'model', 'currentFirmware', 'name', 'hostname', 'externalId'] as const
 export type ImportRuleField = (typeof IMPORT_RULE_FIELDS)[number]
 
+export const IMPORT_ROW_EDIT_FIELDS = [
+  'customer', 'site', 'vendor', 'deviceType', 'model', 'platform', 'currentFirmware',
+  'name', 'hostname', 'serialNumber', 'managementAddress', 'contract', 'externalProvider', 'externalId', 'notes',
+] as const
+export type ImportRowEditField = (typeof IMPORT_ROW_EDIT_FIELDS)[number]
+
+const REFERENCE_AFFECTING_EDIT_FIELDS = new Set<ImportRowEditField>([
+  'customer', 'site', 'vendor', 'deviceType', 'model', 'platform', 'currentFirmware',
+])
+
 function cleanField(value: unknown): ImportRuleField | null {
   return typeof value === 'string' && IMPORT_RULE_FIELDS.includes(value as ImportRuleField)
     ? value as ImportRuleField
+    : null
+}
+
+function cleanEditField(value: unknown): ImportRowEditField | null {
+  return typeof value === 'string' && IMPORT_ROW_EDIT_FIELDS.includes(value as ImportRowEditField)
+    ? value as ImportRowEditField
     : null
 }
 
@@ -192,17 +208,38 @@ export async function getDeviceImportSmartGroups(batchId: string) {
 export async function applyDeviceImportRowAction(rawInput: unknown) {
   const input = typeof rawInput === 'object' && rawInput !== null ? rawInput as Record<string, unknown> : {}
   const batchId = typeof input.batchId === 'string' ? input.batchId.trim() : ''
-  const action = input.action === 'IGNORE' ? 'IGNORE' : input.action === 'EXCLUDE' ? 'EXCLUDE' : input.action === 'RESTORE' ? 'RESTORE' : null
+  const action = input.action === 'IGNORE'
+    ? 'IGNORE'
+    : input.action === 'EXCLUDE'
+      ? 'EXCLUDE'
+      : input.action === 'RESTORE'
+        ? 'RESTORE'
+        : input.action === 'SET_FIELD'
+          ? 'SET_FIELD'
+          : input.action === 'CLEAR_FIELD'
+            ? 'CLEAR_FIELD'
+            : null
   const field = cleanField(input.field)
   const value = typeof input.value === 'string' ? input.value.normalize('NFKC').trim().replace(/\s+/g, ' ') : ''
+  const editField = cleanEditField(input.editField)
+  const editValue = typeof input.editValue === 'string' ? input.editValue.normalize('NFKC').trim() : ''
   const rowNumbers = Array.isArray(input.rowNumbers)
     ? [...new Set(input.rowNumbers.map(Number).filter((number) => Number.isInteger(number) && number > 0))]
     : []
   const remember = input.remember === true
   if (!batchId || !action) throw new DeviceImportStagingError('Choose a valid staged-row action.')
-  if (!rowNumbers.length && (!field || !value)) throw new DeviceImportStagingError('Choose rows or a group value to update.')
-  if (remember && (action !== 'IGNORE' || !field || !value)) {
-    throw new DeviceImportStagingError('Only a named group can be remembered as an import-profile ignore rule.')
+
+  const editing = action === 'SET_FIELD' || action === 'CLEAR_FIELD'
+  if (editing) {
+    if (!rowNumbers.length) throw new DeviceImportStagingError('Choose one or more staged rows to repair.')
+    if (!editField) throw new DeviceImportStagingError('Choose a supported device field to repair.')
+    if (action === 'SET_FIELD' && !editValue) throw new DeviceImportStagingError('Enter the replacement value before applying this repair.')
+    if (remember) throw new DeviceImportStagingError('Row field repairs cannot be saved as ignore rules.')
+  } else {
+    if (!rowNumbers.length && (!field || !value)) throw new DeviceImportStagingError('Choose rows or a group value to update.')
+    if (remember && (action !== 'IGNORE' || !field || !value)) {
+      throw new DeviceImportStagingError('Only a named group can be remembered as an import-profile ignore rule.')
+    }
   }
 
   const batch = await prisma.deviceImportBatch.findUnique({ where: { id: batchId }, select: { id: true, profileId: true, status: true } })
@@ -213,8 +250,37 @@ export async function applyDeviceImportRowAction(rawInput: unknown) {
     where: { batchId },
     select: { id: true, rowNumber: true, status: true, mappedData: true },
   })
-  const selected = rows.filter((row) => rowNumbers.includes(row.rowNumber) || (field && value && rowMatches(field, value, mappedData(row.mappedData))))
+  const selected = editing
+    ? rows.filter((row) => row.status === 'STAGED' && rowNumbers.includes(row.rowNumber))
+    : rows.filter((row) => rowNumbers.includes(row.rowNumber) || (field && value && rowMatches(field, value, mappedData(row.mappedData))))
   if (!selected.length) throw new DeviceImportStagingError('No staged rows match the requested action.')
+
+  if (editing) {
+    const repaired = selected.map((row) => {
+      const before = mappedData(row.mappedData)
+      const after: DeviceImportMappedValues = {
+        ...before,
+        [editField!]: action === 'CLEAR_FIELD' ? null : editValue,
+      }
+      return { row, before, after }
+    })
+
+    for (let offset = 0; offset < repaired.length; offset += 100) {
+      const chunk = repaired.slice(offset, offset + 100)
+      await prisma.$transaction(chunk.map(({ row, after }) => prisma.deviceImportStagedRow.update({
+        where: { id: row.id },
+        data: { mappedData: after },
+      })))
+    }
+
+    const workspace = REFERENCE_AFFECTING_EDIT_FIELDS.has(editField!)
+      ? await refreshAffectedReferences(batchId, repaired.flatMap(({ row, before, after }) => [
+          { rowNumber: row.rowNumber, mappedData: before, delta: -1 as const },
+          { rowNumber: row.rowNumber, mappedData: after, delta: 1 as const },
+        ]))
+      : await getDeviceImportBatchWorkspace(batchId)
+    return { affected: selected.length, workspace }
+  }
 
   if (remember) {
     if (!batch.profileId) throw new DeviceImportStagingError('Choose an import profile before remembering an ignore rule.')
