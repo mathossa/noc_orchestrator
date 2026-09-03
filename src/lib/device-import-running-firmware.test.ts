@@ -38,6 +38,8 @@ describe('imported running firmware interpretation', () => {
     ).toBe(true)
     expect(
       selectImportedRunningFirmware({
+        vendor: 'HPE Networking',
+        model: '2930F',
         currentFirmware: 'WC.16.01.0010',
         firmwareVersion: 'WC.16.01.0010',
         softwareVersion: 'WC.16.11.0002',
@@ -46,6 +48,22 @@ describe('imported running firmware interpretation', () => {
       version: 'WC.16.11.0002',
       source: 'SOFTWARE_VERSION',
       reason: 'AOS_S_BOOT_FIRMWARE',
+    })
+  })
+
+  it('does not reinterpret an AOS-S-looking pair without Aruba/HPE context', () => {
+    expect(
+      selectImportedRunningFirmware({
+        vendor: 'Other Vendor',
+        model: 'Other Model',
+        currentFirmware: 'WC.16.01.0010',
+        firmwareVersion: 'WC.16.01.0010',
+        softwareVersion: 'WC.16.11.0002',
+      }),
+    ).toEqual({
+      version: 'WC.16.01.0010',
+      source: 'FIRMWARE_VERSION',
+      reason: 'REPORTED_FIRMWARE',
     })
   })
 
