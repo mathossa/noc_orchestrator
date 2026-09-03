@@ -5,6 +5,7 @@ import { repairPlaceholderDeviceImportFirmware } from '@/lib/device-import-stage
 import { getDeviceImportModelAssist } from '@/lib/device-import-staged-model-assist'
 import { repairDuplicateDeviceImportModelReferences } from '@/lib/device-import-staged-model-dedup'
 import { listImportProfileRuleWorkspace } from '@/lib/device-import-profile-rule-store'
+import { getDeviceImportSmartGroups } from '@/lib/device-import-staged-rules'
 import { getDeviceImportSiteCreateProposals } from '@/lib/device-import-staged-site-bulk-create'
 import { DeviceImportStagingError, getDeviceImportBatchWorkspace } from '@/lib/device-import-staging-store'
 import { prisma } from '@/lib/prisma'
@@ -23,7 +24,10 @@ export async function GET(_request: Request, context: RouteContext) {
     if (!batch) throw new DeviceImportStagingError('Import batch was not found.')
 
     if (batch.status === 'PUBLISHED') {
-      const workspace = await getDeviceImportBatchWorkspace(batchId)
+      const [workspace, rows] = await Promise.all([
+        getDeviceImportBatchWorkspace(batchId),
+        getDeviceImportSmartGroups(batchId),
+      ])
       return NextResponse.json({
         data: {
           workspace,
@@ -31,6 +35,7 @@ export async function GET(_request: Request, context: RouteContext) {
           sites: { proposals: [] },
           models: { readyToCreate: [], rulePredictions: [], linkedModels: [], families: [], newFamilyProposals: [] },
           firmware: { proposals: [], rawReferenceCount: 0, proposalCount: 0 },
+          rows,
           vendorAliases: [],
           profileRules: { profile: null, rules: [], aliases: [] },
         },
@@ -45,11 +50,12 @@ export async function GET(_request: Request, context: RouteContext) {
     await repairDuplicateDeviceImportModelReferences(batchId)
 
     const workspace = await getDeviceImportBatchWorkspace(batchId)
-    const [core, sites, models, firmware, vendorAliases, profileRules] = await Promise.all([
+    const [core, sites, models, firmware, rows, vendorAliases, profileRules] = await Promise.all([
       getDeviceImportCoreAssist(batchId),
       getDeviceImportSiteCreateProposals(batchId),
       getDeviceImportModelAssist(batchId),
       getDeviceImportFirmwareAssist(batchId),
+      getDeviceImportSmartGroups(batchId),
       workspace.batch.profileId
         ? prisma.deviceImportProfileAlias.findMany({
             where: { profileId: workspace.batch.profileId, kind: 'VENDOR' },
@@ -68,6 +74,7 @@ export async function GET(_request: Request, context: RouteContext) {
         sites,
         models,
         firmware,
+        rows,
         vendorAliases,
         profileRules,
       },
