@@ -1,0 +1,293 @@
+import {
+  normalizeImportText,
+  splitOrganizationSite,
+  type DeviceImportField,
+  type DeviceImportOptions,
+  type DeviceImportReferenceKind,
+} from '@/lib/device-import'
+import { interpretDeviceImportFirmwareEvidence } from '@/lib/device-import-firmware-interpretation'
+import { isGenericImportSiteValue } from '@/lib/device-import-site-code'
+
+export const DEVICE_IMPORT_BATCH_STATUSES = ['STAGED', 'READY', 'PUBLISHED', 'PARTIAL'] as const
+export const DEVICE_IMPORT_STAGED_REFERENCE_STATUSES = ['UNRESOLVED', 'WAITING', 'LINKED'] as const
+
+export type DeviceImportBatchStatus = (typeof DEVICE_IMPORT_BATCH_STATUSES)[number]
+export type DeviceImportStagedReferenceStatus = (typeof DEVICE_IMPORT_STAGED_REFERENCE_STATUSES)[number]
+export type DeviceImportMappedValues = Record<DeviceImportField, string | null>
+
+export type DeviceImportStagedReferenceMetadata = {
+  rowNumbers?: number[]
+  organizationSiteSourceValue?: string | null
+  customerSourceValue?: string | null
+  customerTargetId?: string | null
+  vendorSourceValue?: string | null
+  vendorTargetId?: string | null
+  deviceTypeSourceValue?: string | null
+  deviceTypeSourceValues?: string[]
+  deviceTypeTargetId?: string | null
+  modelSourceValue?: string | null
+  modelTargetId?: string | null
+  platform?: string | null
+  platforms?: string[]
+  firmwareVersionSourceValue?: string | null
+  firmwareVersionSourceValues?: string[]
+  softwareVersionSourceValue?: string | null
+  softwareVersionSourceValues?: string[]
+  waitingFor?: DeviceImportReferenceKind[]
+}
+
+export type DeviceImportStagedReferenceSeed = {
+  kind: DeviceImportReferenceKind
+  sourceValue: string
+  normalizedSourceValue: string
+  contextKey: string
+  occurrenceCount: number
+  metadata: DeviceImportStagedReferenceMetadata
+}
+
+const ROW_NUMBER_SAMPLE = 20
+
+function clean(value: string | null | undefined) {
+  return value?.normalize('NFKC').trim().replace(/\s+/g, ' ') || null
+}
+
+function rawContext(values: DeviceImportMappedValues, kind: DeviceImportReferenceKind, options: DeviceImportOptions) {
+  if (kind === 'SITE') {
+    if (values.organizationSite) return `organization-site:${normalizeImportText(values.organizationSite)}`
+    if (values.customer) return `customer:${normalizeImportText(values.customer)}`
+    if (options.defaults.customerId) return `customer-id:${options.defaults.customerId}`
+    return 'customer:'
+  }
+  if (kind === 'DEVICE_MODEL') {
+    // DeviceModel is canonically unique by Vendor + Model. Device Type is a
+    // property of that Model, not part of its identity. Keeping the source
+    // Device Type in the key caused one physical model to appear multiple
+    // times when Auvik classified different devices slightly differently.
+    return `vendor:${normalizeImportText(values.vendor)}`
+  }
+  if (kind === 'FIRMWARE_RELEASE') {
+    const base = `vendor:${normalizeImportText(values.vendor)}|model:${normalizeImportText(values.model)}|platform:${normalizeImportText(values.platform)}`
+    const firmwareVersion = normalizeImportText(values.firmwareVersion)
+    const softwareVersion = normalizeImportText(values.softwareVersion)
+    // The same upstream Firmware Version can describe devices that actually run
+    // different Software Versions. Keep the raw source evidence in the staged
+    // identity so those rows can fan out into separate canonical releases.
+    if (!firmwareVersion && !softwareVersion) return base
+    return `${base}|firmware-version:${firmwareVersion}|software-version:${softwareVersion}`
+  }
+  return ''
+}
+
+function metadataFor(values: DeviceImportMappedValues, kind: DeviceImportReferenceKind, options: DeviceImportOptions) {
+  const base: DeviceImportStagedReferenceMetadata = {}
+  if (kind === 'SITE') {
+    base.organizationSiteSourceValue = clean(values.organizationSite)
+    base.customerSourceValue = clean(values.customer)
+    base.customerTargetId = values.customer ? null : options.defaults.customerId
+  }
+  if (kind === 'DEVICE_MODEL') {
+    base.vendorSourceValue = clean(values.vendor)
+    base.deviceTypeSourceValue = clean(values.deviceType)
+    base.deviceTypeSourceValues = base.deviceTypeSourceValue ? [base.deviceTypeSourceValue] : []
+    base.platform = clean(values.platform)
+    base.platforms = base.platform ? [base.platform] : []
+  }
+  if (kind === 'FIRMWARE_RELEASE') {
+    base.vendorSourceValue = clean(values.vendor)
+    base.modelSourceValue = clean(values.model)
+    base.platform = clean(values.platform)
+    base.platforms = base.platform ? [base.platform] : []
+    base.firmwareVersionSourceValue = clean(values.firmwareVersion)
+    base.firmwareVersionSourceValues = base.firmwareVersionSourceValue ? [base.firmwareVersionSourceValue] : []
+    base.softwareVersionSourceValue = clean(values.softwareVersion)
+    base.softwareVersionSourceValues = base.softwareVersionSourceValue ? [base.softwareVersionSourceValue] : []
+  }
+  return base
+}
+
+function mergePlatformMetadata(metadata: DeviceImportStagedReferenceMetadata, platformValue: string | null) {
+  const platform = clean(platformValue)
+  if (!platform) return
+  const platforms = metadata.platforms ?? []
+  const normalized = normalizeImportText(platform)
+  if (!platforms.some((candidate) => normalizeImportText(candidate) === normalized)) platforms.push(platform)
+  metadata.platforms = platforms
+  metadata.platform = platforms.length === 1 ? platforms[0] : null
+}
+
+function mergeDeviceTypeMetadata(metadata: DeviceImportStagedReferenceMetadata, deviceTypeValue: string | null) {
+  const deviceType = clean(deviceTypeValue)
+  if (!deviceType) return
+  const values = metadata.deviceTypeSourceValues ?? (metadata.deviceTypeSourceValue ? [metadata.deviceTypeSourceValue] : [])
+  const normalized = normalizeImportText(deviceType)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(deviceType)
+  metadata.deviceTypeSourceValues = values
+  metadata.deviceTypeSourceValue = values[0] ?? null
+}
+
+function mergeFirmwareVersionMetadata(metadata: DeviceImportStagedReferenceMetadata, firmwareVersionValue: string | null) {
+  const firmwareVersion = clean(firmwareVersionValue)
+  if (!firmwareVersion) return
+  const values = metadata.firmwareVersionSourceValues ?? (metadata.firmwareVersionSourceValue ? [metadata.firmwareVersionSourceValue] : [])
+  const normalized = normalizeImportText(firmwareVersion)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(firmwareVersion)
+  metadata.firmwareVersionSourceValues = values
+  metadata.firmwareVersionSourceValue = values[0] ?? null
+}
+
+function mergeSoftwareVersionMetadata(metadata: DeviceImportStagedReferenceMetadata, softwareVersionValue: string | null) {
+  const softwareVersion = clean(softwareVersionValue)
+  if (!softwareVersion) return
+  const values = metadata.softwareVersionSourceValues ?? (metadata.softwareVersionSourceValue ? [metadata.softwareVersionSourceValue] : [])
+  const normalized = normalizeImportText(softwareVersion)
+  if (!values.some((candidate) => normalizeImportText(candidate) === normalized)) values.push(softwareVersion)
+  metadata.softwareVersionSourceValues = values
+  metadata.softwareVersionSourceValue = values[0] ?? null
+}
+
+function addSeed(
+  result: Map<string, DeviceImportStagedReferenceSeed>,
+  kind: DeviceImportReferenceKind,
+  sourceValue: string | null,
+  values: DeviceImportMappedValues,
+  rowNumber: number,
+  options: DeviceImportOptions,
+) {
+  const cleaned = clean(sourceValue)
+  if (!cleaned) return
+  const contextKey = rawContext(values, kind, options)
+  const normalizedSourceValue = normalizeImportText(cleaned)
+  const key = `${kind}|${contextKey}|${normalizedSourceValue}`
+  const current = result.get(key)
+  if (current) {
+    current.occurrenceCount += 1
+    const rows = current.metadata.rowNumbers ?? []
+    if (rows.length < ROW_NUMBER_SAMPLE && !rows.includes(rowNumber)) rows.push(rowNumber)
+    current.metadata.rowNumbers = rows
+    if (kind === 'DEVICE_MODEL') {
+      mergePlatformMetadata(current.metadata, values.platform)
+      mergeDeviceTypeMetadata(current.metadata, values.deviceType)
+    } else if (kind === 'FIRMWARE_RELEASE') {
+      mergePlatformMetadata(current.metadata, values.platform)
+      mergeFirmwareVersionMetadata(current.metadata, values.firmwareVersion)
+      mergeSoftwareVersionMetadata(current.metadata, values.softwareVersion)
+    }
+    return
+  }
+  result.set(key, {
+    kind,
+    sourceValue: cleaned,
+    normalizedSourceValue,
+    contextKey,
+    occurrenceCount: 1,
+    metadata: { ...metadataFor(values, kind, options), rowNumbers: [rowNumber] },
+  })
+}
+
+function normalizeGenericSiteValue(values: DeviceImportMappedValues, options: DeviceImportOptions) {
+  if (!values.organizationSite || !values.site || !isGenericImportSiteValue(values.site)) return
+  const split = splitOrganizationSite(values.organizationSite, options.organizationSiteDelimiter)
+  if (!split.site || isGenericImportSiteValue(split.site)) return
+  values.site = split.site
+}
+
+/**
+ * Interpret source-specific firmware evidence before a mapped row is persisted
+ * and before references are aggregated. Raw firmwareVersion/softwareVersion
+ * remain untouched for deep-dive and rule evaluation.
+ */
+export function interpretDeviceImportMappedFirmware(
+  values: DeviceImportMappedValues,
+  options: DeviceImportOptions,
+) {
+  const interpreted = interpretDeviceImportFirmwareEvidence({
+    vendor: values.vendor,
+    model: values.model,
+    platform: values.platform,
+    currentFirmware: values.currentFirmware,
+    firmwareVersion: values.firmwareVersion,
+    softwareVersion: values.softwareVersion,
+    externalProvider: values.externalProvider ?? options.defaults.externalProvider,
+  })
+
+  values.currentFirmware = interpreted.currentFirmware
+  if (!values.platform && interpreted.platform) values.platform = interpreted.platform
+  return interpreted
+}
+
+export function buildDeviceImportStagedReferenceSeeds(
+  rows: Array<{ rowNumber: number; values: DeviceImportMappedValues }>,
+  options: DeviceImportOptions,
+  behavior: { interpretFirmware?: boolean } = {},
+) {
+  const result = new Map<string, DeviceImportStagedReferenceSeed>()
+  const interpretFirmware = behavior.interpretFirmware !== false
+  for (const row of rows) {
+    // Normal staging interprets running firmware exactly before aggregation.
+    // Delta/repair callers can disable it so a historical key can be removed
+    // before the canonical replacement is added.
+    if (interpretFirmware) interpretDeviceImportMappedFirmware(row.values, options)
+    normalizeGenericSiteValue(row.values, options)
+
+    addSeed(result, 'CUSTOMER', row.values.customer, row.values, row.rowNumber, options)
+    addSeed(result, 'SITE', row.values.site, row.values, row.rowNumber, options)
+    addSeed(result, 'VENDOR', row.values.vendor, row.values, row.rowNumber, options)
+    addSeed(result, 'DEVICE_TYPE', row.values.deviceType, row.values, row.rowNumber, options)
+    addSeed(result, 'DEVICE_MODEL', row.values.model, row.values, row.rowNumber, options)
+    addSeed(result, 'FIRMWARE_RELEASE', row.values.currentFirmware, row.values, row.rowNumber, options)
+  }
+  return [...result.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.sourceValue.localeCompare(b.sourceValue))
+}
+
+function compact(value: string) {
+  return normalizeImportText(value).replace(/[^a-z0-9]+/g, '')
+}
+
+function tokens(value: string) {
+  return new Set(normalizeImportText(value).split(/[^a-z0-9]+/g).filter(Boolean))
+}
+
+export function importReferenceSimilarity(source: string, candidate: string) {
+  const left = normalizeImportText(source)
+  const right = normalizeImportText(candidate)
+  if (!left || !right) return 0
+  if (left === right) return 1
+  const leftCompact = compact(source)
+  const rightCompact = compact(candidate)
+  if (leftCompact && leftCompact === rightCompact) return 0.98
+
+  const leftTokens = tokens(source)
+  const rightTokens = tokens(candidate)
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length
+  const union = new Set([...leftTokens, ...rightTokens]).size
+  const tokenScore = union ? intersection / union : 0
+
+  const contains = leftCompact.includes(rightCompact) || rightCompact.includes(leftCompact)
+  const sizeRatio = Math.min(leftCompact.length, rightCompact.length) / Math.max(leftCompact.length, rightCompact.length, 1)
+  const containsScore = contains ? 0.65 + 0.25 * sizeRatio : 0
+  return Math.max(tokenScore, containsScore)
+}
+
+export function bestImportReferenceSuggestion<T>(
+  sourceValue: string,
+  candidates: T[],
+  label: (candidate: T) => string,
+) {
+  const scored = candidates
+    .map((candidate) => ({ candidate, score: importReferenceSimilarity(sourceValue, label(candidate)) }))
+    .sort((a, b) => b.score - a.score)
+  const best = scored[0]
+  const second = scored[1]
+  if (!best || best.score < 0.55) return null
+  if (second && best.score - second.score < 0.08 && best.score < 0.9) return null
+  return best
+}
+
+export function suggestedImportReferenceCode(sourceValue: string) {
+  const compacted = sourceValue
+    .normalize('NFKC')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return compacted.slice(0, 40) || 'IMPORT'
+}

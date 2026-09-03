@@ -7,6 +7,7 @@ function model(overrides: Partial<DeviceModelRecord> & Pick<DeviceModelRecord, '
     deviceTypeId: 'type-1',
     familyId: null,
     platform: 'AOS-S',
+    supportedPlatforms: [],
     notes: null,
     isActive: true,
     source: 'MANUAL',

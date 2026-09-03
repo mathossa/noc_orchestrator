@@ -21,6 +21,11 @@ export type DeviceModelFirmwareReference = {
   firmwareTrain: { id: string; name: string } | null
 }
 
+export type DeviceModelSupportedPlatform = {
+  id: string
+  platform: string
+}
+
 export type DeviceModelRecord = {
   id: string
   vendorId: string
@@ -28,6 +33,7 @@ export type DeviceModelRecord = {
   familyId: string | null
   model: string
   platform: string | null
+  supportedPlatforms: DeviceModelSupportedPlatform[]
   notes: string | null
   isActive: boolean
   source: string
@@ -69,6 +75,11 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     policyId: string | null
     release: DeviceModelFirmwareReference | null
   }
+  desiredFirmwareByPlatform: Array<{
+    policyId: string
+    platform: string
+    release: DeviceModelFirmwareReference
+  }>
   availableFirmware: {
     available: true
     releases: Array<DeviceModelFirmwareReference & { selectable: boolean }>
@@ -94,6 +105,22 @@ function optionalText(value: unknown) {
   return cleaned.length > 0 ? cleaned : null
 }
 
+function platformList(value: unknown, preferred: string | null) {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  const result = new Map<string, string>()
+  for (const item of raw) {
+    const platform = optionalText(item)
+    if (!platform) continue
+    result.set(platform.toLocaleLowerCase('en-US'), platform)
+  }
+  if (preferred) result.set(preferred.toLocaleLowerCase('en-US'), preferred)
+  return [...result.values()]
+}
+
 export function cleanDeviceModelName(value: unknown) {
   return optionalText(value) ?? ''
 }
@@ -109,6 +136,7 @@ export function parseDeviceModelInput(input: unknown) {
   const familyId = optionalText(body.familyId)
   const model = cleanDeviceModelName(body.model)
   const platform = optionalText(body.platform)
+  const supportedPlatforms = platformList(body.supportedPlatforms, platform)
   const notes = optionalText(body.notes)
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
   const externalProvider = optionalText(body.externalProvider)
@@ -123,6 +151,9 @@ export function parseDeviceModelInput(input: unknown) {
   else if (model.length > 160) errors.model = 'Model name must be 160 characters or fewer.'
 
   if (platform && platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
+  if (supportedPlatforms.some((value) => value.length > 160)) {
+    errors.supportedPlatforms = 'Supported platforms must be 160 characters or fewer.'
+  }
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
 
   if (!['MANUAL', 'API', 'IMPORT'].includes(source)) {
@@ -147,6 +178,7 @@ export function parseDeviceModelInput(input: unknown) {
     familyId,
     model,
     platform,
+    supportedPlatforms,
     notes,
     isActive,
     source,

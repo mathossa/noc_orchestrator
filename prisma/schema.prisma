@@ -60,10 +60,10 @@ model AuthAccount {
   idToken                String?
   accessTokenExpiresAt   DateTime?
   refreshTokenExpiresAt  DateTime?
-  scope                  String?
-  password               String?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @default(now()) @updatedAt
+  scope                   String?
+  password                String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @default(now()) @updatedAt
   user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([issuer, accountId])
@@ -75,8 +75,8 @@ model AuthVerification {
   identifier String
   value      String
   expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([identifier])
 }
@@ -107,6 +107,7 @@ model Vendor {
   isActive   Boolean @default(true)
 
   deviceModelFamilies DeviceModelFamily[]
+  softwarePlatforms   SoftwarePlatform[]
   deviceModels        DeviceModel[]
   firmwareTrains      FirmwareTrain[]
   firmwareReleases    FirmwareRelease[]
@@ -142,7 +143,8 @@ model DeviceModelFamily {
   isActive Boolean @default(true)
 
   vendor Vendor        @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  models DeviceModel[]
+  models            DeviceModel[]
+  softwarePlatforms SoftwarePlatform[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -159,7 +161,6 @@ model Customer {
   contractTypeId String?
   isActive       Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -198,7 +199,6 @@ model Site {
   notes        String?
   isActive     Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -231,18 +231,18 @@ model DeviceModel {
   notes        String?
   isActive     Boolean @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  deviceType       DeviceType         @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
-  family           DeviceModelFamily? @relation(fields: [familyId], references: [id], onDelete: Restrict)
-  devices          Device[]
-  firmwarePolicies FirmwarePolicy[]
+  vendor             Vendor                @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  deviceType         DeviceType            @relation(fields: [deviceTypeId], references: [id], onDelete: Restrict)
+  family             DeviceModelFamily?    @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  supportedPlatforms DeviceModelPlatform[]
+  devices            Device[]
+  firmwarePolicies   FirmwarePolicy[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -257,28 +257,211 @@ model DeviceModel {
   @@index([isActive])
 }
 
-model FirmwareTrain {
-  id       String @id @default(uuid())
-  vendorId String
-  platform String
-  name     String
-  notes    String?
-  isActive Boolean @default(true)
+model DeviceModelPlatform {
+  id                 String  @id @default(uuid())
+  deviceModelId      String
+  softwarePlatformId String?
+  platform           String
 
-  // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
+  deviceModel      DeviceModel       @relation(fields: [deviceModelId], references: [id], onDelete: Cascade)
+  softwarePlatform SoftwarePlatform? @relation(fields: [softwarePlatformId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([deviceModelId, platform])
+  @@index([deviceModelId])
+  @@index([softwarePlatformId])
+  @@index([platform])
+}
+
+model SoftwarePlatform {
+  id              String  @id @default(uuid())
+  vendorId        String
+  productFamilyId String?
+  code            String
+  name            String
+  isActive        Boolean @default(true)
+
+  vendor           Vendor                @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  productFamily    DeviceModelFamily?    @relation(fields: [productFamilyId], references: [id], onDelete: SetNull)
+  modelPlatforms   DeviceModelPlatform[]
+  firmwareTrains   FirmwareTrain[]
+  firmwareReleases FirmwareRelease[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([vendorId, code])
+  @@index([vendorId])
+  @@index([productFamilyId])
+  @@index([isActive])
+}
+
+model DeviceImportProfile {
+  id               String  @id @default(uuid())
+  name             String  @unique
+  externalProvider String?
+  settings         Json
+  isActive         Boolean @default(true)
+  aliases          DeviceImportProfileAlias[]
+  rules            DeviceImportProfileRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([isActive])
+  @@index([externalProvider])
+}
+
+model DeviceImportProfileAlias {
+  id                    String @id @default(uuid())
+  profileId             String
+  kind                  String
+  sourceValue           String
+  normalizedSourceValue String
+  contextKey            String @default("")
+  targetId              String
+
+  profile DeviceImportProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([profileId, kind, normalizedSourceValue, contextKey])
+  @@index([profileId])
+  @@index([kind, targetId])
+}
+
+model DeviceImportProfileRule {
+  id              String  @id @default(uuid())
+  profileId       String
+  action          String  @default("IGNORE")
+  field           String
+  operator        String  @default("EQUALS")
+  value           String
+  normalizedValue String
+  result          Json?
+  priority        Int     @default(100)
+  isActive        Boolean @default(true)
+
+  profile DeviceImportProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([profileId, action, field, operator, normalizedValue], map: "ImportProfileRule_profile_action_field_value_key")
+  @@index([profileId, isActive])
+  @@index([action, field])
+}
+
+model ImportReferenceAlias {
+  id                    String @id @default(uuid())
+  kind                  String
+  sourceValue           String
+  normalizedSourceValue String
+  contextKey            String @default("")
+  targetId              String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([kind, normalizedSourceValue, contextKey])
+  @@index([kind, targetId])
+}
+
+model DeviceImportBatch {
+  id          String    @id @default(uuid())
+  profileId   String?
+  fileName    String
+  sheetName   String
+  headerRow   Int
+  settings    Json
+  status      String    @default("STAGED")
+  totalRows   Int       @default(0)
+  publishedAt DateTime?
+
+  rows       DeviceImportStagedRow[]
+  references DeviceImportStagedReference[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([profileId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DeviceImportStagedRow {
+  id                String  @id @default(uuid())
+  batchId           String
+  rowNumber         Int
+  rawData           Json
+  mappedData        Json
+  status            String  @default("STAGED")
+  statusReason      String?
+  statusSource      String?
+  publishedDeviceId String?
+
+  batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+}
+
+model DeviceImportStagedReference {
+  id                    String  @id @default(uuid())
+  batchId               String
+  kind                  String
+  sourceValue           String
+  normalizedSourceValue String
+  contextKey            String  @default("")
+  metadata              Json?
+  status                String  @default("UNRESOLVED")
+  targetId              String?
+  suggestedTargetId     String?
+  suggestionScore       Float?
+  resolutionSource      String?
+  occurrenceCount       Int     @default(1)
+
+  batch DeviceImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([batchId, kind, normalizedSourceValue, contextKey], map: "ImportStagedRef_batch_kind_source_context_key")
+  @@index([batchId, status])
+  @@index([batchId, kind])
+  @@index([targetId])
+}
+
+model FirmwareTrain {
+  id                 String  @id @default(uuid())
+  vendorId           String
+  softwarePlatformId String?
+  platform           String
+  name               String
+  notes              String?
+  isActive            Boolean @default(true)
+
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor   Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  releases FirmwareRelease[]
+  vendor           Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  softwarePlatform SoftwarePlatform? @relation(fields: [softwarePlatformId], references: [id], onDelete: SetNull)
+  releases         FirmwareRelease[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([vendorId])
+  @@index([softwarePlatformId])
   @@index([platform])
   @@index([source])
   @@index([isActive])
@@ -289,6 +472,7 @@ model FirmwareRelease {
   id              String  @id @default(uuid())
   vendorId        String
   firmwareTrainId String?
+  softwarePlatformId String?
   platform        String
   version         String
   filename        String?
@@ -300,7 +484,6 @@ model FirmwareRelease {
   releasedAt      DateTime?
   isActive        Boolean @default(true)
 
-  // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -309,9 +492,10 @@ model FirmwareRelease {
 
   vendor             Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   firmwareTrain      FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
-  currentOnDevices   Device[]                  @relation("DeviceCurrentFirmware")
-  targetedByPolicies FirmwarePolicy[]          @relation("PolicyTargetFirmware")
-  lifecycleTargets   FirmwareLifecycleRecord[] @relation("LifecycleTargetFirmware")
+  softwarePlatform   SoftwarePlatform?          @relation(fields: [softwarePlatformId], references: [id], onDelete: SetNull)
+  currentOnDevices   Device[]                   @relation("DeviceCurrentFirmware")
+  targetedByPolicies FirmwarePolicy[]           @relation("PolicyTargetFirmware")
+  lifecycleTargets   FirmwareLifecycleRecord[]  @relation("LifecycleTargetFirmware")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -320,6 +504,7 @@ model FirmwareRelease {
   @@index([externalProvider, externalId])
   @@index([vendorId])
   @@index([firmwareTrainId])
+  @@index([softwarePlatformId])
   @@index([version])
   @@index([status])
   @@index([source])
@@ -331,6 +516,7 @@ model Device {
   customerId                String
   siteId                    String?
   deviceModelId             String
+  platform                  String?
   name                      String
   hostname                  String?
   serialNumber              String?
@@ -341,7 +527,6 @@ model Device {
   currentFirmwareSource     String   @default("MANUAL")
   isActive                  Boolean  @default(true)
 
-  // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
   externalId         String?
@@ -364,6 +549,7 @@ model Device {
   @@index([customerId])
   @@index([siteId])
   @@index([deviceModelId])
+  @@index([platform])
   @@index([currentFirmwareReleaseId])
   @@index([currentFirmwareSource])
   @@index([source])
@@ -374,12 +560,10 @@ model Device {
 model FirmwarePolicy {
   id                      String  @id @default(uuid())
   targetFirmwareReleaseId String
+  platform                String?
   isActive                Boolean @default(true)
   notes                   String?
 
-  // v0.1.0 creates model-level policies. Nullable scope references reserve a
-  // non-destructive path for later device, customer/model, contract/model,
-  // vendor, and device-type overrides without implementing precedence here.
   deviceModelId  String?
   customerId     String?
   contractTypeId String?
@@ -399,7 +583,7 @@ model FirmwarePolicy {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([targetFirmwareReleaseId])
-  @@index([deviceModelId, isActive])
+  @@index([deviceModelId, platform, isActive])
   @@index([customerId])
   @@index([contractTypeId])
   @@index([deviceId])
@@ -438,13 +622,13 @@ model FirmwareLifecycleRecord {
 model AuditEvent {
   id          String @id @default(uuid())
   actorUserId String?
-  customerId  String?
+  customerId String?
   action      String
-  entityType  String
-  entityId    String
-  before      Json?
-  after       Json?
-  metadata    Json?
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  metadata   Json?
 
   actor    User?     @relation("AuditEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)

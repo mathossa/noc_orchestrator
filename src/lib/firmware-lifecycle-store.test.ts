@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   deviceFindUnique: vi.fn(),
-  policyFindFirst: vi.fn(),
+  policyFindMany: vi.fn(),
   lifecycleFindUnique: vi.fn(),
   lifecycleUpsert: vi.fn(),
   auditCreate: vi.fn(),
@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     device: { findUnique: mocks.deviceFindUnique },
-    firmwarePolicy: { findFirst: mocks.policyFindFirst },
+    firmwarePolicy: { findMany: mocks.policyFindMany },
     firmwareLifecycleRecord: {
       findUnique: mocks.lifecycleFindUnique,
       upsert: mocks.lifecycleUpsert,
@@ -41,6 +41,7 @@ const desiredRelease = {
 const desiredPolicy = {
   id: 'policy-1',
   targetFirmwareReleaseId: desiredRelease.id,
+  platform: 'IOS XE',
   isActive: true,
   notes: null,
   deviceModelId: 'model-1',
@@ -101,9 +102,10 @@ describe('firmware lifecycle persistence', () => {
     mocks.deviceFindUnique.mockResolvedValue({
       id: 'device-1',
       deviceModelId: 'model-1',
+      platform: 'IOS XE',
       customerId: 'customer-1',
     })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy)
+    mocks.policyFindMany.mockResolvedValue([desiredPolicy])
     mocks.lifecycleFindUnique.mockResolvedValue(null)
     mocks.lifecycleUpsert.mockResolvedValue(storedLifecycle())
     mocks.auditCreate.mockResolvedValue({ id: 'audit-1' })
@@ -235,7 +237,7 @@ describe('firmware lifecycle persistence', () => {
   })
 
   it('rejects a new lifecycle decision when no desired firmware policy exists without writing history', async () => {
-    mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.policyFindMany.mockResolvedValue([])
 
     await expect(
       setFirmwareLifecycleDecision('device-1', { state: 'PLANNED' }),

@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   siteCount: vi.fn(),
   deviceFindMany: vi.fn(),
   deviceCount: vi.fn(),
-  policyFindFirst: vi.fn(),
+  policyFindMany: vi.fn(),
   policyCount: vi.fn(),
   auditCount: vi.fn(),
 }))
@@ -38,7 +38,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: mocks.deviceFindMany,
       count: mocks.deviceCount,
     },
-    firmwarePolicy: { findFirst: mocks.policyFindFirst, count: mocks.policyCount },
+    firmwarePolicy: { findMany: mocks.policyFindMany, count: mocks.policyCount },
     auditEvent: { count: mocks.auditCount },
   },
 }))
@@ -75,6 +75,7 @@ function desiredPolicy(modelId: string, releaseId: string) {
   return {
     id: `policy-${modelId}`,
     targetFirmwareReleaseId: releaseId,
+    platform: 'IOS XE',
     isActive: true,
     notes: null,
     deviceModelId: modelId,
@@ -98,7 +99,7 @@ describe('customer persistence rules', () => {
     vi.clearAllMocks()
     mocks.siteFindMany.mockResolvedValue([])
     mocks.siteCount.mockResolvedValue(0)
-    mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.policyFindMany.mockResolvedValue([])
   })
 
   it('creates a manual customer without external identity fields', async () => {
@@ -165,14 +166,14 @@ describe('customer persistence rules', () => {
   it('returns site, workflow, and canonical technical firmware summaries', async () => {
     mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1 } }))
     mocks.deviceFindMany.mockResolvedValue([
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: null, lifecycle: { state: 'DONE' } },
-      { deviceModelId: 'model-2', currentFirmwareReleaseId: 'release-x', lifecycle: null },
+      { deviceModelId: 'model-1', platform: 'IOS XE', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
+      { deviceModelId: 'model-1', platform: 'IOS XE', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },
+      { deviceModelId: 'model-1', platform: 'IOS XE', currentFirmwareReleaseId: null, lifecycle: { state: 'DONE' } },
+      { deviceModelId: 'model-2', platform: 'IOS XE', currentFirmwareReleaseId: 'release-x', lifecycle: null },
     ])
-    mocks.policyFindFirst.mockImplementation(({ where }: { where: { deviceModelId: string } }) => {
-      if (where.deviceModelId === 'model-1') return Promise.resolve(desiredPolicy('model-1', 'release-a'))
-      return Promise.resolve(null)
+    mocks.policyFindMany.mockImplementation(({ where }: { where: { deviceModelId: string } }) => {
+      if (where.deviceModelId === 'model-1') return Promise.resolve([desiredPolicy('model-1', 'release-a')])
+      return Promise.resolve([])
     })
     mocks.siteFindMany.mockResolvedValue([
       { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, _count: { devices: 3 } },

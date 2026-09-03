@@ -25,6 +25,7 @@ describe('device model validation', () => {
       familyId: null,
       model: 'C9300-24P',
       platform: null,
+      supportedPlatforms: [],
       notes: null,
       isActive: true,
       source: 'MANUAL',

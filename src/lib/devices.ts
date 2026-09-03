@@ -22,6 +22,7 @@ export type DeviceModelReference = {
   id: string
   model: string
   platform: string | null
+  supportedPlatforms: Array<{ id: string; platform: string }>
   isActive: boolean
   vendor: { id: string; code: string; name: string; isActive: boolean }
   deviceType: { id: string; code: string; name: string; isActive: boolean }
@@ -55,6 +56,7 @@ export type DeviceRecord = {
   customerId: string
   siteId: string | null
   deviceModelId: string
+  platform: string | null
   name: string
   hostname: string | null
   serialNumber: string | null
@@ -176,6 +178,7 @@ export function parseDeviceInput(input: unknown) {
   const customerId = requiredId(body.customerId)
   const siteId = optionalText(body.siteId)
   const deviceModelId = requiredId(body.deviceModelId)
+  const platform = optionalText(body.platform)
   const name = cleanDeviceName(body.name)
   const hostname = optionalText(body.hostname)
   const serialNumber = optionalText(body.serialNumber)
@@ -193,6 +196,7 @@ export function parseDeviceInput(input: unknown) {
 
   if (!customerId) errors.customerId = 'Customer is required.'
   if (!deviceModelId) errors.deviceModelId = 'Device model is required.'
+  if (platform && platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
   if (!name) errors.name = 'Device name is required.'
   else if (name.length > 160) errors.name = 'Device name must be 160 characters or fewer.'
 
@@ -221,6 +225,7 @@ export function parseDeviceInput(input: unknown) {
     customerId,
     siteId,
     deviceModelId,
+    platform,
     name,
     hostname,
     serialNumber,
