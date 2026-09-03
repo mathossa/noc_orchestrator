@@ -29,6 +29,9 @@ type ImportedFirmwareEvidence = {
   currentFirmware?: string | null
   firmwareVersion?: string | null
   softwareVersion?: string | null
+  vendor?: string | null
+  model?: string | null
+  platform?: string | null
 }
 
 function meaningfulVersion(value: string | null | undefined) {
@@ -54,6 +57,26 @@ function aosSVersion(value: string | null | undefined) {
   const match = version.match(/^([A-Z]{1,4})[._-](\d+(?:\.\d+){2,5})$/i)
   if (!match) return null
   return { prefix: match[1].toUpperCase(), version }
+}
+
+function looksLikeAosSDevice(evidence: ImportedFirmwareEvidence) {
+  const vendor = normalizeImportText(evidence.vendor)
+  const model = normalizeImportText(evidence.model)
+  const platform = normalizeImportText(evidence.platform)
+  if (
+    platform === 'aos-s' ||
+    platform === 'aos s' ||
+    platform === 'arubaos-switch'
+  )
+    return true
+  if (
+    vendor === 'hp' ||
+    vendor.includes('hewlett packard') ||
+    vendor.includes('hpe') ||
+    vendor.includes('aruba')
+  )
+    return /\b(?:2530|2540|2920|2930|3810|5400r)\b/.test(model) || !model
+  return /\b(?:2530|2540|2920|2930|3810|5400r)\b/.test(model)
 }
 
 export function isAosSBootFirmwarePair(
@@ -100,6 +123,7 @@ export function selectImportedRunningFirmware(
 
   if (
     software &&
+    looksLikeAosSDevice(evidence) &&
     isAosSBootFirmwarePair(evidence.firmwareVersion, evidence.softwareVersion)
   ) {
     return {
