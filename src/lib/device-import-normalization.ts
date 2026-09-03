@@ -312,16 +312,24 @@ export function classifyImportedDeviceModel(
   return builtInClassification(sourceValue)
 }
 
+export function splitFirmwareVersionVariant(
+  softwarePlatform: string,
+  version: string,
+) {
+  const cleaned = version.normalize('NFKC').trim().replace(/^v/i, '')
+  if (canonicalSoftwarePlatform(softwarePlatform).code !== 'AOS-S') {
+    return { version: cleaned, variant: null as string | null }
+  }
+  const prefixed = cleaned.match(/^([A-Z]{1,4})[._-](\d+(?:\.\d+)+)$/i)
+  if (!prefixed) return { version: cleaned, variant: null as string | null }
+  return { version: prefixed[2], variant: prefixed[1].toUpperCase() }
+}
+
 export function inferFirmwareTrainName(
   softwarePlatform: string,
   version: string,
 ) {
-  const platformCode = canonicalSoftwarePlatform(softwarePlatform).code
-  const cleaned = version.normalize('NFKC').trim().replace(/^v/i, '')
-  if (platformCode === 'AOS-S') {
-    const match = cleaned.match(/^([A-Z]{1,3})\.(\d+)\.(\d+)/i)
-    return match ? `${match[1].toUpperCase()}.${match[2]}.${match[3]}` : cleaned
-  }
-  const numeric = cleaned.match(/^(\d+)\.(\d+)/)
-  return numeric ? `${numeric[1]}.${numeric[2]}` : cleaned
+  const { version: canonicalVersion } = splitFirmwareVersionVariant(softwarePlatform, version)
+  const numeric = canonicalVersion.match(/^(\d+)\.(\d+)/)
+  return numeric ? `${numeric[1]}.${numeric[2]}` : canonicalVersion
 }
