@@ -25,6 +25,11 @@ type StagedReferenceRecord = {
   metadata: unknown
 }
 
+type FirmwareModelPlatformContext = {
+  platform: string | null
+  supportedPlatforms: Array<{ platform: string }>
+}
+
 function metadata(value: unknown): DeviceImportStagedReferenceMetadata {
   return typeof value === 'object' && value !== null ? (value as DeviceImportStagedReferenceMetadata) : {}
 }
@@ -62,6 +67,33 @@ export function linkedFirmwareReferenceMetadata(
     platforms,
     waitingFor: [],
   }
+}
+
+export function firmwareTargetMatchesResolvedModel(
+  targetPlatform: string,
+  model: FirmwareModelPlatformContext | null,
+  stagedPlatform?: string | null,
+) {
+  const target = normalizedPlatform(targetPlatform)
+  if (!target) return false
+
+  if (model) {
+    const allowedPlatforms = new Set([
+      model.platform,
+      ...model.supportedPlatforms.map((entry) => entry.platform),
+    ].map((platform) => normalizedPlatform(platform ?? '')).filter(Boolean))
+
+    // The resolved canonical Model is authoritative. Staged Firmware metadata
+    // may contain an earlier heuristic/prediction and can therefore be stale.
+    // An explicit engineer-selected release is valid when its Platform is one
+    // of the Model's preferred/supported Platforms.
+    if (allowedPlatforms.size) return allowedPlatforms.has(target)
+  }
+
+  // Models created before Software Platform support may have no Platform data.
+  // In that case retain the staged Platform as a conservative fallback guard.
+  const staged = normalizedPlatform(stagedPlatform ?? '')
+  return !staged || staged === target
 }
 
 async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId: string) {
@@ -119,33 +151,25 @@ async function validateOneTimeTarget(reference: StagedReferenceRecord, targetId:
   if (meta.vendorTargetId && target.vendorId !== meta.vendorTargetId) {
     throw new DeviceImportStagingError(`Firmware target for “${reference.sourceValue}” belongs to another vendor.`)
   }
-  if (meta.platform && normalizedPlatform(target.platform) !== normalizedPlatform(meta.platform)) {
+
+  const model = meta.modelTargetId
+    ? await prisma.deviceModel.findUnique({
+        where: { id: meta.modelTargetId },
+        select: {
+          platform: true,
+          supportedPlatforms: { select: { platform: true } },
+        },
+      })
+    : null
+
+  if (!firmwareTargetMatchesResolvedModel(target.platform, model, meta.platform)) {
     throw new DeviceImportStagingError(`Firmware target for “${reference.sourceValue}” is not compatible with the resolved model platform.`)
   }
-  if (!meta.platform && meta.modelTargetId) {
-    const model = await prisma.deviceModel.findUnique({
-      where: { id: meta.modelTargetId },
-      select: {
-        platform: true,
-        supportedPlatforms: { select: { platform: true } },
-      },
-    })
-    if (model) {
-      const allowedPlatforms = new Set([
-        model.platform,
-        ...model.supportedPlatforms.map((entry) => entry.platform),
-      ].map((platform) => normalizedPlatform(platform ?? '')).filter(Boolean))
-      if (allowedPlatforms.size && !allowedPlatforms.has(normalizedPlatform(target.platform))) {
-        throw new DeviceImportStagingError(`Firmware target for “${reference.sourceValue}” is not compatible with the resolved model platform.`)
-      }
-    }
-  }
 
-  // The worksheet can infer a concrete Platform even when the staged source
-  // reference did not contain one. Persist the explicitly accepted release's
-  // canonical Vendor + Platform before the dependency refresh. Otherwise the
-  // refresh rebuilt a partial Vendor-only context and the just-approved link
-  // became unresolved again.
+  // The worksheet can infer or explicitly choose a concrete Platform even when
+  // the staged Firmware reference still carries older prediction metadata.
+  // Persist the accepted release's canonical Vendor + Platform before the
+  // dependency refresh so the just-approved link remains canonical and stable.
   return linkedFirmwareReferenceMetadata(meta, target)
 }
 
