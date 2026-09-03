@@ -46,7 +46,14 @@ export async function refreshAffectedReferences(batchId: string, changes: Array<
   for (const delta of [-1, 1] as const) {
     const deltaRows = changes.filter((change) => change.delta === delta)
     if (!deltaRows.length) continue
-    const seeds = buildDeviceImportStagedReferenceSeeds(deltaRows.map((change) => ({ rowNumber: change.rowNumber, values: mappedData(change.mappedData) })), options)
+    // Delta rows are historical/canonical snapshots supplied by the caller.
+    // Reinterpreting them here would turn both sides of a firmware repair into
+    // the same canonical key and leave the old ROMMON/boot reference behind.
+    const seeds = buildDeviceImportStagedReferenceSeeds(
+      deltaRows.map((change) => ({ rowNumber: change.rowNumber, values: mappedData(change.mappedData) })),
+      options,
+      { interpretFirmware: false },
+    )
     for (const seed of seeds) {
       const key = referenceKey(seed)
       const current = deltas.get(key) ?? { seed, count: 0, addedRows: [], removedRows: [] }
