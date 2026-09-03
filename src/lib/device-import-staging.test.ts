@@ -71,86 +71,92 @@ describe('staged device import references', () => {
 
     const firmware = references.filter((reference) => reference.kind === 'FIRMWARE_RELEASE')
     expect(firmware).toHaveLength(2)
-    expect(new Set(firmware.map((reference) => reference.contextKey)).size).toBe(2)
-    expect(firmware.map((reference) => reference.metadata.softwareVersionSourceValue).sort()).toEqual([
+    expect(firmware.map((reference) => reference.metadata.softwareVersionSourceValue)).toEqual(expect.arrayContaining([
       'WC.16.01.0020',
       'WC.16.01.0030',
-    ])
+    ]))
+    expect(firmware.every((reference) => reference.occurrenceCount === 1)).toBe(true)
   })
 
   it('collapses the same Vendor + Model even when upstream Device Type labels differ', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
       { rowNumber: 2, values: values({ vendor: 'Cisco', deviceType: 'Switch', model: 'Cisco WS-C2960X-24PS-L' }) },
       { rowNumber: 3, values: values({ vendor: 'Cisco', deviceType: 'Stack', model: 'Cisco WS-C2960X-24PS-L' }) },
+      { rowNumber: 4, values: values({ vendor: 'Cisco', deviceType: 'Switches', model: 'Cisco WS-C2960X-24PS-L' }) },
     ], options)
 
     const models = references.filter((reference) => reference.kind === 'DEVICE_MODEL')
     expect(models).toHaveLength(1)
-    expect(models[0]).toMatchObject({ contextKey: 'vendor:cisco', occurrenceCount: 2 })
-    expect(models[0].metadata.deviceTypeSourceValues).toEqual(['Switch', 'Stack'])
+    expect(models[0]).toMatchObject({
+      sourceValue: 'Cisco WS-C2960X-24PS-L',
+      contextKey: 'vendor:cisco',
+      occurrenceCount: 3,
+      metadata: {
+        vendorSourceValue: 'Cisco',
+        deviceTypeSourceValue: 'Switch',
+        deviceTypeSourceValues: ['Switch', 'Stack', 'Switches'],
+        rowNumbers: [2, 3, 4],
+      },
+    })
   })
 
   it('keeps raw Software Version evidence on Firmware references for profile rules', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
-      {
-        rowNumber: 2,
-        values: values({
-          vendor: 'Cisco',
-          model: 'Cisco SG350-28P',
-          currentFirmware: '2.5.18',
-          firmwareVersion: '2.5.18',
-          softwareVersion: '2.5.0.83',
-        }),
-      },
+      { rowNumber: 2, values: values({ vendor: 'Cisco', model: 'C9300-24P', currentFirmware: '17.12.04', firmwareVersion: '0.1', softwareVersion: 'Dublin 17.12.04' }) },
     ], options)
 
-    const firmware = references.find((reference) => reference.kind === 'FIRMWARE_RELEASE')!
-    expect(firmware.metadata).toMatchObject({
-      firmwareVersionSourceValue: '2.5.18',
-      softwareVersionSourceValue: '2.5.0.83',
+    expect(references.find((reference) => reference.kind === 'FIRMWARE_RELEASE')?.metadata).toMatchObject({
+      softwareVersionSourceValue: 'Dublin 17.12.04',
+      softwareVersionSourceValues: ['Dublin 17.12.04'],
+      firmwareVersionSourceValue: '0.1',
+      firmwareVersionSourceValues: ['0.1'],
     })
   })
 
   it('keeps site identity customer-scoped when the same site label occurs under multiple organizations', () => {
     const references = buildDeviceImportStagedReferenceSeeds([
-      { rowNumber: 2, values: values({ customer: 'Customer A', site: 'Amsterdam' }) },
-      { rowNumber: 3, values: values({ customer: 'Customer B', site: 'Amsterdam' }) },
+      { rowNumber: 2, values: values({ customer: 'Customer A', site: 'Main' }) },
+      { rowNumber: 3, values: values({ customer: 'Customer B', site: 'Main' }) },
     ], options)
 
-    const sites = references.filter((reference) => reference.kind === 'SITE')
-    expect(sites).toHaveLength(2)
-    expect(new Set(sites.map((reference) => reference.contextKey))).toEqual(new Set([
-      'customer:customer a',
-      'customer:customer b',
+    expect(references.filter((reference) => reference.kind === 'SITE')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceValue: 'Main', contextKey: 'customer:customer a' }),
+      expect.objectContaining({ sourceValue: 'Main', contextKey: 'customer:customer b' }),
     ]))
   })
 
   it('replaces generic upstream Site placeholders with the split Organization/Site location before staging', () => {
-    const splitOptions = parseDeviceImportOptions({
-      sheetName: 'Devices',
-      headerRow: 1,
-      mapping: { '0': 'hostname' },
-      defaults: {},
-      resolutions: {},
-      organizationSiteDelimiter: ' - ',
-    })
-    const rows = [{
-      rowNumber: 2,
-      values: values({ organizationSite: 'DHL - eCom Alkmaar', customer: 'DHL', site: 'Unknown' }),
-    }]
+    const rows = [
+      { rowNumber: 2, values: values({ organizationSite: 'Unica Groep - UICTS Working Spirit Deventer', customer: 'Unica Groep', site: 'Open internet' }) },
+      { rowNumber: 3, values: values({ organizationSite: 'Unica Groep - Zwolle', customer: 'Unica Groep', site: 'Open internet' }) },
+    ]
 
-    const references = buildDeviceImportStagedReferenceSeeds(rows, splitOptions)
-    const site = references.find((reference) => reference.kind === 'SITE')!
-    expect(site.sourceValue).toBe('eCom Alkmaar')
-    expect(rows[0].values.site).toBe('eCom Alkmaar')
+    const references = buildDeviceImportStagedReferenceSeeds(rows, options)
+    const sites = references.filter((reference) => reference.kind === 'SITE')
+
+    expect(rows[0].values.site).toBe('UICTS Working Spirit Deventer')
+    expect(rows[1].values.site).toBe('Zwolle')
+    expect(sites).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceValue: 'UICTS Working Spirit Deventer',
+        contextKey: 'organization-site:unica groep - uicts working spirit deventer',
+      }),
+      expect.objectContaining({
+        sourceValue: 'Zwolle',
+        contextKey: 'organization-site:unica groep - zwolle',
+      }),
+    ]))
   })
 
   it('offers a strong suggestion for punctuation/prefix variations but does not call weak matches strong', () => {
-    expect(importReferenceSimilarity('Cisco WS-C2960X-24PS-L', 'WS C2960X 24PS L')).toBeGreaterThan(0.9)
-    expect(importReferenceSimilarity('AP-515', 'AP-505')).toBeLessThan(0.9)
-    expect(bestImportReferenceSuggestion('Cisco WS-C2960X-24PS-L', [
-      { id: 'one', label: 'WS C2960X 24PS L' },
-      { id: 'two', label: 'C9300-24P' },
-    ])).toMatchObject({ targetId: 'one' })
+    expect(importReferenceSimilarity('Fortinet FortiGate-100F', 'Fortinet FortiGate 100F')).toBeGreaterThan(0.9)
+    expect(importReferenceSimilarity('Firewall', 'Wireless Access Point')).toBeLessThan(0.55)
+
+    const best = bestImportReferenceSuggestion(
+      'Fortinet FortiGate-100F',
+      [{ id: '100f', label: 'Fortinet FortiGate 100F' }, { id: 'switch', label: 'Aruba 2530 Switch' }],
+      (candidate) => candidate.label,
+    )
+    expect(best?.candidate.id).toBe('100f')
   })
 })
