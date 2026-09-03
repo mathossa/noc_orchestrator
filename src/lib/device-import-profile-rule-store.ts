@@ -2,6 +2,7 @@ import { normalizeImportText } from '@/lib/device-import'
 import {
   IMPORT_PREDICTION_FIELDS,
   IMPORT_PREDICTION_OPERATORS,
+  type DeviceImportModelTransform,
   type DeviceImportPredictionResult,
 } from '@/lib/device-import-profile-predictions'
 import { prisma } from '@/lib/prisma'
@@ -23,6 +24,34 @@ function record(value: unknown) {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : {}
+}
+
+function modelTransforms(value: unknown, strict = false) {
+  if (!Array.isArray(value)) return []
+  const transforms: DeviceImportModelTransform[] = []
+  for (const entry of value) {
+    const transform = record(entry)
+    const operation = text(transform.operation).toUpperCase()
+    const transformValue = text(transform.value)
+    const replacement = text(transform.replacement)
+    if (!['REMOVE_PREFIX', 'REPLACE'].includes(operation) || !transformValue) {
+      if (strict)
+        throw new DeviceImportProfileRuleError(
+          'Choose a valid Model cleanup operation and value.',
+        )
+      continue
+    }
+    if (transformValue.length > 120 || replacement.length > 120)
+      throw new DeviceImportProfileRuleError(
+        'Model cleanup values must be 120 characters or fewer.',
+      )
+    transforms.push({
+      operation: operation as DeviceImportModelTransform['operation'],
+      value: transformValue,
+      ...(operation === 'REPLACE' ? { replacement } : {}),
+    })
+  }
+  return transforms
 }
 
 export async function listImportProfileRuleWorkspace(profileId: string) {
@@ -96,27 +125,86 @@ export async function createImportProfilePredictionRule(
   if (!profile?.isActive)
     throw new DeviceImportProfileRuleError('Choose an active import profile.')
 
-  const vendorTargetId = text(rawResult.vendorTargetId) || null
-  const deviceTypeTargetId = text(rawResult.deviceTypeTargetId) || null
-  const productFamilyId = text(rawResult.productFamilyId) || null
-  const softwarePlatforms = Array.isArray(rawResult.softwarePlatforms)
+  const normalizedValue = normalizeImportText(value)
+  const existingRule = await prisma.deviceImportProfileRule.findUnique({
+    where: {
+      profileId_action_field_operator_normalizedValue: {
+        profileId,
+        action: 'PREDICT',
+        field,
+        operator,
+        normalizedValue,
+      },
+    },
+    select: { result: true },
+  })
+  const existingResult = record(existingRule?.result)
+
+  const requestedVendorTargetId = text(rawResult.vendorTargetId) || null
+  const requestedDeviceTypeTargetId = text(rawResult.deviceTypeTargetId) || null
+  const requestedProductFamilyId = text(rawResult.productFamilyId) || null
+  const requestedSoftwarePlatforms = Array.isArray(rawResult.softwarePlatforms)
     ? [...new Set(rawResult.softwarePlatforms.map(text).filter(Boolean))]
     : text(rawResult.softwarePlatforms)
         .split(',')
         .map((item) => text(item))
         .filter(Boolean)
-  const preferredSoftwarePlatform =
+  const requestedPreferredSoftwarePlatform =
     text(rawResult.preferredSoftwarePlatform) || null
+  const requestedModelTransforms = modelTransforms(
+    rawResult.modelTransforms,
+    true,
+  )
   if (
-    !vendorTargetId &&
-    !deviceTypeTargetId &&
-    !productFamilyId &&
-    !softwarePlatforms.length &&
-    !preferredSoftwarePlatform
+    !requestedVendorTargetId &&
+    !requestedDeviceTypeTargetId &&
+    !requestedProductFamilyId &&
+    !requestedSoftwarePlatforms.length &&
+    !requestedPreferredSoftwarePlatform &&
+    !requestedModelTransforms.length
   )
     throw new DeviceImportProfileRuleError(
       'Choose at least one prediction output.',
     )
+
+  const vendorTargetId =
+    requestedVendorTargetId || text(existingResult.vendorTargetId) || null
+  const deviceTypeTargetId =
+    requestedDeviceTypeTargetId ||
+    text(existingResult.deviceTypeTargetId) ||
+    null
+  const productFamilyId =
+    requestedProductFamilyId || text(existingResult.productFamilyId) || null
+  const existingSoftwarePlatforms = Array.isArray(
+    existingResult.softwarePlatforms,
+  )
+    ? existingResult.softwarePlatforms.map(text).filter(Boolean)
+    : []
+  const softwarePlatforms = requestedSoftwarePlatforms.length
+    ? requestedSoftwarePlatforms
+    : existingSoftwarePlatforms
+  const preferredSoftwarePlatform =
+    requestedPreferredSoftwarePlatform ||
+    text(existingResult.preferredSoftwarePlatform) ||
+    null
+  const existingModelTransforms = modelTransforms(
+    existingResult.modelTransforms,
+  )
+  const modelTransformKeys = new Set(
+    requestedModelTransforms.map(
+      (transform) =>
+        `${transform.operation}|${normalizeImportText(transform.value)}|${normalizeImportText(transform.replacement)}`,
+    ),
+  )
+  const modelTransformsResult = [
+    ...requestedModelTransforms,
+    ...existingModelTransforms.filter(
+      (transform) =>
+        !modelTransformKeys.has(
+          `${transform.operation}|${normalizeImportText(transform.value)}|${normalizeImportText(transform.replacement)}`,
+        ),
+    ),
+  ]
 
   const [vendor, deviceType, family] = await Promise.all([
     vendorTargetId
@@ -161,6 +249,7 @@ export async function createImportProfilePredictionRule(
     productFamilyId,
     softwarePlatforms,
     preferredSoftwarePlatform,
+    modelTransforms: modelTransformsResult,
     origin: 'MANUAL',
   }
   return prisma.deviceImportProfileRule.upsert({
@@ -170,7 +259,7 @@ export async function createImportProfilePredictionRule(
         action: 'PREDICT',
         field,
         operator,
-        normalizedValue: normalizeImportText(value),
+        normalizedValue,
       },
     },
     update: { value, result, priority: 500, isActive: true },
@@ -180,7 +269,7 @@ export async function createImportProfilePredictionRule(
       field,
       operator,
       value,
-      normalizedValue: normalizeImportText(value),
+      normalizedValue,
       result,
       priority: 500,
       isActive: true,

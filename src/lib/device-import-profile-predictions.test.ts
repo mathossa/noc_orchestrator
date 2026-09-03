@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyDeviceImportModelTransforms,
   applyDeviceImportPredictionRules,
   importPredictionRuleMatches,
   type DeviceImportPredictionRule,
@@ -72,5 +73,53 @@ describe('device import profile predictions', () => {
       },
       matchedRuleIds: ['vendor', 'wlan'],
     })
+  })
+
+  it('removes a configured Model prefix without damaging the hardware name', () => {
+    expect(
+      applyDeviceImportModelTransforms('HP 2930F VSF', [
+        { operation: 'REMOVE_PREFIX', value: 'HP' },
+      ]),
+    ).toBe('2930F VSF')
+    expect(
+      applyDeviceImportModelTransforms('HPE Aruba 2930F', [
+        { operation: 'REMOVE_PREFIX', value: 'HP' },
+      ]),
+    ).toBe('HPE Aruba 2930F')
+  })
+
+  it('returns Vendor and Model cleanup outputs from the same rule', () => {
+    const applied = applyDeviceImportPredictionRules(
+      { model: 'HP 2930F VSF' },
+      [
+        rule({
+          field: 'model',
+          operator: 'CONTAINS',
+          normalizedValue: 'hp',
+          result: {
+            vendorTargetId: 'vendor-hpe',
+            modelTransforms: [{ operation: 'REMOVE_PREFIX', value: 'HP' }],
+          },
+        }),
+      ],
+    )
+    expect(applied.prediction).toEqual({
+      vendorTargetId: 'vendor-hpe',
+      modelTransforms: [{ operation: 'REMOVE_PREFIX', value: 'HP' }],
+    })
+    expect(
+      applyDeviceImportModelTransforms(
+        'HP 2930F VSF',
+        applied.prediction.modelTransforms,
+      ),
+    ).toBe('2930F VSF')
+  })
+
+  it('supports explicit case-insensitive Model text replacement', () => {
+    expect(
+      applyDeviceImportModelTransforms('Aruba JL256A Switch', [
+        { operation: 'REPLACE', value: ' switch', replacement: '' },
+      ]),
+    ).toBe('Aruba JL256A')
   })
 })

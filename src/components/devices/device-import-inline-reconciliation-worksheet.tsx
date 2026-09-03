@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceImportReferenceKind } from '@/lib/device-import'
 import { isSafeExistingModelPrediction } from '@/lib/device-import-model-predictions'
-import { applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
+import { applyDeviceImportModelTransforms, applyDeviceImportPredictionRules, type DeviceImportPredictionRule } from '@/lib/device-import-profile-predictions'
 import { resolveImportedModelVendor } from '@/lib/device-import-model-identity'
 import { modelDraftIdsForVendorSource } from '@/lib/device-import-reconciliation-memory'
 
@@ -101,6 +101,7 @@ type LinkedModel = {
 type ModelRulePrediction = {
   id: string
   matchedRuleIds: string[]
+  proposedModel: string
   vendorTargetId: string | null
   deviceTypeTargetId: string | null
   productFamilyId: string | null
@@ -211,6 +212,9 @@ type RuleDraft = {
   productFamilyId: string
   softwarePlatforms: string
   preferredSoftwarePlatform: string
+  modelTransformOperation: '' | 'REMOVE_PREFIX' | 'REPLACE'
+  modelTransformValue: string
+  modelTransformReplacement: string
 }
 type ApplyFailure = { key: string; message: string }
 type ApplyPayload = {
@@ -417,6 +421,13 @@ function profileRuleOutputLabel(rule: ProfileRule, assist: Assist) {
   if (typeof result.productFamilyId === 'string') outputs.push(`Family: ${assist.models.families.find((family) => family.id === result.productFamilyId)?.name ?? result.productFamilyId}`)
   if (Array.isArray(result.softwarePlatforms) && result.softwarePlatforms.length) outputs.push(`Platforms: ${result.softwarePlatforms.join(', ')}`)
   if (typeof result.preferredSoftwarePlatform === 'string' && result.preferredSoftwarePlatform) outputs.push(`Preferred: ${result.preferredSoftwarePlatform}`)
+  if (Array.isArray(result.modelTransforms)) {
+    for (const entry of result.modelTransforms) {
+      const transform = valueRecord(entry)
+      if (transform.operation === 'REMOVE_PREFIX' && typeof transform.value === 'string') outputs.push(`Model: remove prefix “${transform.value}”`)
+      if (transform.operation === 'REPLACE' && typeof transform.value === 'string') outputs.push(`Model: replace “${transform.value}” with “${typeof transform.replacement === 'string' ? transform.replacement : ''}”`)
+    }
+  }
   return outputs.join(' · ') || 'No prediction output'
 }
 
@@ -443,6 +454,7 @@ function applyLiveProfileRules(draft: ModelDraft, assist: Assist) {
   }
   if (prediction.softwarePlatforms?.length) next = { ...next, platforms: prediction.softwarePlatforms.join(', ') }
   if (prediction.preferredSoftwarePlatform) next = { ...next, platform: prediction.preferredSoftwarePlatform }
+  if (prediction.modelTransforms?.length) next = { ...next, model: applyDeviceImportModelTransforms(next.model, prediction.modelTransforms), existingModelId: '' }
   return next
 }
 
@@ -476,6 +488,9 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
     productFamilyId: '',
     softwarePlatforms: '',
     preferredSoftwarePlatform: '',
+    modelTransformOperation: '',
+    modelTransformValue: '',
+    modelTransformReplacement: '',
   })
   const [predictionSelection, setPredictionSelection] = useState<Set<string>>(() => new Set())
   const [deferredModelReferences, setDeferredModelReferences] = useState<Set<string>>(() => new Set())
@@ -538,7 +553,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         deviceTypeId: proposedDeviceTypeId,
         deviceTypeName,
         deviceTypeCode: proposal?.proposedDeviceTypeCode || suggestedCode(deviceTypeName),
-        model: proposal?.proposedModel ?? stripVendorPrefix(reference.sourceValue, vendorName),
+        model: proposal?.proposedModel ?? rulePrediction?.proposedModel ?? stripVendorPrefix(reference.sourceValue, vendorName),
         platform,
         platforms,
         familyId: proposal?.suggestedFamilyId ?? rulePrediction?.productFamilyId ?? '',
@@ -626,6 +641,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
       const draft = modelDrafts[reference.id]
       if (!draft) return []
       const proposal = assist.models.readyToCreate.find((item) => item.id === reference.id)
+      const rulePrediction = assist.models.rulePredictions.find((item) => item.id === reference.id)
       const existing = draft.existingModelId
         ? assist.workspace.options.models.find((model) => model.id === draft.existingModelId) ?? null
         : null
@@ -639,10 +655,11 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         ? assist.models.families.find((family) => family.id === draft.familyId)?.name ?? ''
         : draft.familyName
       const safeLink = Boolean(existing && isSafeExistingModelPrediction(reference.sourceValue, existing.model))
+      const matchedManualRule = Boolean(proposal?.matchedPredictionRuleIds.length || rulePrediction?.matchedRuleIds.length)
       const confidence = action === 'LINK'
         ? safeLink ? 1 : reference.suggestionScore ?? 0
-        : proposal?.normalizationConfidence ?? 0.6
-      const confident = action === 'LINK' ? safeLink : Boolean(proposal?.normalizationRuleKey && confidence >= 0.98)
+        : matchedManualRule ? 1 : proposal?.normalizationConfidence ?? 0.6
+      const confident = action === 'LINK' ? safeLink : matchedManualRule || Boolean(proposal?.normalizationRuleKey && confidence >= 0.98)
       const groupLabel = [draft.vendorName, familyName || draft.deviceTypeName].filter(Boolean).join(' · ') || 'Other Models'
       const warning = !existing && suggested && !isSafeExistingModelPrediction(reference.sourceValue, suggested.model)
         ? `Similar existing Model ${suggested.model} was not selected because its hardware identity differs.`
@@ -847,12 +864,19 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
             productFamilyId: ruleDraft.productFamilyId || null,
             softwarePlatforms: ruleDraft.softwarePlatforms,
             preferredSoftwarePlatform: ruleDraft.preferredSoftwarePlatform || null,
+            modelTransforms: ruleDraft.modelTransformOperation && ruleDraft.modelTransformValue.trim()
+              ? [{
+                  operation: ruleDraft.modelTransformOperation,
+                  value: ruleDraft.modelTransformValue,
+                  replacement: ruleDraft.modelTransformOperation === 'REPLACE' ? ruleDraft.modelTransformReplacement : undefined,
+                }]
+              : [],
           },
         }),
       })
       const payload = await readJson<{ data?: { id: string } } & ApiError>(response, 'The prediction rule could not be saved.')
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'The prediction rule could not be saved.')
-      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '' }))
+      setRuleDraft((current) => ({ ...current, value: '', productFamilyId: '', softwarePlatforms: '', preferredSoftwarePlatform: '', modelTransformOperation: '', modelTransformValue: '', modelTransformReplacement: '' }))
       await load()
       setNotice('Prediction rule saved. All predictions were recalculated with the updated profile rules.')
     } catch (ruleError) {
@@ -1212,7 +1236,7 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">{assist.profileRules.profile?.name ?? 'Import profile'}</div><h3 className="mt-1 text-xl font-semibold">Learned and manual prediction rules</h3><p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">Rules are profile-scoped. Worksheet edits recalculate the local prediction queue immediately; saving, enabling, disabling, or deleting a rule reloads all predictions for this batch.</p></div><Button type="button" variant="ghost" disabled={ruleBusy} onClick={() => setRulesOpen(false)}>Close</Button></div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <section className="rounded-lg border border-[var(--border)] p-4">
-            <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Example: If Vendor equals Aruba, predict Vendor HPE Networking. Outputs are optional individually, but choose at least one.</p></div>
+            <div className="mb-3"><h4 className="font-semibold">Add manual prediction rule</h4><p className="text-xs text-[var(--muted)]">Example: If Model contains HP, predict Vendor HPE Networking and remove the Model prefix HP. Saving the same condition adds to its existing outputs.</p></div>
             <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(220px,1fr)]">
               {field({ label: 'If field', children: <SelectInput value={ruleDraft.field} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, field: event.target.value as RuleDraft['field'] }))}><option value="vendor">Vendor</option><option value="model">Model</option><option value="deviceType">Device Type</option><option value="platform">Software Platform</option></SelectInput> })}
               {field({ label: 'Condition', children: <SelectInput value={ruleDraft.operator} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, operator: event.target.value as RuleDraft['operator'] }))}><option value="EQUALS">Equals</option><option value="PREFIX">Starts with</option><option value="CONTAINS">Contains</option></SelectInput> })}
@@ -1225,6 +1249,12 @@ export function DeviceImportInlineReconciliationWorksheet({ batchId }: { batchId
               {field({ label: 'Supported Platforms', children: <TextInput value={ruleDraft.softwarePlatforms} disabled={ruleBusy} placeholder="e.g. AOS-CX, AOS-S" onChange={(event) => setRuleDraft((current) => ({ ...current, softwarePlatforms: event.target.value }))} /> })}
               {field({ label: 'Preferred Platform', children: <TextInput list={platformListId} value={ruleDraft.preferredSoftwarePlatform} disabled={ruleBusy} placeholder="Optional" onChange={(event) => setRuleDraft((current) => ({ ...current, preferredSoftwarePlatform: event.target.value }))} /> })}
             </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {field({ label: 'Model cleanup', children: <SelectInput value={ruleDraft.modelTransformOperation} disabled={ruleBusy} onChange={(event) => setRuleDraft((current) => ({ ...current, modelTransformOperation: event.target.value as RuleDraft['modelTransformOperation'], modelTransformReplacement: event.target.value === 'REPLACE' ? current.modelTransformReplacement : '' }))}><option value="">No Model cleanup</option><option value="REMOVE_PREFIX">Remove prefix (recommended)</option><option value="REPLACE">Replace text</option></SelectInput> })}
+              {field({ label: ruleDraft.modelTransformOperation === 'REMOVE_PREFIX' ? 'Prefix to remove' : 'Text to replace', children: <TextInput value={ruleDraft.modelTransformValue} disabled={ruleBusy || !ruleDraft.modelTransformOperation} placeholder={ruleDraft.modelTransformOperation === 'REMOVE_PREFIX' ? 'e.g. HP' : 'e.g. FortiGate'} onChange={(event) => setRuleDraft((current) => ({ ...current, modelTransformValue: event.target.value }))} /> })}
+              {field({ label: 'Replace with', children: <TextInput value={ruleDraft.modelTransformReplacement} disabled={ruleBusy || ruleDraft.modelTransformOperation !== 'REPLACE'} placeholder="Empty removes the text" onChange={(event) => setRuleDraft((current) => ({ ...current, modelTransformReplacement: event.target.value }))} /> })}
+            </div>
+            {ruleDraft.modelTransformOperation === 'REMOVE_PREFIX' ? <p className="mt-2 text-xs text-[var(--muted)]">Prefix removal is anchored to the beginning: “HP 2930F VSF” becomes “2930F VSF”, while “HPE Aruba 2930F” is unchanged.</p> : null}
             <div className="mt-3 flex justify-end"><Button type="button" variant="primary" disabled={ruleBusy || !ruleDraft.value.trim()} onClick={() => void savePredictionRule()}>{ruleBusy ? 'Saving…' : 'Save rule and recalculate'}</Button></div>
           </section>
 

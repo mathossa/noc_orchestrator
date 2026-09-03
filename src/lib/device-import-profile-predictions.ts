@@ -22,7 +22,14 @@ export type DeviceImportPredictionResult = {
   productFamilyId?: string | null
   softwarePlatforms?: string[]
   preferredSoftwarePlatform?: string | null
+  modelTransforms?: DeviceImportModelTransform[]
   origin?: 'MANUAL' | 'LEARNED'
+}
+
+export type DeviceImportModelTransform = {
+  operation: 'REMOVE_PREFIX' | 'REPLACE'
+  value: string
+  replacement?: string
 }
 
 export type DeviceImportPredictionRule = {
@@ -86,6 +93,55 @@ export function applyDeviceImportPredictionRules(
       prediction.softwarePlatforms = next.softwarePlatforms
     if (!prediction.preferredSoftwarePlatform && next.preferredSoftwarePlatform)
       prediction.preferredSoftwarePlatform = next.preferredSoftwarePlatform
+    if (next.modelTransforms?.length) {
+      const transforms = prediction.modelTransforms ?? []
+      for (const transform of next.modelTransforms) {
+        if (
+          !transform?.value ||
+          !['REMOVE_PREFIX', 'REPLACE'].includes(transform.operation)
+        )
+          continue
+        const key = `${transform.operation}|${normalizeImportText(transform.value)}|${transform.replacement ?? ''}`
+        if (
+          !transforms.some(
+            (candidate) =>
+              `${candidate.operation}|${normalizeImportText(candidate.value)}|${candidate.replacement ?? ''}` ===
+              key,
+          )
+        )
+          transforms.push(transform)
+      }
+      prediction.modelTransforms = transforms
+    }
   }
   return { prediction, matchedRuleIds }
+}
+
+function escaped(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function applyDeviceImportModelTransforms(
+  model: string,
+  transforms: DeviceImportModelTransform[] = [],
+) {
+  const original = model.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  let transformed = original
+  for (const transform of transforms) {
+    const value = transform.value.normalize('NFKC').trim()
+    if (!value) continue
+    if (transform.operation === 'REMOVE_PREFIX') {
+      transformed = transformed.replace(
+        new RegExp(`^${escaped(value)}(?=$|[\\s._/-])(?:[\\s._/-]+)?`, 'i'),
+        '',
+      )
+    } else if (transform.operation === 'REPLACE') {
+      transformed = transformed.replace(
+        new RegExp(escaped(value), 'gi'),
+        transform.replacement ?? '',
+      )
+    }
+    transformed = transformed.trim().replace(/\s+/g, ' ')
+  }
+  return transformed || original
 }

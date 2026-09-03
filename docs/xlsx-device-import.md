@@ -144,6 +144,8 @@ The reconciliation worksheet also exposes the selected profile's rule workspace.
 
 Manual prediction rules support **equals**, **starts with**, and **contains** conditions on Vendor, Model, Device Type, or Software Platform. A rule can predict Vendor, Device Type, Product Family, supported Software Platforms, and a preferred Software Platform. Rules can be enabled, disabled, or deleted. They are scoped to one import profile and participate in predictions for the current batch and later imports using that profile.
 
+Manual rules can also normalize the proposed Model. **Remove prefix** is the safe default: a Model rule containing `HP` can assign Vendor `HPE Networking` and remove the `HP` prefix, turning `HP 2930F VSF` into `2930F VSF` without changing `HPE Aruba 2930F`. **Replace text** is available for explicit cleanup rules. Saving another output for the same condition merges it into the existing rule, so adding Model cleanup does not discard an already learned Vendor prediction.
+
 Changing a worksheet link or classification recalculates the local prediction queue immediately. Saving, enabling, disabling, or deleting a profile rule reloads and recalculates the complete batch prediction set. No prediction bypasses the selectable prediction queue or Final Review.
 
 When a profile is selected, only that profile's aliases are used. Auvik-specific vocabulary therefore cannot leak into an unrelated CMDB export.
@@ -154,7 +156,7 @@ On the next Auvik import, previously remembered values should link automatically
 
 `Organization Name` is suggested as **Organization + site (split one column)**.
 
-With delimiter ` - `:
+With delimiter `-`:
 
 `Unica Groep - UICTS Working Spirit Deventer`
 
