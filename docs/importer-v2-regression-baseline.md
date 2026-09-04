@@ -31,7 +31,7 @@ npm test -- src/lib/importer-v2-regression-fixtures.test.ts
 
 The suite checks fixture completeness, hierarchy shape, preservation of both firmware evidence columns, repeated-name behavior, durable identity availability, absence of known production names/IP patterns, and stable 12,000-row generation.
 
-These fixtures are contracts for future evaluator tests. They intentionally do not encode automatic match results: Importer v2 suggestions still require user confirmation.
+These fixtures are contracts for evaluator tests. They intentionally do not encode automatic match results: Importer v2 suggestions still require user confirmation. The pure staged evaluation contract is documented in [importer-v2-evaluation.md](importer-v2-evaluation.md).
 
 ## Performance baseline
 
@@ -51,7 +51,9 @@ The benchmark uses the 12,000-row synthetic fixture and records these stable pha
 | Validate           | Scan required identity and construct uniqueness indexes  | Included in <=30 s analysis                          |
 | Build publish plan | Build bounded before/after audit intents                 | <=30 s atomic publication after database integration |
 
-This first benchmark is a CPU reference workload, not a claim about end-to-end importer performance. It excludes XLSX decompression, network latency, PostgreSQL queries/transactions, audit writes, and browser rendering. Later issues must add integration measurements for those costs while retaining this fixture size and these phase names.
+The `Evaluate` phase now calls the production pure staged evaluator introduced by Issue #45. The other phases remain reference workloads.
+
+This benchmark is not a claim about end-to-end importer performance. It excludes XLSX decompression, network latency, PostgreSQL queries/transactions, audit writes, and browser rendering. Later issues must add integration measurements for those costs while retaining this fixture size and these phase names.
 
 ### Baseline environment and results
 
@@ -61,11 +63,11 @@ This first benchmark is a CPU reference workload, not a claim about end-to-end i
 | Runtime            | Node.js 24.19.0, npm 11.9.0, Vitest 4.1.11      |
 | Host               | Linux x86_64, 9 vCPU, Intel Xeon Platinum 8573C |
 | Rows               | 12,000 synthetic rows                           |
-| Stage              | 24.42 ms mean / 38.96 ms p99                    |
-| Evaluate           | 0.80 ms mean / 4.34 ms p99                      |
-| Filter and sort    | 1.56 ms mean / 3.70 ms p99                      |
-| Validate           | 3.94 ms mean / 9.41 ms p99                      |
-| Build publish plan | 0.51 ms mean / 1.60 ms p99                      |
+| Stage              | 13.22 ms mean / 41.45 ms p99                    |
+| Evaluate           | 618.36 ms mean / 704.55 ms p99                  |
+| Filter and sort    | 1.23 ms mean / 2.95 ms p99                      |
+| Validate           | 3.69 ms mean / 6.84 ms p99                      |
+| Build publish plan | 0.44 ms mean / 1.44 ms p99                      |
 
 These measurements are a single clean reference run in the Codex workspace. They are not end-to-end acceptance results. Re-run the command on the deployment-class environment when database and XLSX integration benchmarks are added.
 

@@ -1,5 +1,9 @@
 import { bench, describe } from 'vitest'
 import {
+  evaluateImporterV2,
+  type ImporterV2EvaluationInput,
+} from '@/lib/importer-v2-evaluator'
+import {
   buildImporterV2ScaleFixture,
   type ImporterV2SyntheticRow,
 } from '@/lib/importer-v2-regression-fixtures'
@@ -45,29 +49,64 @@ function stage(input: ImporterV2SyntheticRow[]): StagedRow[] {
 
 const staged = stage(rows)
 
-function evaluate(input: StagedRow[]) {
-  return input.map((row) => ({
-    row,
-    confidence:
-      row.source.sourceId && row.source.serialNumber && row.source.macAddress
-        ? 'HIGH'
-        : row.source.sourceId ||
-            row.source.serialNumber ||
-            row.source.macAddress
-          ? 'MEDIUM'
-          : 'LOW',
-    needsFirmwareChoice: Boolean(row.expected.requiresFirmwareChoice),
-    disposition: row.expected.disposition,
-  }))
+const evaluatorInput: ImporterV2EvaluationInput = {
+  profile: {
+    id: 'benchmark-profile',
+    version: 'benchmark-profile-v1',
+    sourceAdapterId: 'synthetic-adapter',
+    provider: 'SyntheticCMDB',
+    requiredFields: ['customer', 'site', 'vendor', 'model', 'currentFirmware'],
+    warnWhenUnresolvedFields: [],
+  },
+  catalog: { version: 'benchmark-catalog-v1', values: {} },
+  rules: {
+    version: 'benchmark-rules-v1',
+    manualOverrides: [],
+    rememberedMappings: [],
+    profileRules: [],
+  },
+  parsers: { version: 'benchmark-parsers-v1', definitions: [] },
+  suggestions: { version: 'benchmark-suggestions-v1', suggestions: [] },
+  rows: rows.map((row) => ({
+    rowNumber: row.rowNumber,
+    sourceRecordKey: row.source.sourceId,
+    rawValues: {
+      customer: row.source.customer,
+      businessUnit: row.source.businessUnit,
+      site: row.source.site,
+      deviceName: row.source.deviceName,
+      sourceId: row.source.sourceId,
+      serialNumber: row.source.serialNumber,
+      macAddress: row.source.macAddress,
+      vendor: row.source.vendor,
+      productFamily: row.source.productFamily,
+      softwarePlatform: row.source.softwarePlatform,
+      model: row.source.model,
+      deviceType: row.source.deviceType,
+      firmwareVersion: row.source.firmwareVersion,
+      softwareVersion: row.source.softwareVersion,
+    },
+    inclusionDecision:
+      row.expected.disposition === 'EXCLUDED_BY_RULE'
+        ? {
+            status: 'EXCLUDED',
+            source: 'PROFILE_RULE',
+            decisionId: 'benchmark-exclusion-rule',
+            explanation: 'Synthetic device type exclusion.',
+          }
+        : null,
+  })),
 }
 
-const evaluated = evaluate(staged)
+const evaluated = evaluateImporterV2(evaluatorInput)
 
 function filterAndSort() {
-  return evaluated
-    .filter((row) => row.disposition !== 'EXCLUDED_BY_RULE')
+  return evaluated.rows
+    .filter((row) => row.inclusion !== 'EXCLUDED')
     .toSorted((left, right) =>
-      left.row.normalized.model.localeCompare(right.row.normalized.model),
+      (left.normalizedValues.model ?? '').localeCompare(
+        right.normalizedValues.model ?? '',
+      ),
     )
 }
 
@@ -115,7 +154,7 @@ describe('Importer v2 12,000-row CPU reference baseline', () => {
   })
 
   bench('evaluate', () => {
-    evaluate(staged)
+    evaluateImporterV2(evaluatorInput)
   })
 
   bench('filter and sort interaction', () => {

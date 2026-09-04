@@ -152,3 +152,5 @@ npm run benchmark:importer-v2
 ```
 
 The benchmark phase definitions, limitations, and latest recorded results are documented in [importer-v2-regression-baseline.md](importer-v2-regression-baseline.md).
+
+The immutable evaluation input/output model, decision precedence, quarantine boundary, and row status axes are documented in [importer-v2-evaluation.md](importer-v2-evaluation.md).
