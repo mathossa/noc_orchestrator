@@ -733,6 +733,22 @@ export async function applyImporterV2WorkspaceAction(input: {
 
   const field = 'field' in input.action ? input.action.field : null
   const value = 'value' in input.action ? input.action.value : null
+  const rowUpdate: Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput =
+    input.action.type === 'EXCLUDE_ROW'
+      ? {
+          reviewRevision: { increment: 1 },
+          inclusion: 'EXCLUDED',
+          statuses: ['EXCLUDED'],
+          primaryStatus: 'EXCLUDED',
+          needsReevaluation: false,
+        }
+      : {
+          reviewRevision: { increment: 1 },
+          needsReevaluation: importerV2WorkspaceActionNeedsReevaluation(
+            input.action,
+          ),
+        }
+
   await prisma.$transaction(async (tx) => {
     await tx.importerV2WorkspaceDecision.createMany({
       data: resolved.rows.map((row) => ({
@@ -749,12 +765,7 @@ export async function applyImporterV2WorkspaceAction(input: {
     })
     await tx.importerV2WorkspaceRow.updateMany({
       where: { id: { in: resolved.rows.map((row) => row.id) } },
-      data: {
-        reviewRevision: { increment: 1 },
-        needsReevaluation: importerV2WorkspaceActionNeedsReevaluation(
-          input.action,
-        ),
-      },
+      data: rowUpdate,
     })
   })
 
