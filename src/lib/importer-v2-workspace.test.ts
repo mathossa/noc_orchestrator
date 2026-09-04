@@ -74,6 +74,26 @@ describe('Importer v2 reconciliation workspace', () => {
     expect(token(1)).not.toBe(token(2))
   })
 
+  it('invalidates a preview token when the attached rule-book revision changes', () => {
+    const action: ImporterV2WorkspaceAction = {
+      type: 'CREATE_SCOPED_RULE',
+      field: 'model',
+      sourceValue: 'AP515',
+      value: { id: 'model-515', label: 'AP-515' },
+      scope: { vendor: ['Aruba'] },
+      explanation: 'Normalize this exact source model inside the Aruba scope.',
+    }
+    const token = (contextVersion: string) => importerV2WorkspaceScopeToken({
+      batchId: 'batch-1',
+      selection: { mode: 'ROWS', rowNumbers: [5] },
+      action,
+      contextVersion,
+      rowVersions: [{ rowNumber: 5, reviewRevision: 1 }],
+    })
+
+    expect(token('revision-a:3')).not.toBe(token('revision-b:4'))
+  })
+
   it('reports common versus mixed proposed values for multi-row review', () => {
     const rows = [
       { evaluated: { proposedCanonicalValues: { vendor: { id: 'aruba', label: 'Aruba' }, site: { id: 'a', label: 'Alkmaar' } } } },
