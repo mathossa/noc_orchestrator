@@ -1,0 +1,74 @@
+// Importer v2 source identity and successful-publication history.
+// Canonical devices remain owned by the core domain; these records only store
+// confirmed source associations and immutable comparison snapshots.
+model ImporterV2DeviceCrosswalk {
+  id                String @id @default(uuid())
+  provider          String
+  sourceAdapterId   String
+  canonicalDeviceId String
+
+  sourceId               String?
+  normalizedSourceId     String?
+  serialNumber           String?
+  normalizedSerialNumber String?
+  macAddress             String?
+  normalizedMacAddress   String?
+
+  confirmedAt DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  // Provider identity survives a transport change (for example XLSX -> API).
+  // sourceAdapterId records the adapter that most recently confirmed it.
+  @@unique([provider, canonicalDeviceId])
+  @@index([provider, normalizedSourceId])
+  @@index([provider, normalizedSerialNumber])
+  @@index([provider, normalizedMacAddress])
+  @@index([sourceAdapterId])
+  @@index([canonicalDeviceId])
+}
+
+model ImporterV2SourceSnapshot {
+  id                    String  @id @default(uuid())
+  provider              String
+  sourceAdapterId       String
+  profileVersion        String
+  evaluationFingerprint String
+  isFullInventoryExport Boolean @default(false)
+  publishedAt           DateTime @default(now())
+
+  rows ImporterV2SourceSnapshotRow[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, sourceAdapterId, evaluationFingerprint])
+  @@index([provider, sourceAdapterId, publishedAt])
+}
+
+model ImporterV2SourceSnapshotRow {
+  id                String @id @default(uuid())
+  snapshotId        String
+  rowNumber         Int
+  canonicalDeviceId String?
+  sourceRecordKey   String?
+  rowFingerprint    String
+
+  sourceId               String?
+  normalizedSourceId     String?
+  serialNumber           String?
+  normalizedSerialNumber String?
+  macAddress             String?
+  normalizedMacAddress   String?
+  values                 Json
+
+  snapshot ImporterV2SourceSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([snapshotId, rowNumber])
+  @@index([snapshotId, canonicalDeviceId])
+  @@index([normalizedSourceId])
+  @@index([normalizedSerialNumber])
+  @@index([normalizedMacAddress])
+}
