@@ -52,10 +52,12 @@ export async function findImporterV2IdentityCandidates(input: {
   if (normalized.macAddress) OR.push({ normalizedMacAddress: normalized.macAddress })
   if (OR.length === 0) return []
 
+  // Crosswalk identity is provider-scoped. sourceAdapterId is intentionally not
+  // part of this lookup so a confirmed XLSX identity remains usable by a later
+  // API adapter for the same provider.
   const records = await prisma.importerV2DeviceCrosswalk.findMany({
     where: {
       provider: input.provider,
-      sourceAdapterId: input.sourceAdapterId,
       OR,
     },
     orderBy: [{ canonicalDeviceId: 'asc' }, { id: 'asc' }],
@@ -156,9 +158,8 @@ export async function recordSuccessfulImporterV2Publication(
 
       await tx.importerV2DeviceCrosswalk.upsert({
         where: {
-          provider_sourceAdapterId_canonicalDeviceId: {
+          provider_canonicalDeviceId: {
             provider: input.provider,
-            sourceAdapterId: input.sourceAdapterId,
             canonicalDeviceId: row.canonicalDeviceId,
           },
         },
@@ -174,6 +175,7 @@ export async function recordSuccessfulImporterV2Publication(
           lastSeenAt: publishedAt,
         },
         update: {
+          sourceAdapterId: input.sourceAdapterId,
           ...raw,
           normalizedSourceId: normalized.sourceId,
           normalizedSerialNumber: normalized.serialNumber,

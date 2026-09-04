@@ -51,14 +51,18 @@ CREATE TABLE "ImporterV2SourceSnapshotRow" (
     CONSTRAINT "ImporterV2SourceSnapshotRow_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "ImporterV2DeviceCrosswalk_provider_sourceAdapterId_canonicalDeviceId_key"
-ON "ImporterV2DeviceCrosswalk"("provider", "sourceAdapterId", "canonicalDeviceId");
-CREATE INDEX "ImporterV2DeviceCrosswalk_provider_sourceAdapterId_normalizedSourceId_idx"
-ON "ImporterV2DeviceCrosswalk"("provider", "sourceAdapterId", "normalizedSourceId");
-CREATE INDEX "ImporterV2DeviceCrosswalk_provider_sourceAdapterId_normalizedSerialNumber_idx"
-ON "ImporterV2DeviceCrosswalk"("provider", "sourceAdapterId", "normalizedSerialNumber");
-CREATE INDEX "ImporterV2DeviceCrosswalk_provider_sourceAdapterId_normalizedMacAddress_idx"
-ON "ImporterV2DeviceCrosswalk"("provider", "sourceAdapterId", "normalizedMacAddress");
+-- The crosswalk is provider-scoped, not adapter-scoped, so a confirmed
+-- provider identity survives a later XLSX -> API transport change.
+CREATE UNIQUE INDEX "ImporterV2DeviceCrosswalk_provider_canonicalDeviceId_key"
+ON "ImporterV2DeviceCrosswalk"("provider", "canonicalDeviceId");
+CREATE INDEX "ImporterV2DeviceCrosswalk_provider_normalizedSourceId_idx"
+ON "ImporterV2DeviceCrosswalk"("provider", "normalizedSourceId");
+CREATE INDEX "ImporterV2DeviceCrosswalk_provider_normalizedSerialNumber_idx"
+ON "ImporterV2DeviceCrosswalk"("provider", "normalizedSerialNumber");
+CREATE INDEX "ImporterV2DeviceCrosswalk_provider_normalizedMacAddress_idx"
+ON "ImporterV2DeviceCrosswalk"("provider", "normalizedMacAddress");
+CREATE INDEX "ImporterV2DeviceCrosswalk_sourceAdapterId_idx"
+ON "ImporterV2DeviceCrosswalk"("sourceAdapterId");
 CREATE INDEX "ImporterV2DeviceCrosswalk_canonicalDeviceId_idx"
 ON "ImporterV2DeviceCrosswalk"("canonicalDeviceId");
 

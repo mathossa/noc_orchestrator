@@ -140,7 +140,11 @@ function classifyChanges(changes: readonly ImporterV2FieldChange[]) {
   if (changed) changeKinds.push('CHANGED')
 
   return {
-    classification: moved ? ('MOVED' as const) : renamed ? ('RENAMED' as const) : ('CHANGED' as const),
+    classification: moved
+      ? ('MOVED' as const)
+      : renamed
+        ? ('RENAMED' as const)
+        : ('CHANGED' as const),
     changeKinds,
   }
 }
@@ -324,6 +328,11 @@ export function diffImporterV2RepeatImport(input: {
 
   input.previousRows.forEach((previous, index) => {
     if (matchedPrevious.has(index)) return
+    // A snapshot can retain intentionally ignored/unlinked source rows for
+    // repeat evidence. Without a canonical device there is nothing to mark
+    // inactive, so these rows must not produce a Missing-device proposal.
+    if (!previous.canonicalDeviceId) return
+
     const ambiguousOverlap = ambiguousRows.some((row) =>
       importerV2DurableIdentityOverlaps(row.identifiers, previous.identifiers),
     )

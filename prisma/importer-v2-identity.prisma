@@ -19,10 +19,13 @@ model ImporterV2DeviceCrosswalk {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
-  @@unique([provider, sourceAdapterId, canonicalDeviceId])
-  @@index([provider, sourceAdapterId, normalizedSourceId])
-  @@index([provider, sourceAdapterId, normalizedSerialNumber])
-  @@index([provider, sourceAdapterId, normalizedMacAddress])
+  // Provider identity survives a transport change (for example XLSX -> API).
+  // sourceAdapterId records the adapter that most recently confirmed it.
+  @@unique([provider, canonicalDeviceId])
+  @@index([provider, normalizedSourceId])
+  @@index([provider, normalizedSerialNumber])
+  @@index([provider, normalizedMacAddress])
+  @@index([sourceAdapterId])
   @@index([canonicalDeviceId])
 }
 

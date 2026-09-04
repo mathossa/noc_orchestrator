@@ -82,6 +82,35 @@ describe('Importer v2 stable device identity', () => {
     ])
   })
 
+  it('does not use customer or hierarchy context to resolve a cross-organization serial collision', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'Inventory',
+        sourceAdapterId: 'xlsx-tabular-v1',
+        identifiers: { serialNumber: 'SHARED-SERIAL' },
+        context: { customer: 'Customer A', site: 'Amsterdam' },
+      },
+      [
+        {
+          canonicalDeviceId: 'customer-a-device',
+          identifiers: { serialNumber: 'SHARED-SERIAL' },
+          context: { customer: 'Customer A', site: 'Amsterdam' },
+        },
+        {
+          canonicalDeviceId: 'customer-b-device',
+          identifiers: { serialNumber: 'SHARED-SERIAL' },
+          context: { customer: 'Customer B', site: 'Rotterdam' },
+        },
+      ],
+    )
+
+    expect(result.kind).toBe('AMBIGUOUS')
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates.every((candidate) => candidate.confidence === 'MEDIUM')).toBe(
+      true,
+    )
+  })
+
   it('does not auto-resolve reused serial evidence', () => {
     const result = resolveImporterV2Identity(
       {

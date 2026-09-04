@@ -178,4 +178,22 @@ describe('Importer v2 repeat-import diff', () => {
     expect(result.items[0]?.classification).toBe('NEW')
     expect(result.items[1]?.classification).toBe('MISSING')
   })
+
+  it('does not create an inactivity proposal for a snapshot-only row without a canonical device', () => {
+    const result = diffImporterV2RepeatImport({
+      previousRows: [
+        {
+          rowNumber: 11,
+          canonicalDeviceId: null,
+          identifiers: { sourceId: 'intentionally-ignored' },
+          values: { deviceName: 'ignored-device-type' },
+        },
+      ],
+      currentRows: [],
+      isFullInventoryExport: true,
+    })
+
+    expect(result.items).toEqual([])
+    expect(result.summary.MISSING).toBe(0)
+  })
 })

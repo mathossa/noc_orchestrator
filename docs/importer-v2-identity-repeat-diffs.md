@@ -18,15 +18,17 @@ A provider/source-ID match or two agreeing independent durable signals is High c
 
 Repeated serial or MAC evidence alone is treated as a collision, not as permission to merge rows. This protects logical stack/member cases and other identifier reuse. Source rows with the same source ID, or the same serial+MAC pair when no source ID exists, are duplicate rows; differing imported fields are exposed as conflicts.
 
+Confirmed crosswalks are scoped to the source provider, not to the transport adapter. An identity confirmed from an Auvik XLSX export therefore remains usable when the same Auvik device later arrives through an API adapter. The adapter is retained as provenance only.
+
 ## Repeat imports
 
-Repeat comparison is against the latest successfully published snapshot for the same provider and source adapter. Workbook filenames are not part of identity.
+Repeat comparison is against the latest successfully published snapshot for the same provider and source adapter. Workbook filenames are not part of identity. Snapshots stay adapter-scoped because completeness/full-inventory semantics can differ between adapters even when identity does not.
 
 Rows are classified as New, Changed, Unchanged, Moved, Renamed, Missing, or Ambiguous. A move or rename keeps the same canonical device when durable identity agrees. Multiple change kinds are retained even when one primary classification is shown.
 
 Changed source data produces proposals only. A proposal may update a canonical field when the current canonical value is blank or still equals the previous value supplied by this source. A different canonical value is treated as manually maintained and protected. Observed current-firmware fields may be refreshed from the newest confirmed import, but desired firmware policy, lifecycle decisions, maintenance planning, and audit history are outside the import field set and cannot be changed by this engine.
 
-Missing devices are never deleted. Inactivity is proposed only when the import is explicitly a full-inventory export, and that proposal requires confirmation. If an ambiguous current row shares durable identity evidence with a missing previous row, the inactivity proposal is suppressed as unsafe.
+Missing devices are never deleted. Inactivity is proposed only when the import is explicitly a full-inventory export, and that proposal requires confirmation. If an ambiguous current row shares durable identity evidence with a missing previous row, the inactivity proposal is suppressed as unsafe. Snapshot-only rows that have no confirmed canonical device cannot generate an inactivity proposal.
 
 ## Persistence boundary
 

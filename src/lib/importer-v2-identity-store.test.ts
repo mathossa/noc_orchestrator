@@ -37,7 +37,7 @@ describe('Importer v2 identity persistence', () => {
     )
   })
 
-  it('queries crosswalks only by normalized durable identity signals', async () => {
+  it('queries provider crosswalks only by normalized durable identity signals', async () => {
     mocks.findMany.mockResolvedValue([
       {
         id: 'crosswalk-1',
@@ -50,7 +50,7 @@ describe('Importer v2 identity persistence', () => {
 
     const result = await findImporterV2IdentityCandidates({
       provider: 'Auvik',
-      sourceAdapterId: 'xlsx-tabular-v1',
+      sourceAdapterId: 'auvik-api-v1',
       identifiers: {
         sourceId: 'Auvik-1',
         serialNumber: 'CN123',
@@ -61,7 +61,6 @@ describe('Importer v2 identity persistence', () => {
     expect(mocks.findMany).toHaveBeenCalledWith({
       where: {
         provider: 'Auvik',
-        sourceAdapterId: 'xlsx-tabular-v1',
         OR: [
           { normalizedSourceId: 'Auvik-1' },
           { normalizedSerialNumber: 'CN123' },
@@ -158,13 +157,13 @@ describe('Importer v2 identity persistence', () => {
     expect(mocks.crosswalkUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          provider_sourceAdapterId_canonicalDeviceId: {
+          provider_canonicalDeviceId: {
             provider: 'Auvik',
-            sourceAdapterId: 'xlsx-tabular-v1',
             canonicalDeviceId: 'device-1',
           },
         },
         create: expect.objectContaining({
+          sourceAdapterId: 'xlsx-tabular-v1',
           normalizedSerialNumber: 'SER-1',
           normalizedMacAddress: 'AABBCCDDEEFF',
         }),
