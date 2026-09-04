@@ -172,6 +172,11 @@ type ActionPreview = {
   contextVersion: string | null
 }
 
+type PreviewState = {
+  inputKey: string
+  value: ActionPreview
+}
+
 const EMPTY_FILTERS: ImporterV2WorkspaceFilters = {
   search: null,
   status: null,
@@ -317,8 +322,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
   const [querySelection, setQuerySelection] =
     useState<ImporterV2WorkspaceFilters | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [detail, setDetail] = useState<RowDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [loadedDetail, setLoadedDetail] = useState<RowDetail | null>(null)
   const [actionKind, setActionKind] = useState<ActionKind>('SET_FIELD')
   const [actionField, setActionField] = useState<ImporterV2Field>('model')
   const [targetLabel, setTargetLabel] = useState('')
@@ -330,7 +334,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
   const [ruleScopeDimension, setRuleScopeDimension] =
     useState<RuleScopeDimension>('model')
   const [ruleScopeValue, setRuleScopeValue] = useState('')
-  const [preview, setPreview] = useState<ActionPreview | null>(null)
+  const [previewState, setPreviewState] = useState<PreviewState | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
@@ -375,21 +379,26 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
     : explicitSelection.length > 0
       ? { mode: 'ROWS', rowNumbers: explicitSelection }
       : null
+  const inspectedRowNumber =
+    !querySelection && explicitSelection.length === 1
+      ? explicitSelection[0]
+      : null
+  const detail =
+    inspectedRowNumber !== null && loadedDetail?.rowNumber === inspectedRowNumber
+      ? loadedDetail
+      : null
+  const detailLoading = inspectedRowNumber !== null && detail === null
 
   useEffect(() => {
     let cancelled = false
-    if (querySelection || explicitSelection.length !== 1) {
-      setDetail(null)
-      return
-    }
-    setDetailLoading(true)
+    if (inspectedRowNumber === null) return
     void fetch(
-      `/api/v1/device-import-v2/batches/${batchId}/rows/${explicitSelection[0]}`,
+      `/api/v1/device-import-v2/batches/${batchId}/rows/${inspectedRowNumber}`,
       { cache: 'no-store' },
     )
       .then((response) => responseData<RowDetail>(response))
       .then((row) => {
-        if (!cancelled) setDetail(row)
+        if (!cancelled) setLoadedDetail(row)
       })
       .catch((detailError) => {
         if (!cancelled) {
@@ -400,13 +409,10 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
           )
         }
       })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false)
-      })
     return () => {
       cancelled = true
     }
-  }, [batchId, explicitSelection, querySelection, refreshKey])
+  }, [batchId, inspectedRowNumber, refreshKey])
 
   const action = useMemo<ImporterV2WorkspaceAction | null>(() => {
     const target = { id: targetId.trim() || null, label: targetLabel.trim() }
@@ -453,22 +459,9 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
     ruleScopeDimension,
     ruleScopeValue,
   ])
-
-  useEffect(() => {
-    setPreview(null)
-    setActionMessage(null)
-  }, [
-    actionKind,
-    actionField,
-    targetId,
-    targetLabel,
-    explanation,
-    sourceValue,
-    ruleScopeDimension,
-    ruleScopeValue,
-    querySelection,
-    explicitSelection,
-  ])
+  const previewInputKey = JSON.stringify({ selection, action })
+  const preview =
+    previewState?.inputKey === previewInputKey ? previewState.value : null
 
   const updateFilters = (patch: Partial<ImporterV2WorkspaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))
@@ -503,7 +496,8 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
           body: JSON.stringify({ mode: 'PREVIEW', selection, action }),
         },
       )
-      setPreview(await responseData<ActionPreview>(response))
+      const nextPreview = await responseData<ActionPreview>(response)
+      setPreviewState({ inputKey: previewInputKey, value: nextPreview })
     } catch (previewError) {
       setActionMessage(
         previewError instanceof Error
@@ -537,10 +531,10 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
       setActionMessage(
         `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}. Re-evaluation is flagged where required.`,
       )
-      setPreview(null)
+      setPreviewState(null)
       setRefreshKey((key) => key + 1)
     } catch (applyError) {
-      setPreview(null)
+      setPreviewState(null)
       setActionMessage(
         applyError instanceof Error
           ? applyError.message
@@ -723,7 +717,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
             </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {data.groups.slice(0, 24).map((group) => {
+            {data.groups.map((group) => {
               const key = `${groupBy}:${group.value}`
               const expanded = expandedGroups.has(key)
               const scoped = filterForGroup(filters, groupBy, group.value)
