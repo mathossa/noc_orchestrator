@@ -47,19 +47,19 @@ CREATE TABLE "FirmwareCompatibilityOverride" (
     CONSTRAINT "FirmwareCompatibilityOverride_reason_check" CHECK (length(btrim("reason")) > 0)
 );
 
-CREATE INDEX "FirmwareCompatibilityRule_vendorId_isActive_idx" ON "FirmwareCompatibilityRule"("vendorId", "isActive");
-CREATE INDEX "FirmwareCompatibilityRule_deviceModelFamilyId_isActive_idx" ON "FirmwareCompatibilityRule"("deviceModelFamilyId", "isActive");
-CREATE INDEX "FirmwareCompatibilityRule_deviceModelId_isActive_idx" ON "FirmwareCompatibilityRule"("deviceModelId", "isActive");
-CREATE INDEX "FirmwareCompatibilityRule_platform_isActive_idx" ON "FirmwareCompatibilityRule"("platform", "isActive");
-CREATE INDEX "FirmwareCompatibilityRule_firmwareTrainId_idx" ON "FirmwareCompatibilityRule"("firmwareTrainId");
-CREATE INDEX "FirmwareCompatibilityRule_logicalVersion_idx" ON "FirmwareCompatibilityRule"("logicalVersion");
-CREATE INDEX "FirmwareCompatibilityRule_firmwareReleaseId_idx" ON "FirmwareCompatibilityRule"("firmwareReleaseId");
-CREATE INDEX "FirmwareCompatibilityRule_imageCode_idx" ON "FirmwareCompatibilityRule"("imageCode");
-CREATE INDEX "FirmwareCompatibilityRule_sourceType_isActive_idx" ON "FirmwareCompatibilityRule"("sourceType", "isActive");
+CREATE INDEX "FwCompatRule_vendor_active_idx" ON "FirmwareCompatibilityRule"("vendorId", "isActive");
+CREATE INDEX "FwCompatRule_family_active_idx" ON "FirmwareCompatibilityRule"("deviceModelFamilyId", "isActive");
+CREATE INDEX "FwCompatRule_model_active_idx" ON "FirmwareCompatibilityRule"("deviceModelId", "isActive");
+CREATE INDEX "FwCompatRule_platform_active_idx" ON "FirmwareCompatibilityRule"("platform", "isActive");
+CREATE INDEX "FwCompatRule_train_idx" ON "FirmwareCompatibilityRule"("firmwareTrainId");
+CREATE INDEX "FwCompatRule_logical_version_idx" ON "FirmwareCompatibilityRule"("logicalVersion");
+CREATE INDEX "FwCompatRule_release_idx" ON "FirmwareCompatibilityRule"("firmwareReleaseId");
+CREATE INDEX "FwCompatRule_image_code_idx" ON "FirmwareCompatibilityRule"("imageCode");
+CREATE INDEX "FwCompatRule_source_active_idx" ON "FirmwareCompatibilityRule"("sourceType", "isActive");
 
-CREATE UNIQUE INDEX "FirmwareCompatibilityOverride_deviceModelId_firmwareReleaseId_version_key"
+CREATE UNIQUE INDEX "FwCompatOverride_model_release_version_key"
 ON "FirmwareCompatibilityOverride"("deviceModelId", "firmwareReleaseId", "version");
-CREATE INDEX "FirmwareCompatibilityOverride_deviceModelId_firmwareReleaseId_isActive_idx"
+CREATE INDEX "FwCompatOverride_model_release_active_idx"
 ON "FirmwareCompatibilityOverride"("deviceModelId", "firmwareReleaseId", "isActive");
-CREATE INDEX "FirmwareCompatibilityOverride_createdByUserId_idx"
+CREATE INDEX "FwCompatOverride_actor_idx"
 ON "FirmwareCompatibilityOverride"("createdByUserId");
