@@ -744,6 +744,8 @@ export async function applyImporterV2WorkspaceAction(input: {
         }
       : {
           reviewRevision: { increment: 1 },
+          statuses: ['RECHECK_REQUIRED'],
+          primaryStatus: 'RECHECK_REQUIRED',
           needsReevaluation: importerV2WorkspaceActionNeedsReevaluation(
             input.action,
           ),
