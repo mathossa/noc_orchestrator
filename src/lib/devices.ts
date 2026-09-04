@@ -64,6 +64,10 @@ export type DeviceRecord = {
   currentFirmwareObservedAt: string | null
   currentFirmwareAgeDays: number | null
   currentFirmwareSource: string
+  currentFirmwareRawVersion: string | null
+  currentFirmwareNormalizedVersion: string | null
+  currentFirmwareInterpreterId: string | null
+  currentFirmwareInterpreterVersion: string | null
   isActive: boolean
   source: string
   externalProvider: string | null
@@ -182,8 +186,13 @@ export function parseDeviceInput(input: unknown) {
   const managementAddress = optionalText(body.managementAddress)
   const notes = multilineText(body.notes)
   const currentFirmwareReleaseId = optionalText(body.currentFirmwareReleaseId)
+  const currentFirmwareRawVersion = optionalText(body.currentFirmwareRawVersion)
+  const currentFirmwareNormalizedVersion = optionalText(body.currentFirmwareNormalizedVersion)
+  const currentFirmwareInterpreterId = optionalText(body.currentFirmwareInterpreterId)
+  const currentFirmwareInterpreterVersion = optionalText(body.currentFirmwareInterpreterVersion)
   const currentFirmwareSource = optionalText(body.currentFirmwareSource)?.toUpperCase() ?? 'MANUAL'
-  const currentFirmwareObservedAt = currentFirmwareReleaseId
+  const hasObservedFirmware = Boolean(currentFirmwareReleaseId || currentFirmwareRawVersion)
+  const currentFirmwareObservedAt = hasObservedFirmware
     ? optionalDate(body.currentFirmwareObservedAt, 'currentFirmwareObservedAt', errors)
     : null
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
@@ -198,24 +207,20 @@ export function parseDeviceInput(input: unknown) {
 
   if (hostname && hostname.length > 253) errors.hostname = 'Hostname must be 253 characters or fewer.'
   if (serialNumber && serialNumber.length > 255) errors.serialNumber = 'Serial number must be 255 characters or fewer.'
-  if (managementAddress && managementAddress.length > 255) {
-    errors.managementAddress = 'Management address must be 255 characters or fewer.'
-  }
+  if (managementAddress && managementAddress.length > 255) errors.managementAddress = 'Management address must be 255 characters or fewer.'
   if (notes && notes.length > 5000) errors.notes = 'Notes must be 5000 characters or fewer.'
+  if (currentFirmwareRawVersion && currentFirmwareRawVersion.length > 255) errors.currentFirmwareRawVersion = 'Raw firmware version must be 255 characters or fewer.'
+  if (currentFirmwareNormalizedVersion && currentFirmwareNormalizedVersion.length > 255) errors.currentFirmwareNormalizedVersion = 'Normalized firmware version must be 255 characters or fewer.'
+  if (currentFirmwareInterpreterId && currentFirmwareInterpreterId.length > 160) errors.currentFirmwareInterpreterId = 'Firmware interpreter ID must be 160 characters or fewer.'
+  if (currentFirmwareInterpreterVersion && currentFirmwareInterpreterVersion.length > 80) errors.currentFirmwareInterpreterVersion = 'Firmware interpreter version must be 80 characters or fewer.'
 
   if (!['MANUAL', 'API', 'IMPORT'].includes(source)) errors.source = 'Choose MANUAL, API, or IMPORT.'
-  if (!['MANUAL', 'API', 'IMPORT'].includes(currentFirmwareSource)) {
-    errors.currentFirmwareSource = 'Choose MANUAL, API, or IMPORT.'
-  }
+  if (!['MANUAL', 'API', 'IMPORT'].includes(currentFirmwareSource)) errors.currentFirmwareSource = 'Choose MANUAL, API, or IMPORT.'
 
-  if (externalProvider && externalProvider.length > 120) {
-    errors.externalProvider = 'External provider must be 120 characters or fewer.'
-  }
+  if (externalProvider && externalProvider.length > 120) errors.externalProvider = 'External provider must be 120 characters or fewer.'
   if (externalId && externalId.length > 255) errors.externalId = 'External ID must be 255 characters or fewer.'
 
-  if (Object.keys(errors).length > 0) {
-    throw new DeviceValidationError('Please correct the highlighted fields.', errors)
-  }
+  if (Object.keys(errors).length > 0) throw new DeviceValidationError('Please correct the highlighted fields.', errors)
 
   return {
     customerId,
@@ -229,6 +234,10 @@ export function parseDeviceInput(input: unknown) {
     currentFirmwareReleaseId,
     currentFirmwareObservedAt,
     currentFirmwareSource,
+    currentFirmwareRawVersion,
+    currentFirmwareNormalizedVersion,
+    currentFirmwareInterpreterId,
+    currentFirmwareInterpreterVersion,
     source,
     externalProvider,
     externalId,
