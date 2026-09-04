@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { listImporterV2WorkspaceBatches } from '@/lib/importer-v2-workspace-store'
 import { PageHeader } from '@/components/ui/page-header'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DeviceImportPage() {
   const batches = await listImporterV2WorkspaceBatches()
   return (
