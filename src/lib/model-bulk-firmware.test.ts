@@ -55,22 +55,21 @@ describe('model family grouping and common desired firmware', () => {
     expect(groups.find((group) => group.key.startsWith('unassigned:'))?.rows.map((row) => row.id)).toEqual(['m3'])
   })
 
-  it('returns only policy-eligible releases compatible with every selected concrete model', () => {
+  it('returns policy-eligible same-vendor releases without treating the legacy model platform field as a compatibility gate', () => {
     const selected = [
-      model({ id: 'm1', vendorId: 'aruba', model: '2530-24G', platform: 'AOS-S' }),
-      model({ id: 'm2', vendorId: 'aruba', model: '2530-48G', platform: ' aos-s ' }),
+      model({ id: 'm1', vendorId: 'aruba', model: 'AP-515', platform: 'AOS-8' }),
+      model({ id: 'm2', vendorId: 'aruba', model: 'AP-505', platform: 'AOS-8' }),
     ]
     const releases = [
-      release({ id: 'good', vendorId: 'aruba', platform: 'AOS-S', policyEligibility: 'ALLOWED' }),
-      release({ id: 'preferred', vendorId: 'aruba', platform: 'AOS-S', policyEligibility: 'PREFERRED', status: 'RECOMMENDED' }),
-      release({ id: 'wrong-platform', vendorId: 'aruba', platform: 'AOS-CX' }),
-      release({ id: 'observed', vendorId: 'aruba', platform: 'AOS-S', catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED', status: 'AVAILABLE' }),
-      release({ id: 'blocked', vendorId: 'aruba', platform: 'AOS-S', catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED', status: 'BLOCKED' }),
-      release({ id: 'archived', vendorId: 'aruba', platform: 'AOS-S', isActive: false }),
-      release({ id: 'wrong-vendor', vendorId: 'cisco', platform: 'AOS-S' }),
+      release({ id: 'same-platform', vendorId: 'aruba', platform: 'AOS-8', policyEligibility: 'ALLOWED' }),
+      release({ id: 'cross-platform', vendorId: 'aruba', platform: 'AOS-10', policyEligibility: 'PREFERRED', status: 'RECOMMENDED' }),
+      release({ id: 'observed', vendorId: 'aruba', platform: 'AOS-10', catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED', status: 'AVAILABLE' }),
+      release({ id: 'blocked', vendorId: 'aruba', platform: 'AOS-10', catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED', status: 'BLOCKED' }),
+      release({ id: 'archived', vendorId: 'aruba', platform: 'AOS-10', isActive: false }),
+      release({ id: 'wrong-vendor', vendorId: 'cisco', platform: 'IOS-XE' }),
     ]
 
-    expect(commonCompatibleDesiredReleases(selected, releases).map((item) => item.id)).toEqual(['good', 'preferred'])
+    expect(commonCompatibleDesiredReleases(selected, releases).map((item) => item.id)).toEqual(['same-platform', 'cross-platform'])
   })
 
   it('offers no target for mixed-vendor selection', () => {

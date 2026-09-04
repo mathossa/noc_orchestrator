@@ -327,7 +327,7 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     getActiveModelDesiredPolicy(record.deviceModelId),
     listAuditEventsForEntity('Device', id),
   ])
-  const desiredRelease = desiredPolicy
+  const desiredRelease = desiredPolicy?.release
     ? {
         id: desiredPolicy.release.id,
         vendorId: desiredPolicy.release.vendorId,

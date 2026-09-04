@@ -161,7 +161,7 @@ export async function getCustomer(id: string) {
       desiredStateSummary,
       resolveTechnicalFirmwareState({
         currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-        desiredFirmwareReleaseId: desiredPolicy?.release.id,
+        desiredFirmwareReleaseId: desiredPolicy?.release?.id,
       }),
     )
 

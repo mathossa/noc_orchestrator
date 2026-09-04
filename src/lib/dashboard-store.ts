@@ -16,13 +16,20 @@ import type {
   FirmwareLifecycleDashboard,
 } from '@/lib/dashboard'
 
+// Transitional exact-target dashboard view. #58 replaces this equality-only
+// aggregation with full effective-policy compliance. Keep it limited to active,
+// effective, default concrete-model policies and never let a nullable moving
+// target crash or masquerade as an exact target.
 const MODEL_POLICY_SCOPE = {
   isActive: true,
+  deviceModelFamilyId: null,
   customerId: null,
+  siteId: null,
   contractTypeId: null,
   deviceId: null,
   vendorId: null,
   deviceTypeId: null,
+  isDefaultTrack: true,
 } as const
 
 type PriorityCounts = {
@@ -60,37 +67,20 @@ function emptyPriorityCounts(): PriorityCounts {
 
 function incrementWorkflow(counts: DashboardWorkflowCounts, state: DashboardWorkflowState | null) {
   switch (state) {
-    case 'PLANNED':
-      counts.planned += 1
-      break
-    case 'IGNORED':
-      counts.ignored += 1
-      break
-    case 'CUSTOMER_DECLINED':
-      counts.customerDeclined += 1
-      break
-    case 'DONE':
-      counts.done += 1
-      break
-    default:
-      counts.undecided += 1
-      break
+    case 'PLANNED': counts.planned += 1; break
+    case 'IGNORED': counts.ignored += 1; break
+    case 'CUSTOMER_DECLINED': counts.customerDeclined += 1; break
+    case 'DONE': counts.done += 1; break
+    default: counts.undecided += 1
   }
 }
 
 function incrementPriority(counts: PriorityCounts, state: TechnicalFirmwareState) {
   switch (state) {
-    case 'ACTION_REQUIRED':
-      counts.actionRequired += 1
-      break
-    case 'UNKNOWN':
-      counts.unknown += 1
-      break
-    case 'NO_POLICY':
-      counts.noPolicy += 1
-      break
-    case 'CURRENT':
-      break
+    case 'ACTION_REQUIRED': counts.actionRequired += 1; break
+    case 'UNKNOWN': counts.unknown += 1; break
+    case 'NO_POLICY': counts.noPolicy += 1; break
+    case 'CURRENT': break
   }
 }
 
@@ -148,33 +138,16 @@ function ensureSiteBucket(customer: CustomerBucket, id: string | null, name: str
   return created
 }
 
-function ensureDimensionBucket(
-  buckets: Map<string, DimensionBucket>,
-  key: string,
-  id: string | null,
-  name: string,
-) {
+function ensureDimensionBucket(buckets: Map<string, DimensionBucket>, key: string, id: string | null, name: string) {
   const existing = buckets.get(key)
   if (existing) return existing
-  const created: DimensionBucket = {
-    id,
-    name,
-    devices: 0,
-    actionRequired: 0,
-    unknown: 0,
-    noPolicy: 0,
-    blocked: 0,
-  }
+  const created: DimensionBucket = { id, name, devices: 0, actionRequired: 0, unknown: 0, noPolicy: 0, blocked: 0 }
   buckets.set(key, created)
   return created
 }
 
 function dimensionRows(buckets: Map<string, DimensionBucket>) {
-  return sortPriorityRows(
-    [...buckets.values()].filter(
-      (row) => hasPriorityAttention(row) || row.blocked > 0,
-    ),
-  ).sort(
+  return sortPriorityRows([...buckets.values()].filter((row) => hasPriorityAttention(row) || row.blocked > 0)).sort(
     (a, b) =>
       priorityScore(b) - priorityScore(a) ||
       b.blocked - a.blocked ||
@@ -191,18 +164,16 @@ export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycle
         where: {
           ...MODEL_POLICY_SCOPE,
           deviceModelId: { in: modelIds },
+          effectiveFrom: { lte: new Date() },
         },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          deviceModelId: true,
-          targetFirmwareReleaseId: true,
-        },
+        orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        select: { deviceModelId: true, targetFirmwareReleaseId: true },
       })
     : []
 
   const desiredByModel = new Map<string, string>()
   for (const policy of policies) {
-    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
+    if (!policy.deviceModelId || !policy.targetFirmwareReleaseId || desiredByModel.has(policy.deviceModelId)) continue
     desiredByModel.set(policy.deviceModelId, policy.targetFirmwareReleaseId)
   }
 

@@ -65,7 +65,9 @@ const deviceModelInclude = {
 
 const modelBaselineScope = {
   isActive: true,
+  deviceModelFamilyId: null,
   customerId: null,
+  siteId: null,
   contractTypeId: null,
   deviceId: null,
   vendorId: null,
@@ -89,10 +91,6 @@ type IncludedDeviceModel = {
   deviceType: { id: string; code: string; name: string; isActive: boolean }
   family: { id: string; vendorId: string; name: string; isActive: boolean } | null
   _count: { devices: number }
-}
-
-function normalizedFirmwarePlatform(value: string | null | undefined) {
-  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
 
 function serializeFirmware(release: {
@@ -182,14 +180,19 @@ export async function listDeviceModels() {
   const modelIds = records.map((record) => record.id)
   const policies = modelIds.length
     ? await prisma.firmwarePolicy.findMany({
-        where: { ...modelBaselineScope, deviceModelId: { in: modelIds } },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        where: {
+          ...modelBaselineScope,
+          deviceModelId: { in: modelIds },
+          effectiveFrom: { lte: new Date() },
+          isDefaultTrack: true,
+        },
+        orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         select: { deviceModelId: true, targetFirmwareRelease: { select: firmwareSelect } },
       })
     : []
   const desiredByModel = new Map<string, DeviceModelFirmwareReference>()
   for (const policy of policies) {
-    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
+    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId) || !policy.targetFirmwareRelease) continue
     desiredByModel.set(policy.deviceModelId, serializeFirmware(policy.targetFirmwareRelease))
   }
   return records.map((record) => serializeDeviceModel(record as IncludedDeviceModel, desiredByModel.get(record.id) ?? null))
@@ -244,9 +247,10 @@ export async function getDeviceModel(id: string) {
     listAuditEventsForEntity('DeviceModel', id),
   ])
 
-  const availableReleases = record.platform
-    ? vendorReleases.filter((release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform))
-    : vendorReleases
+  // #43 allows cross-platform desired tracks. Do not treat the legacy single
+  // DeviceModel.platform field as a compatibility gate; #57 will provide the
+  // concrete model/image compatibility resolver.
+  const availableReleases = vendorReleases
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<string, { firmwareReleaseId: string | null; version: string; platform: string | null; deviceCount: number }>()
@@ -274,7 +278,7 @@ export async function getDeviceModel(id: string) {
       technicalStateCounts,
       resolveTechnicalFirmwareState({
         currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-        desiredFirmwareReleaseId: desiredPolicy?.release.id,
+        desiredFirmwareReleaseId: desiredPolicy?.release?.id,
       }),
     )
 
@@ -296,7 +300,14 @@ export async function getDeviceModel(id: string) {
     firmwareDistribution: [...firmwareMap.values()].sort((a, b) => b.deviceCount - a.deviceCount),
     workflowCounts,
     technicalStateCounts,
-    desiredFirmware: { available: true as const, policyId: desiredPolicy?.id ?? null, release: desiredRelease },
+    desiredFirmware: {
+      available: true as const,
+      policyId: desiredPolicy?.id ?? null,
+      policyMode: desiredPolicy?.policyMode ?? null,
+      trackKey: desiredPolicy?.trackKey ?? null,
+      desiredPlatform: desiredPolicy?.desiredPlatform ?? null,
+      release: desiredRelease,
+    },
     availableFirmware: {
       available: true as const,
       releases: availableReleases.map((release) => ({
