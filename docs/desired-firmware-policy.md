@@ -1,101 +1,240 @@
-# Model-level desired firmware policy
+# Firmware policy foundation
 
-Issue #9 introduces the first desired-state policy mechanism for NOC Orchestrator v0.1.0.
+Issue #43 replaces the original exact-model-only desired firmware mechanism with the policy foundation used by later compatibility, compliance, planning, and reporting work.
 
-## Core rule
+## Ownership boundary
 
-**Current state is not desired state.**
-
-A device records the firmware it is currently running. Separately, its model may define one exact desired firmware release.
+Keep four concepts separate:
 
 ```text
-Device model: Cisco C9300-24P
-Desired:      17.15.5
-
-Device:       HQ-SW-01
-Current:      17.12.5
-Desired:      17.15.5
-Technical:    —  (Issue #10)
+Observed firmware        what inventory reports now
+Firmware catalog         releases/builds/images that exist
+Firmware policy          what a scope is allowed/preferred to run
+Compliance/planning      what action follows from observed + policy + compatibility
 ```
 
-The policy points to the exact `FirmwareRelease` row. Firmware trains remain informational in Issue #9. Adding `17.15.6` to train `17.15.x` does not change a policy targeting `17.15.5`.
+Inventory/import is never authoritative for desired state. A newly observed or verified release does not become allowed, preferred, or desired merely because it exists.
 
-## Scope
+## Normal baseline: model family
 
-The v0.1.0 baseline scope is only:
+`DeviceModelFamily` is the normal reusable firmware-policy baseline. Concrete models remain the inventory identity and may refine the family policy only when needed.
 
 ```text
-DeviceModel -> exact FirmwareRelease
+Aruba AP500 family
+└── policy baseline
+
+AP-505
+AP-515
+AP-535
+└── inherit family policy unless a concrete-model policy overrides it
 ```
 
-The existing `FirmwarePolicy` entity already reserves nullable scope references for future device, customer/model, contract/model, vendor, and device-type rules. Issue #9 does not implement precedence between those future scopes.
+Do not duplicate the family baseline onto every child model.
 
-## Target compatibility
+Existing Issue #9/#30 `DeviceModel -> exact FirmwareRelease` rows are retained and interpreted as concrete-model `EXACT` policy versions.
 
-A new model desired target must:
+## Tracks
 
-1. exist in the firmware catalog;
-2. belong to the same vendor as the device model;
-3. match the model platform/family after normalization when the model defines one;
-4. be active in the catalog;
-5. have `APPROVED` or `RECOMMENDED` status.
-
-When a model does not define a platform/family, vendor-compatible releases remain selectable because no narrower family constraint exists.
-
-`AVAILABLE`, `TESTING`, `DEPRECATED`, `BLOCKED`, archived, and other non-normal states are not offered/accepted as new model targets in this MVP.
-
-## Archived or reclassified existing targets
-
-Policy is never silently rewritten because catalog metadata changes.
-
-If an already-selected desired release is later archived or reclassified, the existing policy remains active and visible with a warning. It cannot be selected as a new target, but it remains the exact desired release until an engineer deliberately changes or clears the policy.
-
-This preserves historical and operational integrity.
-
-## Zero or one active model baseline
-
-Changing a model target deactivates the previous policy row and creates a new active row. Clearing desired firmware only deactivates the current row. Historical rows are not deleted.
-
-A PostgreSQL partial unique index guarantees that a model can have at most one active baseline policy where all future override-scope columns are null.
-
-This structure also gives Issue #12 a stable history of policy records to build explicit actor/audit events around later.
-
-## UI and API
-
-Primary UI:
-
-- `/models/[id]` — view, set, change, or clear exact desired firmware
-- `/devices/[id]` — resolves and displays desired firmware inherited from the device model
-
-API:
-
-- `PUT /api/v1/models/[id]/desired-firmware` with `{ "firmwareReleaseId": "..." }`
-- `DELETE /api/v1/models/[id]/desired-firmware`
-
-The device endpoint returns desired firmware through its model. Issue #9 deliberately does not compare current and desired versions.
-
-## Technical state remains separate
-
-Issue #10 owns canonical technical state such as:
-
-- `CURRENT`
-- `ACTION REQUIRED`
-- `AHEAD`
-- `UNKNOWN`
-- `NO POLICY`
-
-Issue #9 therefore provides current + desired while leaving technical state unresolved.
-
-## Future contract-scoped policy
-
-When `Contract + Model` policy is implemented later, contract matching must use the device's effective contract:
+A hardware family/model may have multiple policy paths at the same time.
 
 ```text
-site contract override
-        ↓
-customer default contract
-        ↓
-no contract
+AP500
+├── Preferred
+│   └── AOS-10
+└── Accepted legacy
+    └── AOS-8
 ```
 
-It must not resolve only from `Customer.contractTypeId`, because different customer sites can have different service agreements.
+Initial track classifications:
+
+- `PREFERRED`
+- `ACCEPTED`
+- `LEGACY`
+- `RESTRICTED`
+
+A track has a stable `trackKey`, a human-readable name/classification, a desired software platform, and one policy definition. Multiple tracks may coexist, but one applicable track normally needs to be marked the default. The resolver returns an explicit unresolved result instead of guessing when defaults are missing or ambiguous.
+
+The currently running platform is not used to choose a desired track. An AOS-8 device can therefore legitimately resolve an AOS-10 desired policy.
+
+## Scope precedence
+
+The central resolver uses the documented precedence:
+
+```text
+Device
+  > Site
+  > Customer
+  > concrete DeviceModel
+  > DeviceModelFamily
+```
+
+At a Customer or Site scope, a concrete-model subject is more specific than a family subject.
+
+The resolver returns both the selected policy and provenance, for example:
+
+```text
+Desired track: Accepted legacy
+Platform:      AOS-8
+Policy source: Customer -> DHL
+Policy ID:     ...
+Policy version: 3
+Effective from: ...
+```
+
+Existing `contractTypeId`, `vendorId`, and `deviceTypeId` columns are retained for migration/history compatibility, but Issue #43 deliberately gives them no undocumented precedence over the chain above.
+
+## Policy modes
+
+### EXACT
+
+One exact canonical release is the preferred/accepted target.
+
+```text
+preferred = 17.15.5
+```
+
+### MINIMUM
+
+A minimum accepted release is stored independently from the preferred target.
+
+```text
+minimum   = 8.10.0.20
+preferred = 8.13.2.0
+```
+
+### RANGE
+
+An acceptance window and preferred target are separate.
+
+```text
+minimum   = 17.12.5  inclusive
+preferred = 17.15.5
+maximum   = 17.16    exclusive
+```
+
+Both bounds have explicit inclusive/exclusive flags. The policy writer uses the vendor/platform-aware comparison boundary from #56 and rejects ranges whose ordering cannot be proven instead of guessing.
+
+### LATEST_APPROVED_IN_TRAIN
+
+An explicit moving-target policy references a `FirmwareTrain` rather than requiring an exact preferred release row.
+
+```text
+train = 16.11
+mode  = LATEST_APPROVED_IN_TRAIN
+```
+
+Only catalog releases that are explicitly policy-eligible can participate. Merely importing a newer release never moves policy intent.
+
+Issue #43 makes this mode representable and resolvable as policy intent. Choosing the exact effective release for compliance/recommendation belongs to the later compliance resolver (#58), after compatibility (#57) can eliminate invalid model/image combinations.
+
+## Acceptance window versus preferred target
+
+These answer different questions:
+
+```text
+Acceptance window: is this running version allowed?
+Preferred target:  what would we install when updating?
+```
+
+A device can therefore be accepted but below the preferred target. Conversely, a release numerically newer than the preferred target is not automatically accepted unless the policy window allows it.
+
+Issue #43 persists and resolves these definitions. It does not assign final device compliance labels; that is #58.
+
+## Effective dates and history
+
+Policy rows are append-oriented versions.
+
+Each version stores at least:
+
+- scope/subject;
+- track;
+- mode;
+- desired platform;
+- minimum/preferred/maximum or train target;
+- inclusive/exclusive bounds;
+- effective start;
+- policy version;
+- active/archive state;
+- notes and audit history.
+
+Default activation is `NOW`, but a future `effectiveFrom` is supported.
+
+```text
+v1 effective Sep 1   <- current
+v2 effective Oct 1   <- future / inspectable
+```
+
+Creating v2 does not delete, rewrite, or prematurely deactivate v1. The resolver selects the newest version that is effective at the requested time and can expose the next future change.
+
+## Existing exact model API
+
+The existing endpoint remains a compatibility shortcut:
+
+```text
+PUT /api/v1/models/[id]/desired-firmware
+{ "firmwareReleaseId": "..." }
+```
+
+It appends an `EXACT` concrete-model policy in the default preferred track. Existing UI can therefore continue working while richer family/customer/site/device policy editing is introduced later in the dedicated policy workspace (#61).
+
+Clearing the legacy concrete-model shortcut archives/deactivates that override; historical rows are retained.
+
+## Catalog approval boundary
+
+A new policy may reference only canonical releases that are active, not blocked/withdrawn, and explicitly `ALLOWED` or `PREFERRED` by the #56 catalog semantics.
+
+Catalog verification and policy approval remain different concepts:
+
+```text
+VERIFIED + NOT_EVALUATED   -> exists, not a policy target
+VERIFIED + ALLOWED         -> may be referenced
+VERIFIED + PREFERRED       -> may be referenced
+BLOCKED/WITHDRAWN          -> not a new policy target
+```
+
+## Cross-platform policy and #57 compatibility boundary
+
+Issue #43 intentionally stops using the legacy single `DeviceModel.platform` field as a desired-policy compatibility gate. Hardware may support more than one software platform, and policy may intentionally describe a migration.
+
+This does **not** mean every same-vendor release is actually compatible with every model.
+
+```text
+#43: policy says AP500 should move to AOS-10
+                 ↓
+#57: compatibility resolves whether AP-505/AP-515/... support that platform
+     and which exact image/build applies
+```
+
+Until #57, model/bulk selectors may expose same-vendor policy-eligible cross-platform candidates rather than silently suppressing a legitimate migration. #57 will replace that temporary broad candidate set with concrete compatibility/image resolution.
+
+## Resolver contract
+
+`resolveFirmwarePolicyAt` / `resolveFirmwarePolicyTimeline` are pure and deterministic. The persistence facade can resolve candidates for a device without embedding precedence logic in UI components.
+
+The result contains:
+
+- resolved/unresolved status;
+- effective policy definition;
+- selected track;
+- desired platform;
+- policy mode and acceptance/preferred IDs;
+- source scope and source ID;
+- policy ID/version/effective date;
+- unresolved reason when no safe result exists;
+- next future policy change when applicable.
+
+## Transitional exact-state views
+
+Some existing dashboard/device/vendor views still use the old equality-only technical state (`CURRENT`, `ACTION_REQUIRED`, etc.). In Issue #43 they are made version-aware and nullable-target-safe, but they intentionally remain exact-model-target summaries.
+
+They must not be treated as the final compliance engine. #58 will replace those calculations with the full effective-policy + compatibility resolver.
+
+## Out of scope for #43
+
+- parsing vendor firmware strings (#56 already owns release identity/comparison);
+- model/image/platform compatibility (#57);
+- device compliance/recommendation classification (#58);
+- exceptions such as Customer Declined (#59);
+- work planning/tickets/scheduling (#60);
+- full policy workspace and impact simulation (#61);
+- execution/upgrades.

@@ -107,6 +107,12 @@ export async function setFirmwareLifecycleDecision(
       'A lifecycle decision requires an explicit desired firmware policy for the device model.',
     )
   }
+  if (!desiredPolicy.release) {
+    throw new FirmwareLifecyclePolicyError(
+      'A lifecycle decision requires an exact desired firmware target. Moving or range policy targets must be resolved before lifecycle planning.',
+    )
+  }
+  const desiredRelease = desiredPolicy.release
 
   const now = new Date()
   const record = await prisma.$transaction(async (tx) => {
@@ -136,7 +142,7 @@ export async function setFirmwareLifecycleDecision(
       where: { deviceId },
       create: {
         deviceId,
-        targetFirmwareReleaseId: desiredPolicy.release.id,
+        targetFirmwareReleaseId: desiredRelease.id,
         state: input.state,
         reason: input.reason,
         notes: input.notes,
@@ -147,7 +153,7 @@ export async function setFirmwareLifecycleDecision(
         completedAt,
       },
       update: {
-        targetFirmwareReleaseId: desiredPolicy.release.id,
+        targetFirmwareReleaseId: desiredRelease.id,
         state: input.state,
         reason: input.reason,
         notes: input.notes,

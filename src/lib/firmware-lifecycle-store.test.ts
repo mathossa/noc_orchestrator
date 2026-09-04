@@ -32,21 +32,51 @@ const desiredRelease = {
   vendorId: 'vendor-1',
   platform: 'IOS XE',
   version: '17.15.5',
+  logicalVersion: '17.15.5',
+  variant: null,
+  imageCode: null,
+  catalogState: 'VERIFIED',
+  policyEligibility: 'ALLOWED',
+  variantEquivalence: 'EXACT_ONLY',
   status: 'APPROVED',
   isActive: true,
   releasedAt: new Date('2026-08-20T00:00:00Z'),
   firmwareTrain: { id: 'train-1', name: '17.15.x' },
 }
 
+const policyTimestamp = new Date('2026-09-01T00:00:00Z')
 const desiredPolicy = {
   id: 'policy-1',
+  policyMode: 'EXACT',
+  trackKey: 'default',
+  trackName: 'Default',
+  trackClass: 'PREFERRED',
+  isDefaultTrack: true,
+  desiredPlatform: 'IOS XE',
+  minimumFirmwareReleaseId: null,
   targetFirmwareReleaseId: desiredRelease.id,
+  maximumFirmwareReleaseId: null,
+  firmwareTrainId: null,
+  minimumInclusive: true,
+  maximumInclusive: true,
+  effectiveFrom: policyTimestamp,
+  policyVersion: 1,
   isActive: true,
   notes: null,
+  deviceModelFamilyId: null,
   deviceModelId: 'model-1',
-  createdAt: new Date('2026-09-01T00:00:00Z'),
-  updatedAt: new Date('2026-09-01T00:00:00Z'),
+  customerId: null,
+  siteId: null,
+  deviceId: null,
+  contractTypeId: null,
+  vendorId: null,
+  deviceTypeId: null,
+  createdAt: policyTimestamp,
+  updatedAt: policyTimestamp,
+  minimumFirmwareRelease: null,
   targetFirmwareRelease: desiredRelease,
+  maximumFirmwareRelease: null,
+  firmwareTrain: null,
 }
 
 function storedLifecycle(overrides: Record<string, unknown> = {}) {
@@ -243,5 +273,21 @@ describe('firmware lifecycle persistence', () => {
     expect(mocks.transaction).not.toHaveBeenCalled()
     expect(mocks.lifecycleUpsert).not.toHaveBeenCalled()
     expect(mocks.auditCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects moving policy intent until an exact lifecycle target has been resolved', async () => {
+    mocks.policyFindFirst.mockResolvedValue({
+      ...desiredPolicy,
+      policyMode: 'LATEST_APPROVED_IN_TRAIN',
+      targetFirmwareReleaseId: null,
+      targetFirmwareRelease: null,
+      firmwareTrainId: 'train-1',
+      firmwareTrain: { id: 'train-1', vendorId: 'vendor-1', platform: 'IOS XE', name: '17.15.x', isActive: true },
+    })
+
+    await expect(
+      setFirmwareLifecycleDecision('device-1', { state: 'PLANNED' }),
+    ).rejects.toBeInstanceOf(FirmwareLifecyclePolicyError)
+    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 })

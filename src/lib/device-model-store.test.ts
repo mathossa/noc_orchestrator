@@ -90,6 +90,44 @@ function release(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function policyRow(target: ReturnType<typeof release>, overrides: Record<string, unknown> = {}) {
+  const timestamp = new Date('2026-09-01T00:00:00Z')
+  return {
+    id: 'policy-1',
+    policyMode: 'EXACT',
+    trackKey: 'default',
+    trackName: 'Default',
+    trackClass: 'PREFERRED',
+    isDefaultTrack: true,
+    desiredPlatform: target.platform,
+    minimumFirmwareReleaseId: null,
+    targetFirmwareReleaseId: target.id,
+    maximumFirmwareReleaseId: null,
+    firmwareTrainId: null,
+    minimumInclusive: true,
+    maximumInclusive: true,
+    effectiveFrom: timestamp,
+    policyVersion: 1,
+    isActive: true,
+    notes: null,
+    deviceModelFamilyId: null,
+    deviceModelId: 'model-1',
+    customerId: null,
+    siteId: null,
+    deviceId: null,
+    contractTypeId: null,
+    vendorId: null,
+    deviceTypeId: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    minimumFirmwareRelease: null,
+    targetFirmwareRelease: target,
+    maximumFirmwareRelease: null,
+    firmwareTrain: null,
+    ...overrides,
+  }
+}
+
 describe('device model persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -177,7 +215,7 @@ describe('device model persistence rules', () => {
     }))
   })
 
-  it('aggregates usage, resolves desired policy, and marks only eligible firmware selectable', async () => {
+  it('aggregates usage, resolves an exact desired policy, and marks only eligible firmware selectable', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
     mocks.deviceModelFindUnique.mockResolvedValue({
       ...baseRecord,
@@ -192,9 +230,7 @@ describe('device model persistence rules', () => {
     const allowed = release({ releasedAt: now })
     const observed = release({ id: 'fw-observed', version: '17.15.6', logicalVersion: '17.15.6', catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED', status: 'AVAILABLE', releasedAt: now })
     mocks.firmwareReleaseFindMany.mockResolvedValue([allowed, observed])
-    mocks.policyFindFirst.mockResolvedValue({
-      id: 'policy-1', targetFirmwareReleaseId: 'fw-1', isActive: true, notes: null, deviceModelId: 'model-1', createdAt: now, updatedAt: now, targetFirmwareRelease: allowed,
-    })
+    mocks.policyFindFirst.mockResolvedValue(policyRow(allowed))
     mocks.auditFindMany.mockResolvedValue([{
       id: 'audit-1', action: 'DESIRED_FIRMWARE_CHANGED', entityType: 'DeviceModel', entityId: 'model-1', customerId: null, actorUserId: null, before: null, after: { version: '17.15.5' }, metadata: null, createdAt: now, actor: null,
     }])
@@ -211,16 +247,16 @@ describe('device model persistence rules', () => {
     expect(result.customers).toEqual([{ id: 'c1', name: 'Customer A', deviceCount: 2 }])
   })
 
-  it('normalizes platform/family matching for catalog choices', async () => {
+  it('does not suppress cross-platform policy targets before #57 compatibility exists', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
-    mocks.deviceModelFindUnique.mockResolvedValue({ ...baseRecord, platform: '  Catalyst   9300 ', createdAt: now, updatedAt: now, devices: [] })
+    mocks.deviceModelFindUnique.mockResolvedValue({ ...baseRecord, platform: 'AOS-8', createdAt: now, updatedAt: now, devices: [] })
     mocks.firmwareReleaseFindMany.mockResolvedValue([
-      release({ id: 'match', platform: 'catalyst 9300', releasedAt: now, firmwareTrain: null }),
-      release({ id: 'other', version: '7.11.2', logicalVersion: '7.11.2', platform: 'IOS XR', releasedAt: now, firmwareTrain: null }),
+      release({ id: 'aos8', platform: 'AOS-8', releasedAt: now, firmwareTrain: null }),
+      release({ id: 'aos10', version: '10.7.0.1', logicalVersion: '10.7.0.1', platform: 'AOS-10', releasedAt: now, firmwareTrain: null }),
     ])
 
     const result = await getDeviceModel('model-1')
-    expect(result.availableFirmware.releases.map((item) => item.id)).toEqual(['match'])
+    expect(result.availableFirmware.releases.map((item) => item.id)).toEqual(['aos8', 'aos10'])
   })
 
   it('returns vendor releases when the model does not define a platform/family', async () => {

@@ -1,10 +1,6 @@
 import type { DeviceModelFirmwareReference, DeviceModelRecord } from '@/lib/device-models'
 import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 
-function normalizePlatform(value: string | null | undefined) {
-  return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
-}
-
 export function commonCompatibleDesiredReleases(
   models: DeviceModelRecord[],
   releases: DeviceModelFirmwareReference[],
@@ -13,11 +9,12 @@ export function commonCompatibleDesiredReleases(
   const vendorId = models[0].vendorId
   if (models.some((model) => model.vendorId !== vendorId)) return []
 
-  return releases.filter((release) => {
-    if (release.vendorId !== vendorId || !isFirmwarePolicyEligible(release)) return false
-    const releasePlatform = normalizePlatform(release.platform)
-    return models.every((model) => !model.platform || normalizePlatform(model.platform) === releasePlatform)
-  })
+  // #43 deliberately does not use DeviceModel.platform as a compatibility
+  // gate. A hardware family/model may support multiple software platforms and
+  // a desired track may intentionally migrate from one platform to another.
+  // #57 owns exact model/image compatibility. Until then, only expose canonical
+  // policy-eligible releases from the same vendor.
+  return releases.filter((release) => release.vendorId === vendorId && isFirmwarePolicyEligible(release))
 }
 
 export type DeviceModelCatalogGroupBy = 'none' | 'vendor' | 'deviceType' | 'family'

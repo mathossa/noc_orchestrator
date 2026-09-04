@@ -126,6 +126,12 @@ const desiredRelease = {
   vendorId: 'vendor-1',
   platform: 'IOS XE',
   version: '17.15.5',
+  logicalVersion: '17.15.5',
+  variant: null,
+  imageCode: null,
+  catalogState: 'VERIFIED',
+  policyEligibility: 'ALLOWED',
+  variantEquivalence: 'EXACT_ONLY',
   status: 'APPROVED',
   isActive: true,
   releasedAt: new Date('2026-08-20T00:00:00Z'),
@@ -133,15 +139,39 @@ const desiredRelease = {
 }
 
 function desiredPolicy(target = desiredRelease) {
+  const timestamp = new Date('2026-09-01T00:00:00Z')
   return {
     id: 'policy-1',
+    policyMode: 'EXACT',
+    trackKey: 'default',
+    trackName: 'Default',
+    trackClass: 'PREFERRED',
+    isDefaultTrack: true,
+    desiredPlatform: target.platform,
+    minimumFirmwareReleaseId: null,
     targetFirmwareReleaseId: target.id,
+    maximumFirmwareReleaseId: null,
+    firmwareTrainId: null,
+    minimumInclusive: true,
+    maximumInclusive: true,
+    effectiveFrom: timestamp,
+    policyVersion: 1,
     isActive: true,
     notes: null,
+    deviceModelFamilyId: null,
     deviceModelId: 'model-1',
-    createdAt: new Date('2026-09-01T00:00:00Z'),
-    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    customerId: null,
+    siteId: null,
+    deviceId: null,
+    contractTypeId: null,
+    vendorId: null,
+    deviceTypeId: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    minimumFirmwareRelease: null,
     targetFirmwareRelease: target,
+    maximumFirmwareRelease: null,
+    firmwareTrain: null,
   }
 }
 
@@ -258,17 +288,43 @@ describe('device inventory persistence rules', () => {
   })
 
   it('resolves CURRENT when the exact current release is the desired release', async () => {
+    const desiredCurrent = {
+      ...desiredRelease,
+      id: release.id,
+      version: release.version,
+      logicalVersion: release.version,
+      platform: release.platform,
+      releasedAt: release.releasedAt,
+      firmwareTrain: release.firmwareTrain,
+    }
     mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy(release))
+    mocks.policyFindFirst.mockResolvedValue(desiredPolicy(desiredCurrent))
     const result = await getDevice('device-1')
     expect(result.technicalState).toEqual({ available: true, state: 'CURRENT' })
   })
 
-  it('resolves UNKNOWN when a desired policy exists but current firmware is not recorded', async () => {
+  it('resolves UNKNOWN when a desired exact policy exists but current firmware is not recorded', async () => {
     mocks.deviceFindUnique.mockResolvedValue(storedDevice)
     mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
     const result = await getDevice('device-1')
     expect(result.technicalState).toEqual({ available: true, state: 'UNKNOWN' })
+  })
+
+  it('does not crash when a policy mode has no exact target; compliance remains deferred to #58', async () => {
+    const moving = {
+      ...desiredPolicy(),
+      policyMode: 'LATEST_APPROVED_IN_TRAIN',
+      targetFirmwareReleaseId: null,
+      targetFirmwareRelease: null,
+      firmwareTrainId: 'train-new',
+      firmwareTrain: { id: 'train-new', vendorId: 'vendor-1', platform: 'IOS XE', name: '17.15.x', isActive: true },
+    }
+    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
+    mocks.policyFindFirst.mockResolvedValue(moving)
+
+    const result = await getDevice('device-1')
+    expect(result.desiredFirmware).toEqual({ available: true, release: null })
+    expect(result.technicalState).toEqual({ available: true, state: 'NO_POLICY' })
   })
 
   it('resolves NO_POLICY when the model has no active desired policy', async () => {
