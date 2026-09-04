@@ -457,3 +457,30 @@ model AuditEvent {
   @@index([action])
   @@index([createdAt])
 }
+
+// Confirmed, reusable importer configuration. These records contain parsing
+// policy only; uploaded inventory rows remain outside the canonical domain.
+model ImporterV2SourceProfile {
+  id                String  @id @default(uuid())
+  name              String
+  version           String
+  isActive          Boolean @default(true)
+  schemaFingerprint String
+  provider          String
+  sourceAdapterId   String
+  sheetName         String
+  headerRow         Int
+  headers           Json
+  columnMappings    Json
+  hierarchyTemplate Json
+  deviceTypePolicy  Json
+  defaults          Json
+  exactValueAliases Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([provider, name])
+  @@index([sourceAdapterId, provider, schemaFingerprint, isActive])
+  @@index([isActive, name])
+}
