@@ -3,6 +3,8 @@ import {
   evaluateImporterV2,
   type ImporterV2EvaluationInput,
 } from '@/lib/importer-v2-evaluator'
+import { IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE } from '@/lib/importer-v2-hierarchy'
+import { previewImporterV2Profile } from '@/lib/importer-v2-profile-preview'
 import {
   buildImporterV2ScaleFixture,
   type ImporterV2SyntheticRow,
@@ -100,6 +102,16 @@ const evaluatorInput: ImporterV2EvaluationInput = {
 
 const evaluated = evaluateImporterV2(evaluatorInput)
 
+const profilePreviewRows = rows.map((row) => ({
+  rowNumber: row.rowNumber,
+  organizationValue: [
+    row.source.customer,
+    row.source.businessUnit,
+    row.source.site,
+  ].join(' - '),
+  deviceType: row.source.deviceType,
+}))
+
 function filterAndSort() {
   return evaluated.rows
     .filter((row) => row.inclusion !== 'EXCLUDED')
@@ -155,6 +167,25 @@ describe('Importer v2 12,000-row CPU reference baseline', () => {
 
   bench('evaluate', () => {
     evaluateImporterV2(evaluatorInput)
+  })
+
+  bench('recognize hierarchy and type policy', () => {
+    previewImporterV2Profile(
+      profilePreviewRows,
+      IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
+      {
+        version: 'benchmark-profile-v1',
+        defaultAction: 'INCLUDE',
+        rules: [
+          {
+            id: 'exclude-workstations',
+            sourceValues: ['Workstation'],
+            action: 'EXCLUDE',
+            explanation: 'Synthetic endpoint exclusion.',
+          },
+        ],
+      },
+    )
   })
 
   bench('filter and sort interaction', () => {
