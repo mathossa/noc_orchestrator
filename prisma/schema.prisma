@@ -290,15 +290,28 @@ model FirmwareRelease {
   vendorId        String
   firmwareTrainId String?
   platform        String
-  version         String
+
+  // Exact vendor identity is never collapsed. logicalVersion is only a
+  // grouping/comparison aid; variant/imageCode preserve meaningful artifacts.
+  version            String
+  logicalVersion     String
+  variant            String?
+  imageCode          String?
+  catalogState       String @default("VERIFIED")
+  policyEligibility  String @default("NOT_EVALUATED")
+  variantEquivalence String @default("EXACT_ONLY")
+
   filename        String?
   sha256          String?
   fileSizeBytes   BigInt?
   releaseNotesUrl String?
-  status          String  @default("AVAILABLE")
-  notes           String?
-  releasedAt      DateTime?
-  isActive        Boolean @default(true)
+
+  // Legacy Issue #7 compatibility field. New policy code uses the separate
+  // catalogState and policyEligibility fields above.
+  status     String  @default("AVAILABLE")
+  notes      String?
+  releasedAt DateTime?
+  isActive   Boolean @default(true)
 
   // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
@@ -309,9 +322,9 @@ model FirmwareRelease {
 
   vendor             Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   firmwareTrain      FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
-  currentOnDevices   Device[]                  @relation("DeviceCurrentFirmware")
-  targetedByPolicies FirmwarePolicy[]          @relation("PolicyTargetFirmware")
-  lifecycleTargets   FirmwareLifecycleRecord[] @relation("LifecycleTargetFirmware")
+  currentOnDevices   Device[]                   @relation("DeviceCurrentFirmware")
+  targetedByPolicies FirmwarePolicy[]           @relation("PolicyTargetFirmware")
+  lifecycleTargets   FirmwareLifecycleRecord[]  @relation("LifecycleTargetFirmware")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -321,6 +334,9 @@ model FirmwareRelease {
   @@index([vendorId])
   @@index([firmwareTrainId])
   @@index([version])
+  @@index([logicalVersion])
+  @@index([catalogState])
+  @@index([policyEligibility])
   @@index([status])
   @@index([source])
   @@index([isActive])
@@ -339,7 +355,16 @@ model Device {
   currentFirmwareReleaseId  String?
   currentFirmwareObservedAt DateTime?
   currentFirmwareSource     String   @default("MANUAL")
-  isActive                  Boolean  @default(true)
+
+  // Exact reported evidence survives even when no compatible canonical release
+  // can be linked. Importer #48/#51 can populate these independently.
+  currentFirmwareRawVersion         String?
+  currentFirmwareNormalizedVersion  String?
+  currentFirmwareEvidence           Json?
+  currentFirmwareInterpreterId      String?
+  currentFirmwareInterpreterVersion String?
+
+  isActive Boolean @default(true)
 
   // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")

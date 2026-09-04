@@ -46,6 +46,12 @@ function serializeRelease(record: {
   vendor: { id: string; code: string; name: string; isActive: boolean }
   platform: string
   version: string
+  logicalVersion: string
+  variant: string | null
+  imageCode: string | null
+  catalogState: string
+  policyEligibility: string
+  variantEquivalence: string
   filename: string | null
   sha256: string | null
   fileSizeBytes: bigint | null
@@ -67,6 +73,12 @@ function serializeRelease(record: {
     vendor: record.vendor,
     platform: record.platform,
     version: record.version,
+    logicalVersion: record.logicalVersion,
+    variant: record.variant,
+    imageCode: record.imageCode,
+    catalogState: record.catalogState as FirmwareReleaseRecord['catalogState'],
+    policyEligibility: record.policyEligibility as FirmwareReleaseRecord['policyEligibility'],
+    variantEquivalence: record.variantEquivalence as FirmwareReleaseRecord['variantEquivalence'],
     filename: record.filename,
     sha256: record.sha256,
     fileSizeBytes: record.fileSizeBytes?.toString() ?? null,
@@ -112,13 +124,19 @@ async function assertUnique(vendorId: string, platform: string, version: string,
     (candidate) => candidate.id !== excludeId && normalizedFirmwarePlatform(candidate.platform) === normalizedPlatform,
   )
   if (conflict) {
-    throw new FirmwareReleaseConflictError('This vendor, platform/family, and version already exist in the catalog.')
+    throw new FirmwareReleaseConflictError('This vendor, platform/family, and exact version already exist in the catalog.')
   }
 }
 
 export async function listFirmwareReleases() {
   const records = await prisma.firmwareRelease.findMany({
-    orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { platform: 'asc' }, { version: 'asc' }],
+    orderBy: [
+      { isActive: 'desc' },
+      { vendor: { name: 'asc' } },
+      { platform: 'asc' },
+      { logicalVersion: 'asc' },
+      { version: 'asc' },
+    ],
     include: releaseInclude,
   })
   return records.map(serializeRelease)
@@ -139,18 +157,12 @@ export async function listFirmwareTrainReferences() {
 }
 
 export async function getFirmwareRelease(id: string) {
-  const record = await prisma.firmwareRelease.findUnique({
-    where: { id },
-    include: releaseInclude,
-  })
+  const record = await prisma.firmwareRelease.findUnique({ where: { id }, include: releaseInclude })
   if (!record) throw new FirmwareReleaseNotFoundError()
 
   const [matchingModels, currentDevices, targetPolicies, lifecycleTargets] = await Promise.all([
     prisma.deviceModel.findMany({
-      where: {
-        vendorId: record.vendorId,
-        platform: { equals: record.platform, mode: 'insensitive' },
-      },
+      where: { vendorId: record.vendorId, platform: { equals: record.platform, mode: 'insensitive' } },
       orderBy: { model: 'asc' },
       select: {
         id: true,
@@ -193,11 +205,23 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
   const current = await prisma.firmwareRelease.findUnique({ where: { id } })
   if (!current) throw new FirmwareReleaseNotFoundError()
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
+  const legacyStatusOnly =
+    Object.prototype.hasOwnProperty.call(patch, 'status') &&
+    !Object.prototype.hasOwnProperty.call(patch, 'catalogState') &&
+    !Object.prototype.hasOwnProperty.call(patch, 'policyEligibility')
+
   const input = parseFirmwareReleaseInput({
     vendorId: current.vendorId,
     firmwareTrainId: current.firmwareTrainId,
     platform: current.platform,
     version: current.version,
+    logicalVersion: current.logicalVersion,
+    variant: current.variant,
+    imageCode: current.imageCode,
+    ...(legacyStatusOnly
+      ? {}
+      : { catalogState: current.catalogState, policyEligibility: current.policyEligibility }),
+    variantEquivalence: current.variantEquivalence,
     filename: current.filename,
     sha256: current.sha256,
     fileSizeBytes: current.fileSizeBytes?.toString() ?? null,

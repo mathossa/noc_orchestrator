@@ -1,7 +1,11 @@
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
+import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 
+// Retained temporarily for callers/tests that still refer to the Issue #9
+// legacy status vocabulary. New selection logic uses policyEligibility.
 export const NORMAL_DESIRED_FIRMWARE_STATUSES = ['APPROVED', 'RECOMMENDED'] as const
+export const NORMAL_FIRMWARE_POLICY_ELIGIBILITIES = ['ALLOWED', 'PREFERRED'] as const
 
 export class FirmwarePolicyValidationError extends Error {
   constructor(message: string) {
@@ -36,6 +40,12 @@ const targetFirmwareSelect = {
   vendorId: true,
   platform: true,
   version: true,
+  logicalVersion: true,
+  variant: true,
+  imageCode: true,
+  catalogState: true,
+  policyEligibility: true,
+  variantEquivalence: true,
   status: true,
   isActive: true,
   releasedAt: true,
@@ -92,6 +102,12 @@ function serializePolicy(record: {
     vendorId: string
     platform: string
     version: string
+    logicalVersion: string
+    variant: string | null
+    imageCode: string | null
+    catalogState: string
+    policyEligibility: string
+    variantEquivalence: string
     status: string
     isActive: boolean
     releasedAt: Date | null
@@ -149,16 +165,19 @@ function assertReleaseCompatibleWithModels(
     vendorId: string
     platform: string
     version: string
-    status: string
+    catalogState: string
+    policyEligibility: string
     isActive: boolean
   },
 ) {
-  if (!release.isActive) {
-    throw new FirmwarePolicyCompatibilityError('Archived firmware cannot be selected as a new desired target.')
-  }
-  const normalizedStatus = release.status.toUpperCase()
-  if (!NORMAL_DESIRED_FIRMWARE_STATUSES.includes(normalizedStatus as (typeof NORMAL_DESIRED_FIRMWARE_STATUSES)[number])) {
-    throw new FirmwarePolicyCompatibilityError('Choose firmware with APPROVED or RECOMMENDED status as the desired target.')
+  if (!isFirmwarePolicyEligible(release)) {
+    if (!release.isActive) {
+      throw new FirmwarePolicyCompatibilityError('Archived firmware cannot be selected as a new desired target.')
+    }
+    if (release.catalogState === 'BLOCKED' || release.catalogState === 'WITHDRAWN') {
+      throw new FirmwarePolicyCompatibilityError('Blocked or withdrawn firmware cannot be selected as a desired target.')
+    }
+    throw new FirmwarePolicyCompatibilityError('Choose firmware whose policy eligibility is ALLOWED or PREFERRED.')
   }
 
   const wrongVendor = models.find((model) => model.vendorId !== release.vendorId)
@@ -244,12 +263,16 @@ export async function bulkSetModelDesiredFirmwarePolicies(
             firmwareReleaseId: current?.targetFirmwareReleaseId ?? null,
             version: current?.targetFirmwareRelease.version ?? null,
             status: current?.targetFirmwareRelease.status ?? null,
+            catalogState: current?.targetFirmwareRelease.catalogState ?? null,
+            policyEligibility: current?.targetFirmwareRelease.policyEligibility ?? null,
           },
           after: {
             policyId: next.id,
             firmwareReleaseId: next.targetFirmwareReleaseId,
             version: release.version,
             status: release.status,
+            catalogState: release.catalogState,
+            policyEligibility: release.policyEligibility,
           },
           metadata: {
             platform: model.platform ?? release.platform,
@@ -298,12 +321,16 @@ export async function bulkClearModelDesiredFirmwarePolicies(
             firmwareReleaseId: current.targetFirmwareReleaseId,
             version: current.targetFirmwareRelease.version,
             status: current.targetFirmwareRelease.status,
+            catalogState: current.targetFirmwareRelease.catalogState,
+            policyEligibility: current.targetFirmwareRelease.policyEligibility,
           },
           after: {
             policyId: null,
             firmwareReleaseId: null,
             version: null,
             status: null,
+            catalogState: null,
+            policyEligibility: null,
           },
           metadata: { bulk: modelIds.length > 1 },
         },

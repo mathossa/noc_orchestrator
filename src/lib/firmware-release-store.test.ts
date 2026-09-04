@@ -54,6 +54,12 @@ const storedRelease = {
   vendor,
   platform: 'IOS XE',
   version: '17.15.5',
+  logicalVersion: '17.15.5',
+  variant: null,
+  imageCode: null,
+  catalogState: 'VERIFIED',
+  policyEligibility: 'NOT_EVALUATED',
+  variantEquivalence: 'EXACT_ONLY',
   filename: null,
   sha256: null,
   fileSizeBytes: null,
@@ -75,7 +81,7 @@ describe('firmware release persistence rules', () => {
     mocks.releaseFindMany.mockResolvedValue([])
   })
 
-  it('creates a manual firmware release without making it desired', async () => {
+  it('creates a verified catalog release without making it policy eligible', async () => {
     mocks.releaseCreate.mockResolvedValue(storedRelease)
 
     const result = await createFirmwareRelease({ vendorId: 'vendor-1', platform: 'IOS XE', version: '17.15.5' })
@@ -86,12 +92,37 @@ describe('firmware release persistence rules', () => {
         firmwareTrainId: null,
         platform: 'IOS XE',
         version: '17.15.5',
+        logicalVersion: '17.15.5',
+        catalogState: 'VERIFIED',
+        policyEligibility: 'NOT_EVALUATED',
+        variantEquivalence: 'EXACT_ONLY',
         status: 'AVAILABLE',
         isActive: true,
       }),
     }))
     expect(result.version).toBe('17.15.5')
+    expect(result.policyEligibility).toBe('NOT_EVALUATED')
     expect(mocks.policyCount).not.toHaveBeenCalled()
+  })
+
+  it('persists derived Aruba image identity without collapsing the exact version', async () => {
+    mocks.releaseCreate.mockResolvedValue({
+      ...storedRelease,
+      platform: 'AOS-S',
+      version: 'WC.16.11.0002',
+      logicalVersion: '16.11.0002',
+      imageCode: 'WC',
+    })
+
+    await createFirmwareRelease({ vendorId: 'vendor-1', platform: 'AOS-S', version: 'WC.16.11.0002' })
+
+    expect(mocks.releaseCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        version: 'WC.16.11.0002',
+        logicalVersion: '16.11.0002',
+        imageCode: 'WC',
+      }),
+    }))
   })
 
   it('accepts an explicitly assigned train from the same vendor and normalized platform', async () => {
@@ -132,18 +163,19 @@ describe('firmware release persistence rules', () => {
     expect(mocks.releaseCreate).not.toHaveBeenCalled()
   })
 
-  it('allows the same platform to carry a different opaque version string', async () => {
+  it('allows variants to remain separate exact catalog records', async () => {
     mocks.releaseFindMany.mockResolvedValue([])
-    mocks.releaseCreate.mockResolvedValue({ ...storedRelease, version: '17.15.5a' })
+    mocks.releaseCreate.mockResolvedValue({ ...storedRelease, version: '15.2(7)E17a', logicalVersion: '15.2(7)E17', variant: 'a' })
 
-    await createFirmwareRelease({ vendorId: 'vendor-1', platform: 'IOS XE', version: '17.15.5a' })
-    expect(mocks.releaseCreate).toHaveBeenCalled()
+    await createFirmwareRelease({ vendorId: 'vendor-1', platform: 'IOS', version: '15.2(7)E17a' })
+    expect(mocks.releaseCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ version: '15.2(7)E17a', logicalVersion: '15.2(7)E17', variant: 'a' }),
+    }))
   })
 
-  it('supports archive-only PATCH without overwriting catalog identity or train membership', async () => {
+  it('supports archive-only PATCH without overwriting catalog identity or eligibility', async () => {
     mocks.releaseFindUnique.mockResolvedValue({
       ...storedRelease,
-      firmwareTrainId: null,
       vendor: undefined,
       firmwareTrain: undefined,
       createdAt: new Date('2026-08-31T00:00:00Z'),
@@ -155,7 +187,29 @@ describe('firmware release persistence rules', () => {
 
     expect(mocks.releaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'release-1' },
-      data: expect.objectContaining({ vendorId: 'vendor-1', firmwareTrainId: null, platform: 'IOS XE', version: '17.15.5', isActive: false }),
+      data: expect.objectContaining({
+        version: '17.15.5',
+        logicalVersion: '17.15.5',
+        catalogState: 'VERIFIED',
+        policyEligibility: 'NOT_EVALUATED',
+        isActive: false,
+      }),
+    }))
+  })
+
+  it('keeps legacy status PATCH compatible by translating it to the new semantics', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({ ...storedRelease, vendor: undefined, firmwareTrain: undefined })
+    mocks.releaseUpdate.mockResolvedValue({
+      ...storedRelease,
+      status: 'BLOCKED',
+      catalogState: 'BLOCKED',
+      policyEligibility: 'DISALLOWED',
+    })
+
+    await updateFirmwareRelease('release-1', { status: 'BLOCKED' })
+
+    expect(mocks.releaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED', status: 'BLOCKED' }),
     }))
   })
 

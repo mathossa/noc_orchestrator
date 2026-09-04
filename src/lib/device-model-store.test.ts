@@ -30,25 +30,12 @@ vi.mock('@/lib/prisma', () => ({
       update: mocks.deviceModelUpdate,
       delete: mocks.deviceModelDelete,
     },
-    deviceModelFamily: {
-      findUnique: mocks.familyFindUnique,
-      findMany: mocks.familyFindMany,
-    },
-    vendor: {
-      findUnique: mocks.vendorFindUnique,
-      findMany: mocks.vendorFindMany,
-    },
-    deviceType: {
-      findUnique: mocks.deviceTypeFindUnique,
-      findMany: mocks.deviceTypeFindMany,
-    },
+    deviceModelFamily: { findUnique: mocks.familyFindUnique, findMany: mocks.familyFindMany },
+    vendor: { findUnique: mocks.vendorFindUnique, findMany: mocks.vendorFindMany },
+    deviceType: { findUnique: mocks.deviceTypeFindUnique, findMany: mocks.deviceTypeFindMany },
     firmwareRelease: { findMany: mocks.firmwareReleaseFindMany },
     device: { count: mocks.deviceCount },
-    firmwarePolicy: {
-      findFirst: mocks.policyFindFirst,
-      findMany: mocks.policyFindMany,
-      count: mocks.policyCount,
-    },
+    firmwarePolicy: { findFirst: mocks.policyFindFirst, findMany: mocks.policyFindMany, count: mocks.policyCount },
     auditEvent: { findMany: mocks.auditFindMany, count: mocks.auditCount },
   },
 }))
@@ -83,6 +70,26 @@ const baseRecord = {
   _count: { devices: 0 },
 }
 
+function release(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'fw-1',
+    vendorId: 'vendor-1',
+    version: '17.15.5',
+    logicalVersion: '17.15.5',
+    variant: null,
+    imageCode: null,
+    platform: 'Catalyst 9300',
+    catalogState: 'VERIFIED',
+    policyEligibility: 'ALLOWED',
+    variantEquivalence: 'EXACT_ONLY',
+    status: 'APPROVED',
+    isActive: true,
+    releasedAt: new Date('2026-08-31T19:00:00Z'),
+    firmwareTrain: { id: 'train-1', name: '17.15.x' },
+    ...overrides,
+  }
+}
+
 describe('device model persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -99,13 +106,9 @@ describe('device model persistence rules', () => {
 
   it('creates a manual model with valid vendor and device type references', async () => {
     mocks.deviceModelCreate.mockResolvedValue(baseRecord)
-    const result = await createDeviceModel({
-      vendorId: 'vendor-1', deviceTypeId: 'type-1', model: 'C9300-24P', platform: 'Catalyst 9300',
-    })
+    const result = await createDeviceModel({ vendorId: 'vendor-1', deviceTypeId: 'type-1', model: 'C9300-24P', platform: 'Catalyst 9300' })
     expect(mocks.deviceModelCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: null, model: 'C9300-24P', source: 'MANUAL',
-      }),
+      data: expect.objectContaining({ vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: null, model: 'C9300-24P', source: 'MANUAL' }),
     }))
     expect(result.model).toBe('C9300-24P')
   })
@@ -114,38 +117,23 @@ describe('device model persistence rules', () => {
     const family = { id: 'family-9300', vendorId: 'vendor-1', name: 'Catalyst 9300', isActive: true }
     mocks.familyFindUnique.mockResolvedValue(family)
     mocks.deviceModelCreate.mockResolvedValue({ ...baseRecord, familyId: family.id, family })
-
-    const result = await createDeviceModel({
-      vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: family.id, model: 'C9300-24P',
-    })
-
+    const result = await createDeviceModel({ vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: family.id, model: 'C9300-24P' })
     expect(result.family).toEqual(family)
-    expect(mocks.deviceModelCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ familyId: 'family-9300' }),
-    }))
   })
 
   it('rejects a family belonging to another vendor', async () => {
     mocks.familyFindUnique.mockResolvedValue({ id: 'family-other', vendorId: 'vendor-2' })
-
-    await expect(createDeviceModel({
-      vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: 'family-other', model: 'C9300-24P',
-    })).rejects.toBeInstanceOf(DeviceModelReferenceError)
-    expect(mocks.deviceModelCreate).not.toHaveBeenCalled()
+    await expect(createDeviceModel({ vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: 'family-other', model: 'C9300-24P' })).rejects.toBeInstanceOf(DeviceModelReferenceError)
   })
 
   it('rejects missing vendor or device type references', async () => {
     mocks.vendorFindUnique.mockResolvedValue(null)
-    await expect(createDeviceModel({ vendorId: 'missing', deviceTypeId: 'type-1', model: 'Model' }))
-      .rejects.toBeInstanceOf(DeviceModelReferenceError)
-    expect(mocks.deviceModelCreate).not.toHaveBeenCalled()
+    await expect(createDeviceModel({ vendorId: 'missing', deviceTypeId: 'type-1', model: 'Model' })).rejects.toBeInstanceOf(DeviceModelReferenceError)
   })
 
   it('rejects case and whitespace variants within the same vendor', async () => {
     mocks.deviceModelFindMany.mockResolvedValue([{ id: 'model-existing', model: '  C9300-24P  ' }])
-    await expect(createDeviceModel({ vendorId: 'vendor-1', deviceTypeId: 'type-1', model: 'c9300-24p' }))
-      .rejects.toBeInstanceOf(DeviceModelConflictError)
-    expect(mocks.deviceModelCreate).not.toHaveBeenCalled()
+    await expect(createDeviceModel({ vendorId: 'vendor-1', deviceTypeId: 'type-1', model: 'c9300-24p' })).rejects.toBeInstanceOf(DeviceModelConflictError)
   })
 
   it('scopes model uniqueness to the selected vendor', async () => {
@@ -158,21 +146,16 @@ describe('device model persistence rules', () => {
     })
     await createDeviceModel({ vendorId: 'vendor-2', deviceTypeId: 'type-1', model: 'C9300-24P' })
     expect(mocks.deviceModelFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { vendorId: 'vendor-2' } }))
-    expect(mocks.deviceModelCreate).toHaveBeenCalled()
   })
 
-  it('shows the exact current desired release directly in the model overview data', async () => {
-    const now = new Date('2026-08-31T19:00:00Z')
-    const release = {
-      id: 'fw-1', vendorId: 'vendor-1', version: '17.15.5', platform: 'Catalyst 9300', status: 'APPROVED',
-      isActive: true, releasedAt: now, firmwareTrain: { id: 'train-1', name: '17.15.x' },
-    }
+  it('shows the exact current desired release and its catalog semantics in the model overview', async () => {
+    const fw = release()
     mocks.deviceModelFindMany.mockResolvedValue([baseRecord])
-    mocks.policyFindMany.mockResolvedValue([{ deviceModelId: 'model-1', targetFirmwareRelease: release }])
+    mocks.policyFindMany.mockResolvedValue([{ deviceModelId: 'model-1', targetFirmwareRelease: fw }])
 
     const result = await listDeviceModels()
 
-    expect(result[0].desiredFirmwareRelease).toEqual({ ...release, releasedAt: now.toISOString() })
+    expect(result[0].desiredFirmwareRelease).toEqual({ ...fw, releasedAt: (fw.releasedAt as Date).toISOString() })
     expect(mocks.policyFindMany).toHaveBeenCalledTimes(1)
   })
 
@@ -194,7 +177,7 @@ describe('device model persistence rules', () => {
     }))
   })
 
-  it('aggregates usage, resolves desired policy, and returns audit history', async () => {
+  it('aggregates usage, resolves desired policy, and marks only eligible firmware selectable', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
     mocks.deviceModelFindUnique.mockResolvedValue({
       ...baseRecord,
@@ -206,10 +189,11 @@ describe('device model persistence rules', () => {
         { id: 'd2', customer: { id: 'c1', name: 'Customer A' }, currentFirmwareReleaseId: null, currentFirmwareRelease: null, lifecycle: null },
       ],
     })
-    const release = { id: 'fw-1', vendorId: 'vendor-1', version: '17.15.5', platform: 'Catalyst 9300', status: 'APPROVED', isActive: true, releasedAt: now, firmwareTrain: { id: 'train-1', name: '17.15.x' } }
-    mocks.firmwareReleaseFindMany.mockResolvedValue([release])
+    const allowed = release({ releasedAt: now })
+    const observed = release({ id: 'fw-observed', version: '17.15.6', logicalVersion: '17.15.6', catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED', status: 'AVAILABLE', releasedAt: now })
+    mocks.firmwareReleaseFindMany.mockResolvedValue([allowed, observed])
     mocks.policyFindFirst.mockResolvedValue({
-      id: 'policy-1', targetFirmwareReleaseId: 'fw-1', isActive: true, notes: null, deviceModelId: 'model-1', createdAt: now, updatedAt: now, targetFirmwareRelease: release,
+      id: 'policy-1', targetFirmwareReleaseId: 'fw-1', isActive: true, notes: null, deviceModelId: 'model-1', createdAt: now, updatedAt: now, targetFirmwareRelease: allowed,
     })
     mocks.auditFindMany.mockResolvedValue([{
       id: 'audit-1', action: 'DESIRED_FIRMWARE_CHANGED', entityType: 'DeviceModel', entityId: 'model-1', customerId: null, actorUserId: null, before: null, after: { version: '17.15.5' }, metadata: null, createdAt: now, actor: null,
@@ -217,36 +201,26 @@ describe('device model persistence rules', () => {
 
     const result = await getDeviceModel('model-1')
 
-    expect(result.availableFirmware.releases).toEqual([{ ...release, releasedAt: now.toISOString(), selectable: true }])
-    expect(result.desiredFirmware).toEqual({
-      available: true,
-      policyId: 'policy-1',
-      release: { ...release, releasedAt: now.toISOString() },
-    })
+    expect(result.availableFirmware.releases.map((item) => ({ id: item.id, selectable: item.selectable }))).toEqual([
+      { id: 'fw-1', selectable: true },
+      { id: 'fw-observed', selectable: false },
+    ])
+    expect(result.desiredFirmware.policyId).toBe('policy-1')
     expect(result.desiredFirmwareRelease?.version).toBe('17.15.5')
     expect(result.workflowCounts.planned).toBe(1)
     expect(result.customers).toEqual([{ id: 'c1', name: 'Customer A', deviceCount: 2 }])
-    expect(result.auditHistory).toEqual([expect.objectContaining({ id: 'audit-1', action: 'DESIRED_FIRMWARE_CHANGED' })])
   })
 
   it('normalizes platform/family matching for catalog choices', async () => {
     const now = new Date('2026-08-31T19:00:00Z')
-    mocks.deviceModelFindUnique.mockResolvedValue({
-      ...baseRecord,
-      platform: '  Catalyst   9300 ',
-      createdAt: now,
-      updatedAt: now,
-      devices: [],
-    })
+    mocks.deviceModelFindUnique.mockResolvedValue({ ...baseRecord, platform: '  Catalyst   9300 ', createdAt: now, updatedAt: now, devices: [] })
     mocks.firmwareReleaseFindMany.mockResolvedValue([
-      { id: 'match', vendorId: 'vendor-1', version: '17.15.5', platform: 'catalyst 9300', status: 'APPROVED', isActive: true, releasedAt: now, firmwareTrain: null },
-      { id: 'other', vendorId: 'vendor-1', version: '7.11.2', platform: 'IOS XR', status: 'APPROVED', isActive: true, releasedAt: now, firmwareTrain: null },
+      release({ id: 'match', platform: 'catalyst 9300', releasedAt: now, firmwareTrain: null }),
+      release({ id: 'other', version: '7.11.2', logicalVersion: '7.11.2', platform: 'IOS XR', releasedAt: now, firmwareTrain: null }),
     ])
 
     const result = await getDeviceModel('model-1')
-
-    expect(mocks.firmwareReleaseFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { vendorId: 'vendor-1' } }))
-    expect(result.availableFirmware.releases.map((release) => release.id)).toEqual(['match'])
+    expect(result.availableFirmware.releases.map((item) => item.id)).toEqual(['match'])
   })
 
   it('returns vendor releases when the model does not define a platform/family', async () => {

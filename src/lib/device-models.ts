@@ -14,7 +14,13 @@ export type DeviceModelFirmwareReference = {
   id: string
   vendorId: string
   version: string
+  logicalVersion: string
+  variant: string | null
+  imageCode: string | null
   platform: string
+  catalogState: string
+  policyEligibility: string
+  variantEquivalence: string
   status: string
   isActive: boolean
   releasedAt: string | null
@@ -125,21 +131,11 @@ export function parseDeviceModelInput(input: unknown) {
   if (platform && platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
 
-  if (!['MANUAL', 'API', 'IMPORT'].includes(source)) {
-    errors.source = 'Choose MANUAL, API, or IMPORT.'
-  }
+  if (!['MANUAL', 'API', 'IMPORT'].includes(source)) errors.source = 'Choose MANUAL, API, or IMPORT.'
+  if (externalProvider && externalProvider.length > 120) errors.externalProvider = 'External provider must be 120 characters or fewer.'
+  if (externalId && externalId.length > 255) errors.externalId = 'External ID must be 255 characters or fewer.'
 
-  if (externalProvider && externalProvider.length > 120) {
-    errors.externalProvider = 'External provider must be 120 characters or fewer.'
-  }
-
-  if (externalId && externalId.length > 255) {
-    errors.externalId = 'External ID must be 255 characters or fewer.'
-  }
-
-  if (Object.keys(errors).length > 0) {
-    throw new DeviceModelValidationError('Please correct the highlighted fields.', errors)
-  }
+  if (Object.keys(errors).length > 0) throw new DeviceModelValidationError('Please correct the highlighted fields.', errors)
 
   return {
     vendorId,

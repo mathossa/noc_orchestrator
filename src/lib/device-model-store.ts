@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { normalizedDeviceModelName, parseDeviceModelInput, type DeviceModelFirmwareReference } from '@/lib/device-models'
-import { getActiveModelDesiredPolicy, NORMAL_DESIRED_FIRMWARE_STATUSES } from '@/lib/firmware-policy-store'
+import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
+import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 import {
   emptyTechnicalFirmwareStateCounts,
   incrementTechnicalFirmwareStateCount,
@@ -42,7 +43,13 @@ const firmwareSelect = {
   id: true,
   vendorId: true,
   version: true,
+  logicalVersion: true,
+  variant: true,
+  imageCode: true,
   platform: true,
+  catalogState: true,
+  policyEligibility: true,
+  variantEquivalence: true,
   status: true,
   isActive: true,
   releasedAt: true,
@@ -92,7 +99,13 @@ function serializeFirmware(release: {
   id: string
   vendorId: string
   version: string
+  logicalVersion: string
+  variant: string | null
+  imageCode: string | null
   platform: string
+  catalogState: string
+  policyEligibility: string
+  variantEquivalence: string
   status: string
   isActive: boolean
   releasedAt: Date | null
@@ -100,6 +113,9 @@ function serializeFirmware(release: {
 }): DeviceModelFirmwareReference {
   return {
     ...release,
+    catalogState: release.catalogState as DeviceModelFirmwareReference['catalogState'],
+    policyEligibility: release.policyEligibility as DeviceModelFirmwareReference['policyEligibility'],
+    variantEquivalence: release.variantEquivalence as DeviceModelFirmwareReference['variantEquivalence'],
     releasedAt: release.releasedAt?.toISOString() ?? null,
   }
 }
@@ -155,9 +171,7 @@ async function assertUniqueWithinVendor(vendorId: string, model: string, exclude
   const conflict = records.find(
     (record) => record.id !== excludeId && normalizedDeviceModelName(record.model) === normalized,
   )
-  if (conflict) {
-    throw new DeviceModelConflictError(`Model “${model}” already exists for this vendor.`)
-  }
+  if (conflict) throw new DeviceModelConflictError(`Model “${model}” already exists for this vendor.`)
 }
 
 export async function listDeviceModels() {
@@ -170,10 +184,7 @@ export async function listDeviceModels() {
     ? await prisma.firmwarePolicy.findMany({
         where: { ...modelBaselineScope, deviceModelId: { in: modelIds } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          deviceModelId: true,
-          targetFirmwareRelease: { select: firmwareSelect },
-        },
+        select: { deviceModelId: true, targetFirmwareRelease: { select: firmwareSelect } },
       })
     : []
   const desiredByModel = new Map<string, DeviceModelFirmwareReference>()
@@ -181,22 +192,13 @@ export async function listDeviceModels() {
     if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
     desiredByModel.set(policy.deviceModelId, serializeFirmware(policy.targetFirmwareRelease))
   }
-
-  return records.map((record) =>
-    serializeDeviceModel(record as IncludedDeviceModel, desiredByModel.get(record.id) ?? null),
-  )
+  return records.map((record) => serializeDeviceModel(record as IncludedDeviceModel, desiredByModel.get(record.id) ?? null))
 }
 
 export async function listDeviceModelReferences() {
   const [vendors, deviceTypes, families, firmwareReleases] = await Promise.all([
-    prisma.vendor.findMany({
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: referenceSelect,
-    }),
-    prisma.deviceType.findMany({
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: referenceSelect,
-    }),
+    prisma.vendor.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: referenceSelect }),
+    prisma.deviceType.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: referenceSelect }),
     prisma.deviceModelFamily.findMany({
       orderBy: [{ isActive: 'desc' }, { vendor: { name: 'asc' } }, { name: 'asc' }],
       select: familySelect,
@@ -204,18 +206,14 @@ export async function listDeviceModelReferences() {
     prisma.firmwareRelease.findMany({
       where: {
         isActive: true,
-        status: { in: [...NORMAL_DESIRED_FIRMWARE_STATUSES] },
+        catalogState: { notIn: ['BLOCKED', 'WITHDRAWN'] },
+        policyEligibility: { in: ['ALLOWED', 'PREFERRED'] },
       },
       orderBy: [{ vendor: { name: 'asc' } }, { platform: 'asc' }, { releasedAt: 'desc' }, { version: 'asc' }],
       select: firmwareSelect,
     }),
   ])
-  return {
-    vendors,
-    deviceTypes,
-    families,
-    firmwareReleases: firmwareReleases.map(serializeFirmware),
-  }
+  return { vendors, deviceTypes, families, firmwareReleases: firmwareReleases.map(serializeFirmware) }
 }
 
 export async function getDeviceModel(id: string) {
@@ -228,9 +226,7 @@ export async function getDeviceModel(id: string) {
           id: true,
           customer: { select: { id: true, name: true } },
           currentFirmwareReleaseId: true,
-          currentFirmwareRelease: {
-            select: { id: true, version: true, platform: true },
-          },
+          currentFirmwareRelease: { select: { id: true, version: true, platform: true } },
           lifecycle: { select: { state: true } },
         },
       },
@@ -249,23 +245,12 @@ export async function getDeviceModel(id: string) {
   ])
 
   const availableReleases = record.platform
-    ? vendorReleases.filter(
-        (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform),
-      )
+    ? vendorReleases.filter((release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(record.platform))
     : vendorReleases
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
-  const firmwareMap = new Map<
-    string,
-    { firmwareReleaseId: string | null; version: string; platform: string | null; deviceCount: number }
-  >()
-  const workflowCounts = {
-    planned: 0,
-    ignored: 0,
-    customerDeclined: 0,
-    done: 0,
-    undecided: 0,
-  }
+  const firmwareMap = new Map<string, { firmwareReleaseId: string | null; version: string; platform: string | null; deviceCount: number }>()
+  const workflowCounts = { planned: 0, ignored: 0, customerDeclined: 0, done: 0, undecided: 0 }
   const technicalStateCounts = emptyTechnicalFirmwareStateCounts()
 
   for (const device of record.devices) {
@@ -294,25 +279,15 @@ export async function getDeviceModel(id: string) {
     )
 
     switch (device.lifecycle?.state) {
-      case 'PLANNED':
-        workflowCounts.planned += 1
-        break
-      case 'IGNORED':
-        workflowCounts.ignored += 1
-        break
-      case 'CUSTOMER_DECLINED':
-        workflowCounts.customerDeclined += 1
-        break
-      case 'DONE':
-        workflowCounts.done += 1
-        break
-      default:
-        workflowCounts.undecided += 1
+      case 'PLANNED': workflowCounts.planned += 1; break
+      case 'IGNORED': workflowCounts.ignored += 1; break
+      case 'CUSTOMER_DECLINED': workflowCounts.customerDeclined += 1; break
+      case 'DONE': workflowCounts.done += 1; break
+      default: workflowCounts.undecided += 1
     }
   }
 
   const desiredRelease = desiredPolicy?.release ?? null
-
   return {
     ...serializeDeviceModel(record as IncludedDeviceModel, desiredRelease),
     createdAt: record.createdAt.toISOString(),
@@ -321,20 +296,12 @@ export async function getDeviceModel(id: string) {
     firmwareDistribution: [...firmwareMap.values()].sort((a, b) => b.deviceCount - a.deviceCount),
     workflowCounts,
     technicalStateCounts,
-    desiredFirmware: {
-      available: true as const,
-      policyId: desiredPolicy?.id ?? null,
-      release: desiredRelease,
-    },
+    desiredFirmware: { available: true as const, policyId: desiredPolicy?.id ?? null, release: desiredRelease },
     availableFirmware: {
       available: true as const,
       releases: availableReleases.map((release) => ({
         ...serializeFirmware(release),
-        selectable:
-          release.isActive &&
-          NORMAL_DESIRED_FIRMWARE_STATUSES.includes(
-            release.status.toUpperCase() as (typeof NORMAL_DESIRED_FIRMWARE_STATUSES)[number],
-          ),
+        selectable: isFirmwarePolicyEligible(release),
       })),
     },
     auditHistory,
