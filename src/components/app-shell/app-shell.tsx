@@ -18,7 +18,13 @@ const navigation: readonly NavigationItem[] = [
       { label: 'Sites', href: '/sites' },
     ],
   },
-  { label: 'Devices', href: '/devices' },
+  {
+    label: 'Devices',
+    children: [
+      { label: 'Overview', href: '/devices' },
+      { label: 'Import', href: '/devices/import' },
+    ],
+  },
   { label: 'Models', href: '/models' },
   { label: 'Vendors', href: '/vendors' },
   { label: 'Device types', href: '/device-types' },
@@ -38,6 +44,9 @@ function isActivePath(pathname: string, href: string) {
   if (href === '/sites') return isCustomerSitePath(pathname)
   if (href === '/customers') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !isCustomerSitePath(pathname)
+  }
+  if (href === '/devices') {
+    return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
   }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
@@ -84,7 +93,7 @@ function NavigationLinks({ compact = false }: { compact?: boolean }) {
       for (const child of item.children) {
         compactLinks.push({
           ...child,
-          label: child.href === '/customers' ? item.label : child.label,
+          label: child.href === '/customers' || child.href === '/devices' ? item.label : child.label,
         })
       }
     }
