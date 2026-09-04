@@ -59,7 +59,12 @@ export async function previewTrainCompatibilityForModels(
 ): Promise<FirmwarePolicyCompatibilityImpact> {
   if (deviceModelIds.length === 0) return aggregate([])
   const releases = await prisma.firmwareRelease.findMany({
-    where: { firmwareTrainId, isActive: true },
+    where: {
+      firmwareTrainId,
+      isActive: true,
+      catalogState: { notIn: ['BLOCKED', 'WITHDRAWN'] },
+      policyEligibility: { in: ['ALLOWED', 'PREFERRED'] },
+    },
     orderBy: [{ logicalVersion: 'asc' }, { version: 'asc' }],
     select: { id: true, logicalVersion: true },
   })
@@ -96,8 +101,8 @@ export async function previewTrainCompatibilityForModels(
       ?? ambiguous?.explanation
       ?? unknown?.explanation
       ?? (representatives.length === 0
-        ? 'The selected train has no active canonical releases to evaluate.'
-        : 'No compatible release path in the selected train is proven for this model.')
+        ? 'The selected train has no active policy-eligible canonical releases to evaluate.'
+        : 'No compatible policy-eligible release path in the selected train is proven for this model.')
     results.push({ deviceModelId, model: nameById.get(deviceModelId) ?? deviceModelId, status, explanation })
   }
 
