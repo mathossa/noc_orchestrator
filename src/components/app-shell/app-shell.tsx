@@ -19,6 +19,7 @@ const navigation: readonly NavigationGroup[] = [
       { label: 'Customers', href: '/customers' },
       { label: 'Sites', href: '/sites' },
       { label: 'Devices', href: '/devices' },
+      { label: 'Import', href: '/devices/import' },
     ],
   },
   {
@@ -55,6 +56,9 @@ function isActivePath(pathname: string, href: string) {
   if (href === '/sites') return isCustomerSitePath(pathname)
   if (href === '/customers') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !isCustomerSitePath(pathname)
+  }
+  if (href === '/devices') {
+    return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
   }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
