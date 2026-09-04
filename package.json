@@ -16,6 +16,7 @@
     "format:check": "prettier . --check",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "benchmark:importer-v2": "vitest bench --run src/lib/importer-v2-baseline.bench.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "prisma:generate": "prisma generate",

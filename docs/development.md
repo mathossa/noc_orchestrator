@@ -141,3 +141,14 @@ npm run format:check
 ```
 
 Issue #16 expands and hardens the final release validation process.
+
+### Importer v2 baseline
+
+Issue #44 adds a production-data-free 12,000-row regression and CPU benchmark fixture:
+
+```bash
+npm test -- src/lib/importer-v2-regression-fixtures.test.ts
+npm run benchmark:importer-v2
+```
+
+The benchmark phase definitions, limitations, and latest recorded results are documented in [importer-v2-regression-baseline.md](importer-v2-regression-baseline.md).
