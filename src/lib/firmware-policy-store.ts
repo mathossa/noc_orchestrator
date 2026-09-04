@@ -1,5 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
+import {
+  describeCompatibilityImpact,
+  previewLogicalTargetCompatibilityForModels,
+  previewTrainCompatibilityForModels,
+} from '@/lib/firmware-compatibility-policy'
 import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 import { compareFirmwareVersions } from '@/lib/firmware-versioning'
 import {
@@ -315,9 +320,12 @@ function assertReleaseCompatibleWithModels(
         : 'All selected models must use the same vendor as the desired firmware release.',
     )
   }
-  // Do not compare against DeviceModel.platform here. #43 explicitly allows a
-  // desired track to move hardware from e.g. AOS-8 to AOS-10. Exact model/image
-  // compatibility is owned by #57.
+}
+
+async function assertLogicalTargetResolvesForModels(modelIds: string[], firmwareReleaseId: string) {
+  const impact = await previewLogicalTargetCompatibilityForModels(modelIds, firmwareReleaseId)
+  if (!impact.canApply) throw new FirmwarePolicyCompatibilityError(describeCompatibilityImpact(impact))
+  return impact
 }
 
 export async function getActiveModelDesiredPolicy(deviceModelId: string) {
@@ -345,6 +353,7 @@ export async function bulkSetModelDesiredFirmwarePolicies(
   ])
   if (!release) throw new FirmwarePolicyReferenceError('The selected firmware release does not exist.')
   assertReleaseCompatibleWithModels(models, release)
+  await assertLogicalTargetResolvesForModels(modelIds, firmwareReleaseId)
 
   const currentByModel = await loadCurrentPolicies(modelIds)
   const changedModels = models.filter((model) => {
@@ -607,6 +616,17 @@ async function assertPolicyReferences(input: ReturnType<typeof parsePolicyWriteI
   if (!subjectVendorId) throw new FirmwarePolicyReferenceError('Unable to determine the vendor for the policy subject.')
   const policyVendorId = subjectVendorId
 
+  const compatibilityModelIds = device
+    ? [device.deviceModel.id]
+    : model
+      ? [model.id]
+      : family
+        ? (await prisma.deviceModel.findMany({
+            where: { familyId: family.id, isActive: true },
+            select: { id: true },
+          })).map((child) => child.id)
+        : []
+
   const releaseIds = [...new Set([
     input.minimumFirmwareReleaseId,
     input.targetFirmwareReleaseId,
@@ -658,6 +678,15 @@ async function assertPolicyReferences(input: ReturnType<typeof parsePolicyWriteI
   assertOrdered(minimum, preferred, 'Minimum firmware cannot be newer than the preferred target.')
   assertOrdered(preferred, maximum, 'Preferred firmware cannot be newer than the maximum accepted release.')
   assertOrdered(minimum, maximum, 'Minimum firmware cannot be newer than the maximum accepted release.')
+
+  for (const releaseId of releaseIds) {
+    const impact = await previewLogicalTargetCompatibilityForModels(compatibilityModelIds, releaseId)
+    if (!impact.canApply) throw new FirmwarePolicyCompatibilityError(describeCompatibilityImpact(impact))
+  }
+  if (train) {
+    const impact = await previewTrainCompatibilityForModels(compatibilityModelIds, train.id)
+    if (!impact.canApply) throw new FirmwarePolicyCompatibilityError(describeCompatibilityImpact(impact))
+  }
 
   return {
     customerIdForAudit: input.customerId ?? site?.customerId ?? device?.customerId ?? null,
