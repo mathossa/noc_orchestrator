@@ -187,15 +187,15 @@ export function evaluateImporterV2WithFirmware(
     ),
   }
 
-  const {
-    firmwareContext: _firmwareContext,
-    providerMetadataByRow: _providerMetadataByRow,
-    ...genericInput
-  } = input
-  const base = evaluateImporterV2({
-    ...genericInput,
+  const genericInput: ImporterV2EvaluationInput = {
     profile: profileWithoutCompetingFirmwareResolution,
-  })
+    catalog: input.catalog,
+    rules: input.rules,
+    parsers: input.parsers,
+    suggestions: input.suggestions,
+    rows: input.rows,
+  }
+  const base = evaluateImporterV2(genericInput)
 
   const rows = base.rows.map((row, index) => {
     const stagedRow = input.rows[index]
