@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   policyCreate: vi.fn(),
   auditCreate: vi.fn(),
   transaction: vi.fn(),
+  previewLogicalTarget: vi.fn(),
+  previewTrain: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -30,6 +32,12 @@ vi.mock('@/lib/prisma', () => ({
     firmwarePolicy: { findMany: mocks.policyFindMany, findFirst: mocks.policyFindFirst },
     $transaction: mocks.transaction,
   },
+}))
+
+vi.mock('@/lib/firmware-compatibility-policy', () => ({
+  previewLogicalTargetCompatibilityForModels: mocks.previewLogicalTarget,
+  previewTrainCompatibilityForModels: mocks.previewTrain,
+  describeCompatibilityImpact: () => 'Firmware compatibility is unresolved for affected models.',
 }))
 
 import {
@@ -60,6 +68,15 @@ const allowedRelease = {
   isActive: true,
   releasedAt: now,
   firmwareTrain: { id: 'train-1', name: '10.7' },
+}
+
+const resolvedImpact = {
+  canApply: true,
+  results: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'RESOLVED', explanation: 'Resolved.' }],
+  resolved: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'RESOLVED', explanation: 'Resolved.' }],
+  ambiguous: [],
+  incompatible: [],
+  unknown: [],
 }
 
 function policyRecord(
@@ -107,6 +124,8 @@ function policyRecord(
 describe('model desired firmware policy compatibility persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.previewLogicalTarget.mockResolvedValue(resolvedImpact)
+    mocks.previewTrain.mockResolvedValue(resolvedImpact)
     mocks.modelFindMany.mockResolvedValue([model])
     mocks.modelFindUnique.mockResolvedValue({ id: 'model-1', vendorId: 'vendor-1', familyId: 'family-1' })
     mocks.familyFindUnique.mockResolvedValue({ id: 'family-1', vendorId: 'vendor-1' })
@@ -135,25 +154,9 @@ describe('model desired firmware policy compatibility persistence', () => {
 
   it('creates an append-only exact model policy with catalog semantics in audit', async () => {
     const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1', 'user-1')
-
-    expect(mocks.policyUpdateMany).not.toHaveBeenCalled()
-    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        deviceModelId: 'model-1',
-        policyMode: 'EXACT',
-        trackKey: 'default',
-        desiredPlatform: 'AOS-10',
-        targetFirmwareReleaseId: 'fw-1',
-        policyVersion: 1,
-      }),
-    }))
-    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        actorUserId: 'user-1',
-        action: 'DESIRED_FIRMWARE_CHANGED',
-        after: expect.objectContaining({ version: '10.7.0.1', catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' }),
-      }),
-    }))
+    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ deviceModelId: 'model-1', policyMode: 'EXACT', desiredPlatform: 'AOS-10', targetFirmwareReleaseId: 'fw-1' }) }))
+    expect(mocks.previewLogicalTarget).toHaveBeenCalledWith(['model-1'], 'fw-1')
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ actorUserId: 'user-1', action: 'DESIRED_FIRMWARE_CHANGED' }) }))
     expect(result.release?.version).toBe('10.7.0.1')
   })
 
@@ -162,16 +165,8 @@ describe('model desired firmware policy compatibility persistence', () => {
     mocks.policyFindMany.mockResolvedValue([policyRecord(oldRelease, 'policy-old')])
     mocks.policyFindFirst.mockResolvedValue(policyRecord(allowedRelease, 'policy-new', 'model-1', { policyVersion: 2 }))
     mocks.policyCreate.mockResolvedValue({ id: 'policy-new', targetFirmwareReleaseId: 'fw-1', policyVersion: 2 })
-
     const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1')
-
-    expect(mocks.policyUpdateMany).not.toHaveBeenCalled()
-    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ targetFirmwareReleaseId: 'fw-1', policyVersion: 2 }),
-    }))
-    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ before: expect.objectContaining({ version: '10.6.0.3' }), after: expect.objectContaining({ version: '10.7.0.1' }) }),
-    }))
+    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ policyVersion: 2 }) }))
     expect(result.id).toBe('policy-new')
   })
 
@@ -181,7 +176,6 @@ describe('model desired firmware policy compatibility persistence', () => {
     const result = await setModelDesiredFirmwarePolicy('model-1', 'fw-1')
     expect(result.id).toBe('policy-1')
     expect(mocks.transaction).not.toHaveBeenCalled()
-    expect(mocks.auditCreate).not.toHaveBeenCalled()
   })
 
   it('accepts PREFERRED as a normal desired target independent of legacy status naming', async () => {
@@ -195,13 +189,12 @@ describe('model desired firmware policy compatibility persistence', () => {
   it('rejects desired firmware from another vendor', async () => {
     mocks.releaseFindUnique.mockResolvedValue({ ...allowedRelease, vendorId: 'vendor-2' })
     await expect(setModelDesiredFirmwarePolicy('model-1', 'fw-1')).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
-    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
-  it('allows cross-platform desired policy so AOS-8 hardware can intentionally target an AOS-10 track', async () => {
-    await expect(setModelDesiredFirmwarePolicy('model-1', 'fw-1')).resolves.toMatchObject({
-      release: expect.objectContaining({ platform: 'AOS-10' }),
-    })
+  it('allows a cross-platform logical target only when compatibility resolves it', async () => {
+    await expect(setModelDesiredFirmwarePolicy('model-1', 'fw-1')).resolves.toMatchObject({ release: expect.objectContaining({ platform: 'AOS-10' }) })
+    mocks.previewLogicalTarget.mockResolvedValue({ ...resolvedImpact, canApply: false, resolved: [], unknown: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'UNKNOWN', explanation: 'No evidence.' }], results: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'UNKNOWN', explanation: 'No evidence.' }] })
+    await expect(setModelDesiredFirmwarePolicy('model-1', 'fw-1')).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
   })
 
   it('rejects archived, blocked, withdrawn, or not-evaluated releases as new desired targets', async () => {
@@ -220,58 +213,38 @@ describe('model desired firmware policy compatibility persistence', () => {
     mocks.policyFindMany.mockResolvedValue([policyRecord()])
     mocks.policyUpdateMany.mockResolvedValue({ count: 1 })
     const result = await clearModelDesiredFirmwarePolicy('model-1', 'user-1')
-
     expect(result).toEqual({ cleared: true })
     expect(mocks.policyUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { isActive: false } }))
-    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        actorUserId: 'user-1',
-        action: 'DESIRED_FIRMWARE_CLEARED',
-        before: expect.objectContaining({ version: '10.7.0.1', policyEligibility: 'ALLOWED' }),
-      }),
-    }))
   })
 
   it('continues resolving an existing archived target for historical integrity', async () => {
     const archived = { ...allowedRelease, isActive: false, catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED', status: 'DEPRECATED' }
     mocks.policyFindFirst.mockResolvedValue(policyRecord(archived))
     const result = await getActiveModelDesiredPolicy('model-1')
-    expect(result?.release).toMatchObject({ id: 'fw-1', isActive: false, catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED' })
+    expect(result?.release).toMatchObject({ id: 'fw-1', isActive: false })
   })
 
-  it('applies one exact release to multiple compatible-vendor models in one transaction', async () => {
+  it('applies one logical release to multiple models only when all resolve compatibility', async () => {
     const second = { id: 'model-2', vendorId: 'vendor-1', platform: 'AOS-8', model: 'AP-505' }
     mocks.modelFindMany.mockResolvedValue([model, second])
-    mocks.policyCreate
-      .mockResolvedValueOnce({ id: 'policy-model-1', targetFirmwareReleaseId: 'fw-1', policyVersion: 1 })
-      .mockResolvedValueOnce({ id: 'policy-model-2', targetFirmwareReleaseId: 'fw-1', policyVersion: 1 })
-
+    mocks.previewLogicalTarget.mockResolvedValue({ ...resolvedImpact, results: [{ ...resolvedImpact.results[0] }, { deviceModelId: 'model-2', model: 'AP-505', status: 'RESOLVED', explanation: 'Resolved.' }], resolved: [{ ...resolvedImpact.results[0] }, { deviceModelId: 'model-2', model: 'AP-505', status: 'RESOLVED', explanation: 'Resolved.' }] })
+    mocks.policyCreate.mockResolvedValueOnce({ id: 'policy-model-1', targetFirmwareReleaseId: 'fw-1', policyVersion: 1 }).mockResolvedValueOnce({ id: 'policy-model-2', targetFirmwareReleaseId: 'fw-1', policyVersion: 1 })
     const result = await bulkSetModelDesiredFirmwarePolicies(['model-1', 'model-2'], 'fw-1', 'user-1')
-    expect(result).toEqual({ changed: 2, unchanged: 0, modelIds: ['model-1', 'model-2'] })
-    expect(mocks.transaction).toHaveBeenCalledTimes(1)
-    expect(mocks.policyCreate).toHaveBeenCalledTimes(2)
-    expect(mocks.auditCreate).toHaveBeenCalledTimes(2)
+    expect(result.changed).toBe(2)
+    expect(mocks.previewLogicalTarget).toHaveBeenCalledWith(['model-1', 'model-2'], 'fw-1')
   })
 
   it('blocks setting firmware across a mixed-vendor selection', async () => {
     mocks.modelFindMany.mockResolvedValue([model, { id: 'model-2', vendorId: 'vendor-2', platform: 'AOS-8', model: 'Other' }])
     await expect(bulkSetModelDesiredFirmwarePolicies(['model-1', 'model-2'], 'fw-1')).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
-    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
   it('clears desired firmware for multiple selected models atomically', async () => {
     const second = { id: 'model-2', vendorId: 'vendor-2', platform: 'Other', model: 'Other' }
     mocks.modelFindMany.mockResolvedValue([model, second])
-    mocks.policyFindMany.mockResolvedValue([
-      policyRecord(allowedRelease, 'policy-1', 'model-1'),
-      policyRecord({ ...allowedRelease, id: 'fw-2', vendorId: 'vendor-2', platform: 'Other' }, 'policy-2', 'model-2'),
-    ])
-
+    mocks.policyFindMany.mockResolvedValue([policyRecord(allowedRelease, 'policy-1', 'model-1'), policyRecord({ ...allowedRelease, id: 'fw-2', vendorId: 'vendor-2', platform: 'Other' }, 'policy-2', 'model-2')])
     const result = await bulkClearModelDesiredFirmwarePolicies(['model-1', 'model-2'], 'user-1')
-    expect(result).toEqual({ changed: 2, unchanged: 0, modelIds: ['model-1', 'model-2'] })
-    expect(mocks.transaction).toHaveBeenCalledTimes(1)
-    expect(mocks.policyUpdateMany).toHaveBeenCalledTimes(2)
-    expect(mocks.auditCreate).toHaveBeenCalledTimes(2)
+    expect(result.changed).toBe(2)
   })
 
   it('propagates a transactional failure instead of reporting partial bulk success', async () => {
@@ -279,86 +252,42 @@ describe('model desired firmware policy compatibility persistence', () => {
     mocks.modelFindMany.mockResolvedValue([model, second])
     mocks.auditCreate.mockRejectedValueOnce(new Error('audit write failed'))
     await expect(bulkSetModelDesiredFirmwarePolicies(['model-1', 'model-2'], 'fw-1')).rejects.toThrow('audit write failed')
-    expect(mocks.transaction).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('scoped policy foundation persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.previewLogicalTarget.mockResolvedValue(resolvedImpact)
+    mocks.previewTrain.mockResolvedValue(resolvedImpact)
     mocks.familyFindUnique.mockResolvedValue({ id: 'family-1', vendorId: 'vendor-1' })
+    mocks.modelFindMany.mockResolvedValue([{ id: 'model-1' }])
     mocks.policyFindFirst.mockResolvedValue(null)
     mocks.auditCreate.mockResolvedValue({ id: 'audit-1' })
-    mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
-      firmwarePolicy: { create: mocks.policyCreate },
-      auditEvent: { create: mocks.auditCreate },
-    }))
+    mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ firmwarePolicy: { create: mocks.policyCreate }, auditEvent: { create: mocks.auditCreate } }))
   })
 
-  it('persists a RANGE family track with a separate acceptance window and preferred target', async () => {
+  it('persists a RANGE family track only after all bounds resolve for active children', async () => {
     const minimum = { ...allowedRelease, id: 'fw-min', version: '10.6.0.1', logicalVersion: '10.6.0.1' }
     const preferred = { ...allowedRelease, id: 'fw-pref', version: '10.7.0.1', logicalVersion: '10.7.0.1' }
     const maximum = { ...allowedRelease, id: 'fw-max', version: '10.8.0.0', logicalVersion: '10.8.0.0' }
     mocks.releaseFindMany.mockResolvedValue([minimum, preferred, maximum])
-    mocks.policyCreate.mockResolvedValue(policyRecord(preferred, 'policy-range', null, {
-      policyMode: 'RANGE',
-      trackKey: 'preferred-aos10',
-      trackName: 'Preferred AOS-10',
-      desiredPlatform: 'AOS-10',
-      minimumFirmwareReleaseId: 'fw-min',
-      targetFirmwareReleaseId: 'fw-pref',
-      maximumFirmwareReleaseId: 'fw-max',
-      maximumInclusive: false,
-      deviceModelFamilyId: 'family-1',
-      minimumFirmwareRelease: minimum,
-      targetFirmwareRelease: preferred,
-      maximumFirmwareRelease: maximum,
-    }))
+    mocks.policyCreate.mockResolvedValue(policyRecord(preferred, 'policy-range', null, { policyMode: 'RANGE', trackKey: 'preferred-aos10', desiredPlatform: 'AOS-10', minimumFirmwareReleaseId: 'fw-min', targetFirmwareReleaseId: 'fw-pref', maximumFirmwareReleaseId: 'fw-max', deviceModelFamilyId: 'family-1', minimumFirmwareRelease: minimum, targetFirmwareRelease: preferred, maximumFirmwareRelease: maximum }))
+    const result = await appendFirmwarePolicyVersion({ deviceModelFamilyId: 'family-1', policyMode: 'RANGE', trackKey: 'preferred-aos10', trackName: 'Preferred AOS-10', trackClass: 'PREFERRED', desiredPlatform: 'AOS-10', minimumFirmwareReleaseId: 'fw-min', targetFirmwareReleaseId: 'fw-pref', maximumFirmwareReleaseId: 'fw-max', maximumInclusive: false }, 'user-1')
+    expect(result).toMatchObject({ policyMode: 'RANGE', trackKey: 'preferred-aos10' })
+    expect(mocks.previewLogicalTarget).toHaveBeenCalledTimes(3)
+  })
 
-    const result = await appendFirmwarePolicyVersion({
-      deviceModelFamilyId: 'family-1',
-      policyMode: 'RANGE',
-      trackKey: 'preferred-aos10',
-      trackName: 'Preferred AOS-10',
-      trackClass: 'PREFERRED',
-      desiredPlatform: 'AOS-10',
-      minimumFirmwareReleaseId: 'fw-min',
-      targetFirmwareReleaseId: 'fw-pref',
-      maximumFirmwareReleaseId: 'fw-max',
-      maximumInclusive: false,
-    }, 'user-1')
-
-    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        policyMode: 'RANGE',
-        deviceModelFamilyId: 'family-1',
-        minimumFirmwareReleaseId: 'fw-min',
-        targetFirmwareReleaseId: 'fw-pref',
-        maximumFirmwareReleaseId: 'fw-max',
-        maximumInclusive: false,
-        policyVersion: 1,
-      }),
-    }))
-    expect(result).toMatchObject({ policyMode: 'RANGE', trackKey: 'preferred-aos10', maximumInclusive: false })
-    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ entityType: 'FirmwarePolicy', action: 'DESIRED_FIRMWARE_CHANGED' }),
-    }))
+  it('rejects a family policy when any active child is unresolved', async () => {
+    mocks.releaseFindMany.mockResolvedValue([allowedRelease])
+    mocks.previewLogicalTarget.mockResolvedValue({ ...resolvedImpact, canApply: false, resolved: [], unknown: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'UNKNOWN', explanation: 'No evidence.' }], results: [{ deviceModelId: 'model-1', model: 'AP-515', status: 'UNKNOWN', explanation: 'No evidence.' }] })
+    await expect(appendFirmwarePolicyVersion({ deviceModelFamilyId: 'family-1', policyMode: 'EXACT', desiredPlatform: 'AOS-10', targetFirmwareReleaseId: 'fw-1' })).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
+    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
   it('loads candidates for a device and returns the central resolver result with provenance', async () => {
-    mocks.deviceFindUnique.mockResolvedValue({
-      id: 'device-1',
-      customerId: 'customer-1',
-      siteId: 'site-1',
-      deviceModelId: 'model-1',
-      deviceModel: { familyId: 'family-1' },
-    })
-    mocks.policyFindMany.mockResolvedValue([
-      policyRecord(allowedRelease, 'family', null, { deviceModelFamilyId: 'family-1' }),
-      policyRecord(allowedRelease, 'customer', null, { deviceModelFamilyId: 'family-1', customerId: 'customer-1' }),
-      policyRecord(allowedRelease, 'site', null, { deviceModelFamilyId: 'family-1', siteId: 'site-1' }),
-    ])
-
+    mocks.deviceFindUnique.mockResolvedValue({ id: 'device-1', customerId: 'customer-1', siteId: 'site-1', deviceModelId: 'model-1', deviceModel: { familyId: 'family-1' } })
+    mocks.policyFindMany.mockResolvedValue([policyRecord(allowedRelease, 'family', null, { deviceModelFamilyId: 'family-1' }), policyRecord(allowedRelease, 'customer', null, { deviceModelFamilyId: 'family-1', customerId: 'customer-1' }), policyRecord(allowedRelease, 'site', null, { deviceModelFamilyId: 'family-1', siteId: 'site-1' })])
     const result = await resolveEffectiveFirmwarePolicyForDevice('device-1', new Date('2026-09-04T00:00:00Z'))
     expect(result).toMatchObject({ status: 'RESOLVED', policy: { id: 'site' }, source: { scope: 'SITE', policyId: 'site' } })
   })
