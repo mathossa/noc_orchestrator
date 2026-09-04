@@ -14,7 +14,9 @@ import type {
 
 const MODEL_POLICY_SCOPE = {
   isActive: true,
+  deviceModelFamilyId: null,
   customerId: null,
+  siteId: null,
   contractTypeId: null,
   deviceId: null,
   vendorId: null,
@@ -56,9 +58,13 @@ async function resolveDesiredFirmware(records: DeviceRecord[]) {
   const policies = await prisma.firmwarePolicy.findMany({
     where: {
       ...MODEL_POLICY_SCOPE,
+      policyMode: 'EXACT',
+      isDefaultTrack: true,
+      effectiveFrom: { lte: new Date() },
       deviceModelId: { in: modelIds },
+      targetFirmwareReleaseId: { not: null },
     },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     select: {
       deviceModelId: true,
       targetFirmwareRelease: { select: desiredReleaseSelect },
@@ -67,7 +73,7 @@ async function resolveDesiredFirmware(records: DeviceRecord[]) {
 
   const desiredByModel = new Map<string, DeviceFirmwareReference>()
   for (const policy of policies) {
-    if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId)) continue
+    if (!policy.deviceModelId || !policy.targetFirmwareRelease || desiredByModel.has(policy.deviceModelId)) continue
     desiredByModel.set(policy.deviceModelId, policy.targetFirmwareRelease)
   }
   return desiredByModel

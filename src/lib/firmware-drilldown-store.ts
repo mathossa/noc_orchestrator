@@ -13,13 +13,17 @@ import type {
   VendorDrilldownRecord,
 } from '@/lib/firmware-drilldowns'
 
+// Transitional exact-target summary. Full scoped compliance belongs to #58.
 const MODEL_POLICY_SCOPE = {
   isActive: true,
+  deviceModelFamilyId: null,
   customerId: null,
+  siteId: null,
   contractTypeId: null,
   deviceId: null,
   vendorId: null,
   deviceTypeId: null,
+  isDefaultTrack: true,
 } as const
 
 export class FirmwareDrilldownNotFoundError extends Error {
@@ -55,8 +59,12 @@ function sourceSummary(records: Awaited<ReturnType<typeof listDevices>>): Firmwa
 async function loadDesiredByModel(modelIds: string[]) {
   if (modelIds.length === 0) return new Map<string, DrilldownFirmwareReference>()
   const policies = await prisma.firmwarePolicy.findMany({
-    where: { ...MODEL_POLICY_SCOPE, deviceModelId: { in: modelIds } },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    where: {
+      ...MODEL_POLICY_SCOPE,
+      deviceModelId: { in: modelIds },
+      effectiveFrom: { lte: new Date() },
+    },
+    orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     select: {
       deviceModelId: true,
       targetFirmwareRelease: {
@@ -66,7 +74,7 @@ async function loadDesiredByModel(modelIds: string[]) {
   })
   const result = new Map<string, DrilldownFirmwareReference>()
   for (const policy of policies) {
-    if (!policy.deviceModelId || result.has(policy.deviceModelId)) continue
+    if (!policy.deviceModelId || !policy.targetFirmwareRelease || result.has(policy.deviceModelId)) continue
     result.set(policy.deviceModelId, policy.targetFirmwareRelease)
   }
   return result

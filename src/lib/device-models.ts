@@ -1,5 +1,6 @@
 import type { AuditEventRecord } from '@/lib/audit-events'
 import type { DeviceModelFamilyReference } from '@/lib/model-families'
+import type { FirmwarePolicyMode } from '@/lib/firmware-policies'
 
 export type DeviceModelSource = 'MANUAL' | 'API' | 'IMPORT'
 
@@ -73,6 +74,9 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
   desiredFirmware: {
     available: true
     policyId: string | null
+    policyMode: FirmwarePolicyMode | null
+    trackKey: string | null
+    desiredPlatform: string | null
     release: DeviceModelFirmwareReference | null
   }
   availableFirmware: {
