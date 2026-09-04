@@ -11,7 +11,7 @@ CREATE TABLE "ImporterV2WorkspaceBatch" (
     "status" TEXT NOT NULL DEFAULT 'RECONCILING',
     "rowCount" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ImporterV2WorkspaceBatch_pkey" PRIMARY KEY ("id")
 );
@@ -51,7 +51,7 @@ CREATE TABLE "ImporterV2WorkspaceRow" (
     "alternatives" JSONB,
     "repeatDiff" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ImporterV2WorkspaceRow_pkey" PRIMARY KEY ("id")
 );
