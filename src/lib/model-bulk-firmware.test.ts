@@ -25,7 +25,13 @@ function model(overrides: Partial<DeviceModelRecord> & Pick<DeviceModelRecord, '
 function release(overrides: Partial<DeviceModelFirmwareReference> & Pick<DeviceModelFirmwareReference, 'id' | 'vendorId'>): DeviceModelFirmwareReference {
   return {
     version: overrides.id,
+    logicalVersion: overrides.id,
+    variant: null,
+    imageCode: null,
     platform: 'AOS-S',
+    catalogState: 'VERIFIED',
+    policyEligibility: 'ALLOWED',
+    variantEquivalence: 'EXACT_ONLY',
     status: 'APPROVED',
     isActive: true,
     releasedAt: null,
@@ -49,20 +55,22 @@ describe('model family grouping and common desired firmware', () => {
     expect(groups.find((group) => group.key.startsWith('unassigned:'))?.rows.map((row) => row.id)).toEqual(['m3'])
   })
 
-  it('returns only releases compatible with every selected concrete model', () => {
+  it('returns only policy-eligible releases compatible with every selected concrete model', () => {
     const selected = [
       model({ id: 'm1', vendorId: 'aruba', model: '2530-24G', platform: 'AOS-S' }),
       model({ id: 'm2', vendorId: 'aruba', model: '2530-48G', platform: ' aos-s ' }),
     ]
     const releases = [
-      release({ id: 'good', vendorId: 'aruba', platform: 'AOS-S', status: 'APPROVED' }),
+      release({ id: 'good', vendorId: 'aruba', platform: 'AOS-S', policyEligibility: 'ALLOWED' }),
+      release({ id: 'preferred', vendorId: 'aruba', platform: 'AOS-S', policyEligibility: 'PREFERRED', status: 'RECOMMENDED' }),
       release({ id: 'wrong-platform', vendorId: 'aruba', platform: 'AOS-CX' }),
-      release({ id: 'available', vendorId: 'aruba', platform: 'AOS-S', status: 'AVAILABLE' }),
+      release({ id: 'observed', vendorId: 'aruba', platform: 'AOS-S', catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED', status: 'AVAILABLE' }),
+      release({ id: 'blocked', vendorId: 'aruba', platform: 'AOS-S', catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED', status: 'BLOCKED' }),
       release({ id: 'archived', vendorId: 'aruba', platform: 'AOS-S', isActive: false }),
       release({ id: 'wrong-vendor', vendorId: 'cisco', platform: 'AOS-S' }),
     ]
 
-    expect(commonCompatibleDesiredReleases(selected, releases).map((item) => item.id)).toEqual(['good'])
+    expect(commonCompatibleDesiredReleases(selected, releases).map((item) => item.id)).toEqual(['good', 'preferred'])
   })
 
   it('offers no target for mixed-vendor selection', () => {

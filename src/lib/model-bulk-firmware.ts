@@ -1,4 +1,5 @@
 import type { DeviceModelFirmwareReference, DeviceModelRecord } from '@/lib/device-models'
+import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 
 function normalizePlatform(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
@@ -13,8 +14,7 @@ export function commonCompatibleDesiredReleases(
   if (models.some((model) => model.vendorId !== vendorId)) return []
 
   return releases.filter((release) => {
-    if (release.vendorId !== vendorId || !release.isActive) return false
-    if (!['APPROVED', 'RECOMMENDED'].includes(release.status.toUpperCase())) return false
+    if (release.vendorId !== vendorId || !isFirmwarePolicyEligible(release)) return false
     const releasePlatform = normalizePlatform(release.platform)
     return models.every((model) => !model.platform || normalizePlatform(model.platform) === releasePlatform)
   })

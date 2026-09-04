@@ -1,3 +1,7 @@
+import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
+
+// Legacy status remains during the migration from the Issue #7 catalog model.
+// New code should use catalogState + policyEligibility instead of overloading one field.
 export const firmwareReleaseStatuses = [
   'AVAILABLE',
   'TESTING',
@@ -7,7 +11,18 @@ export const firmwareReleaseStatuses = [
   'BLOCKED',
 ] as const
 
+export const firmwareCatalogStates = ['OBSERVED', 'VERIFIED', 'BLOCKED', 'WITHDRAWN'] as const
+export const firmwarePolicyEligibilities = ['NOT_EVALUATED', 'ALLOWED', 'PREFERRED', 'DISALLOWED'] as const
+export const firmwareVariantEquivalenceModes = [
+  'EXACT_ONLY',
+  'ANY_VERIFIED_VARIANT',
+  'ANY_NON_BLOCKED_VARIANT',
+] as const
+
 export type FirmwareReleaseStatus = (typeof firmwareReleaseStatuses)[number]
+export type FirmwareCatalogState = (typeof firmwareCatalogStates)[number]
+export type FirmwarePolicyEligibility = (typeof firmwarePolicyEligibilities)[number]
+export type FirmwareVariantEquivalenceMode = (typeof firmwareVariantEquivalenceModes)[number]
 export type FirmwareReleaseSource = 'MANUAL' | 'API' | 'IMPORT'
 
 export type FirmwareReleaseReference = {
@@ -33,10 +48,17 @@ export type FirmwareReleaseRecord = {
   vendor: FirmwareReleaseReference
   platform: string
   version: string
+  logicalVersion: string
+  variant: string | null
+  imageCode: string | null
+  catalogState: FirmwareCatalogState
+  policyEligibility: FirmwarePolicyEligibility
+  variantEquivalence: FirmwareVariantEquivalenceMode
   filename: string | null
   sha256: string | null
   fileSizeBytes: string | null
   releaseNotesUrl: string | null
+  /** @deprecated Use catalogState and policyEligibility. */
   status: FirmwareReleaseStatus
   notes: string | null
   releasedAt: string | null
@@ -131,6 +153,48 @@ function validateHttpUrl(value: string | null, field: string, errors: FirmwareRe
   }
 }
 
+export function catalogSemanticsFromLegacyStatus(status: FirmwareReleaseStatus): {
+  catalogState: FirmwareCatalogState
+  policyEligibility: FirmwarePolicyEligibility
+} {
+  switch (status) {
+    case 'BLOCKED':
+      return { catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED' }
+    case 'RECOMMENDED':
+      return { catalogState: 'VERIFIED', policyEligibility: 'PREFERRED' }
+    case 'APPROVED':
+      return { catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' }
+    case 'DEPRECATED':
+      return { catalogState: 'VERIFIED', policyEligibility: 'DISALLOWED' }
+    case 'AVAILABLE':
+    case 'TESTING':
+    default:
+      return { catalogState: 'VERIFIED', policyEligibility: 'NOT_EVALUATED' }
+  }
+}
+
+export function legacyStatusFromCatalogSemantics(
+  catalogState: FirmwareCatalogState,
+  policyEligibility: FirmwarePolicyEligibility,
+): FirmwareReleaseStatus {
+  if (catalogState === 'BLOCKED') return 'BLOCKED'
+  if (catalogState === 'WITHDRAWN') return 'DEPRECATED'
+  if (policyEligibility === 'PREFERRED') return 'RECOMMENDED'
+  if (policyEligibility === 'ALLOWED') return 'APPROVED'
+  if (policyEligibility === 'DISALLOWED') return 'DEPRECATED'
+  return 'AVAILABLE'
+}
+
+export function isFirmwarePolicyEligible(release: {
+  isActive: boolean
+  catalogState: string
+  policyEligibility: string
+}) {
+  if (!release.isActive) return false
+  if (release.catalogState === 'BLOCKED' || release.catalogState === 'WITHDRAWN') return false
+  return release.policyEligibility === 'ALLOWED' || release.policyEligibility === 'PREFERRED'
+}
+
 export function parseFirmwareReleaseInput(input: unknown) {
   const body = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const vendorId = optionalText(body.vendorId) ?? ''
@@ -140,7 +204,7 @@ export function parseFirmwareReleaseInput(input: unknown) {
   const filename = optionalText(body.filename, false)
   const sha256 = optionalText(body.sha256, false)?.toLowerCase() ?? null
   const releaseNotesUrl = optionalText(body.releaseNotesUrl, false)
-  const status = (optionalText(body.status)?.toUpperCase() ?? 'AVAILABLE') as FirmwareReleaseStatus
+  const requestedLegacyStatus = (optionalText(body.status)?.toUpperCase() ?? 'AVAILABLE') as FirmwareReleaseStatus
   const notes = optionalText(body.notes, false)
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
   const externalProvider = optionalText(body.externalProvider)
@@ -161,12 +225,37 @@ export function parseFirmwareReleaseInput(input: unknown) {
   if (sha256 && !/^[a-f0-9]{64}$/.test(sha256)) errors.sha256 = 'SHA256 must contain exactly 64 hexadecimal characters.'
   validateHttpUrl(releaseNotesUrl, 'releaseNotesUrl', errors)
 
-  if (!firmwareReleaseStatuses.includes(status)) errors.status = 'Choose a supported firmware catalog status.'
+  if (!firmwareReleaseStatuses.includes(requestedLegacyStatus)) errors.status = 'Choose a supported legacy firmware status.'
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
 
   if (!['MANUAL', 'API', 'IMPORT'].includes(source)) errors.source = 'Choose MANUAL, API, or IMPORT.'
   if (externalProvider && externalProvider.length > 120) errors.externalProvider = 'External provider must be 120 characters or fewer.'
   if (externalId && externalId.length > 255) errors.externalId = 'External ID must be 255 characters or fewer.'
+
+  const identity = deriveFirmwareReleaseIdentity({ platform, version })
+  const logicalVersion = cleanFirmwareVersion(body.logicalVersion) || identity.logicalVersion
+  const variant = optionalText(body.variant, false) ?? identity.variant
+  const imageCode = optionalText(body.imageCode)?.toUpperCase() ?? identity.imageCode
+
+  if (logicalVersion.length > 160) errors.logicalVersion = 'Logical/base release must be 160 characters or fewer.'
+  if (variant && variant.length > 80) errors.variant = 'Variant must be 80 characters or fewer.'
+  if (imageCode && imageCode.length > 40) errors.imageCode = 'Image code must be 40 characters or fewer.'
+
+  const legacySemantics = firmwareReleaseStatuses.includes(requestedLegacyStatus)
+    ? catalogSemanticsFromLegacyStatus(requestedLegacyStatus)
+    : { catalogState: 'VERIFIED' as const, policyEligibility: 'NOT_EVALUATED' as const }
+  const catalogState = (optionalText(body.catalogState)?.toUpperCase() ?? legacySemantics.catalogState) as FirmwareCatalogState
+  let policyEligibility = (optionalText(body.policyEligibility)?.toUpperCase() ?? legacySemantics.policyEligibility) as FirmwarePolicyEligibility
+  const variantEquivalence = (optionalText(body.variantEquivalence)?.toUpperCase() ?? 'EXACT_ONLY') as FirmwareVariantEquivalenceMode
+
+  if (!firmwareCatalogStates.includes(catalogState)) errors.catalogState = 'Choose a supported catalog state.'
+  if (!firmwarePolicyEligibilities.includes(policyEligibility)) errors.policyEligibility = 'Choose a supported policy eligibility.'
+  if (!firmwareVariantEquivalenceModes.includes(variantEquivalence)) errors.variantEquivalence = 'Choose a supported variant-equivalence mode.'
+
+  // A blocked or withdrawn release can never remain selectable by policy.
+  if (catalogState === 'BLOCKED' || catalogState === 'WITHDRAWN') policyEligibility = 'DISALLOWED'
+
+  const status = legacyStatusFromCatalogSemantics(catalogState, policyEligibility)
 
   if (Object.keys(errors).length > 0) throw new FirmwareReleaseValidationError('Please correct the highlighted fields.', errors)
 
@@ -175,6 +264,12 @@ export function parseFirmwareReleaseInput(input: unknown) {
     firmwareTrainId,
     platform,
     version,
+    logicalVersion,
+    variant,
+    imageCode,
+    catalogState,
+    policyEligibility,
+    variantEquivalence,
     filename,
     sha256,
     fileSizeBytes,

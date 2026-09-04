@@ -1,121 +1,188 @@
 # Firmware release catalog
 
-Issue #7 introduces the catalog of firmware releases known to NOC Orchestrator.
+Issues #7 and #56 define the canonical firmware catalog used by NOC Orchestrator.
 
 ## Core rule
 
 A catalog release is **not** automatically desired firmware.
 
-The catalog answers “which releases do we know about?” Desired state is selected explicitly by firmware policy in Issue #9 and resolved separately later. No version ordering or “latest wins” behavior is implemented here.
+The catalog answers “which exact releases/builds/images do we know about?” Firmware policy separately answers “which releases may or should this scope run?” Inventory/current firmware separately records “what did the source report?”
 
-## Release trains / families
-
-Firmware trains are explicit catalog records used to group exact releases into a vendor release family, for example:
+The ownership boundary is therefore:
 
 ```text
-FortiOS / 8.13.x
-├── 8.13.0
-├── 8.13.1
-├── 8.13.2
-└── 8.13.3
+Observed/current firmware
+        ↓
+Canonical firmware catalog
+        ↓
+Explicit policy eligibility
+        ↓
+Firmware policy
 ```
 
-or:
+An XLSX/API import may discover or confirm a release without ever changing desired firmware.
+
+## Exact version vs logical release
+
+`FirmwareRelease.version` remains the exact vendor identity and is never normalized destructively.
+
+Issue #56 adds separate grouping metadata:
+
+- `logicalVersion` — the base/logical release used for grouping and supported comparison;
+- `variant` — rebuild/suffix that must not be silently discarded;
+- `imageCode` — vendor image/software code such as Aruba `WC`, `YA`, or `YB`;
+- `variantEquivalence` — explicit rule describing whether variants may later be treated as equivalent for compliance.
+
+Examples:
 
 ```text
-IOS XE / 17.15.x
-├── 17.15.1
-├── 17.15.3
-└── 17.15.5
+Exact:   WC.16.11.0002
+Logical: 16.11.0002
+Image:   WC
 ```
 
-These examples are only labels. NOC Orchestrator does **not** parse a release version to infer its train. Engineers or future integrations explicitly create the train and assign releases to it.
+```text
+Exact:   15.2(7)E17a
+Logical: 15.2(7)E17
+Variant: a
+```
 
-A train belongs to one vendor and one platform/family. A release may belong to zero or one train. If assigned, the train must have the same vendor and normalized platform/family as the release.
+The UI may collapse/group these records by logical release, but every exact release remains independently addressable and auditable.
 
-Train identity is vendor + normalized platform/family + normalized train name. Trains can be archived without detaching their historical releases. Permanent deletion is blocked while releases or audit history reference the train.
+## Release trains
 
-Issue #9 will target an **exact release** by default, not “latest release in train.” A future policy mode may deliberately support something like “latest APPROVED in 8.13.x,” but adding a new catalog release must never silently change desired state.
+Firmware trains remain explicit catalog records. They are not inferred from the version parser.
 
-## Release identity
+Example:
 
-A release is identified by:
+```text
+FortiOS / 7.4.x
+├── 7.4.7
+├── 7.4.9
+└── 7.4.12
+```
 
-- vendor
-- platform / firmware family
-- opaque vendor version string
+A release may belong to zero or one explicit train. Train membership must match the same vendor and normalized platform/family.
 
-Platform/family is whitespace-normalized and compared case-insensitively for duplicate prevention. The version is trimmed but otherwise treated as opaque text; NOC Orchestrator does not assume semantic versioning.
+A future policy may deliberately choose `latest approved in train`, but merely observing or adding a newer release must never move desired state.
 
-## Catalog fields
+## Catalog state vs policy eligibility
 
-A release supports:
+Issue #7 originally overloaded one `status` field with both catalog facts and policy intent. Issue #56 separates those concepts.
 
-- vendor
-- platform/family
-- optional release train
-- version
-- filename
-- SHA256
-- file size in bytes
-- release notes URL
-- release date
-- notes
-- catalog status
-- archive state
-- provenance (`MANUAL`, `API`, `IMPORT`)
-- optional external provider / external ID
-- synchronization timestamp/metadata reserved by the schema
+### Catalog state
 
-A train supports:
+- `OBSERVED` — known from source evidence but not yet fully verified;
+- `VERIFIED` — confirmed canonical release;
+- `BLOCKED` — known bad / do not deploy;
+- `WITHDRAWN` — withdrawn by vendor or internal policy.
 
-- vendor
-- platform/family
-- train name
-- notes
-- archive state
-- provenance (`MANUAL`, `API`, `IMPORT`)
-- optional external provider / external ID
-- synchronization timestamp/metadata reserved by the schema
+### Policy eligibility
 
-Supported v0.1 catalog statuses for individual releases:
+- `NOT_EVALUATED` — catalog record exists but policy has not approved it;
+- `ALLOWED` — policy may use the release;
+- `PREFERRED` — release is eligible to be used as a preferred target;
+- `DISALLOWED` — release must not be selected by policy.
 
-- `AVAILABLE`
-- `TESTING`
-- `APPROVED`
-- `RECOMMENDED`
-- `DEPRECATED`
-- `BLOCKED`
+`BLOCKED` and `WITHDRAWN` always force policy eligibility to `DISALLOWED`.
 
-Catalog status is separate from archive state. For example, a release can be active and `BLOCKED`, or archived while retaining its historical status.
+The legacy Issue #7 `status` column remains temporarily for compatibility and audit readability. The migration maps:
+
+| Legacy status | Catalog state | Policy eligibility |
+| --- | --- | --- |
+| `AVAILABLE` | `VERIFIED` | `NOT_EVALUATED` |
+| `TESTING` | `VERIFIED` | `NOT_EVALUATED` |
+| `APPROVED` | `VERIFIED` | `ALLOWED` |
+| `RECOMMENDED` | `VERIFIED` | `PREFERRED` |
+| `DEPRECATED` | `VERIFIED` | `DISALLOWED` |
+| `BLOCKED` | `BLOCKED` | `DISALLOWED` |
+
+New policy-selection code uses `catalogState` + `policyEligibility`; the legacy field is no longer authoritative.
+
+## Imported/observed releases
+
+Importer v2 remains an observed-inventory workflow.
+
+When a source reports an unknown firmware value:
+
+1. preserve the raw source value;
+2. interpret/normalize it separately;
+3. link a canonical release only when that is safe;
+4. when an engineer explicitly confirms creation of a canonical release, it may become `VERIFIED`;
+5. it remains `NOT_EVALUATED` for policy unless an engineer explicitly allows/prefers it.
+
+Import must never set `ALLOWED`, `PREFERRED`, desired firmware, lifecycle decisions, or work planning automatically.
+
+## Device observation evidence
+
+`Device` stores the optional canonical `currentFirmwareReleaseId`, but Issue #56 also reserves independent evidence fields:
+
+- `currentFirmwareRawVersion`;
+- `currentFirmwareNormalizedVersion`;
+- `currentFirmwareEvidence`;
+- `currentFirmwareInterpreterId`;
+- `currentFirmwareInterpreterVersion`.
+
+This allows a device to remain importable when the exact source string is known but compatibility/catalog linking is unresolved.
+
+Example:
+
+```text
+Raw source:       WC.16.11.0002
+Normalized:       16.11.0002
+Canonical release: unresolved
+Reason:           model/image compatibility requires review
+```
+
+The raw observation survives. Issue #48 owns deterministic interpretation and Issue #51 owns canonical publication.
+
+## Safe version ordering
+
+`src/lib/firmware-versioning.ts` is the central comparison boundary for policy ranges and later compliance.
+
+The service:
+
+- requires one vendor/platform ordering domain;
+- supports deterministic numeric dotted versions;
+- supports Aruba image-prefixed dotted releases by comparing the shared logical numeric release;
+- supports Cisco IOS-style `15.2(7)E17` release/build ordering inside the same train;
+- does not invent ordering between maintenance rebuild suffixes such as `E17` and `E17a`;
+- returns `NOT_COMPARABLE` for unsupported/opaque syntax instead of lexical/SemVer guessing.
+
+This service compares version order only. It does **not** decide whether a concrete hardware model may use an image; Issue #57 owns compatibility/image selection.
+
+## Variant equivalence
+
+Release metadata prepares later compliance for explicit choices:
+
+- `EXACT_ONLY`;
+- `ANY_VERIFIED_VARIANT`;
+- `ANY_NON_BLOCKED_VARIANT`.
+
+The existence of `15.2(7)E17a` does not automatically make it equivalent to `15.2(7)E17`. Issue #58 must honor the configured equivalence rule.
 
 ## UI routes
 
-- `/firmware` manages exact releases and lets a release select an optional matching train.
-- `/firmware/[id]` shows release metadata, usage, matching models, and train membership.
-- `/firmware/trains` manages release trains.
-- `/firmware/trains/[id]` shows all exact releases assigned to one train.
+- `/firmware` manages exact releases, logical grouping metadata, catalog state, policy eligibility, and train membership.
+- `/firmware/[id]` shows exact/logical identity, image/variant metadata, usage, and policy eligibility.
+- `/firmware/trains` manages explicit release trains.
+- `/firmware/trains/[id]` shows releases assigned to a train.
 
 ## Model applicability
 
-For v0.1, model applicability is derived from matching:
+Issue #56 does not implement the full compatibility engine. Existing model applicability still uses vendor/platform as the current broad foundation.
 
-1. vendor
-2. platform/family
-
-Device model detail pages therefore surface catalog releases sharing the model's vendor and platform. This is informational only and does not choose desired firmware.
+Issue #57 will add explicit model-family/concrete-model compatibility and automatic image selection. Policy eligibility alone must not be interpreted as proof that every model from the vendor can run the release.
 
 ## Deletion and history
 
 Archiving is the safe normal removal path.
 
-Permanent deletion is blocked when a release is referenced by:
+Permanent deletion remains blocked when a release is referenced by:
 
-- a device as recorded current firmware
-- a firmware policy
-- a lifecycle decision
-- an audit record
+- a device as recorded current firmware;
+- a firmware policy;
+- a lifecycle decision;
+- an audit record.
 
-Permanent train deletion is blocked while releases or train audit history reference it.
-
-This prevents catalog cleanup from invalidating firmware lifecycle history.
+Exact release identity and historical policy references are never rewritten just because a logical group, catalog state, or future preferred target changes.

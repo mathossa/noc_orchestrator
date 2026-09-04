@@ -56,7 +56,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
       <PageHeader
         eyebrow="Firmware release"
         title={`${release.vendor.name} ${release.version}`}
-        description={`${release.platform} catalog entry. Catalog status, train membership, and recency do not make this release desired firmware.`}
+        description={`${release.platform} exact catalog entry. Logical grouping, catalog verification, and policy eligibility are deliberately separate.`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href={currentDevicesHref} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Devices currently on release</Link>
@@ -68,17 +68,23 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Current on devices" value={<Link href={currentDevicesHref} className="text-[var(--accent-light)] hover:underline">{release.usage.currentDevices}</Link>} detail="Devices whose recorded current firmware points to this release." />
+        <SummaryStat label="Current on devices" value={<Link href={currentDevicesHref} className="text-[var(--accent-light)] hover:underline">{release.usage.currentDevices}</Link>} detail="Devices whose recorded current firmware points to this exact release." />
         <SummaryStat label="Policy targets" value={release.usage.targetPolicies} detail="Policies that explicitly target this exact release." />
-        <SummaryStat label="Lifecycle targets" value={release.usage.lifecycleTargets} detail="Current lifecycle decisions targeting this release." />
-        <SummaryStat label="Matching models" value={release.matchingModels.length} detail="Models sharing this vendor and platform/family." />
+        <SummaryStat label="Catalog state" value={release.catalogState} detail="Whether the release is observed, verified, blocked, or withdrawn." />
+        <SummaryStat label="Policy eligibility" value={release.policyEligibility} detail="Independent decision about whether policy may select this release." />
       </div>
+
+      {(release.catalogState === 'BLOCKED' || release.catalogState === 'WITHDRAWN') ? (
+        <div className="mt-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">
+          This exact release is {release.catalogState.toLowerCase()} and cannot be selected as a new desired target.
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
           <div className="border-b border-[var(--border)] px-4 py-3">
             <h2 className="text-sm font-semibold">Applicable model foundation</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">Models are matched by vendor and platform/family. Desired-state assignment remains separate.</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">This remains the current vendor/platform foundation. Exact model/image compatibility is intentionally owned by Issue #57.</p>
           </div>
           {release.matchingModels.length === 0 ? (
             <div className="px-4 py-6 text-sm text-[var(--muted)]">No models currently use this vendor/platform combination.</div>
@@ -95,13 +101,19 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         </section>
 
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Release metadata</h2>
+          <h2 className="text-sm font-semibold">Release identity</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Vendor" value={<Link href={`/vendors/${release.vendor.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.vendor.name}</Link>} />
             <DetailRow label="Platform" value={release.platform} />
             <DetailRow label="Train" value={release.firmwareTrain ? <Link href={`/firmware/trains/${release.firmwareTrain.id}`} className="text-[var(--accent-light)] hover:underline">{release.firmwareTrain.name}</Link> : '—'} />
-            <DetailRow label="Version" value={release.version} />
-            <DetailRow label="Catalog status" value={release.status} />
+            <DetailRow label="Exact version" value={release.version} mono />
+            <DetailRow label="Logical release" value={release.logicalVersion} mono />
+            <DetailRow label="Variant" value={release.variant ?? '—'} mono />
+            <DetailRow label="Image code" value={release.imageCode ?? '—'} mono />
+            <DetailRow label="Variant rule" value={release.variantEquivalence} />
+            <DetailRow label="Catalog state" value={release.catalogState} />
+            <DetailRow label="Policy eligibility" value={release.policyEligibility} />
+            <DetailRow label="Legacy status" value={release.status} />
             <DetailRow label="Record state" value={release.isActive ? 'Active' : 'Archived'} />
             <DetailRow label="Release date" value={release.releasedAt ? new Date(release.releasedAt).toLocaleDateString() : '—'} />
             <DetailRow label="Filename" value={release.filename ?? '—'} />
