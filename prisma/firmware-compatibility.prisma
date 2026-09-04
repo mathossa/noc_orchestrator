@@ -1,0 +1,49 @@
+// Issue #57: vendor-neutral firmware compatibility evidence and reversible
+// manual overrides. Policy preference remains owned by FirmwarePolicy.
+model FirmwareCompatibilityRule {
+  id                    String   @id @default(uuid())
+  vendorId              String
+  deviceModelFamilyId   String?
+  deviceModelId         String?
+  platform              String
+  firmwareTrainId       String?
+  logicalVersion        String?
+  firmwareReleaseId     String?
+  imageCode             String?
+  decision              String   @default("ALLOW")
+  sourceType            String   @default("CATALOG")
+  explanation           String
+  notes                 String?
+  isActive              Boolean  @default(true)
+  validFrom             DateTime?
+  validUntil            DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now()) @updatedAt
+
+  @@index([vendorId, isActive])
+  @@index([deviceModelFamilyId, isActive])
+  @@index([deviceModelId, isActive])
+  @@index([platform, isActive])
+  @@index([firmwareTrainId])
+  @@index([logicalVersion])
+  @@index([firmwareReleaseId])
+  @@index([imageCode])
+  @@index([sourceType, isActive])
+}
+
+model FirmwareCompatibilityOverride {
+  id                String   @id @default(uuid())
+  deviceModelId     String
+  firmwareReleaseId String
+  decision          String
+  reason            String
+  version           Int      @default(1)
+  isActive          Boolean  @default(true)
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  @@unique([deviceModelId, firmwareReleaseId, version])
+  @@index([deviceModelId, firmwareReleaseId, isActive])
+  @@index([createdByUserId])
+}
