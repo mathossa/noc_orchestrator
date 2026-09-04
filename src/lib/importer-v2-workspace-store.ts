@@ -1,5 +1,6 @@
-import type { Prisma } from '../../generated/prisma/client'
+import type { Prisma } from '../generated/prisma/client'
 import { prisma } from '@/lib/prisma'
+import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import {
   importerV2WorkspaceActionNeedsReevaluation,
   importerV2WorkspaceCommonValues,
@@ -17,7 +18,10 @@ import {
   rememberImporterV2ExactMapping,
   replaceImporterV2RuleSet,
 } from '@/lib/importer-v2-rule-store'
-import type { ImporterV2RuleDefinition, ImporterV2RuleScope } from '@/lib/importer-v2-rule-types'
+import type {
+  ImporterV2RuleDefinition,
+  ImporterV2RuleScope,
+} from '@/lib/importer-v2-rule-types'
 
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value))
@@ -49,6 +53,7 @@ export function importerV2WorkspaceWhere(
     where.issueCount = { gt: 0 }
   }
   if (filters.issue === 'NONE') where.issueCount = 0
+
   const search = text(filters.search)
   if (search) {
     const contains = { contains: search, mode: 'insensitive' as const }
@@ -79,9 +84,7 @@ export async function stageImporterV2Workspace(input: {
   evaluationFingerprint: string
   rows: readonly ImporterV2WorkspaceSeedRow[]
 }) {
-  const existing = await prisma.importerV2WorkspaceBatch.findUnique({
-    where: { evaluationFingerprint: input.evaluationFingerprint },
-  })
+  const existing = await prisma.importerV2WorkspaceBatch.findUnique({ where: { evaluationFingerprint: input.evaluationFingerprint } })
   if (existing) return existing
 
   return prisma.$transaction(async (tx) => {
@@ -139,41 +142,38 @@ export async function stageImporterV2Workspace(input: {
 export async function listImporterV2WorkspaceBatches() {
   return prisma.importerV2WorkspaceBatch.findMany({
     orderBy: { updatedAt: 'desc' },
-    select: {
-      id: true,
-      name: true,
-      provider: true,
-      profileVersion: true,
-      status: true,
-      rowCount: true,
-      updatedAt: true,
-    },
+    select: { id: true, name: true, provider: true, profileVersion: true, status: true, rowCount: true, updatedAt: true },
   })
 }
 
-async function groupRows(
-  where: Prisma.ImporterV2WorkspaceRowWhereInput,
-  groupBy: ImporterV2WorkspaceGroup,
-) {
-  const summarize = <T extends Record<string, unknown>>(items: readonly T[], key: keyof T) =>
-    items.map((item) => ({
-      value: (item[key] as string | null) ?? '(blank)',
-      count: (item._count as { _all: number })._all,
-      issueCount: (item._sum as { issueCount: number | null }).issueCount ?? 0,
-    })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+type WorkspaceGroupAggregate = {
+  value: string | null
+  _count: { _all: number }
+  _sum: { issueCount: number | null }
+}
 
-  const args = { where, _count: { _all: true }, _sum: { issueCount: true } } as const
+function summarizeGroups(items: readonly WorkspaceGroupAggregate[]) {
+  return items.map((item) => ({
+    value: item.value ?? '(blank)',
+    count: item._count._all,
+    issueCount: item._sum.issueCount ?? 0,
+  })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+}
+
+async function groupRows(where: Prisma.ImporterV2WorkspaceRowWhereInput, groupBy: ImporterV2WorkspaceGroup) {
+  const count = { _all: true } as const
+  const sum = { issueCount: true } as const
   switch (groupBy) {
-    case 'status': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['primaryStatus'] }), 'primaryStatus')
-    case 'customer': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['customer'] }), 'customer')
-    case 'businessUnit': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['businessUnit'] }), 'businessUnit')
-    case 'site': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['site'] }), 'site')
-    case 'vendor': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['vendor'] }), 'vendor')
-    case 'deviceType': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['deviceType'] }), 'deviceType')
-    case 'sourceModel': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['sourceModel'] }), 'sourceModel')
-    case 'canonicalModel': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['canonicalModel'] }), 'canonicalModel')
-    case 'firmwareEvidencePattern': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['firmwareEvidencePattern'] }), 'firmwareEvidencePattern')
-    case 'repeatClassification': return summarize(await prisma.importerV2WorkspaceRow.groupBy({ ...args, by: ['repeatClassification'] }), 'repeatClassification')
+    case 'status': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['primaryStatus'], where, _count: count, _sum: sum })).map((item) => ({ value: item.primaryStatus, ...item })))
+    case 'customer': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['customer'], where, _count: count, _sum: sum })).map((item) => ({ value: item.customer, ...item })))
+    case 'businessUnit': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['businessUnit'], where, _count: count, _sum: sum })).map((item) => ({ value: item.businessUnit, ...item })))
+    case 'site': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['site'], where, _count: count, _sum: sum })).map((item) => ({ value: item.site, ...item })))
+    case 'vendor': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['vendor'], where, _count: count, _sum: sum })).map((item) => ({ value: item.vendor, ...item })))
+    case 'deviceType': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['deviceType'], where, _count: count, _sum: sum })).map((item) => ({ value: item.deviceType, ...item })))
+    case 'sourceModel': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['sourceModel'], where, _count: count, _sum: sum })).map((item) => ({ value: item.sourceModel, ...item })))
+    case 'canonicalModel': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['canonicalModel'], where, _count: count, _sum: sum })).map((item) => ({ value: item.canonicalModel, ...item })))
+    case 'firmwareEvidencePattern': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['firmwareEvidencePattern'], where, _count: count, _sum: sum })).map((item) => ({ value: item.firmwareEvidencePattern, ...item })))
+    case 'repeatClassification': return summarizeGroups((await prisma.importerV2WorkspaceRow.groupBy({ by: ['repeatClassification'], where, _count: count, _sum: sum })).map((item) => ({ value: item.repeatClassification, ...item })))
   }
 }
 
@@ -189,30 +189,11 @@ export async function queryImporterV2Workspace(batchId: string, query: ImporterV
       skip,
       take: query.pageSize,
       select: {
-        rowNumber: true,
-        inclusion: true,
-        statuses: true,
-        primaryStatus: true,
-        repeatClassification: true,
-        issueCount: true,
-        hasErrors: true,
-        needsReevaluation: true,
-        sourceName: true,
-        hostname: true,
-        customer: true,
-        businessUnit: true,
-        site: true,
-        vendor: true,
-        deviceType: true,
-        sourceModel: true,
-        canonicalModel: true,
-        productFamily: true,
-        softwarePlatform: true,
-        firmwareEvidencePattern: true,
-        rawFirmwareVersion: true,
-        rawSoftwareVersion: true,
-        interpretedFirmware: true,
-        confidence: true,
+        rowNumber: true, inclusion: true, statuses: true, primaryStatus: true, repeatClassification: true,
+        issueCount: true, hasErrors: true, needsReevaluation: true, sourceName: true, hostname: true,
+        customer: true, businessUnit: true, site: true, vendor: true, deviceType: true, sourceModel: true,
+        canonicalModel: true, productFamily: true, softwarePlatform: true, firmwareEvidencePattern: true,
+        rawFirmwareVersion: true, rawSoftwareVersion: true, interpretedFirmware: true, confidence: true,
       },
     }),
     query.groupBy ? groupRows(where, query.groupBy) : Promise.resolve([]),
@@ -220,15 +201,7 @@ export async function queryImporterV2Workspace(batchId: string, query: ImporterV
     prisma.importerV2WorkspaceRow.count({ where: { ...where, hasErrors: false, issueCount: { gt: 0 } } }),
   ])
   return {
-    batch: {
-      id: batch.id,
-      name: batch.name,
-      provider: batch.provider,
-      profileId: batch.profileId,
-      profileVersion: batch.profileVersion,
-      status: batch.status,
-      rowCount: batch.rowCount,
-    },
+    batch: { id: batch.id, name: batch.name, provider: batch.provider, profileId: batch.profileId, profileVersion: batch.profileVersion, status: batch.status, rowCount: batch.rowCount },
     page: query.page,
     pageSize: query.pageSize,
     total,
@@ -246,11 +219,11 @@ export async function getImporterV2WorkspaceRow(batchId: string, rowNumber: numb
   })
 }
 
-function selectionWhere(batchId: string, selection: ImporterV2WorkspaceSelection) {
+function selectionWhere(batchId: string, selection: ImporterV2WorkspaceSelection): Prisma.ImporterV2WorkspaceRowWhereInput {
   if (selection.mode === 'ROWS') {
     const rowNumbers = [...new Set(selection.rowNumbers)].filter((row) => Number.isInteger(row) && row > 0)
     if (rowNumbers.length === 0) throw new Error('Select at least one staged row.')
-    return { batchId, rowNumber: { in: rowNumbers } } satisfies Prisma.ImporterV2WorkspaceRowWhereInput
+    return { batchId, rowNumber: { in: rowNumbers } }
   }
   return importerV2WorkspaceWhere(batchId, selection.filters)
 }
@@ -260,17 +233,8 @@ async function rowsForAction(batchId: string, selection: ImporterV2WorkspaceSele
     where: selectionWhere(batchId, selection),
     orderBy: { rowNumber: 'asc' },
     select: {
-      id: true,
-      rowNumber: true,
-      reviewRevision: true,
-      sourceName: true,
-      customer: true,
-      businessUnit: true,
-      site: true,
-      sourceModel: true,
-      canonicalModel: true,
-      interpretedFirmware: true,
-      evaluated: true,
+      id: true, rowNumber: true, reviewRevision: true, sourceName: true, customer: true, businessUnit: true,
+      site: true, sourceModel: true, canonicalModel: true, interpretedFirmware: true, evaluated: true,
     },
   })
 }
@@ -298,7 +262,10 @@ export async function previewImporterV2WorkspaceAction(input: {
   }
 }
 
-function ruleScope(scope: Extract<ImporterV2WorkspaceAction, { type: 'CREATE_SCOPED_RULE' }>['scope'], field: string): ImporterV2RuleScope {
+function ruleScope(
+  scope: Extract<ImporterV2WorkspaceAction, { type: 'CREATE_SCOPED_RULE' }>['scope'],
+  field: ImporterV2Field,
+): ImporterV2RuleScope {
   return {
     customers: scope.customer,
     businessUnits: scope.businessUnit,
@@ -307,16 +274,11 @@ function ruleScope(scope: Extract<ImporterV2WorkspaceAction, { type: 'CREATE_SCO
     models: scope.model,
     productFamilies: scope.productFamily,
     deviceTypes: scope.deviceType,
-    sourceFields: [field as never],
+    sourceFields: [field],
   }
 }
 
-async function persistReusableDecision(
-  batchId: string,
-  action: ImporterV2WorkspaceAction,
-  scopeToken: string,
-  actorUserId: string | null,
-) {
+async function persistReusableDecision(batchId: string, action: ImporterV2WorkspaceAction, scopeToken: string, actorUserId: string | null) {
   const batch = await prisma.importerV2WorkspaceBatch.findUniqueOrThrow({ where: { id: batchId } })
   if (action.type === 'REMEMBER_EXACT') {
     await rememberImporterV2ExactMapping({
@@ -369,6 +331,8 @@ export async function applyImporterV2WorkspaceAction(input: {
   }
   const rows = await rowsForAction(input.batchId, input.selection)
   const actorUserId = input.actorUserId ?? null
+
+  // Reusable mappings/rules are separate import artifacts. Canonical inventory is never mutated here.
   await persistReusableDecision(input.batchId, input.action, preview.scopeToken, actorUserId)
 
   const field = 'field' in input.action ? input.action.field : null
