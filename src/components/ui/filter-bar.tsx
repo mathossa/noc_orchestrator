@@ -1,16 +1,31 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
 
 const controlClass =
-  'h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--accent)]'
+  'h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors hover:border-[var(--muted)] focus:border-[var(--accent)]'
 
-export function FilterBar({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+export function FilterBar({
+  children,
+  actions,
+  summary,
+  label = 'Filters',
+}: {
+  children: ReactNode
+  actions?: ReactNode
+  summary?: ReactNode
+  label?: string
+}) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3" aria-label="Filters">
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3" aria-label={label}>
+      {summary ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3 text-xs text-[var(--muted-strong)]">
+          {summary}
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
         <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-    </div>
+    </section>
   )
 }
 
