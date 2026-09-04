@@ -196,6 +196,10 @@ function display(value: string | null | undefined) {
   return value || '—'
 }
 
+function statusLabel(value: string) {
+  return value.replaceAll('_', ' ')
+}
+
 function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     businessUnit: 'Subdomain',
@@ -323,6 +327,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
     useState<ImporterV2WorkspaceFilters | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [loadedDetail, setLoadedDetail] = useState<RowDetail | null>(null)
+  const [showPreviewEvidence, setShowPreviewEvidence] = useState(false)
   const [actionKind, setActionKind] = useState<ActionKind>('SET_FIELD')
   const [actionField, setActionField] = useState<ImporterV2Field>('model')
   const [targetLabel, setTargetLabel] = useState('')
@@ -497,6 +502,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
         },
       )
       const nextPreview = await responseData<ActionPreview>(response)
+      setShowPreviewEvidence(false)
       setPreviewState({ inputKey: previewInputKey, value: nextPreview })
     } catch (previewError) {
       setActionMessage(
@@ -529,7 +535,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
       )
       const result = await responseData<{ affectedRowCount: number }>(response)
       setActionMessage(
-        `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}. Re-evaluation is flagged where required.`,
+        `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}. Affected rows are marked recheck required until re-evaluated.`,
       )
       setPreviewState(null)
       setRefreshKey((key) => key + 1)
@@ -825,12 +831,15 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                 </Button>
               ) : null}
             </div>
-            <span className="text-xs text-[var(--muted)]">
-              {querySelection
-                ? 'Server-wide selection'
-                : `${selectedRows.size} selected`}{' '}
-              · {data?.total.toLocaleString() ?? 0} matching
-            </span>
+            {querySelection ? (
+              <span className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-light)]">
+                {data?.total.toLocaleString() ?? 0} devices selected across all matching results
+              </span>
+            ) : (
+              <span className="text-xs text-[var(--muted)]">
+                {selectedRows.size} selected · {data?.total.toLocaleString() ?? 0} matching
+              </span>
+            )}
           </div>
 
           <div className="noc-scrollbar overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -878,9 +887,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                   </tr>
                 ) : null}
                 {data?.rows.map((row) => {
-                  const selected = querySelection
-                    ? false
-                    : selectedRows.has(row.rowNumber)
+                  const selected = Boolean(querySelection) || selectedRows.has(row.rowNumber)
                   return (
                     <tr
                       key={row.rowNumber}
@@ -889,8 +896,9 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                         else rowRefs.current.delete(row.rowNumber)
                       }}
                       tabIndex={0}
-                      aria-selected={querySelection ? undefined : selected}
+                      aria-selected={selected}
                       onKeyDown={(event) => {
+                        if (querySelection) return
                         if (event.currentTarget !== event.target) return
                         if (event.key === ' ' || event.key === 'Enter') {
                           event.preventDefault()
@@ -921,8 +929,8 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                           #{row.rowNumber}
                         </button>
                         <div className="mt-1">
-                          <StatusPill danger={row.hasErrors}>
-                            {row.primaryStatus}
+                          <StatusPill danger={row.hasErrors && !row.needsReevaluation}>
+                            {statusLabel(row.needsReevaluation ? 'RECHECK_REQUIRED' : row.primaryStatus)}
                           </StatusPill>
                         </div>
                       </td>
@@ -963,7 +971,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                         {display(row.interpretedFirmware)}
                         {row.needsReevaluation ? (
                           <span className="mt-1 block font-sans text-[10px] text-[var(--accent-light)]">
-                            Re-evaluate
+                            Previous evaluation
                           </span>
                         ) : null}
                       </td>
@@ -1033,13 +1041,27 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
             </p>
           </div>
 
-          {detailLoading ? (
+          {preview && detail ? (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs">
+              <span className="text-[var(--muted-strong)]">
+                Evidence is collapsed while reviewing this preview.
+              </span>
+              <Button
+                variant="ghost"
+                onClick={() => setShowPreviewEvidence((value) => !value)}
+              >
+                {showPreviewEvidence ? 'Hide evidence' : 'Show evidence'}
+              </Button>
+            </div>
+          ) : null}
+
+          {detailLoading && !preview ? (
             <p className="py-4 text-sm text-[var(--muted)]">
               Loading raw evidence and decision proof…
             </p>
           ) : null}
 
-          {detail ? (
+          {detail && (!preview || showPreviewEvidence) ? (
             <div className="max-h-[48vh] space-y-4 overflow-y-auto py-4 pr-1">
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
@@ -1316,10 +1338,31 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
 
               {preview ? (
                 <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-3 text-xs">
-                  <p className="font-semibold text-[var(--foreground)]">
-                    Exact impact: {preview.affectedRowCount.toLocaleString()} staged rows
-                  </p>
-                  <p className="mt-1 text-[var(--muted-strong)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-[var(--foreground)]">
+                        Exact impact: {preview.affectedRowCount.toLocaleString()} staged rows
+                      </p>
+                      <p className="mt-1 text-[var(--muted-strong)]">
+                        Review the exact scope below. The previous evaluation stays visible only when you explicitly expand it.
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setPreviewState(null)}
+                    >
+                      Edit
+                    </Button>
+                  </div>
+                  <Button
+                    variant="primary"
+                    className="mt-3 w-full"
+                    disabled={actionBusy}
+                    onClick={() => void applyAction()}
+                  >
+                    Confirm and apply to {preview.affectedRowCount.toLocaleString()}
+                  </Button>
+                  <p className="mt-3 text-[var(--muted-strong)]">
                     This preview is pinned to the affected row revisions
                     {preview.contextVersion ? ' and active rule-book revision' : ''}. If
                     anything changes, apply is rejected and a new preview is required.
@@ -1372,14 +1415,6 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                       </p>
                     ))}
                   </div>
-                  <Button
-                    variant="primary"
-                    className="mt-3 w-full"
-                    disabled={actionBusy}
-                    onClick={() => void applyAction()}
-                  >
-                    Confirm and apply to {preview.affectedRowCount.toLocaleString()}
-                  </Button>
                 </div>
               ) : (
                 <Button
