@@ -275,8 +275,6 @@ function isVendor(evidence: ImporterV2FirmwareEvidence, needle: string) {
 function evidenceText(evidence: ImporterV2FirmwareEvidence) {
   return [
     evidence.vendor,
-    evidence.model,
-    evidence.productFamily,
     evidence.softwarePlatform,
     evidence.sourceDeviceType,
     evidence.firmwareVersion,
@@ -686,8 +684,10 @@ function proofKey(row: ImporterV2FirmwareProofRow) {
     .update(
       JSON.stringify(
         stableValue({
+          provider: key(proof.rawEvidence.provider),
           vendor: proof.normalizedEvidence.vendor,
           model: proof.normalizedEvidence.model,
+          sourceDeviceType: key(proof.rawEvidence.sourceDeviceType),
           softwarePlatform: proof.normalizedEvidence.softwarePlatform,
           firmwareVersion: proof.normalizedEvidence.firmwareVersion,
           softwareVersion: proof.normalizedEvidence.softwareVersion,
