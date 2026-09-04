@@ -11,7 +11,7 @@ export default async function DeviceImportPage() {
       <PageHeader
         eyebrow="Inventory"
         title="Device import"
-        description="Open one staged Importer v2 batch and reconcile every device from one server-paginated workspace."
+        description="Review staged device imports, resolve matching and data issues, and prepare them for publication."
       />
 
       <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -20,7 +20,7 @@ export default async function DeviceImportPage() {
         </div>
         {batches.length === 0 ? (
           <div className="p-6 text-sm text-[var(--muted)]">
-            No Importer v2 reconciliation batches exist yet. Upload/staging will attach evaluated snapshots here; publication remains a separate step in #51.
+            No device imports are ready for review yet.
           </div>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
