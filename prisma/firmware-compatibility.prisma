@@ -20,15 +20,15 @@ model FirmwareCompatibilityRule {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @default(now()) @updatedAt
 
-  @@index([vendorId, isActive])
-  @@index([deviceModelFamilyId, isActive])
-  @@index([deviceModelId, isActive])
-  @@index([platform, isActive])
-  @@index([firmwareTrainId])
-  @@index([logicalVersion])
-  @@index([firmwareReleaseId])
-  @@index([imageCode])
-  @@index([sourceType, isActive])
+  @@index([vendorId, isActive], map: "FwCompatRule_vendor_active_idx")
+  @@index([deviceModelFamilyId, isActive], map: "FwCompatRule_family_active_idx")
+  @@index([deviceModelId, isActive], map: "FwCompatRule_model_active_idx")
+  @@index([platform, isActive], map: "FwCompatRule_platform_active_idx")
+  @@index([firmwareTrainId], map: "FwCompatRule_train_idx")
+  @@index([logicalVersion], map: "FwCompatRule_logical_version_idx")
+  @@index([firmwareReleaseId], map: "FwCompatRule_release_idx")
+  @@index([imageCode], map: "FwCompatRule_image_code_idx")
+  @@index([sourceType, isActive], map: "FwCompatRule_source_active_idx")
 }
 
 model FirmwareCompatibilityOverride {
@@ -43,7 +43,7 @@ model FirmwareCompatibilityOverride {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @default(now()) @updatedAt
 
-  @@unique([deviceModelId, firmwareReleaseId, version])
-  @@index([deviceModelId, firmwareReleaseId, isActive])
-  @@index([createdByUserId])
+  @@unique([deviceModelId, firmwareReleaseId, version], map: "FwCompatOverride_model_release_version_key")
+  @@index([deviceModelId, firmwareReleaseId, isActive], map: "FwCompatOverride_model_release_active_idx")
+  @@index([createdByUserId], map: "FwCompatOverride_actor_idx")
 }
