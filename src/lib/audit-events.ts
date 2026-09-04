@@ -19,6 +19,8 @@ export const AUDIT_ACTIONS = {
   desiredFirmwareChanged: 'DESIRED_FIRMWARE_CHANGED',
   desiredFirmwareCleared: 'DESIRED_FIRMWARE_CLEARED',
   currentFirmwareChanged: 'CURRENT_FIRMWARE_CHANGED',
+  firmwareCompatibilityOverrideChanged: 'FIRMWARE_COMPATIBILITY_OVERRIDE_CHANGED',
+  firmwareCompatibilityOverrideCleared: 'FIRMWARE_COMPATIBILITY_OVERRIDE_CLEARED',
   lifecyclePlanned: 'FIRMWARE_LIFECYCLE_PLANNED',
   lifecycleIgnored: 'FIRMWARE_LIFECYCLE_IGNORED',
   lifecycleCustomerDeclined: 'FIRMWARE_LIFECYCLE_CUSTOMER_DECLINED',
@@ -33,6 +35,10 @@ export function auditActionLabel(action: string) {
       return 'Desired firmware cleared'
     case AUDIT_ACTIONS.currentFirmwareChanged:
       return 'Current firmware changed'
+    case AUDIT_ACTIONS.firmwareCompatibilityOverrideChanged:
+      return 'Firmware compatibility override changed'
+    case AUDIT_ACTIONS.firmwareCompatibilityOverrideCleared:
+      return 'Firmware compatibility override cleared'
     case AUDIT_ACTIONS.lifecyclePlanned:
       return 'Marked planned'
     case AUDIT_ACTIONS.lifecycleIgnored:
