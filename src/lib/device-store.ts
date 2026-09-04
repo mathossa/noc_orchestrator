@@ -1,12 +1,12 @@
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
+import { evaluateModelFirmwareCompatibility } from '@/lib/firmware-compatibility-store'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import {
   normalizedDeviceName,
-  normalizedPlatform,
   parseDeviceInput,
   type DeviceContractReference,
   type DeviceDetailRecord,
@@ -120,6 +120,10 @@ type IncludedDevice = {
   currentFirmwareReleaseId: string | null
   currentFirmwareObservedAt: Date | null
   currentFirmwareSource: string
+  currentFirmwareRawVersion: string | null
+  currentFirmwareNormalizedVersion: string | null
+  currentFirmwareInterpreterId: string | null
+  currentFirmwareInterpreterVersion: string | null
   isActive: boolean
   source: string
   externalProvider: string | null
@@ -192,6 +196,10 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
     currentFirmwareObservedAt: record.currentFirmwareObservedAt?.toISOString() ?? null,
     currentFirmwareAgeDays: firmwareAgeDays(record.currentFirmwareObservedAt),
     currentFirmwareSource: record.currentFirmwareSource,
+    currentFirmwareRawVersion: record.currentFirmwareRawVersion,
+    currentFirmwareNormalizedVersion: record.currentFirmwareNormalizedVersion,
+    currentFirmwareInterpreterId: record.currentFirmwareInterpreterId,
+    currentFirmwareInterpreterVersion: record.currentFirmwareInterpreterVersion,
     isActive: record.isActive,
     source: record.source,
     externalProvider: record.externalProvider,
@@ -221,43 +229,38 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
 }
 
 async function assertUniqueWithinCustomer(customerId: string, name: string, excludeId?: string) {
-  const records = await prisma.device.findMany({
-    where: { customerId },
-    select: { id: true, name: true },
-  })
+  const records = await prisma.device.findMany({ where: { customerId }, select: { id: true, name: true } })
   const normalized = normalizedDeviceName(name)
-  const conflict = records.find(
-    (record) => record.id !== excludeId && normalizedDeviceName(record.name) === normalized,
-  )
+  const conflict = records.find((record) => record.id !== excludeId && normalizedDeviceName(record.name) === normalized)
   if (conflict) throw new DeviceConflictError(`Device “${name}” already exists for this customer.`)
 }
 
 async function assertReferences(input: ReturnType<typeof parseDeviceInput>) {
   const [customer, model] = await Promise.all([
     prisma.customer.findUnique({ where: { id: input.customerId }, select: { id: true } }),
-    prisma.deviceModel.findUnique({
-      where: { id: input.deviceModelId },
-      select: { id: true, vendorId: true, platform: true },
-    }),
+    prisma.deviceModel.findUnique({ where: { id: input.deviceModelId }, select: { id: true, vendorId: true } }),
   ])
 
   if (!customer) throw new DeviceReferenceError('The selected customer does not exist.')
   if (!model) throw new DeviceReferenceError('The selected device model does not exist.')
 
   await assertSiteBelongsToCustomer(input.siteId, input.customerId)
-
   if (!input.currentFirmwareReleaseId) return
 
   const release = await prisma.firmwareRelease.findUnique({
     where: { id: input.currentFirmwareReleaseId },
-    select: { id: true, vendorId: true, platform: true },
+    select: { id: true, vendorId: true },
   })
   if (!release) throw new DeviceReferenceError('The selected current firmware release does not exist.')
   if (release.vendorId !== model.vendorId) {
     throw new DeviceReferenceError('Current firmware must belong to the same vendor as the selected device model.')
   }
-  if (model.platform && normalizedPlatform(release.platform) !== normalizedPlatform(model.platform)) {
-    throw new DeviceReferenceError('Current firmware must match the platform/family of the selected device model.')
+
+  const compatibility = await evaluateModelFirmwareCompatibility(model.id, release.id)
+  if (compatibility.status !== 'COMPATIBLE') {
+    throw new DeviceReferenceError(
+      `Current firmware cannot be canonically linked because compatibility is ${compatibility.status.toLowerCase()}: ${compatibility.provenance.explanation} Preserve the raw reported version without a release link, or add an audited compatibility override.`,
+    )
   }
 }
 
@@ -271,50 +274,10 @@ export async function listDevices() {
 
 export async function listDeviceReferences(): Promise<DeviceReferenceData> {
   const [customers, sites, models, firmwareReleases] = await Promise.all([
-    prisma.customer.findMany({
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        isActive: true,
-        contractType: { select: contractSelect },
-      },
-    }),
-    prisma.site.findMany({
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: {
-        id: true,
-        customerId: true,
-        code: true,
-        name: true,
-        isActive: true,
-        contractType: { select: contractSelect },
-      },
-    }),
-    prisma.deviceModel.findMany({
-      orderBy: [{ isActive: 'desc' }, { model: 'asc' }],
-      select: {
-        id: true,
-        model: true,
-        platform: true,
-        isActive: true,
-        vendor: { select: { id: true, code: true, name: true, isActive: true } },
-        deviceType: { select: { id: true, code: true, name: true, isActive: true } },
-      },
-    }),
-    prisma.firmwareRelease.findMany({
-      orderBy: [{ isActive: 'desc' }, { platform: 'asc' }, { version: 'asc' }],
-      select: {
-        id: true,
-        vendorId: true,
-        platform: true,
-        version: true,
-        status: true,
-        isActive: true,
-        firmwareTrain: { select: { id: true, name: true } },
-      },
-    }),
+    prisma.customer.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: { id: true, code: true, name: true, isActive: true, contractType: { select: contractSelect } } }),
+    prisma.site.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: { id: true, customerId: true, code: true, name: true, isActive: true, contractType: { select: contractSelect } } }),
+    prisma.deviceModel.findMany({ orderBy: [{ isActive: 'desc' }, { model: 'asc' }], select: { id: true, model: true, platform: true, isActive: true, vendor: { select: { id: true, code: true, name: true, isActive: true } }, deviceType: { select: { id: true, code: true, name: true, isActive: true } } } }),
+    prisma.firmwareRelease.findMany({ orderBy: [{ isActive: 'desc' }, { platform: 'asc' }, { version: 'asc' }], select: { id: true, vendorId: true, platform: true, version: true, status: true, isActive: true, firmwareTrain: { select: { id: true, name: true } } } }),
   ])
   return { customers, sites, models, firmwareReleases }
 }
@@ -328,20 +291,9 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     listAuditEventsForEntity('Device', id),
   ])
   const desiredRelease = desiredPolicy?.release
-    ? {
-        id: desiredPolicy.release.id,
-        vendorId: desiredPolicy.release.vendorId,
-        platform: desiredPolicy.release.platform,
-        version: desiredPolicy.release.version,
-        status: desiredPolicy.release.status,
-        isActive: desiredPolicy.release.isActive,
-        firmwareTrain: desiredPolicy.release.firmwareTrain,
-      }
+    ? { id: desiredPolicy.release.id, vendorId: desiredPolicy.release.vendorId, platform: desiredPolicy.release.platform, version: desiredPolicy.release.version, status: desiredPolicy.release.status, isActive: desiredPolicy.release.isActive, firmwareTrain: desiredPolicy.release.firmwareTrain }
     : null
-  const technicalState = resolveTechnicalFirmwareState({
-    currentFirmwareReleaseId: record.currentFirmwareReleaseId,
-    desiredFirmwareReleaseId: desiredRelease?.id,
-  })
+  const technicalState = resolveTechnicalFirmwareState({ currentFirmwareReleaseId: record.currentFirmwareReleaseId, desiredFirmwareReleaseId: desiredRelease?.id })
 
   return {
     ...serializeDevice(record as IncludedDevice),
@@ -372,18 +324,8 @@ export async function createDevice(rawInput: unknown, actorUserId: string | null
         action: AUDIT_ACTIONS.currentFirmwareChanged,
         entityType: 'Device',
         entityId: next.id,
-        before: {
-          firmwareReleaseId: null,
-          version: null,
-          observedAt: null,
-          source: null,
-        },
-        after: {
-          firmwareReleaseId: next.currentFirmwareReleaseId,
-          version: next.currentFirmwareRelease?.version ?? null,
-          observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
-          source: next.currentFirmwareSource,
-        },
+        before: { firmwareReleaseId: null, version: null, observedAt: null, source: null },
+        after: { firmwareReleaseId: next.currentFirmwareReleaseId, version: next.currentFirmwareRelease?.version ?? null, observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null, source: next.currentFirmwareSource },
         metadata: { context: 'DEVICE_CREATED' },
       },
     })
@@ -393,12 +335,7 @@ export async function createDevice(rawInput: unknown, actorUserId: string | null
 }
 
 export async function updateDevice(id: string, rawInput: unknown, actorUserId: string | null = null) {
-  const current = await prisma.device.findUnique({
-    where: { id },
-    include: {
-      currentFirmwareRelease: { select: { id: true, version: true, platform: true } },
-    },
-  })
+  const current = await prisma.device.findUnique({ where: { id }, include: { currentFirmwareRelease: { select: { id: true, version: true, platform: true } } } })
   if (!current) throw new DeviceNotFoundError()
 
   const patch = typeof rawInput === 'object' && rawInput !== null ? (rawInput as Record<string, unknown>) : {}
@@ -414,6 +351,10 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
     currentFirmwareReleaseId: current.currentFirmwareReleaseId,
     currentFirmwareObservedAt: current.currentFirmwareObservedAt?.toISOString() ?? null,
     currentFirmwareSource: current.currentFirmwareSource,
+    currentFirmwareRawVersion: current.currentFirmwareRawVersion,
+    currentFirmwareNormalizedVersion: current.currentFirmwareNormalizedVersion,
+    currentFirmwareInterpreterId: current.currentFirmwareInterpreterId,
+    currentFirmwareInterpreterVersion: current.currentFirmwareInterpreterVersion,
     source: current.source,
     externalProvider: current.externalProvider,
     externalId: current.externalId,
@@ -426,10 +367,7 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
 
   const currentObservedAt = current.currentFirmwareObservedAt?.getTime() ?? null
   const nextObservedAt = input.currentFirmwareObservedAt?.getTime() ?? null
-  const firmwareChanged =
-    current.currentFirmwareReleaseId !== input.currentFirmwareReleaseId ||
-    currentObservedAt !== nextObservedAt ||
-    current.currentFirmwareSource !== input.currentFirmwareSource
+  const firmwareChanged = current.currentFirmwareReleaseId !== input.currentFirmwareReleaseId || currentObservedAt !== nextObservedAt || current.currentFirmwareSource !== input.currentFirmwareSource || current.currentFirmwareRawVersion !== input.currentFirmwareRawVersion || current.currentFirmwareNormalizedVersion !== input.currentFirmwareNormalizedVersion
 
   if (!firmwareChanged) {
     const record = await prisma.device.update({ where: { id }, data: input, include: deviceInclude })
@@ -445,18 +383,8 @@ export async function updateDevice(id: string, rawInput: unknown, actorUserId: s
         action: AUDIT_ACTIONS.currentFirmwareChanged,
         entityType: 'Device',
         entityId: id,
-        before: {
-          firmwareReleaseId: current.currentFirmwareReleaseId,
-          version: current.currentFirmwareRelease?.version ?? null,
-          observedAt: current.currentFirmwareObservedAt?.toISOString() ?? null,
-          source: current.currentFirmwareSource,
-        },
-        after: {
-          firmwareReleaseId: next.currentFirmwareReleaseId,
-          version: next.currentFirmwareRelease?.version ?? null,
-          observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null,
-          source: next.currentFirmwareSource,
-        },
+        before: { firmwareReleaseId: current.currentFirmwareReleaseId, version: current.currentFirmwareRelease?.version ?? null, rawVersion: current.currentFirmwareRawVersion, observedAt: current.currentFirmwareObservedAt?.toISOString() ?? null, source: current.currentFirmwareSource },
+        after: { firmwareReleaseId: next.currentFirmwareReleaseId, version: next.currentFirmwareRelease?.version ?? null, rawVersion: next.currentFirmwareRawVersion, observedAt: next.currentFirmwareObservedAt?.toISOString() ?? null, source: next.currentFirmwareSource },
         metadata: { context: 'DEVICE_UPDATED' },
       },
     })
@@ -475,11 +403,6 @@ export async function deleteDevice(id: string) {
     prisma.auditEvent.count({ where: { entityType: 'Device', entityId: id } }),
   ])
   const references = policies + lifecycleRecords + auditEvents
-  if (references > 0) {
-    throw new DeviceInUseError(
-      `This device is referenced by ${references} policy, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
-    )
-  }
-
+  if (references > 0) throw new DeviceInUseError(`This device is referenced by ${references} policy, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`)
   return prisma.device.delete({ where: { id } })
 }
