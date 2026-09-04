@@ -1,0 +1,52 @@
+// Importer v2 generalized rules are revisioned separately from exact remembered
+// source aliases. Uploaded/staged rows are not persisted by these models.
+model ImporterV2RuleBook {
+  id                    String @id @default(uuid())
+  name                  String @unique
+  activeRevisionVersion Int?
+
+  revisions ImporterV2RuleRevision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([activeRevisionVersion])
+}
+
+model ImporterV2RuleRevision {
+  id              String @id @default(uuid())
+  ruleBookId      String
+  version         Int
+  rules           Json
+  reason          String?
+  createdByUserId String?
+
+  ruleBook ImporterV2RuleBook @relation(fields: [ruleBookId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleBookId, version])
+  @@index([ruleBookId, createdAt])
+  @@index([createdByUserId])
+}
+
+model ImporterV2ExactMapping {
+  id              String  @id @default(uuid())
+  mappingKey      String
+  version         Int
+  provider        String
+  profileId       String?
+  field           String
+  normalizedInput String
+  target          Json
+  explanation     String
+  isActive        Boolean @default(true)
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([mappingKey, version])
+  @@index([provider, profileId, field, normalizedInput, isActive])
+  @@index([mappingKey, isActive])
+  @@index([createdByUserId])
+}
