@@ -81,7 +81,18 @@ export type ImporterV2WorkspaceAction =
       field: ImporterV2Field
       sourceValue: string
       value: { id: string | null; label: string } | null
-      scope: Partial<Record<'customer' | 'businessUnit' | 'site' | 'vendor' | 'model' | 'productFamily' | 'deviceType', readonly string[]>>
+      scope: Partial<
+        Record<
+          | 'customer'
+          | 'businessUnit'
+          | 'site'
+          | 'vendor'
+          | 'model'
+          | 'productFamily'
+          | 'deviceType',
+          readonly string[]
+        >
+      >
       explanation: string
     }
 
@@ -135,6 +146,8 @@ export type ImporterV2WorkspaceActionPreview = {
   action: ImporterV2WorkspaceAction
   requiresConfirmation: true
   commonValues: Partial<Record<ImporterV2Field, string | null | 'MIXED'>>
+  confirmationReasons: readonly string[]
+  contextVersion: string | null
 }
 
 function positiveInteger(value: string | null, fallback: number, max: number) {
@@ -151,16 +164,27 @@ function isGroup(value: string | null): value is ImporterV2WorkspaceGroup {
   return IMPORTER_V2_WORKSPACE_GROUPS.includes(value as ImporterV2WorkspaceGroup)
 }
 
-export function parseImporterV2WorkspaceQuery(searchParams: URLSearchParams): ImporterV2WorkspaceQuery {
+export function parseImporterV2WorkspaceQuery(
+  searchParams: URLSearchParams,
+): ImporterV2WorkspaceQuery {
   const repeat = clean(searchParams.get('repeat'))
   const allowedRepeat = new Set<ImporterV2WorkspaceRepeatClassification>([
-    'NEW', 'CHANGED', 'UNCHANGED', 'MOVED', 'RENAMED', 'MISSING', 'AMBIGUOUS',
+    'NEW',
+    'CHANGED',
+    'UNCHANGED',
+    'MOVED',
+    'RENAMED',
+    'MISSING',
+    'AMBIGUOUS',
   ])
   const issue = clean(searchParams.get('issue'))
   const filters: ImporterV2WorkspaceFilters = {
     search: clean(searchParams.get('q')),
     status: clean(searchParams.get('status')),
-    issue: issue === 'ERROR' || issue === 'WARNING' || issue === 'NONE' ? issue : null,
+    issue:
+      issue === 'ERROR' || issue === 'WARNING' || issue === 'NONE'
+        ? issue
+        : null,
     customer: clean(searchParams.get('customer')),
     businessUnit: clean(searchParams.get('businessUnit')),
     site: clean(searchParams.get('site')),
@@ -169,14 +193,19 @@ export function parseImporterV2WorkspaceQuery(searchParams: URLSearchParams): Im
     sourceModel: clean(searchParams.get('sourceModel')),
     canonicalModel: clean(searchParams.get('canonicalModel')),
     firmwareEvidencePattern: clean(searchParams.get('firmwareEvidencePattern')),
-    repeatClassification: repeat && allowedRepeat.has(repeat as ImporterV2WorkspaceRepeatClassification)
-      ? repeat as ImporterV2WorkspaceRepeatClassification
-      : null,
+    repeatClassification:
+      repeat && allowedRepeat.has(repeat as ImporterV2WorkspaceRepeatClassification)
+        ? (repeat as ImporterV2WorkspaceRepeatClassification)
+        : null,
   }
   const group = clean(searchParams.get('groupBy'))
   return {
     page: positiveInteger(searchParams.get('page'), 1, 1_000_000),
-    pageSize: positiveInteger(searchParams.get('pageSize'), IMPORTER_V2_WORKSPACE_PAGE_SIZE, IMPORTER_V2_WORKSPACE_MAX_PAGE_SIZE),
+    pageSize: positiveInteger(
+      searchParams.get('pageSize'),
+      IMPORTER_V2_WORKSPACE_PAGE_SIZE,
+      IMPORTER_V2_WORKSPACE_MAX_PAGE_SIZE,
+    ),
     groupBy: isGroup(group) ? group : null,
     filters,
   }
@@ -199,18 +228,28 @@ export function importerV2WorkspaceScopeToken(input: {
   selection: ImporterV2WorkspaceSelection
   action: ImporterV2WorkspaceAction
   rowVersions: readonly { rowNumber: number; reviewRevision: number }[]
+  contextVersion?: string | null
 }) {
   return createHash('sha256')
-    .update(JSON.stringify(stableValue({
-      batchId: input.batchId,
-      selection: input.selection,
-      action: input.action,
-      rowVersions: [...input.rowVersions].sort((a, b) => a.rowNumber - b.rowNumber),
-    })))
+    .update(
+      JSON.stringify(
+        stableValue({
+          batchId: input.batchId,
+          selection: input.selection,
+          action: input.action,
+          contextVersion: input.contextVersion ?? null,
+          rowVersions: [...input.rowVersions].sort(
+            (a, b) => a.rowNumber - b.rowNumber,
+          ),
+        }),
+      ),
+    )
     .digest('hex')
 }
 
-export function importerV2WorkspaceActionNeedsReevaluation(action: ImporterV2WorkspaceAction) {
+export function importerV2WorkspaceActionNeedsReevaluation(
+  action: ImporterV2WorkspaceAction,
+) {
   return action.type !== 'EXCLUDE_ROW'
 }
 
@@ -220,11 +259,13 @@ export function importerV2WorkspaceCommonValues(
   const result: Partial<Record<ImporterV2Field, string | null | 'MIXED'>> = {}
   for (const field of IMPORTER_V2_FIELDS) {
     const values = rows.map((row) => {
-      const evaluated = row.evaluated as { proposedCanonicalValues?: Record<string, { label?: string } | null> }
+      const evaluated = row.evaluated as {
+        proposedCanonicalValues?: Record<string, { label?: string } | null>
+      }
       return evaluated.proposedCanonicalValues?.[field]?.label ?? null
     })
     const unique = new Set(values)
-    result[field] = unique.size <= 1 ? values[0] ?? null : 'MIXED'
+    result[field] = unique.size <= 1 ? (values[0] ?? null) : 'MIXED'
   }
   return result
 }
