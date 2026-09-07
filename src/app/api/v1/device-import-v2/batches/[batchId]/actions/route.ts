@@ -26,13 +26,50 @@ const ACTION_TYPES = new Set([
   'LINK_FIELD',
   'CLEAR_FIELD',
   'IGNORE_FIELD',
+  'CHANGE_SET',
   'EXCLUDE_ROW',
   'REMEMBER_EXACT',
   'CREATE_SCOPED_RULE',
 ])
+const CHANGE_SET_TYPES = new Set([
+  'SET_FIELD',
+  'LINK_FIELD',
+  'CLEAR_FIELD',
+  'IGNORE_FIELD',
+])
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function validateChangeSet(action: Record<string, unknown>) {
+  if (!Array.isArray(action.changes) || action.changes.length === 0) {
+    throw new Error('CHANGE_SET requires at least one field change.')
+  }
+  const fields = new Set<string>()
+  for (const change of action.changes) {
+    if (
+      !isObject(change) ||
+      typeof change.type !== 'string' ||
+      !CHANGE_SET_TYPES.has(change.type) ||
+      typeof change.field !== 'string'
+    ) {
+      throw new Error('Each CHANGE_SET item must be a supported field action.')
+    }
+    if (fields.has(change.field)) {
+      throw new Error('CHANGE_SET may contain each field only once.')
+    }
+    fields.add(change.field)
+    if (
+      (change.type === 'SET_FIELD' || change.type === 'LINK_FIELD') &&
+      (!isObject(change.value) || typeof change.value.label !== 'string' || !change.value.label.trim())
+    ) {
+      throw new Error('SET_FIELD and LINK_FIELD changes require a target label.')
+    }
+    if (typeof change.explanation !== 'string' || !change.explanation.trim()) {
+      throw new Error('Each CHANGE_SET item requires an explanation.')
+    }
+  }
 }
 
 function parseActionRequest(value: unknown): ActionRequest {
@@ -69,6 +106,7 @@ function parseActionRequest(value: unknown): ActionRequest {
   if (typeof value.action.explanation !== 'string' || !value.action.explanation.trim()) {
     throw new Error('action.explanation is required.')
   }
+  if (value.action.type === 'CHANGE_SET') validateChangeSet(value.action)
   if (value.mode === 'APPLY' && typeof value.scopeToken !== 'string') {
     throw new Error('scopeToken is required when applying a previewed action.')
   }
@@ -105,9 +143,6 @@ export async function POST(request: Request, context: RouteContext) {
       actorUserId: session?.user.id ?? null,
     })
 
-    // The immutable evaluator snapshot remains untouched. Confirmed review
-    // decisions update the effective staged read model and active issue state
-    // against the exact persisted preview scope.
     const effectiveState = await applyImporterV2WorkspaceEffectiveOverlay({
       batchId,
       scopeToken: result.scopeToken,
@@ -136,7 +171,8 @@ export async function POST(request: Request, context: RouteContext) {
       message.includes('must') ||
       message.includes('required') ||
       message.includes('Select at least') ||
-      message.includes('matches no included staged rows')
+      message.includes('matches no included staged rows') ||
+      message.includes('CHANGE_SET')
     return NextResponse.json(
       {
         error: {
