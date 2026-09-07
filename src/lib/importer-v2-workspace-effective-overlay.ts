@@ -4,6 +4,7 @@ import type { ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
 import type {
   ImporterV2WorkspaceAction,
   ImporterV2WorkspaceActionPreview,
+  ImporterV2WorkspaceFieldChange,
 } from '@/lib/importer-v2-workspace'
 
 type WorkspaceDecision = {
@@ -35,6 +36,7 @@ function targetFromAction(action: ImporterV2WorkspaceAction) {
     case 'CLEAR_FIELD':
     case 'IGNORE_FIELD':
       return null
+    case 'CHANGE_SET':
     case 'EXCLUDE_ROW':
       return undefined
   }
@@ -190,6 +192,15 @@ export function importerV2WorkspaceEffectiveEvaluated(input: {
 export function importerV2WorkspaceDirectOverlay(
   action: ImporterV2WorkspaceAction,
 ): Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput | null {
+  if (action.type === 'CHANGE_SET') {
+    const combined: Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput = {}
+    for (const change of action.changes) {
+      const overlay = importerV2WorkspaceDirectOverlay(change)
+      if (overlay) Object.assign(combined, overlay)
+    }
+    return Object.keys(combined).length > 0 ? combined : null
+  }
+
   if (action.type === 'EXCLUDE_ROW' || action.type === 'IGNORE_FIELD') {
     return null
   }
@@ -235,8 +246,7 @@ function identityNeedsReview(value: unknown) {
   return typeof status === 'string' && status.includes('REVIEW')
 }
 
-function actionFieldLabel(action: ImporterV2WorkspaceAction) {
-  if (action.type === 'EXCLUDE_ROW') return 'Row inclusion'
+function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     businessUnit: 'Subdomain',
     deviceName: 'Device name',
@@ -252,18 +262,31 @@ function actionFieldLabel(action: ImporterV2WorkspaceAction) {
     softwareVersion: 'Raw Software Version',
   }
   return (
-    labels[action.field] ??
-    action.field
+    labels[field] ??
+    field
       .replace(/([A-Z])/g, ' $1')
       .replace(/^./, (letter) => letter.toUpperCase())
   )
 }
 
-function previewAfterValue(action: ImporterV2WorkspaceAction) {
-  if (action.type === 'EXCLUDE_ROW') return 'Excluded'
+function previewAfterValue(action: ImporterV2WorkspaceFieldChange) {
   if (action.type === 'IGNORE_FIELD') return 'Ignored'
   if (action.type === 'CLEAR_FIELD') return 'Cleared'
-  return action.value?.label ?? 'Cleared'
+  return action.value.label
+}
+
+function singleFieldChangeReason(
+  preview: ImporterV2WorkspaceActionPreview,
+  action: ImporterV2WorkspaceFieldChange,
+) {
+  const current = preview.commonValues[action.field]
+  const before =
+    current === 'MIXED'
+      ? 'Different values'
+      : current == null || current === ''
+        ? '—'
+        : current
+  return `${fieldLabel(action.field)} · ${before} → ${previewAfterValue(action)}`
 }
 
 export function importerV2WorkspacePreviewChangeReason(
@@ -273,14 +296,26 @@ export function importerV2WorkspacePreviewChangeReason(
   if (action.type === 'EXCLUDE_ROW') {
     return 'Change: Row inclusion · Included → Excluded.'
   }
-  const current = preview.commonValues[action.field]
-  const before =
-    current === 'MIXED'
-      ? 'Different values'
-      : current == null || current === ''
-        ? '—'
-        : current
-  return `Change: ${actionFieldLabel(action)} · ${before} → ${previewAfterValue(action)}.`
+  if (action.type === 'CHANGE_SET') {
+    return `Changes: ${action.changes
+      .map((change) => singleFieldChangeReason(preview, change))
+      .join('; ')}.`
+  }
+  if (
+    action.type === 'REMEMBER_EXACT' ||
+    action.type === 'CREATE_SCOPED_RULE'
+  ) {
+    const current = preview.commonValues[action.field]
+    const before =
+      current === 'MIXED'
+        ? 'Different values'
+        : current == null || current === ''
+          ? '—'
+          : current
+    const after = action.value?.label ?? 'Cleared'
+    return `Change: ${fieldLabel(action.field)} · ${before} → ${after}.`
+  }
+  return `Change: ${singleFieldChangeReason(preview, action)}.`
 }
 
 export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
@@ -292,7 +327,6 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
     where: {
       batchId: input.batchId,
       scopeToken: input.scopeToken,
-      action: input.action.type,
     },
     select: { rowId: true },
   })
@@ -363,8 +397,6 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
         ? ['NEEDS_REVIEW', 'RECHECK_REQUIRED']
         : ['NEEDS_REVIEW']
     } else if (issueState.activeWarningCount > 0) {
-      // A live warning is more useful as the primary status than the fact that
-      // a downstream deterministic re-evaluation is also pending.
       primaryStatus = 'WARNING'
       statuses = row.needsReevaluation
         ? ['WARNING', 'RECHECK_REQUIRED']
