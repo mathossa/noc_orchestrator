@@ -97,10 +97,11 @@ export async function POST(request: Request, context: RouteContext) {
 
     // The immutable evaluated/raw snapshot stays untouched, but direct manual
     // corrections must be reflected immediately in the staged workspace read
-    // model. Re-evaluation remains required before the row can be VALID again.
+    // model. Use the exact persisted decision scope, not a recalculated filter,
+    // because applying the action may itself change status/group fields.
     await applyImporterV2WorkspaceEffectiveOverlay({
       batchId,
-      selection: body.selection,
+      scopeToken: result.scopeToken,
       action: body.action,
     })
 
