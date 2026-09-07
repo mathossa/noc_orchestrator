@@ -18,8 +18,18 @@ describe('Importer v2 workspace identity review state', () => {
             confidence: 'HIGH',
             explanation: 'Serial and MAC agree.',
             signals: [
-              { kind: 'SERIAL_NUMBER', status: 'AGREE' },
-              { kind: 'MAC_ADDRESS', status: 'AGREE' },
+              {
+                kind: 'SERIAL_NUMBER',
+                sourceValue: 'SRC-SERIAL',
+                candidateValue: 'SRC-SERIAL',
+                status: 'AGREE',
+              },
+              {
+                kind: 'MAC_ADDRESS',
+                sourceValue: 'AABBCCDDEEFF',
+                candidateValue: 'AABBCCDDEEFF',
+                status: 'AGREE',
+              },
             ],
             contextDifferences: [
               { field: 'site', sourceValue: 'New site', candidateValue: 'Old site' },
@@ -39,6 +49,18 @@ describe('Importer v2 workspace identity review state', () => {
           canonicalDeviceId: 'device-1',
           confidence: 'HIGH',
           durableEvidence: ['SERIAL_NUMBER', 'MAC_ADDRESS'],
+          signals: [
+            {
+              kind: 'SERIAL_NUMBER',
+              candidateValue: 'SRC-SERIAL',
+              status: 'AGREE',
+            },
+            {
+              kind: 'MAC_ADDRESS',
+              candidateValue: 'AABBCCDDEEFF',
+              status: 'AGREE',
+            },
+          ],
         },
       ],
     })
@@ -60,6 +82,7 @@ describe('Importer v2 workspace identity review state', () => {
     })
     expect(review?.requiresConfirmation).toBe(true)
     expect(review?.candidates[0]?.canonicalDeviceId).toBe('device-7')
+    expect(review?.candidates[0]?.signals).toEqual([])
   })
 
   it('stops blocking review after an explicit identity decision', () => {
