@@ -1,6 +1,7 @@
 import type { Prisma } from '../generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import type { ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
+import { importerV2WorkspaceIdentityNeedsReview } from '@/lib/importer-v2-workspace-identity-state'
 import type {
   ImporterV2WorkspaceAction,
   ImporterV2WorkspaceActionPreview,
@@ -240,12 +241,6 @@ export function importerV2WorkspaceDirectOverlay(
   }
 }
 
-function identityNeedsReview(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const status = (value as { status?: unknown }).status
-  return typeof status === 'string' && status.includes('REVIEW')
-}
-
 function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     businessUnit: 'Subdomain',
@@ -383,6 +378,11 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
     activeErrorCount += issueState.activeErrorCount
     activeWarningCount += issueState.activeWarningCount
 
+    const identityNeedsReview = importerV2WorkspaceIdentityNeedsReview({
+      identityResolution: row.identityResolution,
+      decisions: row.decisions,
+    })
+
     let primaryStatus: string
     let statuses: string[]
     if (row.inclusion === 'EXCLUDED') {
@@ -390,7 +390,7 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
       statuses = ['EXCLUDED']
     } else if (
       issueState.activeErrorCount > 0 ||
-      identityNeedsReview(row.identityResolution)
+      identityNeedsReview
     ) {
       primaryStatus = 'NEEDS_REVIEW'
       statuses = row.needsReevaluation
