@@ -94,6 +94,59 @@ describe('Importer v2 reconciliation workspace', () => {
     expect(token('revision-a:3')).not.toBe(token('revision-b:4'))
   })
 
+  it('pins all queued field changes into one preview token', () => {
+    const action: ImporterV2WorkspaceAction = {
+      type: 'CHANGE_SET',
+      explanation: 'Correct the selected model and site together.',
+      changes: [
+        {
+          type: 'SET_FIELD',
+          field: 'model',
+          value: { id: 'model-515', label: 'AP-515' },
+          explanation: 'Confirm model.',
+        },
+        {
+          type: 'SET_FIELD',
+          field: 'site',
+          value: { id: 'site-a', label: 'Alkmaar' },
+          explanation: 'Confirm site.',
+        },
+      ],
+    }
+    const token = importerV2WorkspaceScopeToken({
+      batchId: 'batch-1',
+      selection: { mode: 'ROWS', rowNumbers: [3, 8] },
+      action,
+      rowVersions: [
+        { rowNumber: 3, reviewRevision: 1 },
+        { rowNumber: 8, reviewRevision: 2 },
+      ],
+    })
+    const changedToken = importerV2WorkspaceScopeToken({
+      batchId: 'batch-1',
+      selection: { mode: 'ROWS', rowNumbers: [3, 8] },
+      action: {
+        ...action,
+        changes: [
+          action.changes[0],
+          {
+            type: 'SET_FIELD',
+            field: 'site',
+            value: { id: 'site-b', label: 'Amersfoort' },
+            explanation: 'Confirm site.',
+          },
+        ],
+      },
+      rowVersions: [
+        { rowNumber: 3, reviewRevision: 1 },
+        { rowNumber: 8, reviewRevision: 2 },
+      ],
+    })
+
+    expect(token).not.toBe(changedToken)
+    expect(importerV2WorkspaceActionNeedsReevaluation(action)).toBe(true)
+  })
+
   it('reports common versus mixed proposed values for multi-row review', () => {
     const rows = [
       { evaluated: { proposedCanonicalValues: { vendor: { id: 'aruba', label: 'Aruba' }, site: { id: 'a', label: 'Alkmaar' } } } },
