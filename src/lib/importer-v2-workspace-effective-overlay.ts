@@ -332,7 +332,8 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
       ids: string[]
       issueCount: number
       hasErrors: boolean
-      status: string
+      primaryStatus: string
+      statuses: string[]
     }
   >()
   let activeErrorCount = 0
@@ -348,20 +349,37 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
     activeErrorCount += issueState.activeErrorCount
     activeWarningCount += issueState.activeWarningCount
 
-    const status =
-      row.inclusion === 'EXCLUDED'
-        ? 'EXCLUDED'
-        : issueState.activeErrorCount > 0 ||
-            identityNeedsReview(row.identityResolution)
-          ? 'NEEDS_REVIEW'
-          : row.needsReevaluation
-            ? 'RECHECK_REQUIRED'
-            : issueState.activeWarningCount > 0
-              ? 'WARNING'
-              : 'VALID'
-    if (status === 'RECHECK_REQUIRED') recheckRequiredCount += 1
+    let primaryStatus: string
+    let statuses: string[]
+    if (row.inclusion === 'EXCLUDED') {
+      primaryStatus = 'EXCLUDED'
+      statuses = ['EXCLUDED']
+    } else if (
+      issueState.activeErrorCount > 0 ||
+      identityNeedsReview(row.identityResolution)
+    ) {
+      primaryStatus = 'NEEDS_REVIEW'
+      statuses = row.needsReevaluation
+        ? ['NEEDS_REVIEW', 'RECHECK_REQUIRED']
+        : ['NEEDS_REVIEW']
+    } else if (issueState.activeWarningCount > 0) {
+      // A live warning is more useful as the primary status than the fact that
+      // a downstream deterministic re-evaluation is also pending.
+      primaryStatus = 'WARNING'
+      statuses = row.needsReevaluation
+        ? ['WARNING', 'RECHECK_REQUIRED']
+        : ['WARNING']
+    } else if (row.needsReevaluation) {
+      primaryStatus = 'RECHECK_REQUIRED'
+      statuses = ['RECHECK_REQUIRED']
+    } else {
+      primaryStatus = 'VALID'
+      statuses = ['VALID']
+    }
 
-    const key = `${status}|${issueState.activeIssues.length}|${issueState.activeErrorCount > 0}`
+    if (statuses.includes('RECHECK_REQUIRED')) recheckRequiredCount += 1
+
+    const key = `${primaryStatus}|${statuses.join(',')}|${issueState.activeIssues.length}|${issueState.activeErrorCount > 0}`
     const current = grouped.get(key)
     if (current) current.ids.push(row.id)
     else {
@@ -369,7 +387,8 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
         ids: [row.id],
         issueCount: issueState.activeIssues.length,
         hasErrors: issueState.activeErrorCount > 0,
-        status,
+        primaryStatus,
+        statuses,
       })
     }
   }
@@ -387,8 +406,8 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
         data: {
           issueCount: group.issueCount,
           hasErrors: group.hasErrors,
-          statuses: [group.status],
-          primaryStatus: group.status,
+          statuses: group.statuses,
+          primaryStatus: group.primaryStatus,
         },
       })
     }
