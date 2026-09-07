@@ -4,6 +4,7 @@ import type {
   ImporterV2WorkspaceAction,
   ImporterV2WorkspaceSelection,
 } from '@/lib/importer-v2-workspace'
+import { applyImporterV2WorkspaceEffectiveOverlay } from '@/lib/importer-v2-workspace-effective-overlay'
 import {
   applyImporterV2WorkspaceAction,
   previewImporterV2WorkspaceAction,
@@ -86,15 +87,24 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const session = await auth.api.getSession({ headers: request.headers })
-    return NextResponse.json({
-      data: await applyImporterV2WorkspaceAction({
-        batchId,
-        selection: body.selection,
-        action: body.action,
-        scopeToken: body.scopeToken ?? '',
-        actorUserId: session?.user.id ?? null,
-      }),
+    const result = await applyImporterV2WorkspaceAction({
+      batchId,
+      selection: body.selection,
+      action: body.action,
+      scopeToken: body.scopeToken ?? '',
+      actorUserId: session?.user.id ?? null,
     })
+
+    // The immutable evaluated/raw snapshot stays untouched, but direct manual
+    // corrections must be reflected immediately in the staged workspace read
+    // model. Re-evaluation remains required before the row can be VALID again.
+    await applyImporterV2WorkspaceEffectiveOverlay({
+      batchId,
+      selection: body.selection,
+      action: body.action,
+    })
+
+    return NextResponse.json({ data: result })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
