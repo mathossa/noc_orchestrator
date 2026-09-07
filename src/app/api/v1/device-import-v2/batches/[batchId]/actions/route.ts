@@ -4,7 +4,10 @@ import type {
   ImporterV2WorkspaceAction,
   ImporterV2WorkspaceSelection,
 } from '@/lib/importer-v2-workspace'
-import { applyImporterV2WorkspaceEffectiveOverlay } from '@/lib/importer-v2-workspace-effective-overlay'
+import {
+  applyImporterV2WorkspaceEffectiveOverlay,
+  importerV2WorkspacePreviewChangeReason,
+} from '@/lib/importer-v2-workspace-effective-overlay'
 import {
   applyImporterV2WorkspaceAction,
   previewImporterV2WorkspaceAction,
@@ -77,12 +80,19 @@ export async function POST(request: Request, context: RouteContext) {
     const { batchId } = await context.params
     const body = parseActionRequest(await request.json())
     if (body.mode === 'PREVIEW') {
+      const preview = await previewImporterV2WorkspaceAction({
+        batchId,
+        selection: body.selection,
+        action: body.action,
+      })
       return NextResponse.json({
-        data: await previewImporterV2WorkspaceAction({
-          batchId,
-          selection: body.selection,
-          action: body.action,
-        }),
+        data: {
+          ...preview,
+          confirmationReasons: [
+            importerV2WorkspacePreviewChangeReason(preview, body.action),
+            ...preview.confirmationReasons,
+          ],
+        },
       })
     }
 
@@ -95,17 +105,16 @@ export async function POST(request: Request, context: RouteContext) {
       actorUserId: session?.user.id ?? null,
     })
 
-    // The immutable evaluated/raw snapshot stays untouched, but direct manual
-    // corrections must be reflected immediately in the staged workspace read
-    // model. Use the exact persisted decision scope, not a recalculated filter,
-    // because applying the action may itself change status/group fields.
-    await applyImporterV2WorkspaceEffectiveOverlay({
+    // The immutable evaluator snapshot remains untouched. Confirmed review
+    // decisions update the effective staged read model and active issue state
+    // against the exact persisted preview scope.
+    const effectiveState = await applyImporterV2WorkspaceEffectiveOverlay({
       batchId,
       scopeToken: result.scopeToken,
       action: body.action,
     })
 
-    return NextResponse.json({ data: result })
+    return NextResponse.json({ data: { ...result, ...effectiveState } })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
