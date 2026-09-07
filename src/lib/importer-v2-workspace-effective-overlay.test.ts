@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  importerV2WorkspaceDirectOverlay,
   importerV2WorkspaceEffectiveEvaluated,
   importerV2WorkspaceIssueState,
   importerV2WorkspacePreviewChangeReason,
@@ -117,5 +118,44 @@ describe('Importer v2 effective reconciliation overlay', () => {
     expect(
       importerV2WorkspacePreviewChangeReason(preview, preview.action),
     ).toBe('Change: Model · AP-515 → AP-515-TEST.')
+  })
+
+  it('shows and overlays several queued field changes together', () => {
+    const action = {
+      type: 'CHANGE_SET' as const,
+      explanation: 'Correct model and hierarchy together.',
+      changes: [
+        {
+          type: 'SET_FIELD' as const,
+          field: 'model' as const,
+          value: { id: 'ap-515-test', label: 'AP-515-TEST' },
+          explanation: 'Correct model.',
+        },
+        {
+          type: 'SET_FIELD' as const,
+          field: 'site' as const,
+          value: { id: 'site-zwolle', label: 'Zwolle' },
+          explanation: 'Correct site.',
+        },
+      ],
+    }
+    const preview: ImporterV2WorkspaceActionPreview = {
+      scopeToken: 'scope',
+      affectedRowCount: 4,
+      sample: [],
+      action,
+      requiresConfirmation: true,
+      commonValues: { model: 'AP-515', site: 'Amersfoort' },
+      confirmationReasons: [],
+      contextVersion: null,
+    }
+
+    expect(importerV2WorkspacePreviewChangeReason(preview, action)).toBe(
+      'Changes: Model · AP-515 → AP-515-TEST; Site · Amersfoort → Zwolle.',
+    )
+    expect(importerV2WorkspaceDirectOverlay(action)).toEqual({
+      canonicalModel: 'AP-515-TEST',
+      site: 'Zwolle',
+    })
   })
 })
