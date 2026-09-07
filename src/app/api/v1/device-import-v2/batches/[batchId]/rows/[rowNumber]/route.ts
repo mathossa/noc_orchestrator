@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
 import { getImporterV2WorkspaceRow } from '@/lib/importer-v2-workspace-store'
 
 type RouteContext = { params: Promise<{ batchId: string; rowNumber: string }> }
@@ -13,7 +14,23 @@ export async function GET(_request: Request, context: RouteContext) {
         { status: 400 },
       )
     }
-    return NextResponse.json({ data: await getImporterV2WorkspaceRow(batchId, rowNumber) })
+
+    const row = await getImporterV2WorkspaceRow(batchId, rowNumber)
+    const effective = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: row.evaluated,
+      inclusion: row.inclusion,
+      decisions: row.decisions,
+    })
+
+    return NextResponse.json({
+      data: {
+        ...row,
+        evaluated: effective.evaluated,
+        resolvedIssues: effective.resolvedIssues,
+        activeErrorCount: effective.activeErrorCount,
+        activeWarningCount: effective.activeWarningCount,
+      },
+    })
   } catch (error) {
     return NextResponse.json(
       {
