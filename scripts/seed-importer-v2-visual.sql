@@ -352,21 +352,56 @@ SELECT
   ),
   CASE
     WHEN i % 5 = 0 OR i % 7 = 0 THEN jsonb_build_object(
-      'status', 'REVIEW_REQUIRED',
-      'candidates', jsonb_build_array(
-        jsonb_build_object(
-          'deviceId', 'canonical-device-' || lpad(i::text, 3, '0'),
-          'confidence', CASE WHEN i % 7 = 0 THEN 'MEDIUM' ELSE 'HIGH' END,
-          'evidence', jsonb_build_array('serialNumber', 'macAddress'),
-          'explanation', 'Synthetic identity candidate using durable identifiers.'
-        ),
-        jsonb_build_object(
-          'deviceId', 'canonical-device-alt-' || lpad(i::text, 3, '0'),
-          'confidence', 'LOW',
-          'evidence', jsonb_build_array('hostname'),
-          'explanation', 'Hostname-only alternative is intentionally non-binding.'
+      'kind', CASE WHEN i % 7 = 0 THEN 'AMBIGUOUS' ELSE 'MATCH_SUGGESTED' END,
+      'requiresConfirmation', true,
+      'options', CASE
+        WHEN i % 7 = 0 THEN jsonb_build_array('CHOOSE_CANDIDATE', 'CREATE_NEW', 'MANUAL_OVERRIDE')
+        ELSE jsonb_build_array('CONFIRM_MATCH', 'CREATE_NEW', 'MANUAL_OVERRIDE')
+      END,
+      'explanation', CASE
+        WHEN i % 7 = 0 THEN 'Two existing devices have durable identity evidence. Compare the identifiers and context before choosing one.'
+        ELSE 'One existing device is supported by serial and MAC evidence. Confirm the match or create a new device.'
+      END,
+      'candidates', CASE
+        WHEN i % 7 = 0 THEN jsonb_build_array(
+          jsonb_build_object(
+            'canonicalDeviceId', 'canonical-device-' || lpad(i::text, 3, '0'),
+            'confidence', 'HIGH',
+            'signals', jsonb_build_array(
+              jsonb_build_object('kind', 'SERIAL_NUMBER', 'sourceValue', 'SYNTH' || lpad(i::text, 8, '0'), 'candidateValue', 'SYNTH' || lpad(i::text, 8, '0'), 'status', 'AGREE'),
+              jsonb_build_object('kind', 'MAC_ADDRESS', 'sourceValue', '02:00:00:00:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'candidateValue', '02:00:00:00:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'status', 'AGREE')
+            ),
+            'contextDifferences', '[]'::jsonb,
+            'explanation', 'Serial number and MAC address both match this existing device.'
+          ),
+          jsonb_build_object(
+            'canonicalDeviceId', 'canonical-device-alt-' || lpad(i::text, 3, '0'),
+            'confidence', 'LOW',
+            'signals', jsonb_build_array(
+              jsonb_build_object('kind', 'SERIAL_NUMBER', 'sourceValue', 'SYNTH' || lpad(i::text, 8, '0'), 'candidateValue', 'SYNTH' || lpad(i::text, 8, '0'), 'status', 'AGREE'),
+              jsonb_build_object('kind', 'MAC_ADDRESS', 'sourceValue', '02:00:00:00:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'candidateValue', '02:00:00:FF:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'status', 'DISAGREE')
+            ),
+            'contextDifferences', jsonb_build_array(
+              jsonb_build_object('field', 'deviceName', 'sourceValue', 'SYN-' || upper(substr(vendor, 1, 2)) || '-' || lpad(i::text, 3, '0'), 'candidateValue', 'ALT-' || upper(substr(vendor, 1, 2)) || '-' || lpad(i::text, 3, '0')),
+              jsonb_build_object('field', 'hostname', 'sourceValue', lower(replace(site, ' ', '-')) || '-' || lpad(i::text, 2, '0') || '.example.test', 'candidateValue', 'previous-' || lpad(i::text, 2, '0') || '.example.test'),
+              jsonb_build_object('field', 'site', 'sourceValue', site, 'candidateValue', 'Previous Site')
+            ),
+            'explanation', 'Serial number matches, but the MAC address and device context conflict.'
+          )
         )
-      )
+        ELSE jsonb_build_array(
+          jsonb_build_object(
+            'canonicalDeviceId', 'canonical-device-' || lpad(i::text, 3, '0'),
+            'confidence', 'HIGH',
+            'signals', jsonb_build_array(
+              jsonb_build_object('kind', 'SERIAL_NUMBER', 'sourceValue', 'SYNTH' || lpad(i::text, 8, '0'), 'candidateValue', 'SYNTH' || lpad(i::text, 8, '0'), 'status', 'AGREE'),
+              jsonb_build_object('kind', 'MAC_ADDRESS', 'sourceValue', '02:00:00:00:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'candidateValue', '02:00:00:00:' || lpad(to_hex((i / 256)::int), 2, '0') || ':' || lpad(to_hex((i % 256)::int), 2, '0'), 'status', 'AGREE')
+            ),
+            'contextDifferences', '[]'::jsonb,
+            'explanation', 'Serial number and MAC address both match this existing device.'
+          )
+        )
+      END
     )
     ELSE NULL
   END,
