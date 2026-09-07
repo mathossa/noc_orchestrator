@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ImporterV2Workspace } from '@/components/devices/importer-v2-workspace'
+import { ImporterV2WorkspaceShell } from '@/components/devices/importer-v2-workspace-shell'
 import styles from './importer-v2-workspace-frame.module.css'
 
 type WorkspaceView = 'compact' | 'evidence'
@@ -40,7 +40,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
           Evidence columns
         </button>
       </div>
-      <ImporterV2Workspace batchId={batchId} />
+      <ImporterV2WorkspaceShell batchId={batchId} />
     </div>
   )
 }
