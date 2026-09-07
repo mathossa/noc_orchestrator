@@ -29,7 +29,7 @@
 /* Desktop importer routes are workbenches rather than long document pages.
    The app shell already contributes 3.5rem of vertical main padding at this
    breakpoint, so consume the remainder of the viewport and keep scrolling in
-   the two work surfaces (grid and inspector), not in the page itself. */
+   the work surfaces rather than in the page itself. */
 @media (min-width: 1024px) {
   .workspace {
     display: flex;
@@ -47,9 +47,6 @@
     flex-direction: column;
   }
 
-  /* This is the final grid + inspector work area. :has() is supported by the
-     modern browsers targeted by the Next.js application and avoids coupling
-     the layout to generated Tailwind class names. */
   .workspace :global(div:has(> section[aria-label='Staged device grid']):has(> aside[aria-label='Reconciliation inspector'])) {
     min-height: 0;
     flex: 1 1 auto;
@@ -69,24 +66,31 @@
     max-height: none !important;
     flex: 1 1 auto;
     overflow: auto !important;
+    overscroll-behavior: contain;
   }
 
+  /* The inspector is a fixed-height column. Only its middle body scrolls;
+     tabs/header and reconciliation controls remain reachable at all times. */
   .workspace :global(aside[aria-label='Reconciliation inspector']) {
     position: relative !important;
     top: auto !important;
     align-self: stretch !important;
     height: 100%;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden !important;
+  }
+
+  .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-body]) {
+    min-height: 0;
+    overflow-y: auto !important;
     overscroll-behavior: contain;
   }
 
-  /* The inspector itself owns the vertical scrollbar. Remove the old nested
-     evidence scrollbar so the user does not have to manage two scroll thumbs
-     inside the same panel. Small preview sample lists may still scroll. */
-  .workspace :global(aside[aria-label='Reconciliation inspector'] > div[class*='overflow-y-auto']) {
-    max-height: none !important;
-    overflow: visible !important;
+  .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-footer]) {
+    flex: 0 0 auto;
+    max-height: 46%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
