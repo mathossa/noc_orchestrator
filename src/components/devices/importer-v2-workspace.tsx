@@ -8,6 +8,7 @@ import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import type {
   ImporterV2WorkspaceAction,
+  ImporterV2WorkspaceFieldChange,
   ImporterV2WorkspaceFilters,
   ImporterV2WorkspaceGroup,
   ImporterV2WorkspaceSelection,
@@ -52,12 +53,18 @@ const ACTIONS = [
   ['LINK_FIELD', 'Link canonical value'],
   ['CLEAR_FIELD', 'Clear field'],
   ['IGNORE_FIELD', 'Ignore source field'],
+  ['CHANGE_SET', 'Edit multiple fields'],
   ['EXCLUDE_ROW', 'Exclude row/device'],
   ['REMEMBER_EXACT', 'Remember exact mapping'],
   ['CREATE_SCOPED_RULE', 'Create scoped rule'],
 ] as const
 
 type ActionKind = (typeof ACTIONS)[number][0]
+type ChangeSetOperation =
+  | 'SET_FIELD'
+  | 'LINK_FIELD'
+  | 'CLEAR_FIELD'
+  | 'IGNORE_FIELD'
 type RuleScopeDimension =
   | 'customer'
   | 'businessUnit'
@@ -223,6 +230,16 @@ function fieldLabel(field: string) {
   )
 }
 
+function changeSetOperationLabel(value: ChangeSetOperation) {
+  const labels: Record<ChangeSetOperation, string> = {
+    SET_FIELD: 'Set field',
+    LINK_FIELD: 'Link canonical value',
+    CLEAR_FIELD: 'Clear field',
+    IGNORE_FIELD: 'Ignore source field',
+  }
+  return labels[value]
+}
+
 async function responseData<T>(response: Response): Promise<T> {
   const body = await response.json()
   if (!response.ok) {
@@ -335,6 +352,11 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
   const [explanation, setExplanation] = useState(
     'Engineer reconciliation decision',
   )
+  const [changeSetOperation, setChangeSetOperation] =
+    useState<ChangeSetOperation>('SET_FIELD')
+  const [queuedChanges, setQueuedChanges] = useState<
+    ImporterV2WorkspaceFieldChange[]
+  >([])
   const [sourceValue, setSourceValue] = useState('')
   const [ruleScopeDimension, setRuleScopeDimension] =
     useState<RuleScopeDimension>('model')
@@ -421,6 +443,15 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
 
   const action = useMemo<ImporterV2WorkspaceAction | null>(() => {
     const target = { id: targetId.trim() || null, label: targetLabel.trim() }
+    if (actionKind === 'CHANGE_SET') {
+      return queuedChanges.length > 0
+        ? {
+            type: 'CHANGE_SET',
+            changes: queuedChanges,
+            explanation,
+          }
+        : null
+    }
     if (actionKind === 'EXCLUDE_ROW') {
       return { type: 'EXCLUDE_ROW', explanation }
     }
@@ -460,6 +491,7 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
     targetId,
     targetLabel,
     explanation,
+    queuedChanges,
     sourceValue,
     ruleScopeDimension,
     ruleScopeValue,
@@ -486,6 +518,32 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
   const inspectOnly = (rowNumber: number) => {
     setQuerySelection(null)
     setSelectedRows(new Set([rowNumber]))
+  }
+
+  const addQueuedFieldChange = () => {
+    const target = { id: targetId.trim() || null, label: targetLabel.trim() }
+    let change: ImporterV2WorkspaceFieldChange | null = null
+    if (changeSetOperation === 'SET_FIELD' || changeSetOperation === 'LINK_FIELD') {
+      if (!target.label) return
+      change = {
+        type: changeSetOperation,
+        field: actionField,
+        value: target,
+        explanation,
+      }
+    } else {
+      change = {
+        type: changeSetOperation,
+        field: actionField,
+        explanation,
+      }
+    }
+    setQueuedChanges((current) => [
+      ...current.filter((item) => item.field !== actionField),
+      change!,
+    ])
+    setTargetLabel('')
+    setTargetId('')
   }
 
   const previewAction = async () => {
@@ -535,8 +593,9 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
       )
       const result = await responseData<{ affectedRowCount: number }>(response)
       setActionMessage(
-        `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}. Affected rows are marked recheck required until re-evaluated.`,
+        `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}. Current warnings/errors remain active; re-evaluation stays flagged where required.`,
       )
+      if (action.type === 'CHANGE_SET') setQueuedChanges([])
       setPreviewState(null)
       setRefreshKey((key) => key + 1)
     } catch (applyError) {
@@ -571,9 +630,28 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
   }
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
+  const previewPriorityFields = action
+    ? action.type === 'CHANGE_SET'
+      ? action.changes.map((change) => change.field)
+      : 'field' in action
+        ? [action.field]
+        : []
+    : []
+  const previewPrioritySet = new Set(previewPriorityFields)
   const previewCommonValues = preview
-    ? CLIENT_FIELDS.map((field) => [field, preview.commonValues[field]] as const)
-        .filter(([, value]) => value !== undefined)
+    ? [
+        ...previewPriorityFields.map(
+          (field) => [field, preview.commonValues[field]] as const,
+        ),
+        ...CLIENT_FIELDS.filter((field) => !previewPrioritySet.has(field)).map(
+          (field) => [field, preview.commonValues[field]] as const,
+        ),
+      ]
+        .filter(
+          ([field, value]) =>
+            value !== undefined &&
+            (previewPrioritySet.has(field) || value !== null),
+        )
         .slice(0, 10)
     : []
 
@@ -929,9 +1007,15 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                           #{row.rowNumber}
                         </button>
                         <div className="mt-1">
-                          <StatusPill danger={row.hasErrors && !row.needsReevaluation}>
-                            {statusLabel(row.needsReevaluation ? 'RECHECK_REQUIRED' : row.primaryStatus)}
+                          <StatusPill danger={row.hasErrors}>
+                            {statusLabel(row.primaryStatus)}
                           </StatusPill>
+                          {row.needsReevaluation &&
+                          row.primaryStatus !== 'RECHECK_REQUIRED' ? (
+                            <span className="mt-1 block text-[10px] text-[var(--muted)]">
+                              Recheck pending
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-2 py-2 align-top">
@@ -1244,7 +1328,98 @@ export function ImporterV2Workspace({ batchId }: { batchId: string }) {
                 ))}
               </SelectInput>
 
-              {actionKind !== 'EXCLUDE_ROW' ? (
+              {actionKind === 'CHANGE_SET' ? (
+                <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+                  <p className="text-xs leading-5 text-[var(--muted-strong)]">
+                    Queue several field corrections for this same selection, then preview and confirm them as one change set.
+                  </p>
+                  <SelectInput
+                    aria-label="Queued field operation"
+                    value={changeSetOperation}
+                    onChange={(event) =>
+                      setChangeSetOperation(event.target.value as ChangeSetOperation)
+                    }
+                  >
+                    <option value="SET_FIELD">Set field</option>
+                    <option value="LINK_FIELD">Link canonical value</option>
+                    <option value="CLEAR_FIELD">Clear field</option>
+                    <option value="IGNORE_FIELD">Ignore source field</option>
+                  </SelectInput>
+                  <SelectInput
+                    aria-label="Field to add to change set"
+                    value={actionField}
+                    onChange={(event) =>
+                      setActionField(event.target.value as ImporterV2Field)
+                    }
+                  >
+                    {CLIENT_FIELDS.map((field) => (
+                      <option key={field} value={field}>
+                        {fieldLabel(field)}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  {changeSetOperation === 'SET_FIELD' ||
+                  changeSetOperation === 'LINK_FIELD' ? (
+                    <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
+                      <TextInput
+                        aria-label="Queued target label"
+                        placeholder="Target label"
+                        value={targetLabel}
+                        onChange={(event) => setTargetLabel(event.target.value)}
+                      />
+                      <TextInput
+                        aria-label="Queued canonical target ID"
+                        placeholder="ID (optional)"
+                        value={targetId}
+                        onChange={(event) => setTargetId(event.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    disabled={
+                      (changeSetOperation === 'SET_FIELD' ||
+                        changeSetOperation === 'LINK_FIELD') &&
+                      !targetLabel.trim()
+                    }
+                    onClick={addQueuedFieldChange}
+                  >
+                    Add / replace field change
+                  </Button>
+                  {queuedChanges.length ? (
+                    <div className="space-y-1 border-t border-[var(--border)] pt-2">
+                      <p className="text-xs font-semibold text-[var(--foreground)]">
+                        Queued changes ({queuedChanges.length})
+                      </p>
+                      {queuedChanges.map((change) => (
+                        <div
+                          key={change.field}
+                          className="flex items-center justify-between gap-2 rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                        >
+                          <span className="min-w-0 truncate text-[var(--muted-strong)]">
+                            {fieldLabel(change.field)} · {changeSetOperationLabel(change.type)}
+                            {'value' in change ? ` → ${change.value.label}` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 text-[var(--accent-light)] hover:underline"
+                            onClick={() =>
+                              setQueuedChanges((current) =>
+                                current.filter((item) => item.field !== change.field),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {actionKind !== 'EXCLUDE_ROW' && actionKind !== 'CHANGE_SET' ? (
                 <SelectInput
                   aria-label="Field to reconcile"
                   value={actionField}
