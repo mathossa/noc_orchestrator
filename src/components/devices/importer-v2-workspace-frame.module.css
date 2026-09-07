@@ -1,0 +1,131 @@
+.workspace {
+  min-width: 0;
+}
+
+.viewToolbar {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.viewButton {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  background: var(--surface-raised);
+  color: var(--muted-strong);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.viewButtonActive {
+  border-color: var(--accent-muted);
+  background: var(--accent-soft);
+  color: var(--accent-light);
+}
+
+/* Desktop importer routes are workbenches rather than long document pages.
+   The app shell already contributes 3.5rem of vertical main padding at this
+   breakpoint, so consume the remainder of the viewport and keep scrolling in
+   the work surfaces rather than in the page itself. */
+@media (min-width: 1024px) {
+  .workspace {
+    display: flex;
+    height: calc(100dvh - 3.5rem);
+    max-height: calc(100dvh - 3.5rem);
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .workspace > :global(.space-y-4) {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .workspace :global(div:has(> section[aria-label='Staged device grid']):has(> aside[aria-label='Reconciliation inspector'])) {
+    min-height: 0;
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .workspace :global(section[aria-label='Staged device grid']) {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .workspace :global(section[aria-label='Staged device grid'] > .noc-scrollbar) {
+    min-height: 0;
+    max-height: none !important;
+    flex: 1 1 auto;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  /* The inspector is a fixed-height column. Only its middle body scrolls;
+     tabs/header and reconciliation controls remain reachable at all times. */
+  .workspace :global(aside[aria-label='Reconciliation inspector']) {
+    position: relative !important;
+    top: auto !important;
+    align-self: stretch !important;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+
+  .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-body]) {
+    min-height: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-footer]) {
+    flex: 0 0 auto;
+    max-height: 46%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Fallback for narrower/mobile layouts where the overall page remains a
+   normal document flow. Keep the table scrollbar reachable without walking
+   through a full 100-row page. */
+@media (max-width: 1023px) {
+  .workspace :global(section[aria-label='Staged device grid'] > .noc-scrollbar) {
+    max-height: min(68vh, 760px);
+    overflow: auto;
+  }
+}
+
+/* The compact view keeps the reconciliation-critical columns in the grid.
+   Raw firmware/software evidence and confidence remain available in the
+   inspector and can be restored with Evidence view. */
+.compact :global(table) {
+  min-width: 1280px !important;
+}
+
+.compact :global(table th:nth-child(9)),
+.compact :global(table td:nth-child(9)),
+.compact :global(table th:nth-child(10)),
+.compact :global(table td:nth-child(10)),
+.compact :global(table th:nth-child(12)),
+.compact :global(table td:nth-child(12)) {
+  display: none;
+}
+
+.evidence :global(table) {
+  min-width: 2050px;
+}
+
+@media (max-width: 1535px) {
+  .compact :global(table) {
+    min-width: 1160px !important;
+  }
+}

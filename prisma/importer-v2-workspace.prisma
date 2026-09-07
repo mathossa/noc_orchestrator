@@ -1,0 +1,101 @@
+// Importer v2 reconciliation workspace persistence.
+// Evaluated evidence is immutable. Engineer decisions are append-only overlays.
+model ImporterV2WorkspaceBatch {
+  id                    String @id @default(uuid())
+  name                  String
+  provider              String
+  sourceAdapterId       String
+  profileId             String
+  profileVersion        String
+  ruleBookId            String?
+  evaluationFingerprint String @unique
+  status                String @default("RECONCILING")
+  rowCount              Int
+
+  rows      ImporterV2WorkspaceRow[]
+  decisions ImporterV2WorkspaceDecision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([provider, sourceAdapterId, updatedAt])
+  @@index([profileId, updatedAt])
+}
+
+model ImporterV2WorkspaceRow {
+  id                    String @id @default(uuid())
+  batchId               String
+  rowNumber             Int
+  sourceFingerprint     String
+  inclusion             String
+  statuses              String[]
+  primaryStatus         String
+  repeatClassification  String?
+  issueCount            Int @default(0)
+  hasErrors             Boolean @default(false)
+  needsReevaluation     Boolean @default(false)
+  reviewRevision        Int @default(0)
+
+  sourceName              String?
+  hostname                String?
+  customer                String?
+  businessUnit            String?
+  site                    String?
+  vendor                  String?
+  deviceType              String?
+  sourceModel             String?
+  canonicalModel          String?
+  productFamily           String?
+  softwarePlatform        String?
+  firmwareEvidencePattern String?
+  rawFirmwareVersion      String?
+  rawSoftwareVersion      String?
+  interpretedFirmware     String?
+  confidence              String?
+
+  evaluated          Json
+  identityResolution Json?
+  alternatives       Json?
+  repeatDiff         Json?
+
+  batch     ImporterV2WorkspaceBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  decisions ImporterV2WorkspaceDecision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, rowNumber])
+  @@index([batchId, primaryStatus, rowNumber])
+  @@index([batchId, repeatClassification, rowNumber])
+  @@index([batchId, customer, businessUnit, site])
+  @@index([batchId, vendor, deviceType])
+  @@index([batchId, sourceModel])
+  @@index([batchId, canonicalModel])
+  @@index([batchId, firmwareEvidencePattern])
+  @@index([batchId, hasErrors, issueCount])
+}
+
+model ImporterV2WorkspaceDecision {
+  id          String @id @default(uuid())
+  batchId     String
+  rowId       String
+  rowNumber   Int
+  field       String?
+  action      String
+  value       Json?
+  explanation String
+  scopeToken  String
+  actorUserId String?
+
+  batch ImporterV2WorkspaceBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row   ImporterV2WorkspaceRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([batchId, rowNumber, createdAt])
+  @@index([rowId, field, createdAt])
+  @@index([scopeToken])
+  @@index([actorUserId])
+}
