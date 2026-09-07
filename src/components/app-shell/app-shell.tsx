@@ -190,6 +190,7 @@ function MobileNavigation() {
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname()
+  const importerWorkspace = pathname.startsWith('/devices/import')
 
   return (
     <div className="noc-app-background">
@@ -228,7 +229,10 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
         <main
           id="main-content"
           tabIndex={-1}
-          className="mx-auto w-full max-w-[1680px] px-4 py-5 sm:px-6 sm:py-7 xl:px-8"
+          className={[
+            'mx-auto w-full px-4 py-5 sm:px-6 sm:py-7 xl:px-8',
+            importerWorkspace ? 'max-w-none' : 'max-w-[1680px]',
+          ].join(' ')}
         >
           {children}
         </main>
