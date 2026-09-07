@@ -114,6 +114,62 @@ function filterForGroup(
   }
 }
 
+function groupFilterValue(
+  filters: ImporterV2WorkspaceFilters,
+  groupBy: ImporterV2WorkspaceGroup,
+) {
+  switch (groupBy) {
+    case 'status':
+      return filters.status
+    case 'repeatClassification':
+      return filters.repeatClassification
+    case 'customer':
+      return filters.customer
+    case 'businessUnit':
+      return filters.businessUnit
+    case 'site':
+      return filters.site
+    case 'vendor':
+      return filters.vendor
+    case 'deviceType':
+      return filters.deviceType
+    case 'sourceModel':
+      return filters.sourceModel
+    case 'canonicalModel':
+      return filters.canonicalModel
+    case 'firmwareEvidencePattern':
+      return filters.firmwareEvidencePattern
+  }
+}
+
+function withoutGroupFilter(
+  filters: ImporterV2WorkspaceFilters,
+  groupBy: ImporterV2WorkspaceGroup,
+): ImporterV2WorkspaceFilters {
+  switch (groupBy) {
+    case 'status':
+      return { ...filters, status: null }
+    case 'repeatClassification':
+      return { ...filters, repeatClassification: null }
+    case 'customer':
+      return { ...filters, customer: null }
+    case 'businessUnit':
+      return { ...filters, businessUnit: null }
+    case 'site':
+      return { ...filters, site: null }
+    case 'vendor':
+      return { ...filters, vendor: null }
+    case 'deviceType':
+      return { ...filters, deviceType: null }
+    case 'sourceModel':
+      return { ...filters, sourceModel: null }
+    case 'canonicalModel':
+      return { ...filters, canonicalModel: null }
+    case 'firmwareEvidencePattern':
+      return { ...filters, firmwareEvidencePattern: null }
+  }
+}
+
 function workspaceSearchParams(
   page: number,
   groupBy: ImporterV2WorkspaceGroup | null,
@@ -274,6 +330,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
 
   const groupLabel =
     GROUPS.find((group) => group.value === groupBy)?.label ?? 'None'
+  const activeGroupValue = groupBy ? groupFilterValue(filters, groupBy) : null
 
   return (
     <div className="space-y-4">
@@ -330,7 +387,15 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
           <Button
             variant="ghost"
             onClick={() => {
-              setFilters(EMPTY_FILTERS)
+              setFilters((current) => ({
+                ...current,
+                issue: null,
+                status: groupBy === 'status' ? current.status : null,
+                repeatClassification:
+                  groupBy === 'repeatClassification'
+                    ? current.repeatClassification
+                    : null,
+              }))
               setPage(1)
             }}
           >
@@ -355,6 +420,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
             setGroupBy(
               (event.target.value || null) as ImporterV2WorkspaceGroup | null,
             )
+            setExpandedGroups(new Set())
             setPage(1)
           }}
         >
@@ -412,19 +478,43 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
           aria-label={`Groups by ${groupLabel}`}
           className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3"
         >
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">
-              Grouped by {groupLabel}
-            </h2>
-            <span className="text-xs text-[var(--muted)]">
-              Counts are server-side across the full filtered batch
-            </span>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[var(--foreground)]">
+                Grouped by {groupLabel}
+              </h2>
+              {activeGroupValue ? (
+                <p className="mt-1 text-xs text-[var(--muted-strong)]">
+                  Showing only {groupLabel}: <strong>{activeGroupValue}</strong>
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-xs text-[var(--muted)]">
+                Counts are server-side across the full filtered batch
+              </span>
+              {activeGroupValue ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setFilters((current) => withoutGroupFilter(current, groupBy))
+                    setExpandedGroups(new Set())
+                    setSelectedRows(new Set())
+                    setQuerySelection(null)
+                    setPage(1)
+                  }}
+                >
+                  Back to all {groupLabel} groups
+                </Button>
+              ) : null}
+            </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {data.groups.map((group) => {
               const key = `${groupBy}:${group.value}`
               const expanded = expandedGroups.has(key)
               const scoped = filterForGroup(filters, groupBy, group.value)
+              const showingThisGroup = activeGroupValue === group.value
               return (
                 <div
                   key={key}
@@ -454,15 +544,18 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
                     <div className="mt-2 flex flex-wrap gap-2 border-t border-[var(--border)] pt-2">
                       <Button
                         variant="ghost"
-                        disabled={!scoped}
+                        disabled={!scoped || showingThisGroup}
                         onClick={() => {
                           if (scoped) {
                             setFilters(scoped)
+                            setExpandedGroups(new Set())
+                            setSelectedRows(new Set())
+                            setQuerySelection(null)
                             setPage(1)
                           }
                         }}
                       >
-                        Show group
+                        {showingThisGroup ? 'Showing group' : 'Show only'}
                       </Button>
                       <Button
                         variant="secondary"
