@@ -1,25 +1,8 @@
 import type { Prisma } from '../generated/prisma/client'
 import { prisma } from '@/lib/prisma'
-import type {
-  ImporterV2WorkspaceAction,
-  ImporterV2WorkspaceSelection,
-} from '@/lib/importer-v2-workspace'
-import { importerV2WorkspaceWhere } from '@/lib/importer-v2-workspace-store'
+import type { ImporterV2WorkspaceAction } from '@/lib/importer-v2-workspace'
 
-function selectionWhere(
-  batchId: string,
-  selection: ImporterV2WorkspaceSelection,
-): Prisma.ImporterV2WorkspaceRowWhereInput {
-  if (selection.mode === 'ROWS') {
-    return {
-      batchId,
-      rowNumber: { in: [...new Set(selection.rowNumbers)] },
-    }
-  }
-  return importerV2WorkspaceWhere(batchId, selection.filters)
-}
-
-function directOverlay(
+export function importerV2WorkspaceDirectOverlay(
   action: ImporterV2WorkspaceAction,
 ): Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput | null {
   if (
@@ -65,14 +48,25 @@ function directOverlay(
 
 export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
   batchId: string
-  selection: ImporterV2WorkspaceSelection
+  scopeToken: string
   action: ImporterV2WorkspaceAction
 }) {
-  const data = directOverlay(input.action)
+  const data = importerV2WorkspaceDirectOverlay(input.action)
   if (!data) return
 
+  const decisions = await prisma.importerV2WorkspaceDecision.findMany({
+    where: {
+      batchId: input.batchId,
+      scopeToken: input.scopeToken,
+      action: input.action.type,
+    },
+    select: { rowId: true },
+  })
+  const rowIds = [...new Set(decisions.map((decision) => decision.rowId))]
+  if (rowIds.length === 0) return
+
   await prisma.importerV2WorkspaceRow.updateMany({
-    where: selectionWhere(input.batchId, input.selection),
+    where: { id: { in: rowIds } },
     data,
   })
 }
