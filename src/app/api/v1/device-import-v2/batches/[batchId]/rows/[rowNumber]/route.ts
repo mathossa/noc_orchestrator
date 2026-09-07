@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
+import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 import { getImporterV2WorkspaceRow } from '@/lib/importer-v2-workspace-store'
 
 type RouteContext = { params: Promise<{ batchId: string; rowNumber: string }> }
@@ -21,6 +22,10 @@ export async function GET(_request: Request, context: RouteContext) {
       inclusion: row.inclusion,
       decisions: row.decisions,
     })
+    const identityReview = importerV2WorkspaceIdentityReview({
+      identityResolution: row.identityResolution,
+      decisions: row.decisions,
+    })
 
     return NextResponse.json({
       data: {
@@ -29,6 +34,7 @@ export async function GET(_request: Request, context: RouteContext) {
         resolvedIssues: effective.resolvedIssues,
         activeErrorCount: effective.activeErrorCount,
         activeWarningCount: effective.activeWarningCount,
+        identityReview,
       },
     })
   } catch (error) {
