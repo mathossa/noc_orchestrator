@@ -1,8 +1,16 @@
+export type ImporterV2WorkspaceIdentitySignal = {
+  kind: string
+  sourceValue: string | null
+  candidateValue: string | null
+  status: string | null
+}
+
 export type ImporterV2WorkspaceIdentityCandidate = {
   canonicalDeviceId: string
   confidence: string | null
   explanation: string | null
   durableEvidence: readonly string[]
+  signals: readonly ImporterV2WorkspaceIdentitySignal[]
   contextDifferences: readonly {
     field: string
     sourceValue: string | null
@@ -46,17 +54,29 @@ function stringList(value: unknown) {
     : []
 }
 
-function candidateEvidence(candidate: Record<string, unknown>) {
+function candidateSignals(candidate: Record<string, unknown>) {
+  if (!Array.isArray(candidate.signals)) return []
+  return candidate.signals
+    .map(object)
+    .filter((signal): signal is Record<string, unknown> => Boolean(signal))
+    .map((signal) => ({
+      kind: text(signal.kind) ?? 'UNKNOWN',
+      sourceValue: text(signal.sourceValue),
+      candidateValue: text(signal.candidateValue),
+      status: text(signal.status),
+    }))
+}
+
+function candidateEvidence(
+  candidate: Record<string, unknown>,
+  signals: readonly ImporterV2WorkspaceIdentitySignal[],
+) {
   const direct = stringList(candidate.evidence)
   if (direct.length) return direct
 
-  const signals = Array.isArray(candidate.signals) ? candidate.signals : []
   return signals
-    .map(object)
-    .filter((signal): signal is Record<string, unknown> => Boolean(signal))
     .filter((signal) => signal.status === 'AGREE')
-    .map((signal) => text(signal.kind))
-    .filter((kind): kind is string => Boolean(kind))
+    .map((signal) => signal.kind)
 }
 
 function candidateDifferences(candidate: Record<string, unknown>) {
@@ -76,14 +96,18 @@ function candidates(value: Record<string, unknown> | null) {
   return value.candidates
     .map(object)
     .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate))
-    .map((candidate) => ({
-      canonicalDeviceId:
-        text(candidate.canonicalDeviceId) ?? text(candidate.deviceId) ?? '',
-      confidence: text(candidate.confidence),
-      explanation: text(candidate.explanation),
-      durableEvidence: candidateEvidence(candidate),
-      contextDifferences: candidateDifferences(candidate),
-    }))
+    .map((candidate) => {
+      const signals = candidateSignals(candidate)
+      return {
+        canonicalDeviceId:
+          text(candidate.canonicalDeviceId) ?? text(candidate.deviceId) ?? '',
+        confidence: text(candidate.confidence),
+        explanation: text(candidate.explanation),
+        durableEvidence: candidateEvidence(candidate, signals),
+        signals,
+        contextDifferences: candidateDifferences(candidate),
+      }
+    })
     .filter((candidate) => candidate.canonicalDeviceId)
 }
 
