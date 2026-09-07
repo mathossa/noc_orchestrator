@@ -1,5 +1,4 @@
 import type { Prisma } from '../generated/prisma/client'
-import { prisma } from '@/lib/prisma'
 import type { ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
 import { importerV2WorkspaceIdentityNeedsReview } from '@/lib/importer-v2-workspace-identity-state'
 import type {
@@ -265,9 +264,15 @@ function fieldLabel(field: string) {
 }
 
 function previewAfterValue(action: ImporterV2WorkspaceFieldChange) {
-  if (action.type === 'IGNORE_FIELD') return 'Ignored'
-  if (action.type === 'CLEAR_FIELD') return 'Cleared'
-  return action.value.label
+  switch (action.type) {
+    case 'IGNORE_FIELD':
+      return 'Ignored'
+    case 'CLEAR_FIELD':
+      return 'Cleared'
+    case 'SET_FIELD':
+    case 'LINK_FIELD':
+      return action.value.label
+  }
 }
 
 function singleFieldChangeReason(
@@ -318,6 +323,10 @@ export async function applyImporterV2WorkspaceEffectiveOverlay(input: {
   scopeToken: string
   action: ImporterV2WorkspaceAction
 }) {
+  // Keep the pure overlay/preview helpers importable in unit tests without
+  // requiring DATABASE_URL. Runtime persistence is loaded only for apply.
+  const { prisma } = await import('@/lib/prisma')
+
   const scopedDecisions = await prisma.importerV2WorkspaceDecision.findMany({
     where: {
       batchId: input.batchId,
