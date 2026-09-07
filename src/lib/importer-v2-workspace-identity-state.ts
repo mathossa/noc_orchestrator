@@ -21,6 +21,10 @@ export type ImporterV2WorkspaceIdentityReview = {
   options: readonly string[]
 }
 
+type IdentityDecisionKind = NonNullable<
+  ImporterV2WorkspaceIdentityReview['selectedDecision']
+>
+
 type WorkspaceDecision = {
   action: string
   value?: unknown
@@ -83,23 +87,29 @@ function candidates(value: Record<string, unknown> | null) {
     .filter((candidate) => candidate.canonicalDeviceId)
 }
 
-function latestIdentityDecision(decisions: readonly WorkspaceDecision[]) {
+function latestIdentityDecision(
+  decisions: readonly WorkspaceDecision[],
+): {
+  kind: IdentityDecisionKind
+  canonicalDeviceId: string | null
+} | null {
   for (let index = decisions.length - 1; index >= 0; index -= 1) {
     const decision = decisions[index]
     if (decision.action !== 'IDENTITY_RESOLUTION') continue
     const value = object(decision.value)
     const kind = text(value?.kind)
-    if (
-      kind !== 'CONFIRM_MATCH' &&
-      kind !== 'CHOOSE_CANDIDATE' &&
-      kind !== 'CREATE_NEW' &&
-      kind !== 'MANUAL_OVERRIDE'
-    ) {
-      continue
-    }
-    return {
-      kind,
-      canonicalDeviceId: text(value?.canonicalDeviceId),
+
+    switch (kind) {
+      case 'CONFIRM_MATCH':
+      case 'CHOOSE_CANDIDATE':
+      case 'CREATE_NEW':
+      case 'MANUAL_OVERRIDE':
+        return {
+          kind,
+          canonicalDeviceId: text(value?.canonicalDeviceId),
+        }
+      default:
+        continue
     }
   }
   return null
