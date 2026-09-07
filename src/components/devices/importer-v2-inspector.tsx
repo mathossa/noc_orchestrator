@@ -61,6 +61,7 @@ type RuleScopeDimension =
   | 'model'
   | 'productFamily'
   | 'deviceType'
+type IdentityCandidate = NonNullable<RowDetail['identityReview']>['candidates'][number]
 
 type IdentityDecision = {
   kind: 'CONFIRM_MATCH' | 'CHOOSE_CANDIDATE' | 'CREATE_NEW' | 'MANUAL_OVERRIDE'
@@ -108,6 +109,58 @@ function fieldLabel(field: string) {
       .replace(/([A-Z])/g, ' $1')
       .replace(/^./, (letter) => letter.toUpperCase())
   )
+}
+
+function identitySignalLabel(kind: string) {
+  const labels: Record<string, string> = {
+    SOURCE_ID: 'Source ID',
+    sourceId: 'Source ID',
+    SERIAL_NUMBER: 'Serial',
+    serialNumber: 'Serial',
+    MAC_ADDRESS: 'MAC',
+    macAddress: 'MAC',
+  }
+  return labels[kind] ?? fieldLabel(kind)
+}
+
+function identitySignalState(status: string | null) {
+  switch (status) {
+    case 'AGREE':
+      return 'MATCH'
+    case 'DISAGREE':
+      return 'DIFFERENT'
+    case 'MISSING':
+      return 'MISSING'
+    default:
+      return status ?? '—'
+  }
+}
+
+function candidateContextValue(
+  detail: RowDetail,
+  candidate: IdentityCandidate,
+  field: string,
+) {
+  const difference = candidate.contextDifferences.find(
+    (item) => item.field === field,
+  )
+  if (difference) return difference.candidateValue
+  return detail.evaluated.rawValues?.[field] ?? null
+}
+
+function candidateTitle(detail: RowDetail, candidate: IdentityCandidate) {
+  const name =
+    candidateContextValue(detail, candidate, 'deviceName') ??
+    candidateContextValue(detail, candidate, 'hostname')
+  const model = candidateContextValue(detail, candidate, 'model')
+  if (name && model && name !== model) return `${name} · ${model}`
+  return name ?? model ?? 'Existing device'
+}
+
+function candidateLocation(detail: RowDetail, candidate: IdentityCandidate) {
+  const customer = candidateContextValue(detail, candidate, 'customer')
+  const site = candidateContextValue(detail, candidate, 'site')
+  return [customer, site].filter(Boolean).join(' · ')
 }
 
 function changeSetOperationLabel(value: ChangeSetOperation) {
@@ -274,6 +327,21 @@ export function ImporterV2Inspector({
     detail?.identityReview?.selectedCanonicalDeviceId ||
     detail?.identityReview?.candidates[0]?.canonicalDeviceId ||
     ''
+  const identityPreviewCandidate =
+    detail && identityPreview?.decision.canonicalDeviceId
+      ? detail.identityReview?.candidates.find(
+          (candidate) =>
+            candidate.canonicalDeviceId === identityPreview.decision.canonicalDeviceId,
+        ) ?? null
+      : null
+  const resolvedIdentityCandidate =
+    detail?.identityReview?.selectedCanonicalDeviceId
+      ? detail.identityReview.candidates.find(
+          (candidate) =>
+            candidate.canonicalDeviceId ===
+            detail.identityReview?.selectedCanonicalDeviceId,
+        ) ?? null
+      : null
 
   const queueAnotherField = () => {
     if (!draftChange) return
@@ -490,55 +558,110 @@ export function ImporterV2Inspector({
             {detail?.identityReview ? (
               <section className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-xs font-semibold text-[var(--foreground)]">Device identity</h3>
+                  <div className="min-w-0">
+                    <h3 className="text-xs font-semibold text-[var(--foreground)]">Existing device match</h3>
                     <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
-                      {detail.identityReview.explanation ?? 'Review the durable identity evidence before publication.'}
+                      Decide whether this imported row is an existing device or a new device. Serial, MAC and source ID are durable identity evidence; hostname is supporting context only.
                     </p>
+                    {detail.identityReview.explanation ? (
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
+                        {detail.identityReview.explanation}
+                      </p>
+                    ) : null}
                   </div>
-                  <span className={detail.identityReview.requiresConfirmation ? 'text-[10px] font-semibold uppercase text-[var(--accent-light)]' : 'text-[10px] font-semibold uppercase text-[var(--muted)]'}>
+                  <span className={detail.identityReview.requiresConfirmation ? 'shrink-0 text-right text-[10px] font-semibold uppercase text-[var(--accent-light)]' : 'shrink-0 text-right text-[10px] font-semibold uppercase text-[var(--muted)]'}>
                     {detail.identityReview.requiresConfirmation ? 'Confirmation required' : detail.identityReview.resolved ? 'Confirmed' : 'No action required'}
                   </span>
                 </div>
 
                 {detail.identityReview.resolved ? (
                   <div className="mt-2 rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs text-[var(--muted-strong)]">
-                    {detail.identityReview.selectedDecision?.replaceAll('_', ' ')}
-                    {detail.identityReview.selectedCanonicalDeviceId ? ` · ${detail.identityReview.selectedCanonicalDeviceId}` : ''}
+                    <span className="font-semibold text-[var(--foreground)]">
+                      {detail.identityReview.selectedDecision?.replaceAll('_', ' ')}
+                    </span>
+                    {detail && resolvedIdentityCandidate ? (
+                      <span className="mt-1 block">{candidateTitle(detail, resolvedIdentityCandidate)}</span>
+                    ) : null}
+                    {detail.identityReview.selectedCanonicalDeviceId ? (
+                      <span className="mt-1 block font-mono text-[9px] text-[var(--muted)]">
+                        Internal device ID: {detail.identityReview.selectedCanonicalDeviceId}
+                      </span>
+                    ) : null}
                   </div>
                 ) : null}
 
                 {detail.identityReview.requiresConfirmation ? (
                   <div className="mt-3 space-y-2">
-                    {detail.identityReview.candidates.map((candidate) => (
-                      <label key={candidate.canonicalDeviceId} className="flex cursor-pointer gap-2 rounded border border-[var(--border)] p-2 text-xs">
-                        <input
-                          type="radio"
-                          name={`identity-${detail.rowNumber}`}
-                          value={candidate.canonicalDeviceId}
-                          checked={selectedIdentityId === candidate.canonicalDeviceId}
-                          onChange={() => setIdentityChoice(candidate.canonicalDeviceId)}
-                        />
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-2">
-                            <strong className="text-[var(--foreground)]">{candidate.canonicalDeviceId}</strong>
-                            <span className="text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
+                    {detail.identityReview.candidates.map((candidate) => {
+                      const location = candidateLocation(detail, candidate)
+                      const visibleSignals = candidate.signals.filter(
+                        (signal) => signal.status !== 'MISSING',
+                      )
+                      return (
+                        <label key={candidate.canonicalDeviceId} className="flex cursor-pointer gap-2 rounded border border-[var(--border)] p-2 text-xs">
+                          <input
+                            className="mt-1 shrink-0"
+                            type="radio"
+                            name={`identity-${detail.rowNumber}`}
+                            value={candidate.canonicalDeviceId}
+                            checked={selectedIdentityId === candidate.canonicalDeviceId}
+                            onChange={() => setIdentityChoice(candidate.canonicalDeviceId)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-start justify-between gap-2">
+                              <span className="min-w-0">
+                                <strong className="block truncate text-[var(--foreground)]">
+                                  {candidateTitle(detail, candidate)}
+                                </strong>
+                                {location ? (
+                                  <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">
+                                    {location}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="shrink-0 text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
+                            </span>
+                            <span className="mt-1 block leading-4 text-[var(--muted-strong)]">{candidate.explanation ?? 'Durable identity candidate.'}</span>
+                            {visibleSignals.length ? (
+                              <span className="mt-2 grid gap-1">
+                                {visibleSignals.map((signal) => (
+                                  <span key={signal.kind} className="grid grid-cols-[68px_minmax(0,1fr)_auto] gap-2 text-[10px]">
+                                    <span className="text-[var(--muted)]">{identitySignalLabel(signal.kind)}</span>
+                                    <span className="truncate font-mono text-[var(--muted-strong)]">{display(signal.candidateValue)}</span>
+                                    <span className={signal.status === 'AGREE' ? 'font-semibold text-[var(--muted-strong)]' : 'font-semibold text-[#f0a0a0]'}>
+                                      {identitySignalState(signal.status)}
+                                    </span>
+                                  </span>
+                                ))}
+                              </span>
+                            ) : candidate.durableEvidence.length ? (
+                              <span className="mt-1 block text-[10px] text-[var(--muted)]">Durable evidence: {candidate.durableEvidence.map(identitySignalLabel).join(', ')}</span>
+                            ) : null}
+                            <span className="mt-2 block truncate font-mono text-[9px] text-[var(--muted)]">
+                              Internal device ID: {candidate.canonicalDeviceId}
+                            </span>
                           </span>
-                          <span className="mt-1 block text-[var(--muted-strong)]">{candidate.explanation ?? 'Durable identity candidate.'}</span>
-                          {candidate.durableEvidence.length ? (
-                            <span className="mt-1 block text-[10px] text-[var(--muted)]">Evidence: {candidate.durableEvidence.join(', ')}</span>
-                          ) : null}
-                        </span>
-                      </label>
-                    ))}
+                        </label>
+                      )
+                    })}
 
                     {identityPreview ? (
                       <div className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
                         <p className="font-semibold text-[var(--foreground)]">Identity decision preview</p>
                         <p className="mt-1 text-[var(--muted-strong)]">
-                          {identityPreview.decision.kind.replaceAll('_', ' ')}
-                          {identityPreview.decision.canonicalDeviceId ? ` · ${identityPreview.decision.canonicalDeviceId}` : ''}
+                          {identityPreview.decision.kind === 'CREATE_NEW'
+                            ? 'Create this imported row as a new device.'
+                            : identityPreviewCandidate && detail
+                              ? `Use existing device: ${candidateTitle(detail, identityPreviewCandidate)}.`
+                              : identityPreview.decision.canonicalDeviceId
+                                ? `Use device ID ${identityPreview.decision.canonicalDeviceId}.`
+                                : identityPreview.decision.kind.replaceAll('_', ' ')}
                         </p>
+                        {identityPreview.decision.canonicalDeviceId ? (
+                          <p className="mt-1 font-mono text-[9px] text-[var(--muted)]">
+                            Internal device ID: {identityPreview.decision.canonicalDeviceId}
+                          </p>
+                        ) : null}
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           <Button variant="ghost" onClick={() => setIdentityPreview(null)}>Edit</Button>
                           <Button variant="primary" disabled={identityBusy} onClick={() => void applyIdentityPreview()}>Confirm identity</Button>
@@ -547,6 +670,7 @@ export function ImporterV2Inspector({
                     ) : (
                       <div className="grid grid-cols-2 gap-2">
                         <Button
+                          className="min-w-0 whitespace-normal px-2 text-center leading-tight"
                           variant="secondary"
                           disabled={identityBusy || !selectedIdentityId}
                           onClick={() => void requestIdentityPreview({
@@ -555,9 +679,10 @@ export function ImporterV2Inspector({
                             explanation: identityExplanation,
                           })}
                         >
-                          Review selected match
+                          Use existing device
                         </Button>
                         <Button
+                          className="min-w-0 whitespace-normal px-2 text-center leading-tight"
                           variant="secondary"
                           disabled={identityBusy}
                           onClick={() => void requestIdentityPreview({
@@ -566,7 +691,7 @@ export function ImporterV2Inspector({
                             explanation: identityExplanation,
                           })}
                         >
-                          Review as new device
+                          Create new device
                         </Button>
                       </div>
                     )}
@@ -584,6 +709,7 @@ export function ImporterV2Inspector({
                         onChange={(event) => setIdentityManualId(event.target.value)}
                       />
                       <Button
+                        className="whitespace-nowrap"
                         variant="ghost"
                         disabled={identityBusy || !identityManualId.trim()}
                         onClick={() => void requestIdentityPreview({
@@ -592,7 +718,7 @@ export function ImporterV2Inspector({
                           explanation: identityExplanation,
                         })}
                       >
-                        Review override
+                        Use device ID
                       </Button>
                     </div>
                   </div>
@@ -648,9 +774,27 @@ export function ImporterV2Inspector({
                   <div className="mt-2 space-y-2">
                     {detail.identityReview.candidates.map((candidate) => (
                       <div key={candidate.canonicalDeviceId} className="rounded border border-[var(--border)] p-2 text-xs">
-                        <div className="flex justify-between gap-2"><strong>{candidate.canonicalDeviceId}</strong><span className="text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span></div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <strong className="block truncate">{candidateTitle(detail, candidate)}</strong>
+                            {candidateLocation(detail, candidate) ? (
+                              <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{candidateLocation(detail, candidate)}</span>
+                            ) : null}
+                          </div>
+                          <span className="shrink-0 text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
+                        </div>
                         <p className="mt-1 text-[var(--muted-strong)]">{candidate.explanation ?? 'No explanation.'}</p>
-                        {candidate.durableEvidence.length ? <p className="mt-1 text-[10px] text-[var(--muted)]">Durable evidence: {candidate.durableEvidence.join(', ')}</p> : null}
+                        {candidate.signals.length ? (
+                          <div className="mt-2 space-y-1 border-t border-[var(--border)] pt-2">
+                            {candidate.signals.map((signal) => (
+                              <p key={signal.kind} className="grid grid-cols-[80px_minmax(0,1fr)_auto] gap-2 text-[10px]">
+                                <span className="text-[var(--muted)]">{identitySignalLabel(signal.kind)}</span>
+                                <span className="font-mono text-[var(--muted-strong)]">{display(signal.candidateValue)}</span>
+                                <span className={signal.status === 'AGREE' ? 'font-semibold text-[var(--muted-strong)]' : 'font-semibold text-[#f0a0a0]'}>{identitySignalState(signal.status)}</span>
+                              </p>
+                            ))}
+                          </div>
+                        ) : candidate.durableEvidence.length ? <p className="mt-1 text-[10px] text-[var(--muted)]">Durable evidence: {candidate.durableEvidence.map(identitySignalLabel).join(', ')}</p> : null}
                         {candidate.contextDifferences.length ? (
                           <div className="mt-2 border-t border-[var(--border)] pt-2 text-[10px] text-[var(--muted)]">
                             {candidate.contextDifferences.map((difference) => (
@@ -658,6 +802,7 @@ export function ImporterV2Inspector({
                             ))}
                           </div>
                         ) : null}
+                        <p className="mt-2 truncate font-mono text-[9px] text-[var(--muted)]">Internal device ID: {candidate.canonicalDeviceId}</p>
                       </div>
                     ))}
                   </div>
