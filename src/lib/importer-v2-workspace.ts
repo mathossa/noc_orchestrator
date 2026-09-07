@@ -253,6 +253,18 @@ export function importerV2WorkspaceActionNeedsReevaluation(
   return action.type !== 'EXCLUDE_ROW'
 }
 
+const PREVIEW_CONTEXT_WHEN_BLANK = new Set<ImporterV2Field>([
+  'customer',
+  'businessUnit',
+  'site',
+  'vendor',
+  'productFamily',
+  'softwarePlatform',
+  'model',
+  'deviceType',
+  'currentFirmware',
+])
+
 export function importerV2WorkspaceCommonValues(
   rows: readonly { evaluated: unknown }[],
 ): Partial<Record<ImporterV2Field, string | null | 'MIXED'>> {
@@ -264,6 +276,12 @@ export function importerV2WorkspaceCommonValues(
       }
       return evaluated.proposedCanonicalValues?.[field]?.label ?? null
     })
+    if (
+      values.every((value) => value === null) &&
+      !PREVIEW_CONTEXT_WHEN_BLANK.has(field)
+    ) {
+      continue
+    }
     const unique = new Set(values)
     result[field] = unique.size <= 1 ? (values[0] ?? null) : 'MIXED'
   }
