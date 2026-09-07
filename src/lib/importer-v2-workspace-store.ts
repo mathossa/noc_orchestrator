@@ -595,6 +595,16 @@ async function scopedRuleActionScope(
   }
 }
 
+function validateChangeSet(action: Extract<ImporterV2WorkspaceAction, { type: 'CHANGE_SET' }>) {
+  if (action.changes.length === 0) {
+    throw new Error('A multi-field change set must contain at least one field change.')
+  }
+  const fields = action.changes.map((change) => change.field)
+  if (new Set(fields).size !== fields.length) {
+    throw new Error('A multi-field change set may contain each field only once.')
+  }
+}
+
 async function resolveActionScope(input: {
   batchId: string
   selection: ImporterV2WorkspaceSelection
@@ -606,6 +616,7 @@ async function resolveActionScope(input: {
   if (input.action.type === 'CREATE_SCOPED_RULE') {
     return scopedRuleActionScope(input.batchId, input.action)
   }
+  if (input.action.type === 'CHANGE_SET') validateChangeSet(input.action)
   return {
     rows: await rowsForSelection(input.batchId, input.selection),
     contextVersion: null,
@@ -695,6 +706,34 @@ async function persistReusableDecision(
   }
 }
 
+type PersistedDecisionInput = {
+  field: string | null
+  action: string
+  value?: unknown
+  explanation: string
+}
+
+function persistedDecisionsForAction(
+  action: ImporterV2WorkspaceAction,
+): readonly PersistedDecisionInput[] {
+  if (action.type === 'CHANGE_SET') {
+    return action.changes.map((change) => ({
+      field: change.field,
+      action: change.type,
+      value: 'value' in change ? change.value : undefined,
+      explanation: change.explanation || action.explanation,
+    }))
+  }
+  return [
+    {
+      field: 'field' in action ? action.field : null,
+      action: action.type,
+      value: 'value' in action ? action.value : undefined,
+      explanation: action.explanation,
+    },
+  ]
+}
+
 export async function applyImporterV2WorkspaceAction(input: {
   batchId: string
   selection: ImporterV2WorkspaceSelection
@@ -731,8 +770,6 @@ export async function applyImporterV2WorkspaceAction(input: {
     resolved.contextVersion,
   )
 
-  const field = 'field' in input.action ? input.action.field : null
-  const value = 'value' in input.action ? input.action.value : null
   const rowUpdate: Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput =
     input.action.type === 'EXCLUDE_ROW'
       ? {
@@ -751,19 +788,23 @@ export async function applyImporterV2WorkspaceAction(input: {
           ),
         }
 
+  const decisionInputs = persistedDecisionsForAction(input.action)
   await prisma.$transaction(async (tx) => {
     await tx.importerV2WorkspaceDecision.createMany({
-      data: resolved.rows.map((row) => ({
-        batchId: input.batchId,
-        rowId: row.id,
-        rowNumber: row.rowNumber,
-        field,
-        action: input.action.type,
-        value: value == null ? undefined : jsonValue(value),
-        explanation: input.action.explanation,
-        scopeToken: expectedToken,
-        actorUserId,
-      })),
+      data: resolved.rows.flatMap((row) =>
+        decisionInputs.map((decision) => ({
+          batchId: input.batchId,
+          rowId: row.id,
+          rowNumber: row.rowNumber,
+          field: decision.field,
+          action: decision.action,
+          value:
+            decision.value == null ? undefined : jsonValue(decision.value),
+          explanation: decision.explanation,
+          scopeToken: expectedToken,
+          actorUserId,
+        })),
+      ),
     })
     await tx.importerV2WorkspaceRow.updateMany({
       where: { id: { in: resolved.rows.map((row) => row.id) } },
