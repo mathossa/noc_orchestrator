@@ -9,6 +9,8 @@ import {
 } from '@/lib/site-store'
 
 export function siteApiError(error: unknown) {
+  if (error instanceof SyntaxError) return NextResponse.json({ error: { code: 'INVALID_JSON', message: 'Request body must contain valid JSON.' } }, { status: 400 })
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2003') return NextResponse.json({ error: { code: 'REFERENCE_IN_USE', message: 'Invalid or referenced inventory relationship. Check the customer and business unit.' } }, { status: 409 })
   if (error instanceof SiteValidationError) {
     return NextResponse.json(
       { error: { code: 'VALIDATION_ERROR', message: error.message, fields: error.fields } },
@@ -53,7 +55,7 @@ export function siteApiError(error: unknown) {
 
   if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002') {
     return NextResponse.json(
-      { error: { code: 'CONFLICT', message: 'This customer already has a site with the same name or code.' } },
+      { error: { code: 'CONFLICT', message: 'This customer/group already has a record with the same name or code.' } },
       { status: 409 },
     )
   }

@@ -43,7 +43,7 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
   return (
     <>
       <PageHeader
-        eyebrow={`${site.customer.name} · Site`}
+        eyebrow={`Customers / ${site.customer.name}${site.organizationUnit ? ` / ${site.organizationUnit.name}` : ''} / ${site.name}`}
         title={site.name}
         description="Customer location context used to place inventory at the correct site. A site may override the customer's default contract when its service agreement differs."
         actions={<div className="flex flex-wrap gap-2"><Link href={`/customers/${customerId}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage sites</Link><Link href={`/devices?customer=${encodeURIComponent(customerId)}&site=${encodeURIComponent(site.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Site devices</Link></div>}
@@ -67,6 +67,7 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
           <h2 className="text-sm font-semibold">Site information</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Customer" value={site.customer.name} />
+            <DetailRow label="Business unit" value={site.organizationUnit?.name ?? 'Ungrouped'} />
             <DetailRow label="Code" value={site.code ?? '—'} />
             <DetailRow label="Contract" value={site.effectiveContractType?.name ?? '—'} />
             <DetailRow label="Contract source" value={site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'} />

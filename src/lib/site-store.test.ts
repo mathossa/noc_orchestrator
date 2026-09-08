@@ -11,10 +11,14 @@ const mocks = vi.hoisted(() => ({
   siteDelete: vi.fn(),
   deviceCount: vi.fn(),
   auditCount: vi.fn(),
+  auditCreate: vi.fn(),
+  unitFindFirst: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: async (fn: (tx: unknown) => unknown) => fn({ site: { update: mocks.siteUpdate }, auditEvent: { create: mocks.auditCreate } }),
+    customerOrganizationUnit: { findFirst: mocks.unitFindFirst },
     customer: { findUnique: mocks.customerFindUnique },
     contractType: { findUnique: mocks.contractFindUnique, findMany: mocks.contractFindMany },
     site: {
@@ -177,7 +181,7 @@ describe('site persistence rules', () => {
 
     await createSite('customer-2', { name: 'Head office', code: 'HQ' })
 
-    expect(mocks.siteFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { customerId: 'customer-2' } }))
+    expect(mocks.siteFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { customerId: 'customer-2', organizationUnitId: null } }))
     expect(mocks.siteCreate).toHaveBeenCalled()
   })
 
@@ -213,5 +217,32 @@ describe('site persistence rules', () => {
 
     await expect(deleteSite('customer-1', 'site-1')).rejects.toBeInstanceOf(SiteInUseError)
     expect(mocks.siteDelete).not.toHaveBeenCalled()
+  })
+})
+
+describe('organizational unit site scope', () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' }); mocks.siteFindMany.mockResolvedValue([]); mocks.siteCreate.mockResolvedValue(storedSite) })
+  it('limits duplicate checks to the selected unit', async () => {
+    mocks.unitFindFirst.mockResolvedValue({ id: 'east', customerId: 'customer-1' })
+    await createSite('customer-1', { name: 'Springfield', organizationUnitId: 'east' })
+    expect(mocks.siteFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { customerId: 'customer-1', organizationUnitId: 'east' } }))
+  })
+  it('rejects a site assignment to another customer unit', async () => {
+    mocks.unitFindFirst.mockResolvedValue(null)
+    await expect(createSite('customer-1', { name: 'Springfield', organizationUnitId: 'foreign' })).rejects.toThrow(SiteCustomerError)
+    expect(mocks.siteCreate).not.toHaveBeenCalled()
+  })
+  it('filters grouped and ungrouped site lists', async () => {
+    await listSites('east')
+    expect(mocks.siteFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { organizationUnitId: 'east' } }))
+    await listSites('none')
+    expect(mocks.siteFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { organizationUnitId: null } }))
+  })
+  it('audits unit moves without changing customer', async () => {
+    mocks.siteFindFirst.mockResolvedValue({ ...storedSite, organizationUnitId: null })
+    mocks.unitFindFirst.mockResolvedValue({ id: 'east', customerId: 'customer-1' })
+    mocks.siteUpdate.mockResolvedValue({ ...storedSite, organizationUnitId: 'east' })
+    await updateSite('customer-1', 'site-1', { organizationUnitId: 'east' })
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ customerId: 'customer-1', before: { organizationUnitId: null }, after: { organizationUnitId: 'east' } }) }))
   })
 })

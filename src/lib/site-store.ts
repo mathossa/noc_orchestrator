@@ -1,3 +1,4 @@
+import { organizationUnitSiteWhere } from '@/lib/organization-units'
 import { prisma } from '@/lib/prisma'
 import { cleanSiteCode, normalizedSiteName, parseSiteInput, type SiteRecord } from '@/lib/sites'
 
@@ -45,6 +46,7 @@ const contractSelect = {
 } as const
 
 const siteInclude = {
+  organizationUnit: { select: { id: true, customerId: true, parentId: true, name: true, isActive: true } },
   customer: {
     select: {
       id: true,
@@ -69,6 +71,8 @@ type ContractReference = {
 function serializeSite(record: {
   id: string
   customerId: string
+  organizationUnitId?: string | null
+  organizationUnit?: SiteRecord['organizationUnit']
   contractTypeId: string | null
   customer: {
     id: string
@@ -98,6 +102,8 @@ function serializeSite(record: {
   return {
     id: record.id,
     customerId: record.customerId,
+    organizationUnitId: record.organizationUnitId ?? null,
+    organizationUnit: record.organizationUnit ?? null,
     contractTypeId: record.contractTypeId,
     customer: record.customer,
     contractType: record.contractType,
@@ -135,9 +141,9 @@ async function assertContractType(contractTypeId: string | null) {
   if (!contractType) throw new SiteContractError('The selected site contract type does not exist.')
 }
 
-async function assertUniqueWithinCustomer(customerId: string, name: string, code: string | null, excludeId?: string) {
+async function assertUniqueWithinCustomer(customerId: string, name: string, code: string | null, excludeId?: string, organizationUnitId: string | null = null) {
   const records = await prisma.site.findMany({
-    where: { customerId },
+    where: { customerId, organizationUnitId },
     select: { id: true, name: true, code: true },
   })
 
@@ -145,14 +151,14 @@ async function assertUniqueWithinCustomer(customerId: string, name: string, code
   const nameConflict = records.find(
     (record) => record.id !== excludeId && normalizedSiteName(record.name) === normalizedName,
   )
-  if (nameConflict) throw new SiteConflictError(`Site “${name}” already exists for this customer.`)
+  if (nameConflict) throw new SiteConflictError(`Site “${name}” already exists in this customer/business unit.`)
 
   const canonicalCode = cleanSiteCode(code)
   if (canonicalCode) {
     const codeConflict = records.find(
       (record) => record.id !== excludeId && cleanSiteCode(record.code) === canonicalCode,
     )
-    if (codeConflict) throw new SiteConflictError(`Site code ${canonicalCode} is already in use for this customer.`)
+    if (codeConflict) throw new SiteConflictError(`Site code ${canonicalCode} is already in use in this customer/business unit.`)
   }
 }
 
@@ -163,18 +169,19 @@ export async function listSiteContractTypes() {
   })
 }
 
-export async function listSites() {
+export async function listSites(organizationUnit?: string) {
   const records = await prisma.site.findMany({
+    where: organizationUnitSiteWhere(organizationUnit),
     orderBy: [{ isActive: 'desc' }, { customer: { name: 'asc' } }, { name: 'asc' }],
     include: siteInclude,
   })
   return records.map(serializeSite)
 }
 
-export async function listSitesForCustomer(customerId: string) {
+export async function listSitesForCustomer(customerId: string, organizationUnit?: string) {
   await assertCustomer(customerId)
   const records = await prisma.site.findMany({
-    where: { customerId },
+    where: { customerId, ...organizationUnitSiteWhere(organizationUnit) },
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     include: siteInclude,
   })
@@ -200,7 +207,8 @@ export async function createSite(customerId: string, rawInput: unknown) {
   const input = parseSiteInput(rawInput)
   await Promise.all([
     assertContractType(input.contractTypeId),
-    assertUniqueWithinCustomer(customerId, input.name, input.code),
+    assertOrganizationUnitBelongsToCustomer(input.organizationUnitId, customerId),
+    assertUniqueWithinCustomer(customerId, input.name, input.code, undefined, input.organizationUnitId),
   ])
   const created = await prisma.site.create({
     data: { customerId, ...input },
@@ -209,7 +217,7 @@ export async function createSite(customerId: string, rawInput: unknown) {
   return serializeSite(created)
 }
 
-export async function updateSite(customerId: string, siteId: string, rawInput: unknown) {
+export async function updateSite(customerId: string, siteId: string, rawInput: unknown, actorUserId: string | null = null) {
   const current = await prisma.site.findFirst({ where: { id: siteId, customerId } })
   if (!current) throw new SiteNotFoundError()
 
@@ -217,6 +225,7 @@ export async function updateSite(customerId: string, siteId: string, rawInput: u
   const input = parseSiteInput({
     name: current.name,
     code: current.code,
+    organizationUnitId: current.organizationUnitId,
     contractTypeId: current.contractTypeId,
     addressLine1: current.addressLine1,
     addressLine2: current.addressLine2,
@@ -234,9 +243,16 @@ export async function updateSite(customerId: string, siteId: string, rawInput: u
 
   await Promise.all([
     assertContractType(input.contractTypeId),
-    assertUniqueWithinCustomer(customerId, input.name, input.code, siteId),
+    assertOrganizationUnitBelongsToCustomer(input.organizationUnitId, customerId),
+    assertUniqueWithinCustomer(customerId, input.name, input.code, siteId, input.organizationUnitId),
   ])
-  const updated = await prisma.site.update({ where: { id: siteId }, data: input, include: siteInclude })
+  const updated = await prisma.$transaction(async tx => {
+    const result = await tx.site.update({ where: { id: siteId }, data: input, include: siteInclude })
+    if ((current.organizationUnitId ?? null) !== input.organizationUnitId) {
+      await tx.auditEvent.create({ data: { customerId, actorUserId, entityType: 'Site', entityId: siteId, action: 'SITE_ORGANIZATION_UNIT_CHANGED', before: { organizationUnitId: current.organizationUnitId ?? null }, after: { organizationUnitId: input.organizationUnitId } } })
+    }
+    return result
+  })
   return serializeSite(updated)
 }
 
@@ -283,4 +299,11 @@ export async function assertSiteBelongsToCustomer(siteId: string | null | undefi
     ...site,
     effectiveContractType: site.contractType ?? site.customer.contractType,
   }
+}
+
+export async function assertOrganizationUnitBelongsToCustomer(id: string | null, customerId: string) {
+  if (!id) return null
+  const unit = await prisma.customerOrganizationUnit.findFirst({ where: { id, customerId } })
+  if (!unit) throw new SiteCustomerError('The selected organizational unit does not belong to this customer.')
+  return unit
 }

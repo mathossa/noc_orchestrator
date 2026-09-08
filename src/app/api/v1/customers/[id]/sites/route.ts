@@ -8,7 +8,7 @@ export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const [sites, contractTypes] = await Promise.all([
-      listSitesForCustomer(id),
+      listSitesForCustomer(id, new URL(_request.url).searchParams.get('organizationUnit') ?? undefined),
       listSiteContractTypes(),
     ])
     return NextResponse.json({ data: sites, contractTypes })

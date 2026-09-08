@@ -244,7 +244,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           <h2 className="text-sm font-semibold">Inventory context</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <DetailRow label="Customer" value={<Link href={`/customers/${device.customerId}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.customer.name}</Link>} />
-            <DetailRow label="Site" value={device.site ? <Link href={`/customers/${device.customerId}/sites/${device.site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.site.name}</Link> : 'Unassigned'} />
+            <DetailRow label="Site" value={device.site ? <Link href={`/customers/${device.customerId}/sites/${device.site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{device.site.organizationUnit ? `${device.site.organizationUnit.name} / ` : ''}{device.site.name}</Link> : 'Unassigned'} />
             <DetailRow label="Contract" value={device.effectiveContractType?.name ?? 'No contract type'} />
             <DetailRow label="Contract source" value={device.contractSource === 'SITE' ? 'Site override' : device.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'} />
             {device.contractSource === 'SITE' ? <DetailRow label="Customer default" value={device.customer.contractType?.name ?? 'No customer default'} /> : null}

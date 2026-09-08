@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    customerOrganizationUnit: { count: vi.fn().mockResolvedValue(0) },
     customer: {
       findMany: mocks.customerFindMany,
       findUnique: mocks.customerFindUnique,

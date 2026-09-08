@@ -89,6 +89,7 @@ function matchesSearch(record: DeviceQueryRecord, q: string) {
     record.managementAddress ?? '',
     record.customer.name,
     record.site?.name ?? '',
+    record.site?.organizationUnit?.name ?? '',
     record.site?.code ?? '',
     record.deviceModel.vendor.name,
     record.deviceModel.model,
@@ -108,6 +109,8 @@ function matchesQuery(record: DeviceQueryRecord, query: DeviceQuery) {
   if (query.customer && record.customerId !== query.customer) return false
   if (query.site === 'none' && record.siteId !== null) return false
   if (query.site && query.site !== 'none' && record.siteId !== query.site) return false
+  if (query.organizationUnit === 'none' && (!record.site || record.site.organizationUnit)) return false
+  if (query.organizationUnit && query.organizationUnit !== 'none' && record.site?.organizationUnit?.id !== query.organizationUnit) return false
   if (query.vendor && record.deviceModel.vendor.id !== query.vendor) return false
   if (query.model && record.deviceModelId !== query.model) return false
   if (query.deviceType && record.deviceModel.deviceType.id !== query.deviceType) return false
@@ -128,6 +131,8 @@ function groupFor(record: DeviceQueryRecord, groupBy: DeviceGroupBy) {
   switch (groupBy) {
     case 'customer':
       return { key: record.customer.id, label: record.customer.name }
+    case 'organizationUnit':
+      return record.site?.organizationUnit ? { key: record.site.organizationUnit.id, label: `${record.customer.name} / ${record.site.organizationUnit.name}` } : { key: record.site ? 'none' : 'no-site', label: record.site ? 'Ungrouped' : 'Unassigned site' }
     case 'site':
       return record.site ? { key: record.site.id, label: record.site.name } : { key: 'none', label: 'Unassigned site' }
     case 'deviceType':

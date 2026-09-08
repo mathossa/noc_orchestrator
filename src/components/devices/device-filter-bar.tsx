@@ -5,7 +5,7 @@ import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { DeviceQueryMeta } from '@/lib/device-query'
 
 type ParamName =
-  | 'q' | 'customer' | 'site' | 'vendor' | 'model' | 'deviceType' | 'contract'
+  | 'organizationUnit' | 'q' | 'customer' | 'site' | 'vendor' | 'model' | 'deviceType' | 'contract'
   | 'currentFirmware' | 'desiredFirmware' | 'technicalState' | 'workflow' | 'source'
   | 'archive' | 'groupBy' | 'sort' | 'direction' | 'pageSize' | 'page'
 
@@ -18,6 +18,7 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
   const ui = {
     q: urlValue('q'),
     customer: urlValue('customer'),
+    organizationUnit: urlValue('organizationUnit'),
     site: urlValue('site'),
     vendor: urlValue('vendor'),
     model: urlValue('model'),
@@ -55,6 +56,7 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
     if (ui.site && ui.site !== 'none' && !meta.sites.some((site) => site.id === ui.site && (!customerId || site.customerId === customerId))) {
       params.delete('site')
     }
+    params.delete('organizationUnit')
     params.delete('page')
     replace(params)
   }
@@ -64,12 +66,14 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
   }
 
   const sites = meta.sites.filter((site) => !ui.customer || site.customerId === ui.customer)
+  const units = [...new Map(sites.flatMap(site => site.organizationUnit ? [[site.organizationUnit.id, site.organizationUnit] as const] : [])).values()]
   const vendorById = new Map(meta.vendors.map((vendor) => [vendor.id, vendor.name]))
 
   const chips: Array<{ key: ParamName; label: string; value: string }> = []
   const addChip = (key: ParamName, label: string, value: string) => { if (value) chips.push({ key, label, value }) }
   addChip('q', 'Search', ui.q)
   addChip('customer', 'Customer', meta.customers.find((item) => item.id === ui.customer)?.name ?? ui.customer)
+  addChip('organizationUnit', 'Business unit', ui.organizationUnit === 'none' ? 'Ungrouped' : (units.find(unit => unit.id === ui.organizationUnit)?.name ?? ui.organizationUnit))
   addChip('site', 'Site', ui.site === 'none' ? 'Unassigned' : (meta.sites.find((item) => item.id === ui.site)?.name ?? ui.site))
   addChip('vendor', 'Vendor', meta.vendors.find((item) => item.id === ui.vendor)?.name ?? ui.vendor)
   addChip('model', 'Model', meta.models.find((item) => item.id === ui.model)?.model ?? ui.model)
@@ -88,10 +92,11 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
       <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-6">
         <TextInput type="search" aria-label="Search devices" placeholder="Search inventory…" value={ui.q} onChange={(event) => setParam('q', event.target.value)} />
         <SelectInput aria-label="Filter devices by customer" value={ui.customer} onChange={(event) => setCustomer(event.target.value)}><option value="">All customers</option>{meta.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</SelectInput>
-        <SelectInput aria-label="Filter devices by site" value={ui.site} onChange={(event) => setParam('site', event.target.value)}><option value="">All sites</option><option value="none">Unassigned site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</SelectInput>
+        <SelectInput aria-label="Filter devices by business unit" value={ui.organizationUnit} onChange={event => setParam('organizationUnit', event.target.value)}><option value="">All business units</option><option value="none">Ungrouped sites</option>{units.map(unit => <option key={unit.id} value={unit.id}>{meta.customers.find(customer => customer.id === unit.customerId)?.name} / {unit.name}</option>)}</SelectInput>
+        <SelectInput aria-label="Filter devices by site" value={ui.site} onChange={(event) => setParam('site', event.target.value)}><option value="">All sites</option><option value="none">Unassigned site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.organizationUnit?.name ?? 'Ungrouped'} / {site.name}</option>)}</SelectInput>
         <SelectInput aria-label="Filter devices by vendor" value={ui.vendor} onChange={(event) => setParam('vendor', event.target.value)}><option value="">All vendors</option>{meta.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</SelectInput>
         <SelectInput aria-label="Filter devices by model" value={ui.model} onChange={(event) => setParam('model', event.target.value)}><option value="">All models</option>{meta.models.map((model) => <option key={model.id} value={model.id}>{model.vendor.name} · {model.model}</option>)}</SelectInput>
-        <SelectInput aria-label="Group devices" value={ui.groupBy} onChange={(event) => setParam('groupBy', event.target.value)}><option value="none">No grouping</option><option value="customer">Group by customer</option><option value="site">Group by site</option><option value="deviceType">Group by device type</option><option value="model">Group by model</option></SelectInput>
+        <SelectInput aria-label="Group devices" value={ui.groupBy} onChange={(event) => setParam('groupBy', event.target.value)}><option value="none">No grouping</option><option value="customer">Group by customer</option><option value="site">Group by site</option><option value="organizationUnit">Group by business unit</option><option value="deviceType">Group by device type</option><option value="model">Group by model</option></SelectInput>
       </div>
 
       <details className="border-t border-[var(--border)] px-4 py-3" open={Boolean(ui.deviceType || ui.contract || ui.currentFirmware || ui.desiredFirmware || ui.technicalState || ui.workflow || ui.source || ui.archive !== 'active')}>

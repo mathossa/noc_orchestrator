@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { CustomerHierarchy } from '@/components/organization-units/customer-hierarchy'
 import { useEffect, useState } from 'react'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -70,27 +71,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-5">
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-              <div><h2 className="text-sm font-semibold">Sites</h2><p className="mt-1 text-xs text-[var(--muted)]">Customer locations used to place devices and optionally override the customer default contract.</p></div>
-              <Link href={`/customers/${customer.id}/sites`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Manage sites</Link>
-            </div>
-            {customer.sites.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--muted)]">No sites configured. Devices may remain unassigned to a site until one is known.</div>
-            ) : (
-              <div className="divide-y divide-[var(--border)]">
-                {customer.sites.map((site) => (
-                  <div key={site.id} className={`flex items-center justify-between gap-4 px-4 py-3 ${site.isActive ? '' : 'opacity-60'}`}>
-                    <div className="min-w-0">
-                      <Link href={`/customers/${customer.id}/sites/${site.id}`} className="font-medium text-[var(--foreground)] hover:text-[var(--accent-light)]">{site.name}</Link>
-                      <div className="mt-1 text-xs text-[var(--muted)]">{[site.code, site.city, site.country].filter(Boolean).join(' · ') || 'No code or location details'}</div>
-                    </div>
-                    <Link href={`/devices?customer=${encodeURIComponent(customer.id)}&site=${encodeURIComponent(site.id)}`} className="shrink-0 text-sm tabular-nums text-[var(--accent-light)] hover:underline">{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</Link>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+          <CustomerHierarchy customerId={customerId} />
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="border-b border-[var(--border)] px-4 py-3">

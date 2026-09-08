@@ -11,6 +11,8 @@ export type SiteContractReference = {
 export type SiteRecord = {
   id: string
   customerId: string
+  organizationUnitId?: string | null
+  organizationUnit?: import('./organization-units').OrganizationUnitReference | null
   contractTypeId: string | null
   customer: {
     id: string
@@ -81,6 +83,7 @@ export function parseSiteInput(input: unknown) {
   const body = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const name = cleanSiteName(body.name)
   const code = cleanSiteCode(body.code)
+  const organizationUnitId = optionalText(body.organizationUnitId)
   const contractTypeId = optionalText(body.contractTypeId)
   const addressLine1 = optionalText(body.addressLine1)
   const addressLine2 = optionalText(body.addressLine2)
@@ -125,6 +128,7 @@ export function parseSiteInput(input: unknown) {
     name,
     code,
     contractTypeId,
+    organizationUnitId,
     addressLine1,
     addressLine2,
     postalCode,

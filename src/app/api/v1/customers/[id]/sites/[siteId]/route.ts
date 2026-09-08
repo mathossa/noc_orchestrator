@@ -1,3 +1,4 @@
+import { auth } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { siteApiError } from '@/lib/site-api'
 import { deleteSite, getSite, updateSite } from '@/lib/site-store'
@@ -17,7 +18,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   const { id, siteId } = await context.params
   try {
     const body = await request.json()
-    return NextResponse.json({ data: await updateSite(id, siteId, body) })
+    return NextResponse.json({ data: await updateSite(id, siteId, body, (await auth.api.getSession({ headers: request.headers }))?.user.id ?? null) })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(

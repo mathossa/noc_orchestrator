@@ -81,6 +81,7 @@ export type DeviceRecord = {
     contractType: DeviceContractReference | null
   }
   site: {
+    organizationUnit?: import('./organization-units').OrganizationUnitReference | null
     id: string
     code: string | null
     name: string
@@ -111,6 +112,7 @@ export type DeviceReferenceData = {
     contractType: DeviceContractReference | null
   }>
   sites: Array<{
+    organizationUnit?: import('./organization-units').OrganizationUnitReference | null
     id: string
     customerId: string
     code: string | null

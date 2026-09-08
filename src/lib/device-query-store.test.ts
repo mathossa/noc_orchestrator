@@ -123,3 +123,15 @@ describe('device cross-dimensional query service', () => {
     expect(result.data.map((item) => item.name)).toEqual(['SW-26', 'SW-27', 'SW-28', 'SW-29', 'SW-30'])
   })
 })
+
+it('filters and groups by unit while keeping site-less devices separate from ungrouped sites', async () => {
+  mocks.listDeviceReferences.mockResolvedValue(references)
+  mocks.policyFindMany.mockResolvedValue([])
+  const unit = { id: 'east', customerId: customer.id, parentId: null, name: 'East', isActive: true }
+  mocks.listDevices.mockResolvedValue([record({ site: { ...site, organizationUnit: unit } }), record({ id: 'ungrouped', site: { ...site, organizationUnit: null } }), record({ id: 'no-site', siteId: null, site: null })])
+  const selected = await queryDevices(parseDeviceQuery(new URLSearchParams({ organizationUnit: 'east', groupBy: 'organizationUnit' })))
+  expect(selected.data.map(item => item.id)).toEqual(['device-1'])
+  expect(selected.meta.groups).toEqual([{ key: 'east', label: 'Acme / East', count: 1 }])
+  const ungrouped = await queryDevices(parseDeviceQuery(new URLSearchParams({ organizationUnit: 'none' })))
+  expect(ungrouped.data.map(item => item.id)).toEqual(['ungrouped'])
+})

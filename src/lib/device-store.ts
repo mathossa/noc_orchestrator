@@ -62,6 +62,7 @@ const deviceInclude = {
   },
   site: {
     select: {
+      organizationUnit: { select: { id: true, customerId: true, parentId: true, name: true, isActive: true } },
       id: true,
       code: true,
       name: true,
@@ -137,6 +138,7 @@ type IncludedDevice = {
     contractType: DeviceContractReference | null
   }
   site: {
+    organizationUnit?: import('./organization-units').OrganizationUnitReference | null
     id: string
     code: string | null
     name: string
@@ -297,7 +299,7 @@ export async function listDevices() {
 export async function listDeviceReferences(): Promise<DeviceReferenceData> {
   const [customers, sites, rawModels, firmwareReleases] = await Promise.all([
     prisma.customer.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: { id: true, code: true, name: true, isActive: true, contractType: { select: contractSelect } } }),
-    prisma.site.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: { id: true, customerId: true, code: true, name: true, isActive: true, contractType: { select: contractSelect } } }),
+    prisma.site.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }], select: { id: true, customerId: true, organizationUnit: { select: { id: true, customerId: true, parentId: true, name: true, isActive: true } }, code: true, name: true, isActive: true, contractType: { select: contractSelect } } }),
     prisma.deviceModel.findMany({ orderBy: [{ isActive: 'desc' }, { model: 'asc' }], select: { id: true, model: true, platform: true, isActive: true, vendor: { select: { id: true, code: true, name: true, isActive: true } }, deviceType: { select: { id: true, code: true, name: true, isActive: true } } } }),
     prisma.firmwareRelease.findMany({ orderBy: [{ isActive: 'desc' }, { platform: 'asc' }, { version: 'asc' }], select: { id: true, vendorId: true, platform: true, version: true, status: true, isActive: true, firmwareTrain: { select: { id: true, name: true } } } }),
   ])

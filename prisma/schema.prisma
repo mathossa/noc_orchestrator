@@ -168,6 +168,7 @@ model Customer {
   sourceMetadata     Json?
 
   contractType     ContractType?   @relation(fields: [contractTypeId], references: [id], onDelete: Restrict)
+  organizationUnits CustomerOrganizationUnit[]
   sites            Site[]
   devices          Device[]
   firmwarePolicies FirmwarePolicy[]
@@ -183,7 +184,35 @@ model Customer {
   @@index([name])
 }
 
+model CustomerOrganizationUnit {
+  id String @id @default(uuid())
+  customerId String
+  parentId String?
+  name String
+  code String?
+  notes String?
+  isActive Boolean @default(true)
+  source String @default("MANUAL")
+  externalProvider String?
+  externalId String?
+  lastSynchronizedAt DateTime?
+  sourceMetadata Json?
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  parent CustomerOrganizationUnit? @relation("OrganizationUnitParent", fields: [parentId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
+  children CustomerOrganizationUnit[] @relation("OrganizationUnitParent")
+  sites Site[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  @@unique([id, customerId])
+  @@index([customerId, parentId])
+  @@index([externalProvider, externalId])
+  @@index([isActive])
+  @@index([name])
+}
+
 model Site {
+  organizationUnitId String?
+  organizationUnit CustomerOrganizationUnit? @relation(fields: [organizationUnitId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
   id             String  @id @default(uuid())
   customerId     String
   contractTypeId String?
@@ -214,7 +243,7 @@ model Site {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  @@unique([customerId, code])
+  @@index([customerId, organizationUnitId])
   @@index([customerId])
   @@index([contractTypeId])
   @@index([name])
