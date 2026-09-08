@@ -4,7 +4,7 @@ import { DeviceQueryValidationError, parseDeviceQuery } from '@/lib/device-query
 describe('device query parsing', () => {
   it('applies deterministic defaults', () => {
     expect(parseDeviceQuery(new URLSearchParams())).toEqual({
-      q: '', customer: '', site: '', vendor: '', model: '', deviceType: '', contract: '',
+      q: '', customer: '', site: '', organizationUnit: '', vendor: '', model: '', deviceType: '', contract: '',
       currentFirmware: '', desiredFirmware: '', technicalState: '', workflow: '', source: '',
       archive: 'active', groupBy: 'none', page: 1, pageSize: 50, sort: 'customer', direction: 'asc',
     })

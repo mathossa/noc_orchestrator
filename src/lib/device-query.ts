@@ -1,7 +1,7 @@
 import type { DeviceContractReference, DeviceFirmwareReference, DeviceRecord, DeviceReferenceData } from '@/lib/devices'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
-export const DEVICE_GROUP_BY = ['none', 'customer', 'site', 'deviceType', 'model'] as const
+export const DEVICE_GROUP_BY = ['none', 'customer', 'organizationUnit', 'site', 'deviceType', 'model'] as const
 export type DeviceGroupBy = (typeof DEVICE_GROUP_BY)[number]
 
 export const DEVICE_SORT_FIELDS = ['customer', 'site', 'vendor', 'model', 'deviceType', 'name', 'currentFirmware', 'desiredFirmware', 'technicalState', 'workflow', 'source'] as const
@@ -18,6 +18,7 @@ export type DeviceQuery = {
   q: string
   customer: string
   site: string
+  organizationUnit: string
   vendor: string
   model: string
   deviceType: string
@@ -132,6 +133,7 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
     q,
     customer: cleaned(params.get('customer')),
     site: cleaned(params.get('site')),
+    organizationUnit: cleaned(params.get('organizationUnit')),
     vendor: cleaned(params.get('vendor')),
     model: cleaned(params.get('model')),
     deviceType: cleaned(params.get('deviceType')),
@@ -152,7 +154,7 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
 
 export function deviceQueryHasFilters(query: DeviceQuery) {
   return Boolean(
-    query.q || query.customer || query.site || query.vendor || query.model || query.deviceType || query.contract ||
+    query.q || query.customer || query.organizationUnit || query.site || query.vendor || query.model || query.deviceType || query.contract ||
     query.currentFirmware || query.desiredFirmware || query.technicalState || query.workflow || query.source || query.archive !== 'active',
   )
 }

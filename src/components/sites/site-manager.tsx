@@ -12,6 +12,7 @@ import type { SiteContractReference, SiteFieldErrors, SiteRecord } from '@/lib/s
 type ApiError = { error?: { message?: string; fields?: SiteFieldErrors } }
 type SitePayload = { data?: SiteRecord[]; contractTypes?: SiteContractReference[] } & ApiError
 type FormState = {
+  organizationUnitId: string
   name: string
   code: string
   contractTypeId: string
@@ -29,6 +30,7 @@ type FormState = {
 }
 
 const initialForm: FormState = {
+  organizationUnitId: '',
   name: '',
   code: '',
   contractTypeId: '',
@@ -47,6 +49,8 @@ const initialForm: FormState = {
 
 export function SiteManager({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<CustomerDetailRecord | null>(null)
+  const [units, setUnits] = useState<import('@/lib/organization-units').OrganizationUnitRecord[]>([])
+  const [unitFilter, setUnitFilter] = useState('')
   const [sites, setSites] = useState<SiteRecord[]>([])
   const [contractTypes, setContractTypes] = useState<SiteContractReference[]>([])
   const [form, setForm] = useState<FormState>(initialForm)
@@ -58,6 +62,8 @@ export function SiteManager({ customerId }: { customerId: string }) {
   const [fieldErrors, setFieldErrors] = useState<SiteFieldErrors>({})
   const [search, setSearch] = useState('')
   const [archiveFilter, setArchiveFilter] = useState('active')
+  useEffect(() => { fetch(`/api/v1/customers/${customerId}/organization-units`).then(async response => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error?.message ?? 'Units could not be loaded.'); setUnits(payload.data) }).catch(e => setError(e.message)) }, [customerId])
+
 
   const load = useCallback(async () => {
     const [customerResponse, siteResponse] = await Promise.all([
@@ -111,6 +117,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
   function beginEdit(site: SiteRecord) {
     setEditingId(site.id)
     setForm({
+      organizationUnitId: site.organizationUnitId ?? '',
       name: site.name,
       code: site.code ?? '',
       contractTypeId: site.contractTypeId ?? '',
@@ -195,6 +202,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('en-US')
     return sites.filter((site) => {
+      if (unitFilter && (site.organizationUnitId ?? 'none') !== unitFilter) return false
       if (archiveFilter === 'active' && !site.isActive) return false
       if (archiveFilter === 'archived' && site.isActive) return false
       if (!needle) return true
@@ -210,7 +218,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
         .toLocaleLowerCase('en-US')
         .includes(needle)
     })
-  }, [sites, search, archiveFilter])
+  }, [sites, search, archiveFilter, unitFilter])
 
   if (loading) return <LoadingState title="Loading customer sites" description="Reading customer location records…" />
 
@@ -220,6 +228,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
 
   return (
     <>
+      <div className="mb-3"><SelectInput aria-label="Filter sites by business unit" value={unitFilter} onChange={e => setUnitFilter(e.target.value)}><option value="">All business units</option><option value="none">Ungrouped</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</SelectInput></div>
       <PageHeader
         eyebrow="Customer sites"
         title={customer ? `${customer.name} sites` : 'Customer sites'}
@@ -240,6 +249,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <FormField label="Business unit" htmlFor="site-unit"><SelectInput id="site-unit" value={form.organizationUnitId} onChange={e => setForm({ ...form, organizationUnitId: e.target.value })}><option value="">Ungrouped</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.name}{unit.isActive ? '' : ' (inactive)'}</option>)}</SelectInput></FormField>
           <FormField label="Site name" htmlFor="site-name" error={fieldErrors.name}>
             <TextInput id="site-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Head office" required />
           </FormField>
@@ -313,7 +323,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
               <tbody className="divide-y divide-[var(--border)]">
                 {filtered.map((site) => (
                   <tr key={site.id} className={site.isActive ? '' : 'opacity-60'}>
-                    <td className="px-4 py-3"><Link href={`/customers/${customerId}/sites/${site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{site.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{site.code ?? 'No code'}</div></td>
+                    <td className="px-4 py-3"><Link href={`/customers/${customerId}/sites/${site.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{site.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{site.organizationUnit?.name ?? 'Ungrouped'} · {site.code ?? 'No code'}</div></td>
                     <td className="px-4 py-3 text-[var(--muted-strong)]">{[site.city, site.region, site.country].filter(Boolean).join(', ') || '—'}</td>
                     <td className="px-4 py-3"><div>{site.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                     <td className="px-4 py-3 tabular-nums">{site.deviceCount}</td>

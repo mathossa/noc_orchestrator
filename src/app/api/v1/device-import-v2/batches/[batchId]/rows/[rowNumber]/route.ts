@@ -1,3 +1,4 @@
+import { previewCanonicalHierarchy, hierarchyInputFromEvaluated } from '@/lib/importer-v2-canonical-hierarchy-store'
 import { NextResponse } from 'next/server'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
@@ -35,6 +36,7 @@ export async function GET(_request: Request, context: RouteContext) {
         activeErrorCount: effective.activeErrorCount,
         activeWarningCount: effective.activeWarningCount,
         identityReview,
+        canonicalHierarchy: await previewCanonicalHierarchy(hierarchyInputFromEvaluated(effective.evaluated)),
       },
     })
   } catch (error) {

@@ -555,6 +555,7 @@ export function ImporterV2Inspector({
               <p className="text-xs text-[var(--muted)]">No active field errors or warnings.</p>
             ) : null}
 
+            {detail?.canonicalHierarchy && <section className="rounded-md border border-[var(--border)] p-3"><h3 className="text-sm font-semibold">Canonical customer hierarchy</h3><p className="mt-1 text-xs text-[var(--muted)]">{detail.canonicalHierarchy.ready ? 'Hierarchy resolved for publication review.' : 'Hierarchy needs review before publication.'}</p>{(['customer', 'organizationUnit', 'site'] as const).map(key => <div key={key} className="mt-3 text-xs"><strong>{key === 'organizationUnit' ? 'Business unit' : key === 'customer' ? 'Customer' : 'Site'}: {detail.canonicalHierarchy![key].label ?? 'Ungrouped'}</strong><p className="mt-1 text-[var(--muted)]">{detail.canonicalHierarchy![key].reason}</p></div>)}</section>}
             {detail?.identityReview ? (
               <section className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
                 <div className="flex items-start justify-between gap-3">

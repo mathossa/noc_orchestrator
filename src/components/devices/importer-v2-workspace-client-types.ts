@@ -77,6 +77,7 @@ export type RowDetail = WorkspaceRow & {
     comparisonRecordId?: string | null
   }
   identityResolution?: unknown
+  canonicalHierarchy?: ReturnType<typeof import('@/lib/importer-v2-canonical-hierarchy').resolveCanonicalHierarchy>
   identityReview?: ImporterV2WorkspaceIdentityReview | null
   alternatives?: unknown
   repeatDiff?: unknown

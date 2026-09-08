@@ -233,17 +233,18 @@ export async function deleteCustomer(id: string) {
   const current = await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true } })
   if (!current) throw new CustomerNotFoundError()
 
-  const [sites, devices, policies, auditEvents] = await Promise.all([
+  const [sites, devices, policies, auditEvents, units] = await Promise.all([
     prisma.site.count({ where: { customerId: id } }),
     prisma.device.count({ where: { customerId: id } }),
     prisma.firmwarePolicy.count({ where: { customerId: id } }),
     prisma.auditEvent.count({ where: { customerId: id } }),
+    prisma.customerOrganizationUnit.count({ where: { customerId: id } }),
   ])
 
-  const references = sites + devices + policies + auditEvents
+  const references = sites + devices + policies + auditEvents + units
   if (references > 0) {
     throw new CustomerInUseError(
-      `This customer is referenced by ${references} site, device, policy, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
+      `This customer is referenced by ${references} unit, site, device, policy, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
     )
   }
 

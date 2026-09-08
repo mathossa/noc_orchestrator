@@ -22,6 +22,8 @@ export function SiteOverview() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
+  const [unitFilter, setUnitFilter] = useState('')
+  const units = [...new Map(sites.filter(site => !customerFilter || site.customerId === customerFilter).flatMap(site => site.organizationUnit ? [[site.organizationUnit.id, site.organizationUnit] as const] : [])).values()]
   const [archiveFilter, setArchiveFilter] = useState('active')
 
   useEffect(() => {
@@ -51,6 +53,7 @@ export function SiteOverview() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('en-US')
     return sites.filter((site) => {
+      if (unitFilter && (site.organizationUnitId ?? 'none') !== unitFilter) return false
       if (customerFilter && site.customerId !== customerFilter) return false
       if (archiveFilter === 'active' && !site.isActive) return false
       if (archiveFilter === 'archived' && site.isActive) return false
@@ -70,7 +73,7 @@ export function SiteOverview() {
         .toLocaleLowerCase('en-US')
         .includes(needle)
     })
-  }, [sites, search, customerFilter, archiveFilter])
+  }, [sites, search, customerFilter, archiveFilter, unitFilter])
 
   return (
     <>
@@ -88,6 +91,7 @@ export function SiteOverview() {
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="grid gap-3 border-b border-[var(--border)] p-4 md:grid-cols-3">
+          <SelectInput aria-label="Filter sites by business unit" value={unitFilter} onChange={e => setUnitFilter(e.target.value)}><option value="">All business units</option><option value="none">Ungrouped</option>{units.map(unit => <option key={unit.id} value={unit.id}>{customers.find(customer => customer.id === unit.customerId)?.name} / {unit.name}</option>)}</SelectInput>
           <TextInput
             type="search"
             aria-label="Search sites"
@@ -98,7 +102,7 @@ export function SiteOverview() {
           <SelectInput
             aria-label="Filter sites by customer"
             value={customerFilter}
-            onChange={(event) => setCustomerFilter(event.target.value)}
+            onChange={(event) => { setCustomerFilter(event.target.value); setUnitFilter('') }}
           >
             <option value="">All customers</option>
             {customers.map((customer) => (
@@ -146,7 +150,7 @@ export function SiteOverview() {
                       >
                         {site.name}
                       </Link>
-                      <div className="mt-1 font-mono text-xs text-[var(--muted)]">{site.code ?? 'No code'}</div>
+                      <div className="mt-1 font-mono text-xs text-[var(--muted)]">{site.organizationUnit?.name ?? 'Ungrouped'} · {site.code ?? 'No code'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/customers/${site.customerId}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]">
