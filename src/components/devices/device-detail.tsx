@@ -135,7 +135,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             <dl className="mt-4 space-y-3 text-sm">
               <DetailRow label="Current release" value={device.currentFirmwareRelease ? <Link href={`/firmware/${device.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{device.currentFirmwareRelease.version}</Link> : 'Unknown'} />
               <DetailRow label="Current train" value={device.currentFirmwareRelease?.firmwareTrain?.name ?? '—'} />
-              <DetailRow label="Platform" value={device.currentFirmwareRelease?.platform ?? device.deviceModel.platform ?? '—'} />
+              <DetailRow label="Current platform" value={device.currentFirmwareRelease?.platform ?? 'Unknown'} />
               <DetailRow label="Firmware source" value={device.currentFirmwareRelease ? device.currentFirmwareSource : '—'} />
               <DetailRow label="Observed / reported" value={device.currentFirmwareObservedAt ? new Date(device.currentFirmwareObservedAt).toLocaleString() : 'Unknown'} />
               <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />

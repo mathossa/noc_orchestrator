@@ -4,6 +4,10 @@ import { normalizedDeviceModelName, parseDeviceModelInput, type DeviceModelFirmw
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
 import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 import {
+  listConfiguredModelSupportedPlatforms,
+  syncModelSupportedPlatforms,
+} from '@/lib/model-platform-compatibility-store'
+import {
   emptyTechnicalFirmwareStateCounts,
   incrementTechnicalFirmwareStateCount,
   resolveTechnicalFirmwareState,
@@ -121,6 +125,7 @@ function serializeFirmware(release: {
 function serializeDeviceModel(
   record: IncludedDeviceModel,
   desiredFirmwareRelease: DeviceModelFirmwareReference | null = null,
+  supportedPlatforms: string[] = [],
 ) {
   return {
     id: record.id,
@@ -128,7 +133,7 @@ function serializeDeviceModel(
     deviceTypeId: record.deviceTypeId,
     familyId: record.familyId,
     model: record.model,
-    platform: record.platform,
+    supportedPlatforms,
     notes: record.notes,
     isActive: record.isActive,
     source: record.source,
@@ -178,24 +183,31 @@ export async function listDeviceModels() {
     include: deviceModelInclude,
   })
   const modelIds = records.map((record) => record.id)
-  const policies = modelIds.length
-    ? await prisma.firmwarePolicy.findMany({
-        where: {
-          ...modelBaselineScope,
-          deviceModelId: { in: modelIds },
-          effectiveFrom: { lte: new Date() },
-          isDefaultTrack: true,
-        },
-        orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-        select: { deviceModelId: true, targetFirmwareRelease: { select: firmwareSelect } },
-      })
-    : []
+  const [policies, supportedByModel] = await Promise.all([
+    modelIds.length
+      ? prisma.firmwarePolicy.findMany({
+          where: {
+            ...modelBaselineScope,
+            deviceModelId: { in: modelIds },
+            effectiveFrom: { lte: new Date() },
+            isDefaultTrack: true,
+          },
+          orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          select: { deviceModelId: true, targetFirmwareRelease: { select: firmwareSelect } },
+        })
+      : Promise.resolve([]),
+    listConfiguredModelSupportedPlatforms(modelIds),
+  ])
   const desiredByModel = new Map<string, DeviceModelFirmwareReference>()
   for (const policy of policies) {
     if (!policy.deviceModelId || desiredByModel.has(policy.deviceModelId) || !policy.targetFirmwareRelease) continue
     desiredByModel.set(policy.deviceModelId, serializeFirmware(policy.targetFirmwareRelease))
   }
-  return records.map((record) => serializeDeviceModel(record as IncludedDeviceModel, desiredByModel.get(record.id) ?? null))
+  return records.map((record) => serializeDeviceModel(
+    record as IncludedDeviceModel,
+    desiredByModel.get(record.id) ?? null,
+    supportedByModel.get(record.id) ?? [],
+  ))
 }
 
 export async function listDeviceModelReferences() {
@@ -237,7 +249,7 @@ export async function getDeviceModel(id: string) {
   })
   if (!record) throw new DeviceModelNotFoundError()
 
-  const [desiredPolicy, vendorReleases, auditHistory] = await Promise.all([
+  const [desiredPolicy, vendorReleases, auditHistory, supportedByModel] = await Promise.all([
     getActiveModelDesiredPolicy(record.id),
     prisma.firmwareRelease.findMany({
       where: { vendorId: record.vendorId },
@@ -245,11 +257,9 @@ export async function getDeviceModel(id: string) {
       select: firmwareSelect,
     }),
     listAuditEventsForEntity('DeviceModel', id),
+    listConfiguredModelSupportedPlatforms([id]),
   ])
 
-  // #43 allows cross-platform desired tracks. Do not treat the legacy single
-  // DeviceModel.platform field as a compatibility gate; #57 will provide the
-  // concrete model/image compatibility resolver.
   const availableReleases = vendorReleases
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
@@ -293,7 +303,11 @@ export async function getDeviceModel(id: string) {
 
   const desiredRelease = desiredPolicy?.release ?? null
   return {
-    ...serializeDeviceModel(record as IncludedDeviceModel, desiredRelease),
+    ...serializeDeviceModel(
+      record as IncludedDeviceModel,
+      desiredRelease,
+      supportedByModel.get(record.id) ?? [],
+    ),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     customers: [...customerMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -321,10 +335,19 @@ export async function getDeviceModel(id: string) {
 
 export async function createDeviceModel(rawInput: unknown) {
   const input = parseDeviceModelInput(rawInput)
-  await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
-  await assertUniqueWithinVendor(input.vendorId, input.model)
-  const record = await prisma.deviceModel.create({ data: input, include: deviceModelInclude })
-  return serializeDeviceModel(record as IncludedDeviceModel)
+  const { supportedPlatforms, ...modelData } = input
+  await assertReferences(modelData.vendorId, modelData.deviceTypeId, modelData.familyId)
+  await assertUniqueWithinVendor(modelData.vendorId, modelData.model)
+  const record = await prisma.deviceModel.create({ data: modelData, include: deviceModelInclude })
+  const initialSupport = supportedPlatforms ?? (modelData.platform ? [modelData.platform] : null)
+  if (initialSupport) {
+    await syncModelSupportedPlatforms({
+      deviceModelId: record.id,
+      vendorId: record.vendorId,
+      supportedPlatforms: initialSupport,
+    })
+  }
+  return serializeDeviceModel(record as IncludedDeviceModel, null, initialSupport ?? [])
 }
 
 export async function updateDeviceModel(id: string, rawInput: unknown) {
@@ -345,11 +368,20 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
     externalId: current.externalId,
     ...patch,
   })
+  const { supportedPlatforms, ...modelData } = input
 
-  await assertReferences(input.vendorId, input.deviceTypeId, input.familyId)
-  await assertUniqueWithinVendor(input.vendorId, input.model, id)
-  const record = await prisma.deviceModel.update({ where: { id }, data: input, include: deviceModelInclude })
-  return serializeDeviceModel(record as IncludedDeviceModel)
+  await assertReferences(modelData.vendorId, modelData.deviceTypeId, modelData.familyId)
+  await assertUniqueWithinVendor(modelData.vendorId, modelData.model, id)
+  const record = await prisma.deviceModel.update({ where: { id }, data: modelData, include: deviceModelInclude })
+  if (supportedPlatforms) {
+    await syncModelSupportedPlatforms({
+      deviceModelId: record.id,
+      vendorId: record.vendorId,
+      supportedPlatforms,
+    })
+  }
+  const support = supportedPlatforms ?? (await listConfiguredModelSupportedPlatforms([id])).get(id) ?? []
+  return serializeDeviceModel(record as IncludedDeviceModel, null, support)
 }
 
 export async function deleteDeviceModel(id: string) {

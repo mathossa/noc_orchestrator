@@ -43,7 +43,7 @@ type FormState = {
   deviceTypeId: string
   familyId: string
   model: string
-  platform: string
+  supportedPlatformsText: string
   notes: string
   source: string
   externalProvider: string
@@ -65,7 +65,7 @@ const initialForm: FormState = {
   deviceTypeId: '',
   familyId: '',
   model: '',
-  platform: '',
+  supportedPlatformsText: '',
   notes: '',
   source: 'MANUAL',
   externalProvider: '',
@@ -86,7 +86,7 @@ function formForRecord(record: DeviceModelRecord): FormState {
     deviceTypeId: record.deviceTypeId,
     familyId: record.familyId ?? '',
     model: record.model,
-    platform: record.platform ?? '',
+    supportedPlatformsText: record.supportedPlatforms.join(', '),
     notes: record.notes ?? '',
     source: record.source,
     externalProvider: record.externalProvider ?? '',
@@ -102,6 +102,13 @@ function familyFormForRecord(record: DeviceModelFamilyRecord): FamilyFormState {
     notes: record.notes ?? '',
     isActive: record.isActive,
   }
+}
+
+function parseSupportedPlatformsText(value: string) {
+  return value
+    .split(',')
+    .map((platform) => platform.trim())
+    .filter(Boolean)
 }
 
 async function fetchModels() {
@@ -226,10 +233,15 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
     setFieldErrors({})
 
     try {
+      const { supportedPlatformsText, ...modelForm } = form
       const response = await fetch(editingId ? `/api/v1/models/${editingId}` : '/api/v1/models', {
         method: editingId ? 'PATCH' : 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...form, familyId: form.familyId || null }),
+        body: JSON.stringify({
+          ...modelForm,
+          familyId: form.familyId || null,
+          supportedPlatforms: parseSupportedPlatformsText(supportedPlatformsText),
+        }),
       })
       const payload = (await response.json()) as ApiError
       if (!response.ok) {
@@ -373,7 +385,13 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       if (familyFilter === '__none__' && record.familyId) return false
       if (familyFilter && familyFilter !== '__none__' && record.familyId !== familyFilter) return false
       if (!query) return true
-      return [record.model, record.platform, record.vendor.name, record.deviceType.name, record.family?.name]
+      return [
+        record.model,
+        record.supportedPlatforms.join(' '),
+        record.vendor.name,
+        record.deviceType.name,
+        record.family?.name,
+      ]
         .filter(Boolean)
         .some((value) => value?.toLocaleLowerCase('en-US').includes(query))
     })
@@ -484,7 +502,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       <PageHeader
         eyebrow="Firmware catalog"
         title="Device models"
-        description="Manage concrete hardware variants, group them into explicit vendor families / series, and apply exact desired firmware to compatible selections."
+        description="Manage concrete hardware variants, their supported firmware platforms, explicit vendor families / series, and desired firmware policy."
         actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>}
       />
 
@@ -528,7 +546,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
           </div>
 
           <form onSubmit={(event) => void saveFamily(event)} className="space-y-3 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
-            <div><h3 className="text-sm font-semibold">{familyEditingId ? 'Edit family / series' : 'Add family / series'}</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Vendor-scoped grouping only. A family does not inherit or auto-apply firmware.</p></div>
+            <div><h3 className="text-sm font-semibold">{familyEditingId ? 'Edit family / series' : 'Add family / series'}</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Vendor-scoped grouping. Family-level compatibility may provide inherited evidence, while concrete supported-platform selections can restrict it.</p></div>
             <FormField label="Vendor" htmlFor="family-vendor" error={familyFieldErrors.vendorId}>
               <SelectInput id="family-vendor" value={familyForm.vendorId} onChange={(event) => setFamilyForm((current) => ({ ...current, vendorId: event.target.value }))} required>
                 <option value="">Select vendor</option>
@@ -546,7 +564,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0 space-y-4">
           <FilterBar>
-            <FilterSearch id="model-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Model, family, platform, vendor…" />
+            <FilterSearch id="model-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Model, family, supported platform, vendor…" />
             <FilterSelect id="model-vendor-filter" label="Vendor" value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)} options={[{ value: '', label: 'All vendors' }, ...references.vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))]} />
             <FilterSelect id="model-type-filter" label="Device type" value={deviceTypeFilter} onChange={(event) => setDeviceTypeFilter(event.target.value)} options={[{ value: '', label: 'All device types' }, ...references.deviceTypes.map((deviceType) => ({ value: deviceType.id, label: deviceType.name }))]} />
             <FilterSelect id="model-family-filter" label="Family / series" value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)} options={[{ value: '', label: 'All families' }, { value: '__none__', label: 'No family / series' }, ...references.families.map((family) => ({ value: family.id, label: `${family.name} · ${references.vendors.find((vendor) => vendor.id === family.vendorId)?.name ?? 'Vendor'}` }))]} />
@@ -556,11 +574,11 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
           {selectedModels.length > 0 ? (
             <section className="rounded-lg border border-[var(--accent-muted)] bg-[var(--surface)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div><h2 className="text-sm font-semibold">Bulk desired firmware · {selectedModels.length} selected</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This explicitly changes each selected concrete model policy. Family membership itself never inherits firmware.</p></div>
+                <div><h2 className="text-sm font-semibold">Bulk desired firmware · {selectedModels.length} selected</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This explicitly changes each selected concrete model policy. Supported-platform compatibility is respected; family membership itself never chooses desired firmware.</p></div>
                 <Button variant="ghost" onClick={() => { setSelectedIds([]); setBulkReleaseId('') }}>Clear selection</Button>
               </div>
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
-                <FormField label="Exact desired release" htmlFor="bulk-desired-release" description={mixedVendors ? 'Mixed vendors cannot share a firmware target. Clear is still available.' : commonReleases.length === 0 ? 'No APPROVED/RECOMMENDED release is compatible with every selected model.' : 'Only releases compatible with every selected concrete model are offered.'}>
+                <FormField label="Exact desired release" htmlFor="bulk-desired-release" description={mixedVendors ? 'Mixed vendors cannot share a firmware target. Clear is still available.' : commonReleases.length === 0 ? 'No policy-eligible release is compatible with every selected model.' : 'Known-incompatible platforms are excluded. Unknown compatibility may still require review in the model detail.'}>
                   <SelectInput id="bulk-desired-release" value={validBulkReleaseId} onChange={(event) => setBulkReleaseId(event.target.value)} disabled={mixedVendors || commonReleases.length === 0 || bulkSaving}>
                     <option value="">Select exact release</option>
                     {commonReleases.map((release) => <option key={release.id} value={release.id}>{release.version} · {release.platform} · {release.status}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''}</option>)}
@@ -574,7 +592,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
 
           <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div><h2 className="text-sm font-semibold">Concrete models</h2><p className="mt-0.5 text-xs text-[var(--muted)]">Devices always reference these concrete models. Desired firmware shown here is the exact active model policy.</p></div>
+              <div><h2 className="text-sm font-semibold">Concrete models</h2><p className="mt-0.5 text-xs text-[var(--muted)]">Devices always reference these concrete models. Supported platforms describe what each model can run; desired firmware is separate policy intent.</p></div>
               <span className="text-xs text-[var(--muted)]">{filteredRecords.length} shown / {records.length} total</span>
             </div>
 
@@ -607,18 +625,30 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
         </div>
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Family / series is optional grouping. Platform remains the concrete firmware-compatibility field.</p></div>
+          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Family / series is optional grouping. Supported firmware platforms are the model&apos;s explicit broad compatibility selection.</p></div>
 
           {activeVendorCount === 0 || activeTypeCount === 0 ? <div className="mb-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">You need at least one active vendor and one active device type before creating a model.</div> : null}
 
-          {editingId ? <div className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Desired firmware</div><p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">Desired firmware remains an explicit policy separate from family and model metadata.</p><Link href={`/models/${editingId}#desired-firmware-policy`} className="mt-2 inline-flex text-sm font-semibold text-[var(--accent-light)] hover:underline">Configure desired firmware →</Link></div> : null}
+          {editingId ? <div className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Desired firmware</div><p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">Desired firmware remains an explicit policy separate from model compatibility.</p><Link href={`/models/${editingId}#desired-firmware-policy`} className="mt-2 inline-flex text-sm font-semibold text-[var(--accent-light)] hover:underline">Configure desired firmware →</Link></div> : null}
 
           <form onSubmit={(event) => void saveModel(event)} className="space-y-4">
             <FormField label="Vendor" htmlFor="model-vendor" error={fieldErrors.vendorId}><SelectInput id="model-vendor" value={form.vendorId} onChange={(event) => changeModelVendor(event.target.value)} required><option value="">Select vendor</option>{references.vendors.map((vendor) => <option key={vendor.id} value={vendor.id} disabled={!vendor.isActive && vendor.id !== form.vendorId}>{vendor.name}{vendor.isActive ? '' : ' (archived)'}</option>)}</SelectInput></FormField>
             <FormField label="Family / series" htmlFor="model-family" description={form.vendorId ? 'Optional explicit grouping; only families from the selected vendor are shown.' : 'Select a vendor first.'} error={fieldErrors.familyId}><SelectInput id="model-family" value={form.familyId} onChange={(event) => setForm((current) => ({ ...current, familyId: event.target.value }))} disabled={!form.vendorId}><option value="">No family / series</option>{modelFamilies.map((family) => <option key={family.id} value={family.id} disabled={!family.isActive && family.id !== form.familyId}>{family.name}{family.isActive ? '' : ' (archived)'}</option>)}</SelectInput></FormField>
             <FormField label="Device type" htmlFor="model-device-type" error={fieldErrors.deviceTypeId}><SelectInput id="model-device-type" value={form.deviceTypeId} onChange={(event) => setForm((current) => ({ ...current, deviceTypeId: event.target.value }))} required><option value="">Select device type</option>{references.deviceTypes.map((deviceType) => <option key={deviceType.id} value={deviceType.id} disabled={!deviceType.isActive && deviceType.id !== form.deviceTypeId}>{deviceType.name}{deviceType.isActive ? '' : ' (archived)'}</option>)}</SelectInput></FormField>
             <FormField label="Concrete model" htmlFor="model-name" error={fieldErrors.model}><TextInput id="model-name" value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder="e.g. 2530-24G" required /></FormField>
-            <FormField label="Platform / firmware compatibility" htmlFor="model-platform" error={fieldErrors.platform} description="Optional. Kept on the concrete model because variants in one marketing family may use different firmware."><TextInput id="model-platform" value={form.platform} onChange={(event) => setForm((current) => ({ ...current, platform: event.target.value }))} placeholder="e.g. AOS-S" /></FormField>
+            <FormField
+              label="Supported firmware platforms"
+              htmlFor="model-supported-platforms"
+              error={fieldErrors.supportedPlatforms}
+              description="Optional. Enter one or more supported platforms separated by commas. A non-empty list is authoritative: unselected same-vendor platforms are incompatible for this model."
+            >
+              <TextInput
+                id="model-supported-platforms"
+                value={form.supportedPlatformsText}
+                onChange={(event) => setForm((current) => ({ ...current, supportedPlatformsText: event.target.value }))}
+                placeholder="e.g. AOS-S, AOS-S-v2"
+              />
+            </FormField>
             <FormField label="Notes" htmlFor="model-notes" error={fieldErrors.notes}><TextArea id="model-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional firmware or model-specific notes" /></FormField>
 
             <details className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3" open={form.source !== 'MANUAL'}><summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">Advanced / synchronization identity</summary><div className="mt-4 space-y-4"><FormField label="Source" htmlFor="model-source" error={fieldErrors.source}><SelectInput id="model-source" value={form.source} onChange={(event) => setForm((current) => ({ ...current, source: event.target.value }))}><option value="MANUAL">Manual</option><option value="API">API</option><option value="IMPORT">Import</option></SelectInput></FormField><FormField label="External provider" htmlFor="model-external-provider" error={fieldErrors.externalProvider}><TextInput id="model-external-provider" value={form.externalProvider} onChange={(event) => setForm((current) => ({ ...current, externalProvider: event.target.value }))} placeholder="Optional source system" /></FormField><FormField label="External ID" htmlFor="model-external-id" error={fieldErrors.externalId}><TextInput id="model-external-id" value={form.externalId} onChange={(event) => setForm((current) => ({ ...current, externalId: event.target.value }))} placeholder="Stable ID in the source system" /></FormField></div></details>
@@ -664,7 +694,7 @@ function ModelTable({
             <th className="px-3 py-2.5 font-semibold">Model</th>
             <th className="px-3 py-2.5 font-semibold">Family / series</th>
             <th className="px-3 py-2.5 font-semibold">Vendor / type</th>
-            <th className="px-3 py-2.5 font-semibold">Platform</th>
+            <th className="px-3 py-2.5 font-semibold">Supported platforms</th>
             <th className="px-3 py-2.5 font-semibold">Desired firmware</th>
             <th className="px-3 py-2.5 text-right font-semibold">Devices</th>
             <th className="px-3 py-2.5 font-semibold">Status</th>
@@ -678,7 +708,7 @@ function ModelTable({
               <td className="px-3 py-2.5"><Link href={`/models/${record.id}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)]">{record.model}</Link><div className="mt-0.5 text-xs text-[var(--muted)]">{record.source}</div></td>
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.family?.name ?? '—'}</td>
               <td className="px-3 py-2.5"><div className="text-[var(--muted-strong)]">{record.vendor.name}</div><div className="mt-0.5 text-xs text-[var(--muted)]">{record.deviceType.name}</div></td>
-              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.platform ?? '—'}</td>
+              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.supportedPlatforms.length ? record.supportedPlatforms.join(', ') : 'Unknown'}</td>
               <td className="px-3 py-2.5">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}<span className="ml-2 font-sans text-xs font-normal text-[var(--muted)]">{record.desiredFirmwareRelease.status}</span></Link> : <span className="text-xs text-[var(--muted)]">No policy</span>}</td>
               <td className="px-3 py-2.5 text-right tabular-nums"><Link href={`/devices?model=${encodeURIComponent(record.id)}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.deviceCount}</Link></td>
               <td className="px-3 py-2.5"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs text-[var(--muted-strong)]">{record.isActive ? 'Active' : 'Archived'}</span></td>

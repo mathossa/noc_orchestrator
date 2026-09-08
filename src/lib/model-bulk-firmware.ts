@@ -1,6 +1,10 @@
 import type { DeviceModelFirmwareReference, DeviceModelRecord } from '@/lib/device-models'
 import { isFirmwarePolicyEligible } from '@/lib/firmware-releases'
 
+function normalizePlatform(value: string) {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
+
 export function commonCompatibleDesiredReleases(
   models: DeviceModelRecord[],
   releases: DeviceModelFirmwareReference[],
@@ -9,12 +13,20 @@ export function commonCompatibleDesiredReleases(
   const vendorId = models[0].vendorId
   if (models.some((model) => model.vendorId !== vendorId)) return []
 
-  // #43 deliberately does not use DeviceModel.platform as a compatibility
-  // gate. A hardware family/model may support multiple software platforms and
-  // a desired track may intentionally migrate from one platform to another.
-  // #57 owns exact model/image compatibility. Until then, only expose canonical
-  // policy-eligible releases from the same vendor.
-  return releases.filter((release) => release.vendorId === vendorId && isFirmwarePolicyEligible(release))
+  return releases.filter((release) => {
+    if (release.vendorId !== vendorId || !isFirmwarePolicyEligible(release)) return false
+    const releasePlatform = normalizePlatform(release.platform)
+
+    // A non-empty supported-platform selection is explicit broad compatibility
+    // evidence. Do not offer a release when any selected model explicitly
+    // excludes its platform. An empty selection remains UNKNOWN, so the target
+    // may still be offered for policy intent and the backend will mark it for
+    // review or reject more-specific incompatibility evidence.
+    return models.every((model) => {
+      if (model.supportedPlatforms.length === 0) return true
+      return model.supportedPlatforms.some((platform) => normalizePlatform(platform) === releasePlatform)
+    })
+  })
 }
 
 export type DeviceModelCatalogGroupBy = 'none' | 'vendor' | 'deviceType' | 'family'
