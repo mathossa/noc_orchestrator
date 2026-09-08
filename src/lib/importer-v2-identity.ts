@@ -264,12 +264,12 @@ export function resolveImporterV2Identity(
   if (matchedCandidates.length === 0) {
     return {
       kind: 'NEW',
-      requiresConfirmation: true,
+      requiresConfirmation: false,
       normalizedIdentifiers,
       candidates: [],
       options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
       explanation:
-        'No canonical device is supported by the supplied durable identifiers. Creating a new device still requires confirmation.',
+        'No canonical device is supported by the supplied durable identifiers. The row can be proposed as a new device without per-row confirmation; final batch publication remains explicit.',
     }
   }
 
@@ -292,14 +292,17 @@ export function resolveImporterV2Identity(
     }
   }
 
+  const candidate = matchedCandidates[0]
+  const automaticallyTrusted = candidate.confidence === 'HIGH'
   return {
     kind: 'MATCH_SUGGESTED',
-    requiresConfirmation: true,
+    requiresConfirmation: !automaticallyTrusted,
     normalizedIdentifiers,
     candidates: matchedCandidates,
     options: ['CONFIRM_MATCH', 'CREATE_NEW', 'MANUAL_OVERRIDE'],
-    explanation:
-      'One canonical device is supported by durable identity evidence. The suggestion still requires confirmation.',
+    explanation: automaticallyTrusted
+      ? 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
+      : 'One canonical device is supported by durable identity evidence, but the evidence is not strong enough for automatic reuse and still requires confirmation.',
   }
 }
 
