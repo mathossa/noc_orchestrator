@@ -50,10 +50,6 @@ export function FirmwareComplianceStatus({
           : 'No resolved preferred target',
       ].join('\n')}
     >
-      <span
-        aria-hidden="true"
-        className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-current"
-      />
       <span className="min-w-0 whitespace-normal">
         <span className="block text-xs font-semibold leading-4">{label}</span>
         {detail ? (
