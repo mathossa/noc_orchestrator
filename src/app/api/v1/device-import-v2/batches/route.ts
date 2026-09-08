@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { listImporterV2WorkspaceBatches } from '@/lib/importer-v2-workspace-store'
 import {
-  stageImporterV2Xlsx,
   type ImporterV2XlsxStageConfig,
 } from '@/lib/importer-v2-ingestion-store'
+import { stageImporterV2XlsxWithAutomation } from '@/lib/importer-v2-workspace-maintenance'
 import { XlsxImportError } from '@/lib/xlsx-reader'
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       )
     }
     const config = parseStageConfig(formData.get('config'))
-    const data = await stageImporterV2Xlsx({ file, config })
+    const data = await stageImporterV2XlsxWithAutomation({ file, config })
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The workbook could not be staged.'
