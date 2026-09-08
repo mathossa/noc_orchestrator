@@ -210,7 +210,7 @@ function targetLabel(value: CanonicalTarget) {
 function proposalContext(
   field: ImporterV2CatalogProposalField,
   values: Partial<Record<ImporterV2Field, CanonicalTarget>>,
-) {
+): Record<string, string | null> {
   const contextValue = (name: ImporterV2Field) => targetKey(values[name] ?? null)
   switch (field) {
     case 'businessUnit':
@@ -510,6 +510,7 @@ export function buildImporterV2PublicationQa(input: {
     },
   }
 }
+
 
 export function importerV2OwnedDeviceScalarPatch(input: {
   allowedFields: ReadonlySet<string>
