@@ -1,6 +1,8 @@
+import { result as complianceResult, release as complianceRelease } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   listDevices: vi.fn(),
   listDeviceReferences: vi.fn(),
   policyFindMany: vi.fn(),
@@ -10,6 +12,8 @@ vi.mock('@/lib/device-store', () => ({
   listDevices: mocks.listDevices,
   listDeviceReferences: mocks.listDeviceReferences,
 }))
+
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { firmwarePolicy: { findMany: mocks.policyFindMany } },
@@ -51,6 +55,7 @@ const references = {
 describe('device cross-dimensional query service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
     mocks.listDeviceReferences.mockResolvedValue(references)
     mocks.policyFindMany.mockResolvedValue([{ deviceModelId: 'model-1', targetFirmwareRelease: desiredRelease }])
   })
@@ -76,8 +81,8 @@ describe('device cross-dimensional query service', () => {
       contractSource: 'SITE',
     })
     expect(result.meta.pagination).toMatchObject({ total: 1, inventoryTotal: 2 })
-    expect(mocks.policyFindMany).toHaveBeenCalledTimes(1)
-    expect(mocks.policyFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ deviceModelId: { in: ['model-1'] } }) }))
+    expect(mocks.compliance).toHaveBeenCalledWith(['device-1', 'device-2'])
+    expect(mocks.policyFindMany).not.toHaveBeenCalled()
   })
 
   it('uses customer contract fallback only when the site has no override', async () => {
@@ -125,6 +130,7 @@ describe('device cross-dimensional query service', () => {
 })
 
 it('filters and groups by unit while keeping site-less devices separate from ungrouped sites', async () => {
+  mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
   mocks.listDeviceReferences.mockResolvedValue(references)
   mocks.policyFindMany.mockResolvedValue([])
   const unit = { id: 'east', customerId: customer.id, parentId: null, name: 'East', isActive: true }

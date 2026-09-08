@@ -1,3 +1,4 @@
+import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { DeviceContractReference, DeviceFirmwareReference, DeviceRecord, DeviceReferenceData } from '@/lib/devices'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
@@ -39,6 +40,7 @@ export type DeviceQuery = {
 export type DeviceQueryRecord = DeviceRecord & {
   desiredFirmwareRelease: DeviceFirmwareReference | null
   technicalState: TechnicalFirmwareState
+  firmwareCompliance: FirmwareComplianceResult
   groupKey: string | null
   groupLabel: string | null
 }

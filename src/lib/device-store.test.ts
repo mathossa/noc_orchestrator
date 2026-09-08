@@ -1,6 +1,8 @@
+import { result as complianceResult, release as complianceRelease } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   customerFindUnique: vi.fn(),
   modelFindUnique: vi.fn(),
   firmwareFindUnique: vi.fn(),
@@ -19,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   assertSiteBelongsToCustomer: vi.fn(),
   compatibilityCheck: vi.fn(),
 }))
+
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -147,46 +151,10 @@ const desiredRelease = {
   firmwareTrain: { id: 'train-new', name: '17.15.x' },
 }
 
-function desiredPolicy(target = desiredRelease) {
-  const timestamp = new Date('2026-09-01T00:00:00Z')
-  return {
-    id: 'policy-1',
-    policyMode: 'EXACT',
-    trackKey: 'default',
-    trackName: 'Default',
-    trackClass: 'PREFERRED',
-    isDefaultTrack: true,
-    desiredPlatform: target.platform,
-    minimumFirmwareReleaseId: null,
-    targetFirmwareReleaseId: target.id,
-    maximumFirmwareReleaseId: null,
-    firmwareTrainId: null,
-    minimumInclusive: true,
-    maximumInclusive: true,
-    effectiveFrom: timestamp,
-    policyVersion: 1,
-    isActive: true,
-    notes: null,
-    deviceModelFamilyId: null,
-    deviceModelId: 'model-1',
-    customerId: null,
-    siteId: null,
-    deviceId: null,
-    contractTypeId: null,
-    vendorId: null,
-    deviceTypeId: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    minimumFirmwareRelease: null,
-    targetFirmwareRelease: target,
-    maximumFirmwareRelease: null,
-    firmwareTrain: null,
-  }
-}
-
 describe('device inventory persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'NO_POLICY', recommendation: 'REVIEW_REQUIRED', preferredTarget: null }))
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
     mocks.modelFindUnique.mockResolvedValue(rawModel)
     mocks.deviceFindMany.mockResolvedValue([])
@@ -312,7 +280,7 @@ describe('device inventory persistence rules', () => {
 
   it('resolves ACTION_REQUIRED when current and desired exact releases differ', async () => {
     mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release, currentFirmwareObservedAt: new Date('2026-08-30T20:00:00Z') })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
+    mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED' }))
     const result = await getDevice('device-1')
     expect(result.currentFirmwareRelease?.version).toBe('17.12.5')
     expect(result.desiredFirmware.release?.version).toBe('17.15.5')
@@ -322,25 +290,24 @@ describe('device inventory persistence rules', () => {
   it('resolves CURRENT when the exact current release is the desired release', async () => {
     const desiredCurrent = { ...desiredRelease, id: release.id, version: release.version, logicalVersion: release.version, platform: release.platform, releasedAt: release.releasedAt, firmwareTrain: release.firmwareTrain }
     mocks.deviceFindUnique.mockResolvedValue({ ...storedDevice, currentFirmwareReleaseId: 'release-1', currentFirmwareRelease: release })
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy(desiredCurrent))
+    mocks.compliance.mockResolvedValue(complianceResult({ preferredTarget: complianceRelease(desiredCurrent.version, { id: desiredCurrent.id }) }))
     const result = await getDevice('device-1')
     expect(result.technicalState).toEqual({ available: true, state: 'CURRENT' })
   })
 
   it('resolves UNKNOWN when a desired exact policy exists but current firmware is not recorded', async () => {
     mocks.deviceFindUnique.mockResolvedValue(storedDevice)
-    mocks.policyFindFirst.mockResolvedValue(desiredPolicy())
+    mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'UNKNOWN_FIRMWARE', recommendation: 'REVIEW_REQUIRED' }))
     const result = await getDevice('device-1')
     expect(result.technicalState).toEqual({ available: true, state: 'UNKNOWN' })
   })
 
-  it('does not crash when a policy mode has no exact target; compliance remains deferred to #58', async () => {
-    const moving = { ...desiredPolicy(), policyMode: 'LATEST_APPROVED_IN_TRAIN', targetFirmwareReleaseId: null, targetFirmwareRelease: null, firmwareTrainId: 'train-new', firmwareTrain: { id: 'train-new', vendorId: 'vendor-1', platform: 'IOS XE', name: '17.15.x', isActive: true } }
+  it('exposes an unresolved moving target as review required', async () => {
     mocks.deviceFindUnique.mockResolvedValue(storedDevice)
-    mocks.policyFindFirst.mockResolvedValue(moving)
+    mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'TARGET_UNRESOLVED', recommendation: 'REVIEW_REQUIRED', preferredTarget: null }))
     const result = await getDevice('device-1')
     expect(result.desiredFirmware).toEqual({ available: true, release: null })
-    expect(result.technicalState).toEqual({ available: true, state: 'NO_POLICY' })
+    expect(result.technicalState).toEqual({ available: true, state: 'ACTION_REQUIRED' })
   })
 
   it('resolves NO_POLICY when the model has no active desired policy', async () => {

@@ -283,3 +283,21 @@ export function parseFirmwareReleaseInput(input: unknown) {
     externalId,
   }
 }
+
+/** Catalog equivalence is explicit and directional: the preferred target opts in. */
+export function isEquivalentFirmwareRelease(current: {
+  id: string; vendorId: string; platform: string; logicalVersion: string
+  variant: string | null; catalogState: string
+}, preferred: {
+  id: string; vendorId: string; platform: string; logicalVersion: string
+  variant: string | null; variantEquivalence: string
+}) {
+  if (current.catalogState === 'BLOCKED' || current.catalogState === 'WITHDRAWN') return false
+  if (current.vendorId !== preferred.vendorId || normalizedFirmwarePlatform(current.platform) !== normalizedFirmwarePlatform(preferred.platform)) return false
+  if (current.id === preferred.id) return true
+  if (current.logicalVersion !== preferred.logicalVersion) return false
+  // Image codes are resolved by #57, not ordered or globally equated here.
+  if (current.variant === preferred.variant) return true
+  if (preferred.variantEquivalence === 'ANY_VERIFIED_VARIANT') return current.catalogState === 'VERIFIED'
+  return preferred.variantEquivalence === 'ANY_NON_BLOCKED_VARIANT'
+}

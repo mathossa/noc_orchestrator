@@ -1,7 +1,6 @@
-import { prisma } from '@/lib/prisma'
+import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
 import { listDeviceReferences, listDevices } from '@/lib/device-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
-import type { DeviceFirmwareReference, DeviceRecord } from '@/lib/devices'
 import type {
   DeviceGroupBy,
   DeviceQuery,
@@ -11,27 +10,6 @@ import type {
   DeviceQueryReferenceData,
   DeviceSortField,
 } from '@/lib/device-query'
-
-const MODEL_POLICY_SCOPE = {
-  isActive: true,
-  deviceModelFamilyId: null,
-  customerId: null,
-  siteId: null,
-  contractTypeId: null,
-  deviceId: null,
-  vendorId: null,
-  deviceTypeId: null,
-} as const
-
-const desiredReleaseSelect = {
-  id: true,
-  vendorId: true,
-  platform: true,
-  version: true,
-  status: true,
-  isActive: true,
-  firmwareTrain: { select: { id: true, name: true } },
-} as const
 
 function normalize(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
@@ -49,34 +27,6 @@ function buildQueryReferences(references: Awaited<ReturnType<typeof listDeviceRe
     ...references.sites.flatMap((site) => site.contractType ? [site.contractType] : []),
   ]).sort((a, b) => a.name.localeCompare(b.name))
   return { ...references, vendors, deviceTypes, contractTypes }
-}
-
-async function resolveDesiredFirmware(records: DeviceRecord[]) {
-  const modelIds = [...new Set(records.map((record) => record.deviceModelId))]
-  if (modelIds.length === 0) return new Map<string, DeviceFirmwareReference>()
-
-  const policies = await prisma.firmwarePolicy.findMany({
-    where: {
-      ...MODEL_POLICY_SCOPE,
-      policyMode: 'EXACT',
-      isDefaultTrack: true,
-      effectiveFrom: { lte: new Date() },
-      deviceModelId: { in: modelIds },
-      targetFirmwareReleaseId: { not: null },
-    },
-    orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-    select: {
-      deviceModelId: true,
-      targetFirmwareRelease: { select: desiredReleaseSelect },
-    },
-  })
-
-  const desiredByModel = new Map<string, DeviceFirmwareReference>()
-  for (const policy of policies) {
-    if (!policy.deviceModelId || !policy.targetFirmwareRelease || desiredByModel.has(policy.deviceModelId)) continue
-    desiredByModel.set(policy.deviceModelId, policy.targetFirmwareRelease)
-  }
-  return desiredByModel
 }
 
 function matchesSearch(record: DeviceQueryRecord, q: string) {
@@ -200,18 +150,17 @@ function aggregateGroups(records: DeviceQueryRecord[], groupBy: DeviceGroupBy): 
 
 export async function queryDevices(query: DeviceQuery): Promise<DeviceQueryPayload> {
   const [records, baseReferences] = await Promise.all([listDevices(), listDeviceReferences()])
-  const desiredByModel = await resolveDesiredFirmware(records)
+  const complianceByDevice = await resolveFirmwareComplianceBatch(records.map((record) => record.id))
   const references = buildQueryReferences(baseReferences)
 
   const enriched: DeviceQueryRecord[] = records.map((record) => {
-    const desiredFirmwareRelease = desiredByModel.get(record.deviceModelId) ?? null
-    const technicalState = resolveTechnicalFirmwareState({
-      currentFirmwareReleaseId: record.currentFirmwareReleaseId,
-      desiredFirmwareReleaseId: desiredFirmwareRelease?.id,
-    })
-    const group = groupFor({ ...record, desiredFirmwareRelease, technicalState, groupKey: null, groupLabel: null }, query.groupBy)
+    const firmwareCompliance = complianceByDevice.get(record.id)!
+    const desiredFirmwareRelease = firmwareCompliance.preferredTarget
+    const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
+    const group = groupFor({ ...record, firmwareCompliance, desiredFirmwareRelease, technicalState, groupKey: null, groupLabel: null }, query.groupBy)
     return {
       ...record,
+      firmwareCompliance,
       desiredFirmwareRelease,
       technicalState,
       groupKey: group?.key ?? null,

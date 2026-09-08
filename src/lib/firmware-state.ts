@@ -1,17 +1,12 @@
+import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
+
 export type TechnicalFirmwareState = 'CURRENT' | 'ACTION_REQUIRED' | 'UNKNOWN' | 'NO_POLICY'
 
-export type FirmwareStateInput = {
-  currentFirmwareReleaseId: string | null | undefined
-  desiredFirmwareReleaseId: string | null | undefined
-}
-
-export function resolveTechnicalFirmwareState({
-  currentFirmwareReleaseId,
-  desiredFirmwareReleaseId,
-}: FirmwareStateInput): TechnicalFirmwareState {
-  if (!desiredFirmwareReleaseId) return 'NO_POLICY'
-  if (!currentFirmwareReleaseId) return 'UNKNOWN'
-  return currentFirmwareReleaseId === desiredFirmwareReleaseId ? 'CURRENT' : 'ACTION_REQUIRED'
+/** Legacy summary vocabulary, projected only from the central technical result. */
+export function resolveTechnicalFirmwareState(result: FirmwareComplianceResult): TechnicalFirmwareState {
+  if (result.compliance === 'NO_POLICY') return 'NO_POLICY'
+  if (result.compliance === 'UNKNOWN_FIRMWARE') return 'UNKNOWN'
+  return result.recommendation === 'NO_ACTION' ? 'CURRENT' : 'ACTION_REQUIRED'
 }
 
 export function emptyTechnicalFirmwareStateCounts() {

@@ -53,14 +53,14 @@ export function ContractDetail({ contractId }: { contractId: string }) {
         <SummaryStat label="Effective devices" value={<Link href={devicesHref} className="text-[var(--accent-light)] hover:underline">{contract.effectiveDeviceCount}</Link>} detail="Devices whose resolved effective contract is this type." />
         <SummaryStat label="Customer defaults" value={contract.defaultCustomerCount} detail="Customers configured with this default contract." />
         <SummaryStat label="Site overrides" value={contract.siteOverrideCount} detail="Sites explicitly overriding to this contract type." />
-        <SummaryStat label="Current" value={<Link href={technicalStateDeviceHref(scope, 'CURRENT')} className="text-[var(--accent-light)] hover:underline">{contract.technicalStateCounts.current}</Link>} detail="Effective devices on their exact desired release." />
+        <SummaryStat label="No action recommended" value={<Link href={technicalStateDeviceHref(scope, 'CURRENT')} className="text-[var(--accent-light)] hover:underline">{contract.technicalStateCounts.current}</Link>} detail="Effective devices with no technical action recommended." />
         <SummaryStat label="Action required" value={<Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="text-[var(--accent-light)] hover:underline">{contract.technicalStateCounts.actionRequired}</Link>} detail="Effective devices whose current release differs from desired." />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           <StateGrid title="Technical firmware state" description="These counts are scoped by the effective contract, not just the customer's default assignment." items={[
-            ['Current', contract.technicalStateCounts.current, technicalStateDeviceHref(scope, 'CURRENT')],
+            ['No action recommended', contract.technicalStateCounts.current, technicalStateDeviceHref(scope, 'CURRENT')],
             ['Action required', contract.technicalStateCounts.actionRequired, technicalStateDeviceHref(scope, 'ACTION_REQUIRED')],
             ['Unknown current', contract.technicalStateCounts.unknown, technicalStateDeviceHref(scope, 'UNKNOWN')],
             ['No policy', contract.technicalStateCounts.noPolicy, technicalStateDeviceHref(scope, 'NO_POLICY')],

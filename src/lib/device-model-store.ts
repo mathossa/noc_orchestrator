@@ -1,3 +1,4 @@
+import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
 import { prisma } from '@/lib/prisma'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { normalizedDeviceModelName, parseDeviceModelInput, type DeviceModelFirmwareReference } from '@/lib/device-models'
@@ -265,6 +266,7 @@ export async function getDeviceModel(id: string) {
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const firmwareMap = new Map<string, { firmwareReleaseId: string | null; version: string; platform: string | null; deviceCount: number }>()
   const workflowCounts = { planned: 0, ignored: 0, customerDeclined: 0, done: 0, undecided: 0 }
+  const complianceByDevice = await resolveFirmwareComplianceBatch(record.devices.map((device) => device.id))
   const technicalStateCounts = emptyTechnicalFirmwareStateCounts()
 
   for (const device of record.devices) {
@@ -286,10 +288,7 @@ export async function getDeviceModel(id: string) {
 
     incrementTechnicalFirmwareStateCount(
       technicalStateCounts,
-      resolveTechnicalFirmwareState({
-        currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-        desiredFirmwareReleaseId: desiredPolicy?.release?.id,
-      }),
+      resolveTechnicalFirmwareState(complianceByDevice.get(device.id)!),
     )
 
     switch (device.lifecycle?.state) {

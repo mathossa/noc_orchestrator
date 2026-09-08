@@ -1,3 +1,6 @@
+import { isFirmwarePolicyEligible, normalizedFirmwarePlatform } from '@/lib/firmware-releases'
+import { compareFirmwareVersions } from '@/lib/firmware-versioning'
+
 export const FIRMWARE_POLICY_MODES = ['EXACT', 'MINIMUM', 'RANGE', 'LATEST_APPROVED_IN_TRAIN'] as const
 export type FirmwarePolicyMode = (typeof FIRMWARE_POLICY_MODES)[number]
 
@@ -271,4 +274,27 @@ export function validateFirmwarePolicyCandidate(policy: FirmwarePolicyCandidate)
   }
 
   return errors
+}
+
+/** Moving-target selection belongs to policy, using catalog eligibility and #56 ordering. */
+export function resolveLatestApprovedInTrain<T extends {
+  id: string; vendorId: string; platform: string; firmwareTrainId: string | null
+  version: string; logicalVersion: string; isActive: boolean; catalogState: string; policyEligibility: string
+}>(releases: T[], trainId: string, platform: string): { release: T | null; reason: string } {
+  const eligible = releases.filter((release) => release.firmwareTrainId === trainId
+    && normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(platform)
+    && isFirmwarePolicyEligible(release))
+  if (eligible.length === 0) return { release: null, reason: 'No explicitly policy-eligible release exists in the selected train.' }
+  let latest = eligible[0]
+  for (const release of eligible.slice(1)) {
+    if (release.vendorId !== latest.vendorId) return { release: null, reason: 'The train contains conflicting vendor evidence.' }
+    const comparison = compareFirmwareVersions({ vendorKey: latest.vendorId, platform,
+      leftVersion: release.logicalVersion, rightVersion: latest.logicalVersion })
+    if (comparison.result === 'NOT_COMPARABLE') return { release: null, reason: comparison.reason }
+    if (comparison.result === 'GREATER') latest = release
+  }
+  // A deterministic representative of the logical target; #57 selects the image.
+  const representative = eligible.filter((release) => release.logicalVersion === latest.logicalVersion)
+    .sort((a, b) => a.id.localeCompare(b.id))[0]
+  return { release: representative, reason: 'Latest explicitly policy-eligible logical release in the selected train.' }
 }

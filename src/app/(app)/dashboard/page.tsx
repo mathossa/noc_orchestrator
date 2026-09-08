@@ -68,10 +68,10 @@ export default async function DashboardPage() {
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <StatLink href={technicalStateDeviceHref({}, 'ACTION_REQUIRED')}>
-                <SummaryStat label="Needs firmware action" value={dashboard.technical.actionRequired} detail="Recorded current release differs from the exact desired release." accessory={<TechnicalStatusBadge state="ACTION_REQUIRED" />} />
+                <SummaryStat label="Needs firmware action" value={dashboard.technical.actionRequired} detail="An update, platform migration, or technical review is recommended." accessory={<TechnicalStatusBadge state="ACTION_REQUIRED" />} />
               </StatLink>
               <StatLink href={technicalStateDeviceHref({}, 'UNKNOWN')}>
-                <SummaryStat label="Unknown current firmware" value={dashboard.technical.unknown} detail="A desired release exists, but current firmware is not recorded." accessory={<TechnicalStatusBadge state="UNKNOWN" />} />
+                <SummaryStat label="Unknown current firmware" value={dashboard.technical.unknown} detail="No reliable canonical current firmware is recorded." accessory={<TechnicalStatusBadge state="UNKNOWN" />} />
               </StatLink>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
