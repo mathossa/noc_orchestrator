@@ -9,7 +9,7 @@ ADD COLUMN "publicationAttemptId" TEXT;
 ALTER TABLE "ImporterV2SourceSnapshot"
 ADD COLUMN "publicationAttemptId" TEXT;
 
-DROP INDEX "ImporterV2SourceSnapshot_provider_sourceAdapterId_evaluationFingerprint_key";
+DROP INDEX "ImporterV2SourceSnapshot_provider_sourceAdapterId_evaluatio_key";
 
 CREATE TABLE "ImporterV2PublicationAttempt" (
     "id" TEXT NOT NULL,
@@ -48,7 +48,7 @@ ON "ImporterV2WorkspaceRow"("publicationAttemptId");
 
 CREATE UNIQUE INDEX "ImporterV2SourceSnapshot_publicationAttemptId_key"
 ON "ImporterV2SourceSnapshot"("publicationAttemptId");
-CREATE INDEX "ImporterV2SourceSnapshot_provider_sourceAdapterId_evaluationFingerprint_idx"
+CREATE INDEX "ImporterV2SourceSnapshot_provider_sourceAdapterId_evaluatio_idx"
 ON "ImporterV2SourceSnapshot"("provider", "sourceAdapterId", "evaluationFingerprint");
 
 ALTER TABLE "ImporterV2PublicationAttempt"
