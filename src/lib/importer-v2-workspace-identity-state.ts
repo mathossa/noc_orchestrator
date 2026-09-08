@@ -139,6 +139,31 @@ function latestIdentityDecision(
   return null
 }
 
+function automaticIdentityDecision(input: {
+  source: Record<string, unknown>
+  sourceKind: string | null
+  candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
+}) {
+  if (input.source.requiresConfirmation !== false) return null
+  if (input.sourceKind === 'NEW') {
+    return {
+      kind: 'CREATE_NEW' as const,
+      canonicalDeviceId: null,
+    }
+  }
+  if (
+    input.sourceKind === 'MATCH_SUGGESTED' &&
+    input.candidates.length === 1 &&
+    input.candidates[0]?.confidence === 'HIGH'
+  ) {
+    return {
+      kind: 'CONFIRM_MATCH' as const,
+      canonicalDeviceId: input.candidates[0].canonicalDeviceId,
+    }
+  }
+  return null
+}
+
 export function importerV2WorkspaceIdentityReview(input: {
   identityResolution: unknown
   decisions?: readonly WorkspaceDecision[]
@@ -146,15 +171,22 @@ export function importerV2WorkspaceIdentityReview(input: {
   const source = object(input.identityResolution)
   if (!source) return null
 
-  const decision = latestIdentityDecision(input.decisions ?? [])
+  const normalizedCandidates = candidates(source)
   const sourceKind = text(source.kind) ?? text(source.status)
+  const explicitDecision = latestIdentityDecision(input.decisions ?? [])
+  const automaticDecision = explicitDecision
+    ? null
+    : automaticIdentityDecision({
+        source,
+        sourceKind,
+        candidates: normalizedCandidates,
+      })
+  const decision = explicitDecision ?? automaticDecision
   const requiresConfirmation =
     decision === null &&
     (source.requiresConfirmation === true ||
       (typeof sourceKind === 'string' && sourceKind.includes('REVIEW')) ||
-      sourceKind === 'MATCH_SUGGESTED' ||
-      sourceKind === 'AMBIGUOUS' ||
-      sourceKind === 'NEW')
+      sourceKind === 'AMBIGUOUS')
 
   return {
     kind: sourceKind,
@@ -163,7 +195,7 @@ export function importerV2WorkspaceIdentityReview(input: {
     selectedDecision: decision?.kind ?? null,
     selectedCanonicalDeviceId: decision?.canonicalDeviceId ?? null,
     explanation: text(source.explanation),
-    candidates: candidates(source),
+    candidates: normalizedCandidates,
     options: stringList(source.options),
   }
 }
