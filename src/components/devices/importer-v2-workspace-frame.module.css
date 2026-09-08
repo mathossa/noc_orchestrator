@@ -2,12 +2,52 @@
   min-width: 0;
 }
 
-.viewToolbar {
+.workbenchBar {
   display: flex;
   flex: 0 0 auto;
-  justify-content: flex-end;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
   margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  padding: 0.55rem 0.65rem;
+}
+
+.controlGroup,
+.batchControls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.controlLabel {
+  margin-right: 0.15rem;
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.segmentedControl {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+}
+
+.segmentedControl .viewButton {
+  border: 0;
+  border-radius: 0;
+}
+
+.segmentedControl .viewButton + .viewButton {
+  border-left: 1px solid var(--border-strong);
 }
 
 .viewButton {
@@ -18,12 +58,42 @@
   padding: 0.4rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 600;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.viewButton:hover:not(:disabled) {
+  border-color: var(--accent-muted);
+  color: var(--foreground);
+}
+
+.viewButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .viewButtonActive {
   border-color: var(--accent-muted);
   background: var(--accent-soft);
   color: var(--accent-light);
+}
+
+.publishButton {
+  border-color: var(--accent-muted);
+  background: var(--accent-soft);
+  color: var(--accent-light);
+}
+
+.maintenanceStatus {
+  flex-basis: 100%;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding: 0.45rem 0.15rem 0;
+  color: var(--muted-strong);
+  font-size: 0.6875rem;
+  line-height: 1.45;
 }
 
 /* Desktop importer routes are workbenches rather than long document pages.
@@ -69,8 +139,6 @@
     overscroll-behavior: contain;
   }
 
-  /* The inspector is a fixed-height column. Only its middle body scrolls;
-     tabs/header and reconciliation controls remain reachable at all times. */
   .workspace :global(aside[aria-label='Reconciliation inspector']) {
     position: relative !important;
     top: auto !important;
@@ -88,25 +156,32 @@
 
   .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-footer]) {
     flex: 0 0 auto;
-    max-height: 46%;
+    max-height: 54%;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
 }
 
-/* Fallback for narrower/mobile layouts where the overall page remains a
-   normal document flow. Keep the table scrollbar reachable without walking
-   through a full 100-row page. */
 @media (max-width: 1023px) {
+  .workbenchBar,
+  .batchControls {
+    align-items: stretch;
+  }
+
+  .workbenchBar {
+    flex-direction: column;
+  }
+
+  .batchControls {
+    width: 100%;
+  }
+
   .workspace :global(section[aria-label='Staged device grid'] > .noc-scrollbar) {
     max-height: min(68vh, 760px);
     overflow: auto;
   }
 }
 
-/* The compact view keeps the reconciliation-critical columns in the grid.
-   Raw firmware/software evidence and confidence remain available in the
-   inspector and can be restored with Evidence view. */
 .compact :global(table) {
   min-width: 1280px !important;
 }
