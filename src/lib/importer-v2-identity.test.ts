@@ -6,7 +6,7 @@ import {
 } from '@/lib/importer-v2-identity'
 
 describe('Importer v2 stable device identity', () => {
-  it('uses provider source identity as high confidence but still requires confirmation', () => {
+  it('automatically trusts a unique high-confidence provider source identity', () => {
     const result = resolveImporterV2Identity(
       {
         provider: 'Auvik',
@@ -25,14 +25,31 @@ describe('Importer v2 stable device identity', () => {
     )
 
     expect(result.kind).toBe('MATCH_SUGGESTED')
-    expect(result.requiresConfirmation).toBe(true)
+    expect(result.requiresConfirmation).toBe(false)
     expect(result.candidates[0]?.confidence).toBe('HIGH')
     expect(result.candidates[0]?.contextDifferences.map((item) => item.field)).toEqual(
       expect.arrayContaining(['hostname', 'site', 'model']),
     )
   })
 
-  it('treats a unique serial-only match as medium confidence', () => {
+  it('proposes a valid unmatched durable identity as a new device without row-by-row confirmation', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'Auvik',
+        sourceAdapterId: 'xlsx-tabular-v1',
+        identifiers: { sourceId: 'new-device-42', serialNumber: 'CN42' },
+      },
+      [],
+    )
+
+    expect(result).toMatchObject({
+      kind: 'NEW',
+      requiresConfirmation: false,
+      options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
+    })
+  })
+
+  it('treats a unique serial-only match as medium confidence and keeps it reviewable', () => {
     const result = resolveImporterV2Identity(
       {
         provider: 'Inventory',
@@ -48,6 +65,7 @@ describe('Importer v2 stable device identity', () => {
     )
 
     expect(result.kind).toBe('MATCH_SUGGESTED')
+    expect(result.requiresConfirmation).toBe(true)
     expect(result.candidates[0]?.confidence).toBe('MEDIUM')
   })
 
