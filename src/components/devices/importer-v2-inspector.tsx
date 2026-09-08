@@ -6,7 +6,6 @@ import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import type {
   ImporterV2WorkspaceAction,
-  ImporterV2WorkspaceFieldChange,
   ImporterV2WorkspaceSelection,
 } from '@/lib/importer-v2-workspace'
 import type {
@@ -35,46 +34,45 @@ const CLIENT_FIELDS: readonly ImporterV2Field[] = [
   'notes',
 ]
 
-const ACTIONS = [
-  ['SET_FIELD', 'Set field'],
-  ['LINK_FIELD', 'Link canonical value'],
-  ['CLEAR_FIELD', 'Clear field'],
-  ['IGNORE_FIELD', 'Ignore source field'],
-  ['CHANGE_SET', 'Edit multiple fields'],
-  ['EXCLUDE_ROW', 'Exclude row/device'],
-  ['REMEMBER_EXACT', 'Remember exact mapping'],
-  ['CREATE_SCOPED_RULE', 'Create scoped rule'],
-] as const
-
-type ActionKind = (typeof ACTIONS)[number][0]
 type InspectorTab = 'REVIEW' | 'EVIDENCE' | 'HISTORY'
-type ChangeSetOperation =
-  | 'SET_FIELD'
-  | 'LINK_FIELD'
-  | 'CLEAR_FIELD'
-  | 'IGNORE_FIELD'
-type RuleScopeDimension =
-  | 'customer'
-  | 'businessUnit'
-  | 'site'
-  | 'vendor'
-  | 'model'
-  | 'productFamily'
-  | 'deviceType'
 type IdentityCandidate = NonNullable<RowDetail['identityReview']>['candidates'][number]
-
 type IdentityDecision = {
   kind: 'CONFIRM_MATCH' | 'CHOOSE_CANDIDATE' | 'CREATE_NEW' | 'MANUAL_OVERRIDE'
   canonicalDeviceId?: string | null
   explanation: string
 }
-
 type IdentityPreview = {
   scopeToken: string
   decision: IdentityDecision
   requiresConfirmation: true
 }
-
+type CanonicalChoice = {
+  id: string
+  label: string
+  description: string | null
+  exactSourceMatch: boolean
+}
+type CanonicalChoiceResult = {
+  field: ImporterV2Field
+  sourceValue: string | null
+  currentValue: { id: string | null; label: string } | null
+  searchable: boolean
+  choices: CanonicalChoice[]
+}
+type GuidedRulePreview = {
+  scopeToken: string
+  preview: {
+    matchedRowCount: number
+    changedFields: ImporterV2Field[]
+    conflicts: Array<{ explanation: string }>
+    examples: Array<{
+      rowNumber: number
+      before: Partial<Record<ImporterV2Field, string | null>>
+      after: Partial<Record<ImporterV2Field, string | null>>
+    }>
+    confirmationReasons: string[]
+  }
+}
 type Props = {
   batchId: string
   selection: ImporterV2WorkspaceSelection | null
@@ -124,16 +122,10 @@ function identitySignalLabel(kind: string) {
 }
 
 function identitySignalState(status: string | null) {
-  switch (status) {
-    case 'AGREE':
-      return 'MATCH'
-    case 'DISAGREE':
-      return 'DIFFERENT'
-    case 'MISSING':
-      return 'MISSING'
-    default:
-      return status ?? '—'
-  }
+  if (status === 'AGREE') return 'MATCH'
+  if (status === 'DISAGREE') return 'DIFFERENT'
+  if (status === 'MISSING') return 'MISSING'
+  return status ?? '—'
 }
 
 function candidateContextValue(
@@ -161,16 +153,6 @@ function candidateLocation(detail: RowDetail, candidate: IdentityCandidate) {
   const customer = candidateContextValue(detail, candidate, 'customer')
   const site = candidateContextValue(detail, candidate, 'site')
   return [customer, site].filter(Boolean).join(' · ')
-}
-
-function changeSetOperationLabel(value: ChangeSetOperation) {
-  const labels: Record<ChangeSetOperation, string> = {
-    SET_FIELD: 'Set field',
-    LINK_FIELD: 'Link canonical value',
-    CLEAR_FIELD: 'Clear field',
-    IGNORE_FIELD: 'Ignore source field',
-  }
-  return labels[value]
 }
 
 async function responseData<T>(response: Response): Promise<T> {
@@ -212,7 +194,9 @@ function StatusReason({ detail }: { detail: RowDetail }) {
         Why this row is {detail.primaryStatus.replaceAll('_', ' ')}
       </p>
       <ul className="mt-1 list-disc space-y-1 pl-4 text-[var(--muted-strong)]">
-        {reasons.map((reason) => <li key={reason}>{reason}</li>)}
+        {reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
       </ul>
     </div>
   )
@@ -227,149 +211,112 @@ export function ImporterV2Inspector({
   onRefresh,
 }: Props) {
   const [tab, setTab] = useState<InspectorTab>('REVIEW')
-  const [actionKind, setActionKind] = useState<ActionKind>('SET_FIELD')
   const [actionField, setActionField] = useState<ImporterV2Field>('model')
   const [targetLabel, setTargetLabel] = useState('')
   const [targetId, setTargetId] = useState('')
-  const [explanation, setExplanation] = useState('Engineer reconciliation decision')
-  const [changeSetOperation, setChangeSetOperation] = useState<ChangeSetOperation>('SET_FIELD')
-  const [queuedChanges, setQueuedChanges] = useState<ImporterV2WorkspaceFieldChange[]>([])
-  const [sourceValue, setSourceValue] = useState('')
-  const [ruleScopeDimension, setRuleScopeDimension] = useState<RuleScopeDimension>('model')
-  const [ruleScopeValue, setRuleScopeValue] = useState('')
+  const [rememberExact, setRememberExact] = useState(false)
   const [preview, setPreview] = useState<ActionPreview | null>(null)
   const [previewAction, setPreviewAction] = useState<ImporterV2WorkspaceAction | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [choiceQuery, setChoiceQuery] = useState('')
+  const [choiceResult, setChoiceResult] = useState<CanonicalChoiceResult | null>(null)
+  const [choiceBusy, setChoiceBusy] = useState(false)
   const [identityChoice, setIdentityChoice] = useState('')
-  const [identityManualId, setIdentityManualId] = useState('')
-  const [identityExplanation, setIdentityExplanation] = useState('Confirmed durable identity evidence')
   const [identityPreview, setIdentityPreview] = useState<IdentityPreview | null>(null)
   const [identityBusy, setIdentityBusy] = useState(false)
-
-  const draftChange = useMemo<ImporterV2WorkspaceFieldChange | null>(() => {
-    const target = { id: targetId.trim() || null, label: targetLabel.trim() }
-    if (changeSetOperation === 'SET_FIELD' || changeSetOperation === 'LINK_FIELD') {
-      if (!target.label) return null
-      return {
-        type: changeSetOperation,
-        field: actionField,
-        value: target,
-        explanation,
-      }
-    }
-    return {
-      type: changeSetOperation,
-      field: actionField,
-      explanation,
-    }
-  }, [actionField, changeSetOperation, explanation, targetId, targetLabel])
-
-  const effectiveQueuedChanges = useMemo(() => {
-    if (!draftChange) return queuedChanges
-    return [
-      ...queuedChanges.filter((change) => change.field !== draftChange.field),
-      draftChange,
-    ]
-  }, [draftChange, queuedChanges])
-
-  const action = useMemo<ImporterV2WorkspaceAction | null>(() => {
-    const target = { id: targetId.trim() || null, label: targetLabel.trim() }
-    if (actionKind === 'CHANGE_SET') {
-      return effectiveQueuedChanges.length
-        ? { type: 'CHANGE_SET', changes: effectiveQueuedChanges, explanation }
-        : null
-    }
-    if (actionKind === 'EXCLUDE_ROW') return { type: 'EXCLUDE_ROW', explanation }
-    if (actionKind === 'CLEAR_FIELD' || actionKind === 'IGNORE_FIELD') {
-      return { type: actionKind, field: actionField, explanation }
-    }
-    if (actionKind === 'SET_FIELD' || actionKind === 'LINK_FIELD') {
-      return target.label
-        ? { type: actionKind, field: actionField, value: target, explanation }
-        : null
-    }
-    if (actionKind === 'REMEMBER_EXACT') {
-      return target.label && sourceValue.trim()
-        ? {
-            type: 'REMEMBER_EXACT',
-            field: actionField,
-            normalizedInput: sourceValue.trim(),
-            value: target,
-            explanation,
-          }
-        : null
-    }
-    if (!target.label || !sourceValue.trim() || !ruleScopeValue.trim()) return null
-    return {
-      type: 'CREATE_SCOPED_RULE',
-      field: actionField,
-      sourceValue: sourceValue.trim(),
-      value: target,
-      scope: { [ruleScopeDimension]: [ruleScopeValue.trim()] },
-      explanation,
-    }
-  }, [
-    actionField,
-    actionKind,
-    effectiveQueuedChanges,
-    explanation,
-    ruleScopeDimension,
-    ruleScopeValue,
-    sourceValue,
-    targetId,
-    targetLabel,
-  ])
+  const [ruleOpen, setRuleOpen] = useState(false)
+  const [ruleOperator, setRuleOperator] = useState<
+    'NORMALIZED_EXACT' | 'PREFIX' | 'CONTAINS' | 'PATTERN' | 'VERSION_MATCH'
+  >('NORMALIZED_EXACT')
+  const [ruleMatch, setRuleMatch] = useState('')
+  const [ruleScope, setRuleScope] = useState<'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'>('PROFILE')
+  const [rulePreview, setRulePreview] = useState<GuidedRulePreview | null>(null)
+  const [ruleBusy, setRuleBusy] = useState(false)
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
+  const proposedValue = detail?.evaluated.fields?.[actionField]?.proposedValue ?? null
   const selectedIdentityId =
     identityChoice ||
     detail?.identityReview?.selectedCanonicalDeviceId ||
     detail?.identityReview?.candidates[0]?.canonicalDeviceId ||
     ''
-  const identityPreviewCandidate =
-    detail && identityPreview?.decision.canonicalDeviceId
-      ? detail.identityReview?.candidates.find(
-          (candidate) =>
-            candidate.canonicalDeviceId === identityPreview.decision.canonicalDeviceId,
-        ) ?? null
-      : null
-  const resolvedIdentityCandidate =
-    detail?.identityReview?.selectedCanonicalDeviceId
-      ? detail.identityReview.candidates.find(
-          (candidate) =>
-            candidate.canonicalDeviceId ===
-            detail.identityReview?.selectedCanonicalDeviceId,
-        ) ?? null
-      : null
 
-  const queueAnotherField = () => {
-    if (!draftChange) return
-    setQueuedChanges((current) => [
-      ...current.filter((change) => change.field !== draftChange.field),
-      draftChange,
-    ])
-    setTargetLabel('')
-    setTargetId('')
+  const action = useMemo<ImporterV2WorkspaceAction | null>(() => {
+    const label = targetLabel.trim()
+    if (!label) return null
+    const value = { id: targetId.trim() || null, label }
+    if (rememberExact && rawSourceValue?.trim()) {
+      return {
+        type: 'REMEMBER_EXACT',
+        field: actionField,
+        normalizedInput: rawSourceValue.trim(),
+        value,
+        explanation: 'Confirmed exact source mapping from the importer inspector.',
+      }
+    }
+    return {
+      type: value.id ? 'LINK_FIELD' : 'SET_FIELD',
+      field: actionField,
+      value,
+      explanation: value.id
+        ? 'Linked the imported value to an existing canonical record.'
+        : 'Set the staged canonical value from the importer inspector.',
+    }
+  }, [actionField, rawSourceValue, rememberExact, targetId, targetLabel])
+
+  const setEditorField = (field: ImporterV2Field) => {
+    setActionField(field)
     setPreview(null)
     setPreviewAction(null)
+    setChoiceResult(null)
+    setChoiceQuery('')
+    setTargetId('')
+    const suggested = detail?.evaluated.fields?.[field]?.proposedValue?.label
+    const raw = detail?.evaluated.rawValues?.[field]
+    setTargetLabel(suggested ?? raw ?? '')
+    setRuleOpen(false)
+    setRulePreview(null)
   }
 
-  const requestPreview = async () => {
-    if (!selection || !action) return
+  const searchChoices = async () => {
+    if (!detail) return
+    setChoiceBusy(true)
+    setActionMessage(null)
+    try {
+      const params = new URLSearchParams({ field: actionField })
+      if (choiceQuery.trim()) params.set('q', choiceQuery.trim())
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rows/${detail.rowNumber}/choices?${params}`,
+        { cache: 'no-store' },
+      )
+      setChoiceResult(await responseData<CanonicalChoiceResult>(response))
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to load canonical choices.',
+      )
+    } finally {
+      setChoiceBusy(false)
+    }
+  }
+
+  const requestPreview = async (nextAction: ImporterV2WorkspaceAction | null = action) => {
+    if (!selection || !nextAction) return
     setActionBusy(true)
     setActionMessage(null)
     try {
       const response = await fetch(`/api/v1/device-import-v2/batches/${batchId}/actions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode: 'PREVIEW', selection, action }),
+        body: JSON.stringify({ mode: 'PREVIEW', selection, action: nextAction }),
       })
       const next = await responseData<ActionPreview>(response)
       setPreview(next)
-      setPreviewAction(action)
+      setPreviewAction(nextAction)
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Unable to preview action.')
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to preview change.',
+      )
     } finally {
       setActionBusy(false)
     }
@@ -391,20 +338,32 @@ export function ImporterV2Inspector({
         }),
       })
       const result = await responseData<{ affectedRowCount: number }>(response)
-      setActionMessage(`Applied ${previewAction.type === 'CHANGE_SET' ? `${previewAction.changes.length} changes` : 'change'} to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}.`)
-      if (previewAction.type === 'CHANGE_SET') setQueuedChanges([])
-      setTargetLabel('')
-      setTargetId('')
+      setActionMessage(
+        `Applied to ${result.affectedRowCount.toLocaleString()} staged row${result.affectedRowCount === 1 ? '' : 's'}.`,
+      )
       setPreview(null)
       setPreviewAction(null)
+      setTargetId('')
+      setTargetLabel('')
+      setChoiceResult(null)
       onRefresh()
     } catch (error) {
       setPreview(null)
       setPreviewAction(null)
-      setActionMessage(error instanceof Error ? error.message : 'Unable to apply action.')
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to apply change.',
+      )
     } finally {
       setActionBusy(false)
     }
+  }
+
+  const previewClear = () => {
+    void requestPreview({
+      type: 'CLEAR_FIELD',
+      field: actionField,
+      explanation: 'Cleared this staged field from the importer inspector.',
+    })
   }
 
   const requestIdentityPreview = async (decision: IdentityDecision) => {
@@ -420,10 +379,11 @@ export function ImporterV2Inspector({
           body: JSON.stringify({ mode: 'PREVIEW', decision }),
         },
       )
-      const next = await responseData<IdentityPreview>(response)
-      setIdentityPreview(next)
+      setIdentityPreview(await responseData<IdentityPreview>(response))
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Unable to preview identity decision.')
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to preview identity decision.',
+      )
     } finally {
       setIdentityBusy(false)
     }
@@ -432,7 +392,6 @@ export function ImporterV2Inspector({
   const applyIdentityPreview = async () => {
     if (!detail || !identityPreview) return
     setIdentityBusy(true)
-    setActionMessage(null)
     try {
       const response = await fetch(
         `/api/v1/device-import-v2/batches/${batchId}/rows/${detail.rowNumber}/identity`,
@@ -452,29 +411,92 @@ export function ImporterV2Inspector({
       onRefresh()
     } catch (error) {
       setIdentityPreview(null)
-      setActionMessage(error instanceof Error ? error.message : 'Unable to confirm identity decision.')
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to confirm identity decision.',
+      )
     } finally {
       setIdentityBusy(false)
     }
   }
 
-  const previewPriorityFields = previewAction
-    ? previewAction.type === 'CHANGE_SET'
-      ? previewAction.changes.map((change) => change.field)
-      : 'field' in previewAction
-        ? [previewAction.field]
-        : []
-    : []
-  const prioritySet = new Set(previewPriorityFields)
+  const openRuleWizard = () => {
+    setRuleOpen(true)
+    setRulePreview(null)
+    setRuleMatch(rawSourceValue ?? '')
+  }
+
+  const wizardPayload = () => {
+    if (!detail || !targetLabel.trim()) return null
+    return {
+      rowNumber: detail.rowNumber,
+      field: actionField,
+      operator: ruleOperator,
+      matchValue: ruleMatch.trim(),
+      target: { id: targetId.trim() || null, label: targetLabel.trim() },
+      scope: ruleScope,
+      explanation: 'Created from the guided importer automation wizard.',
+    }
+  }
+
+  const requestRulePreview = async () => {
+    const wizard = wizardPayload()
+    if (!wizard || !wizard.matchValue) return
+    setRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(`/api/v1/device-import-v2/batches/${batchId}/rules`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'PREVIEW', wizard }),
+      })
+      setRulePreview(await responseData<GuidedRulePreview>(response))
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to preview automation.',
+      )
+    } finally {
+      setRuleBusy(false)
+    }
+  }
+
+  const applyRulePreview = async () => {
+    const wizard = wizardPayload()
+    if (!wizard || !rulePreview) return
+    setRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(`/api/v1/device-import-v2/batches/${batchId}/rules`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'APPLY',
+          wizard,
+          scopeToken: rulePreview.scopeToken,
+        }),
+      })
+      const result = await responseData<{
+        automation: { automaticDecisionsApplied: number }
+      }>(response)
+      setRulePreview(null)
+      setRuleOpen(false)
+      setActionMessage(
+        `Automation activated. ${result.automation.automaticDecisionsApplied.toLocaleString()} new staged decision${result.automation.automaticDecisionsApplied === 1 ? '' : 's'} applied.`,
+      )
+      onRefresh()
+    } catch (error) {
+      setRulePreview(null)
+      setActionMessage(
+        error instanceof Error ? error.message : 'Unable to activate automation.',
+      )
+    } finally {
+      setRuleBusy(false)
+    }
+  }
+
   const commonValues = preview
-    ? [
-        ...previewPriorityFields.map((field) => [field, preview.commonValues[field]] as const),
-        ...CLIENT_FIELDS.filter((field) => !prioritySet.has(field)).map(
-          (field) => [field, preview.commonValues[field]] as const,
-        ),
-      ]
+    ? Object.entries(preview.commonValues)
         .filter(([, value]) => value !== undefined && value !== null)
-        .slice(0, 10)
+        .slice(0, 8)
     : []
 
   return (
@@ -524,206 +546,165 @@ export function ImporterV2Inspector({
 
             {detail?.evaluated.issues?.length ? (
               <section>
-                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Active findings</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                    What needs attention
+                  </h3>
+                  <span className="text-[10px] text-[var(--muted)]">Click a finding to fix it</span>
+                </div>
                 <div className="mt-2 space-y-2">
-                  {detail.evaluated.issues.map((issue, index) => (
-                    <div key={`${issue.field}-${index}`} className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-xs">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className={issue.severity === 'ERROR' ? 'font-semibold text-[#f0a0a0]' : 'font-semibold text-[var(--accent-light)]'}>
+                  {detail.evaluated.issues.map((issue, index) => {
+                    const field = issue.field as ImporterV2Field | undefined
+                    return (
+                      <button
+                        key={`${issue.field}-${index}`}
+                        type="button"
+                        disabled={!field || !CLIENT_FIELDS.includes(field)}
+                        onClick={() => field && setEditorField(field)}
+                        className="w-full rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-left text-xs transition hover:border-[var(--accent-muted)] hover:bg-[var(--surface-muted)] disabled:cursor-default"
+                      >
+                        <span
+                          className={
+                            issue.severity === 'ERROR'
+                              ? 'font-semibold text-[#f0a0a0]'
+                              : 'font-semibold text-[var(--accent-light)]'
+                          }
+                        >
                           {issue.severity} · {fieldLabel(issue.field ?? 'row')}
                         </span>
-                        {issue.field && CLIENT_FIELDS.includes(issue.field as ImporterV2Field) ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActionKind('SET_FIELD')
-                              setActionField(issue.field as ImporterV2Field)
-                              setTargetLabel('')
-                            }}
-                            className="text-[var(--accent-light)] hover:underline"
-                          >
-                            Correct
-                          </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 leading-5 text-[var(--muted-strong)]">{issue.message}</p>
-                    </div>
-                  ))}
+                        <span className="mt-1 block leading-5 text-[var(--muted-strong)]">
+                          {issue.message}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
             ) : detail ? (
-              <p className="text-xs text-[var(--muted)]">No active field errors or warnings.</p>
+              <p className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-xs text-[var(--muted)]">
+                No active field errors or warnings. If identity is also resolved, this row is ready for Final QA.
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">Select one row to review its exceptions.</p>
+            )}
+
+            {detail?.canonicalHierarchy ? (
+              <section className="rounded-md border border-[var(--border)] p-3">
+                <h3 className="text-sm font-semibold">Canonical customer hierarchy</h3>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  {detail.canonicalHierarchy.ready
+                    ? 'Hierarchy resolved for publication review.'
+                    : 'Hierarchy needs review before publication.'}
+                </p>
+                {(['customer', 'organizationUnit', 'site'] as const).map((key) => (
+                  <div key={key} className="mt-3 text-xs">
+                    <strong>
+                      {key === 'organizationUnit'
+                        ? 'Subdomain'
+                        : key === 'customer'
+                          ? 'Customer'
+                          : 'Site'}
+                      : {detail.canonicalHierarchy?.[key].label ?? 'Ungrouped'}
+                    </strong>
+                    <p className="mt-1 text-[var(--muted)]">
+                      {detail.canonicalHierarchy?.[key].reason}
+                    </p>
+                  </div>
+                ))}
+              </section>
             ) : null}
 
-            {detail?.canonicalHierarchy && <section className="rounded-md border border-[var(--border)] p-3"><h3 className="text-sm font-semibold">Canonical customer hierarchy</h3><p className="mt-1 text-xs text-[var(--muted)]">{detail.canonicalHierarchy.ready ? 'Hierarchy resolved for publication review.' : 'Hierarchy needs review before publication.'}</p>{(['customer', 'organizationUnit', 'site'] as const).map(key => <div key={key} className="mt-3 text-xs"><strong>{key === 'organizationUnit' ? 'Business unit' : key === 'customer' ? 'Customer' : 'Site'}: {detail.canonicalHierarchy![key].label ?? 'Ungrouped'}</strong><p className="mt-1 text-[var(--muted)]">{detail.canonicalHierarchy![key].reason}</p></div>)}</section>}
-            {detail?.identityReview ? (
+            {detail?.identityReview?.requiresConfirmation ? (
               <section className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="text-xs font-semibold text-[var(--foreground)]">Existing device match</h3>
-                    <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
-                      Decide whether this imported row is an existing device or a new device. Serial, MAC and source ID are durable identity evidence; hostname is supporting context only.
-                    </p>
-                    {detail.identityReview.explanation ? (
-                      <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
-                        {detail.identityReview.explanation}
-                      </p>
-                    ) : null}
-                  </div>
-                  <span className={detail.identityReview.requiresConfirmation ? 'shrink-0 text-right text-[10px] font-semibold uppercase text-[var(--accent-light)]' : 'shrink-0 text-right text-[10px] font-semibold uppercase text-[var(--muted)]'}>
-                    {detail.identityReview.requiresConfirmation ? 'Confirmation required' : detail.identityReview.resolved ? 'Confirmed' : 'No action required'}
-                  </span>
+                <h3 className="text-xs font-semibold text-[var(--foreground)]">Device identity</h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
+                  Only ambiguous or lower-confidence identity needs manual input. Serial, MAC and source ID are the durable evidence.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {detail.identityReview.candidates.map((candidate) => (
+                    <label
+                      key={candidate.canonicalDeviceId}
+                      className="flex cursor-pointer gap-2 rounded border border-[var(--border)] p-2 text-xs"
+                    >
+                      <input
+                        type="radio"
+                        name={`identity-${detail.rowNumber}`}
+                        checked={selectedIdentityId === candidate.canonicalDeviceId}
+                        onChange={() => setIdentityChoice(candidate.canonicalDeviceId)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <strong className="block truncate text-[var(--foreground)]">
+                          {candidateTitle(detail, candidate)}
+                        </strong>
+                        <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">
+                          {candidateLocation(detail, candidate)}
+                        </span>
+                        <span className="mt-1 block text-[var(--muted-strong)]">
+                          {candidate.explanation ?? 'Durable identity candidate.'}
+                        </span>
+                      </span>
+                      <span className="text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
+                    </label>
+                  ))}
                 </div>
 
-                {detail.identityReview.resolved ? (
-                  <div className="mt-2 rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs text-[var(--muted-strong)]">
-                    <span className="font-semibold text-[var(--foreground)]">
-                      {detail.identityReview.selectedDecision?.replaceAll('_', ' ')}
-                    </span>
-                    {detail && resolvedIdentityCandidate ? (
-                      <span className="mt-1 block">{candidateTitle(detail, resolvedIdentityCandidate)}</span>
-                    ) : null}
-                    {detail.identityReview.selectedCanonicalDeviceId ? (
-                      <span className="mt-1 block font-mono text-[9px] text-[var(--muted)]">
-                        Internal device ID: {detail.identityReview.selectedCanonicalDeviceId}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {detail.identityReview.requiresConfirmation ? (
-                  <div className="mt-3 space-y-2">
-                    {detail.identityReview.candidates.map((candidate) => {
-                      const location = candidateLocation(detail, candidate)
-                      const visibleSignals = candidate.signals.filter(
-                        (signal) => signal.status !== 'MISSING',
-                      )
-                      return (
-                        <label key={candidate.canonicalDeviceId} className="flex cursor-pointer gap-2 rounded border border-[var(--border)] p-2 text-xs">
-                          <input
-                            className="mt-1 shrink-0"
-                            type="radio"
-                            name={`identity-${detail.rowNumber}`}
-                            value={candidate.canonicalDeviceId}
-                            checked={selectedIdentityId === candidate.canonicalDeviceId}
-                            onChange={() => setIdentityChoice(candidate.canonicalDeviceId)}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex min-w-0 items-start justify-between gap-2">
-                              <span className="min-w-0">
-                                <strong className="block truncate text-[var(--foreground)]">
-                                  {candidateTitle(detail, candidate)}
-                                </strong>
-                                {location ? (
-                                  <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">
-                                    {location}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span className="shrink-0 text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
-                            </span>
-                            <span className="mt-1 block leading-4 text-[var(--muted-strong)]">{candidate.explanation ?? 'Durable identity candidate.'}</span>
-                            {visibleSignals.length ? (
-                              <span className="mt-2 grid gap-1">
-                                {visibleSignals.map((signal) => (
-                                  <span key={signal.kind} className="grid grid-cols-[68px_minmax(0,1fr)_auto] gap-2 text-[10px]">
-                                    <span className="text-[var(--muted)]">{identitySignalLabel(signal.kind)}</span>
-                                    <span className="truncate font-mono text-[var(--muted-strong)]">{display(signal.candidateValue)}</span>
-                                    <span className={signal.status === 'AGREE' ? 'font-semibold text-[var(--muted-strong)]' : 'font-semibold text-[#f0a0a0]'}>
-                                      {identitySignalState(signal.status)}
-                                    </span>
-                                  </span>
-                                ))}
-                              </span>
-                            ) : candidate.durableEvidence.length ? (
-                              <span className="mt-1 block text-[10px] text-[var(--muted)]">Durable evidence: {candidate.durableEvidence.map(identitySignalLabel).join(', ')}</span>
-                            ) : null}
-                            <span className="mt-2 block truncate font-mono text-[9px] text-[var(--muted)]">
-                              Internal device ID: {candidate.canonicalDeviceId}
-                            </span>
-                          </span>
-                        </label>
-                      )
-                    })}
-
-                    {identityPreview ? (
-                      <div className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
-                        <p className="font-semibold text-[var(--foreground)]">Identity decision preview</p>
-                        <p className="mt-1 text-[var(--muted-strong)]">
-                          {identityPreview.decision.kind === 'CREATE_NEW'
-                            ? 'Create this imported row as a new device.'
-                            : identityPreviewCandidate && detail
-                              ? `Use existing device: ${candidateTitle(detail, identityPreviewCandidate)}.`
-                              : identityPreview.decision.canonicalDeviceId
-                                ? `Use device ID ${identityPreview.decision.canonicalDeviceId}.`
-                                : identityPreview.decision.kind.replaceAll('_', ' ')}
-                        </p>
-                        {identityPreview.decision.canonicalDeviceId ? (
-                          <p className="mt-1 font-mono text-[9px] text-[var(--muted)]">
-                            Internal device ID: {identityPreview.decision.canonicalDeviceId}
-                          </p>
-                        ) : null}
-                        <div className="mt-2 grid grid-cols-2 gap-2">
-                          <Button variant="ghost" onClick={() => setIdentityPreview(null)}>Edit</Button>
-                          <Button variant="primary" disabled={identityBusy} onClick={() => void applyIdentityPreview()}>Confirm identity</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          className="min-w-0 whitespace-normal px-2 text-center leading-tight"
-                          variant="secondary"
-                          disabled={identityBusy || !selectedIdentityId}
-                          onClick={() => void requestIdentityPreview({
-                            kind: detail.identityReview!.candidates.length === 1 ? 'CONFIRM_MATCH' : 'CHOOSE_CANDIDATE',
-                            canonicalDeviceId: selectedIdentityId,
-                            explanation: identityExplanation,
-                          })}
-                        >
-                          Use existing device
-                        </Button>
-                        <Button
-                          className="min-w-0 whitespace-normal px-2 text-center leading-tight"
-                          variant="secondary"
-                          disabled={identityBusy}
-                          onClick={() => void requestIdentityPreview({
-                            kind: 'CREATE_NEW',
-                            canonicalDeviceId: null,
-                            explanation: identityExplanation,
-                          })}
-                        >
-                          Create new device
-                        </Button>
-                      </div>
-                    )}
-
-                    <TextInput
-                      aria-label="Identity decision explanation"
-                      value={identityExplanation}
-                      onChange={(event) => setIdentityExplanation(event.target.value)}
-                    />
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                      <TextInput
-                        aria-label="Manual canonical device ID"
-                        placeholder="Canonical device ID override"
-                        value={identityManualId}
-                        onChange={(event) => setIdentityManualId(event.target.value)}
-                      />
-                      <Button
-                        className="whitespace-nowrap"
-                        variant="ghost"
-                        disabled={identityBusy || !identityManualId.trim()}
-                        onClick={() => void requestIdentityPreview({
-                          kind: 'MANUAL_OVERRIDE',
-                          canonicalDeviceId: identityManualId.trim(),
-                          explanation: identityExplanation,
-                        })}
-                      >
-                        Use device ID
+                {identityPreview ? (
+                  <div className="mt-3 rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
+                    <p className="font-semibold">Identity decision ready</p>
+                    <p className="mt-1 text-[var(--muted-strong)]">
+                      {identityPreview.decision.kind === 'CREATE_NEW'
+                        ? 'Create this as a new device.'
+                        : `Use canonical device ${identityPreview.decision.canonicalDeviceId}.`}
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <Button variant="ghost" onClick={() => setIdentityPreview(null)}>
+                        Edit
+                      </Button>
+                      <Button variant="primary" disabled={identityBusy} onClick={() => void applyIdentityPreview()}>
+                        Confirm identity
                       </Button>
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      variant="secondary"
+                      disabled={identityBusy || !selectedIdentityId}
+                      onClick={() =>
+                        void requestIdentityPreview({
+                          kind:
+                            detail.identityReview?.candidates.length === 1
+                              ? 'CONFIRM_MATCH'
+                              : 'CHOOSE_CANDIDATE',
+                          canonicalDeviceId: selectedIdentityId,
+                          explanation: 'Confirmed durable identity evidence.',
+                        })
+                      }
+                    >
+                      Use existing
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={identityBusy}
+                      onClick={() =>
+                        void requestIdentityPreview({
+                          kind: 'CREATE_NEW',
+                          canonicalDeviceId: null,
+                          explanation: 'Confirmed this source row represents a new device.',
+                        })
+                      }
+                    >
+                      Create new
+                    </Button>
+                  </div>
+                )}
+              </section>
+            ) : detail?.identityReview?.resolved ? (
+              <section className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-xs">
+                <strong>Device identity</strong>
+                <p className="mt-1 text-[var(--muted-strong)]">
+                  {detail.identityReview.selectedDecision?.replaceAll('_', ' ')} · no manual identity action required.
+                </p>
               </section>
             ) : null}
           </div>
@@ -733,36 +714,44 @@ export function ImporterV2Inspector({
           detail ? (
             <div className="space-y-4">
               <section>
-                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Raw source evidence</h3>
-                <dl className="mt-2 space-y-1.5">
-                  {CLIENT_FIELDS.map((field) => (
-                    <div key={field} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 text-xs">
-                      <dt className="text-[var(--muted)]">{fieldLabel(field)}</dt>
-                      <dd className="break-words font-mono text-[var(--muted-strong)]">{display(detail.evaluated.rawValues?.[field])}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
-
-              <section>
-                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Proposals and proof</h3>
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Proposals and proof
+                </h3>
                 <div className="mt-2 space-y-2">
                   {CLIENT_FIELDS.map((field) => {
                     const evaluatedField = detail.evaluated.fields?.[field]
-                    if (!evaluatedField?.proposedValue && !evaluatedField?.decision) return null
+                    const raw = detail.evaluated.rawValues?.[field]
+                    if (!evaluatedField?.proposedValue && !evaluatedField?.decision && !raw) return null
                     return (
-                      <div key={field} className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-xs">
-                        <div className="flex justify-between gap-2">
-                          <strong className="text-[var(--foreground)]">{fieldLabel(field)}</strong>
-                          <span className="text-[var(--accent-light)]">{evaluatedField.proposedValue?.label ?? 'Unresolved'}</span>
+                      <div
+                        key={field}
+                        className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-xs"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <strong className="text-[var(--foreground)]">{fieldLabel(field)}</strong>
+                            <p className="mt-1 font-mono text-[10px] text-[var(--muted)]">
+                              Source: {display(raw)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditorField(field)}
+                            className="text-[var(--accent-light)] hover:underline"
+                          >
+                            Use / change
+                          </button>
                         </div>
-                        <p className="mt-1 text-[var(--muted)]">{evaluatedField.decision?.source ?? 'UNRESOLVED'} · {evaluatedField.decision?.confidence ?? '—'}</p>
-                        <p className="mt-1 leading-5 text-[var(--muted-strong)]">{evaluatedField.decision?.explanation ?? 'No decision explanation available.'}</p>
-                        {evaluatedField.decision?.matchedRuleId || evaluatedField.decision?.matchedParserId ? (
-                          <p className="mt-1 font-mono text-[10px] text-[var(--muted)]">
-                            Rule {evaluatedField.decision?.matchedRuleId ?? '—'} v{evaluatedField.decision?.matchedRuleVersion ?? '—'} · Parser {evaluatedField.decision?.matchedParserId ?? '—'} v{evaluatedField.decision?.matchedParserVersion ?? '—'}
-                          </p>
-                        ) : null}
+                        <p className="mt-2 font-semibold text-[var(--accent-light)]">
+                          Proposed: {evaluatedField?.proposedValue?.label ?? 'Unresolved'}
+                        </p>
+                        <p className="mt-1 text-[var(--muted)]">
+                          {evaluatedField?.decision?.source ?? 'UNRESOLVED'} ·{' '}
+                          {evaluatedField?.decision?.confidence ?? '—'}
+                        </p>
+                        <p className="mt-1 leading-5 text-[var(--muted-strong)]">
+                          {evaluatedField?.decision?.explanation ?? 'No decision explanation available.'}
+                        </p>
                       </div>
                     )
                   })}
@@ -771,83 +760,89 @@ export function ImporterV2Inspector({
 
               {detail.identityReview?.candidates.length ? (
                 <section>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Identity evidence</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                    Identity evidence
+                  </h3>
                   <div className="mt-2 space-y-2">
                     {detail.identityReview.candidates.map((candidate) => (
                       <div key={candidate.canonicalDeviceId} className="rounded border border-[var(--border)] p-2 text-xs">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <strong className="block truncate">{candidateTitle(detail, candidate)}</strong>
-                            {candidateLocation(detail, candidate) ? (
-                              <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{candidateLocation(detail, candidate)}</span>
-                            ) : null}
-                          </div>
-                          <span className="shrink-0 text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
+                        <div className="flex justify-between gap-2">
+                          <strong>{candidateTitle(detail, candidate)}</strong>
+                          <span className="text-[var(--accent-light)]">{candidate.confidence ?? '—'}</span>
                         </div>
-                        <p className="mt-1 text-[var(--muted-strong)]">{candidate.explanation ?? 'No explanation.'}</p>
-                        {candidate.signals.length ? (
-                          <div className="mt-2 space-y-1 border-t border-[var(--border)] pt-2">
-                            {candidate.signals.map((signal) => (
-                              <p key={signal.kind} className="grid grid-cols-[80px_minmax(0,1fr)_auto] gap-2 text-[10px]">
-                                <span className="text-[var(--muted)]">{identitySignalLabel(signal.kind)}</span>
-                                <span className="font-mono text-[var(--muted-strong)]">{display(signal.candidateValue)}</span>
-                                <span className={signal.status === 'AGREE' ? 'font-semibold text-[var(--muted-strong)]' : 'font-semibold text-[#f0a0a0]'}>{identitySignalState(signal.status)}</span>
-                              </p>
-                            ))}
-                          </div>
-                        ) : candidate.durableEvidence.length ? <p className="mt-1 text-[10px] text-[var(--muted)]">Durable evidence: {candidate.durableEvidence.map(identitySignalLabel).join(', ')}</p> : null}
-                        {candidate.contextDifferences.length ? (
-                          <div className="mt-2 border-t border-[var(--border)] pt-2 text-[10px] text-[var(--muted)]">
-                            {candidate.contextDifferences.map((difference) => (
-                              <p key={difference.field}>{fieldLabel(difference.field)}: {display(difference.sourceValue)} → {display(difference.candidateValue)}</p>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p className="mt-2 truncate font-mono text-[9px] text-[var(--muted)]">Internal device ID: {candidate.canonicalDeviceId}</p>
+                        {candidate.signals.map((signal) => (
+                          <p
+                            key={signal.kind}
+                            className="mt-1 grid grid-cols-[74px_minmax(0,1fr)_auto] gap-2 text-[10px]"
+                          >
+                            <span className="text-[var(--muted)]">{identitySignalLabel(signal.kind)}</span>
+                            <span className="truncate font-mono text-[var(--muted-strong)]">
+                              {display(signal.candidateValue)}
+                            </span>
+                            <span
+                              className={
+                                signal.status === 'AGREE'
+                                  ? 'font-semibold text-[var(--muted-strong)]'
+                                  : 'font-semibold text-[#f0a0a0]'
+                              }
+                            >
+                              {identitySignalState(signal.status)}
+                            </span>
+                          </p>
+                        ))}
                       </div>
                     ))}
                   </div>
                 </section>
               ) : null}
-
-              {detail.alternatives ? (
-                <section>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Alternative suggestions</h3>
-                  <pre className="mt-2 whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--background)] p-2 text-[10px] leading-4 text-[var(--muted-strong)]">{JSON.stringify(detail.alternatives, null, 2)}</pre>
-                </section>
-              ) : null}
             </div>
-          ) : <p className="text-sm text-[var(--muted)]">Select one row to inspect evidence.</p>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">Select one row to inspect evidence.</p>
+          )
         ) : null}
 
         {tab === 'HISTORY' ? (
           detail ? (
             <div className="space-y-4">
               <section>
-                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Repeat-import difference</h3>
-                {detail.repeatDiff ? (
-                  <pre className="mt-2 whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--background)] p-2 text-[10px] leading-4 text-[var(--muted-strong)]">{JSON.stringify(detail.repeatDiff, null, 2)}</pre>
-                ) : <p className="mt-2 text-xs text-[var(--muted)]">No repeat-import difference recorded.</p>}
-              </section>
-              <section>
-                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Review decisions</h3>
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Review decisions
+                </h3>
                 {detail.decisions?.length ? (
                   <div className="mt-2 space-y-2">
                     {detail.decisions.map((decision) => (
                       <div key={decision.id} className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-xs">
-                        <div className="flex justify-between gap-2">
-                          <strong className="text-[var(--foreground)]">{decision.action.replaceAll('_', ' ')}{decision.field ? ` · ${fieldLabel(decision.field)}` : ''}</strong>
-                          <span className="text-[10px] text-[var(--muted)]">{new Date(decision.createdAt).toLocaleString()}</span>
-                        </div>
-                        {decisionValue(decision.value) ? <p className="mt-1 font-mono text-[10px] text-[var(--accent-light)]">{decisionValue(decision.value)}</p> : null}
+                        <strong>
+                          {decision.action.replaceAll('_', ' ')}
+                          {decision.field ? ` · ${fieldLabel(decision.field)}` : ''}
+                        </strong>
+                        {decisionValue(decision.value) ? (
+                          <p className="mt-1 font-mono text-[10px] text-[var(--accent-light)]">
+                            {decisionValue(decision.value)}
+                          </p>
+                        ) : null}
                         <p className="mt-1 text-[var(--muted-strong)]">{decision.explanation}</p>
                       </div>
                     ))}
                   </div>
-                ) : <p className="mt-2 text-xs text-[var(--muted)]">No engineer review decisions yet.</p>}
+                ) : (
+                  <p className="mt-2 text-xs text-[var(--muted)]">No engineer decisions yet.</p>
+                )}
               </section>
+              {detail.repeatDiff ? (
+                <section>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                    Repeat-import difference
+                  </h3>
+                  <pre className="mt-2 whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--background)] p-2 text-[10px] leading-4 text-[var(--muted-strong)]">
+                    {JSON.stringify(detail.repeatDiff, null, 2)}
+                  </pre>
+                </section>
+              ) : null}
             </div>
-          ) : <p className="text-sm text-[var(--muted)]">Select one row to inspect history.</p>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">Select one row to inspect history.</p>
+          )
         ) : null}
       </div>
 
@@ -857,105 +852,291 @@ export function ImporterV2Inspector({
             <div className="space-y-2 rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-3 text-xs">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-semibold text-[var(--foreground)]">Review {previewAction.type === 'CHANGE_SET' ? `${previewAction.changes.length} changes` : 'change'} · {preview.affectedRowCount.toLocaleString()} rows</p>
-                  {preview.confirmationReasons.map((reason) => <p key={reason} className="mt-1 text-[var(--muted-strong)]">{reason}</p>)}
+                  <p className="font-semibold text-[var(--foreground)]">
+                    Apply to {preview.affectedRowCount.toLocaleString()} row{preview.affectedRowCount === 1 ? '' : 's'}
+                  </p>
+                  {preview.confirmationReasons.map((reason) => (
+                    <p key={reason} className="mt-1 text-[var(--muted-strong)]">
+                      {reason}
+                    </p>
+                  ))}
                 </div>
-                <Button variant="ghost" onClick={() => { setPreview(null); setPreviewAction(null) }}>Edit</Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPreview(null)
+                    setPreviewAction(null)
+                  }}
+                >
+                  Edit
+                </Button>
               </div>
               {commonValues.length ? (
                 <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-2">
                   {commonValues.map(([field, value]) => (
                     <div key={field} className="grid grid-cols-[100px_minmax(0,1fr)] gap-2">
                       <span className="text-[var(--muted)]">{fieldLabel(field)}</span>
-                      <span className={value === 'MIXED' ? 'font-semibold text-[var(--accent-light)]' : 'truncate text-[var(--muted-strong)]'}>{value === 'MIXED' ? 'Different values' : display(value)}</span>
+                      <span className="truncate text-[var(--muted-strong)]">
+                        {value === 'MIXED' ? 'Different values' : display(value)}
+                      </span>
                     </div>
                   ))}
                 </div>
               ) : null}
               <Button variant="primary" className="w-full" disabled={actionBusy} onClick={() => void applyPreview()}>
-                Confirm and apply to {preview.affectedRowCount.toLocaleString()}
+                Confirm and apply
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-[var(--foreground)]">Reconcile selection</h3>
-                <span className="text-[10px] text-[var(--muted)]">{selectionLabel}</span>
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">Fix selected field</h3>
+                <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
+                  Set a value or clear it. Choosing an existing result automatically links it; you never need to type an internal ID.
+                </p>
               </div>
-              <SelectInput aria-label="Reconciliation action" value={actionKind} onChange={(event) => { setActionKind(event.target.value as ActionKind); setPreview(null); setPreviewAction(null) }}>
-                {ACTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+
+              <SelectInput
+                aria-label="Field to reconcile"
+                value={actionField}
+                onChange={(event) => setEditorField(event.target.value as ImporterV2Field)}
+              >
+                {CLIENT_FIELDS.map((field) => (
+                  <option key={field} value={field}>
+                    {fieldLabel(field)}
+                  </option>
+                ))}
               </SelectInput>
 
-              {actionKind === 'CHANGE_SET' ? (
-                <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <SelectInput aria-label="Pending change operation" value={changeSetOperation} onChange={(event) => setChangeSetOperation(event.target.value as ChangeSetOperation)}>
-                      <option value="SET_FIELD">Set field</option>
-                      <option value="LINK_FIELD">Link canonical value</option>
-                      <option value="CLEAR_FIELD">Clear field</option>
-                      <option value="IGNORE_FIELD">Ignore source field</option>
-                    </SelectInput>
-                    <SelectInput aria-label="Pending change field" value={actionField} onChange={(event) => setActionField(event.target.value as ImporterV2Field)}>
-                      {CLIENT_FIELDS.map((field) => <option key={field} value={field}>{fieldLabel(field)}</option>)}
-                    </SelectInput>
+              {detail ? (
+                <div className="grid grid-cols-2 gap-2 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-[10px]">
+                  <div>
+                    <span className="text-[var(--muted)]">Source</span>
+                    <p className="mt-0.5 break-words font-mono text-[var(--muted-strong)]">
+                      {display(rawSourceValue)}
+                    </p>
                   </div>
-                  {changeSetOperation === 'SET_FIELD' || changeSetOperation === 'LINK_FIELD' ? (
-                    <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2">
-                      <TextInput aria-label="Pending target label" placeholder="Target label" value={targetLabel} onChange={(event) => setTargetLabel(event.target.value)} />
-                      <TextInput aria-label="Pending target ID" placeholder="ID" value={targetId} onChange={(event) => setTargetId(event.target.value)} />
-                    </div>
+                  <div>
+                    <span className="text-[var(--muted)]">Current proposal</span>
+                    <p className="mt-0.5 break-words font-semibold text-[var(--accent-light)]">
+                      {display(proposedValue?.label)}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <TextInput
+                  aria-label="Target value"
+                  placeholder="Search or enter target value"
+                  value={targetLabel}
+                  onChange={(event) => {
+                    setTargetLabel(event.target.value)
+                    setTargetId('')
+                    setPreview(null)
+                  }}
+                />
+                {rawSourceValue ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setTargetLabel(rawSourceValue)
+                      setTargetId('')
+                    }}
+                  >
+                    Use source
+                  </Button>
+                ) : null}
+              </div>
+
+              {detail ? (
+                <div className="space-y-2 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <TextInput
+                      aria-label="Search canonical values"
+                      placeholder="Find existing canonical value…"
+                      value={choiceQuery}
+                      onChange={(event) => setChoiceQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void searchChoices()
+                        }
+                      }}
+                    />
+                    <Button variant="secondary" disabled={choiceBusy} onClick={() => void searchChoices()}>
+                      {choiceBusy ? 'Searching…' : 'Find'}
+                    </Button>
+                  </div>
+                  {choiceResult && !choiceResult.searchable ? (
+                    <p className="text-[10px] text-[var(--muted)]">
+                      This field is free text; use the source value or type the corrected value above.
+                    </p>
                   ) : null}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-[var(--muted)]">The current field is automatically included when you review.</span>
-                    <Button variant="ghost" disabled={!draftChange} onClick={queueAnotherField}>+ Add another field</Button>
-                  </div>
-                  {effectiveQueuedChanges.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {effectiveQueuedChanges.map((change) => (
-                        <span key={change.field} className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--muted-strong)]">
-                          {fieldLabel(change.field)} · {changeSetOperationLabel(change.type)}{'value' in change ? ` → ${change.value.label}` : ''}
-                          <button type="button" className="text-[var(--accent-light)]" onClick={() => setQueuedChanges((current) => current.filter((item) => item.field !== change.field))}>×</button>
-                        </span>
+                  {choiceResult?.choices.length ? (
+                    <div className="max-h-40 space-y-1 overflow-y-auto">
+                      {choiceResult.choices.map((choice) => (
+                        <button
+                          key={choice.id}
+                          type="button"
+                          onClick={() => {
+                            setTargetId(choice.id.startsWith('platform:') ? '' : choice.id)
+                            setTargetLabel(choice.label)
+                            setPreview(null)
+                          }}
+                          className="flex w-full items-start justify-between gap-2 rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-left text-xs hover:border-[var(--accent-muted)]"
+                        >
+                          <span className="min-w-0">
+                            <strong className="block truncate text-[var(--foreground)]">{choice.label}</strong>
+                            {choice.description ? (
+                              <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">
+                                {choice.description}
+                              </span>
+                            ) : null}
+                          </span>
+                          {choice.exactSourceMatch ? (
+                            <span className="shrink-0 text-[10px] font-semibold text-[var(--accent-light)]">EXACT</span>
+                          ) : null}
+                        </button>
                       ))}
                     </div>
+                  ) : choiceResult?.searchable ? (
+                    <p className="text-[10px] text-[var(--muted)]">
+                      No existing canonical values matched. You can still use the typed value as a new catalog proposal.
+                    </p>
                   ) : null}
                 </div>
-              ) : actionKind !== 'EXCLUDE_ROW' ? (
-                <SelectInput aria-label="Field to reconcile" value={actionField} onChange={(event) => setActionField(event.target.value as ImporterV2Field)}>
-                  {CLIENT_FIELDS.map((field) => <option key={field} value={field}>{fieldLabel(field)}</option>)}
-                </SelectInput>
               ) : null}
 
-              {['SET_FIELD', 'LINK_FIELD', 'REMEMBER_EXACT', 'CREATE_SCOPED_RULE'].includes(actionKind) ? (
-                <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2">
-                  <TextInput aria-label="Target label" placeholder="Target label" value={targetLabel} onChange={(event) => setTargetLabel(event.target.value)} />
-                  <TextInput aria-label="Canonical target ID" placeholder="ID" value={targetId} onChange={(event) => setTargetId(event.target.value)} />
+              {rawSourceValue ? (
+                <label className="flex items-start gap-2 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2 text-xs">
+                  <input
+                    className="mt-0.5"
+                    type="checkbox"
+                    checked={rememberExact}
+                    onChange={(event) => setRememberExact(event.target.checked)}
+                  />
+                  <span>
+                    <strong className="block text-[var(--foreground)]">Remember this exact source value</strong>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-[var(--muted)]">
+                      Reuse this mapping for every identical value in this batch and future imports from this source profile.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="secondary" disabled={actionBusy} onClick={previewClear}>
+                  Clear field
+                </Button>
+                <Button variant="primary" disabled={!action || actionBusy} onClick={() => void requestPreview()}>
+                  Preview set value
+                </Button>
+              </div>
+
+              {detail && targetLabel.trim() ? (
+                <div className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">
+                  <button
+                    type="button"
+                    onClick={ruleOpen ? () => setRuleOpen(false) : openRuleWizard}
+                    className="flex w-full items-center justify-between text-left text-xs font-semibold text-[var(--accent-light)]"
+                  >
+                    <span>Create broader automation from this fix</span>
+                    <span>{ruleOpen ? '−' : '+'}</span>
+                  </button>
+
+                  {ruleOpen ? (
+                    <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                      <p className="text-[10px] leading-4 text-[var(--muted)]">
+                        No regex knowledge required. Choose how the source text should match. Wildcard uses <code>*</code> for any text and <code>?</code> for one character.
+                      </p>
+                      <SelectInput
+                        aria-label="Automation match type"
+                        value={ruleOperator}
+                        onChange={(event) => {
+                          setRuleOperator(event.target.value as typeof ruleOperator)
+                          setRulePreview(null)
+                        }}
+                      >
+                        <option value="NORMALIZED_EXACT">Is exactly</option>
+                        <option value="PREFIX">Starts with</option>
+                        <option value="CONTAINS">Contains</option>
+                        <option value="PATTERN">Wildcard pattern (* and ?)</option>
+                        <option value="VERSION_MATCH">Version pattern</option>
+                      </SelectInput>
+                      <TextInput
+                        aria-label="Automation source pattern"
+                        value={ruleMatch}
+                        onChange={(event) => {
+                          setRuleMatch(event.target.value)
+                          setRulePreview(null)
+                        }}
+                        placeholder={ruleOperator === 'PATTERN' ? 'Example: Cisco WS-C2960X-*' : 'Source text to match'}
+                      />
+                      <SelectInput
+                        aria-label="Automation scope"
+                        value={ruleScope}
+                        onChange={(event) => {
+                          setRuleScope(event.target.value as typeof ruleScope)
+                          setRulePreview(null)
+                        }}
+                      >
+                        <option value="PROFILE">This source profile</option>
+                        <option value="CUSTOMER">This customer</option>
+                        <option value="VENDOR">This vendor</option>
+                        <option value="MODEL">This source model</option>
+                      </SelectInput>
+
+                      {rulePreview ? (
+                        <div className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
+                          <p className="font-semibold">
+                            Matches {rulePreview.preview.matchedRowCount.toLocaleString()} staged row{rulePreview.preview.matchedRowCount === 1 ? '' : 's'}
+                          </p>
+                          {rulePreview.preview.conflicts.length ? (
+                            <p className="mt-1 font-semibold text-[#f0a0a0]">
+                              {rulePreview.preview.conflicts.length} rule conflict{rulePreview.preview.conflicts.length === 1 ? '' : 's'} — activation is blocked.
+                            </p>
+                          ) : null}
+                          {rulePreview.preview.examples.slice(0, 4).map((example) => (
+                            <p key={example.rowNumber} className="mt-1 text-[10px] text-[var(--muted-strong)]">
+                              #{example.rowNumber}: {display(example.before[actionField])} → {display(example.after[actionField])}
+                            </p>
+                          ))}
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <Button variant="ghost" onClick={() => setRulePreview(null)}>
+                              Edit
+                            </Button>
+                            <Button
+                              variant="primary"
+                              disabled={ruleBusy || rulePreview.preview.conflicts.length > 0}
+                              onClick={() => void applyRulePreview()}
+                            >
+                              Activate automation
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          className="w-full"
+                          disabled={ruleBusy || !ruleMatch.trim()}
+                          onClick={() => void requestRulePreview()}
+                        >
+                          {ruleBusy ? 'Checking…' : 'Preview matching rows'}
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
-
-              {actionKind === 'REMEMBER_EXACT' || actionKind === 'CREATE_SCOPED_RULE' ? (
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                  <TextInput aria-label="Exact source value" placeholder="Exact source value" value={sourceValue} onChange={(event) => setSourceValue(event.target.value)} />
-                  {rawSourceValue ? <Button variant="ghost" onClick={() => setSourceValue(rawSourceValue)}>Use raw</Button> : null}
-                </div>
-              ) : null}
-
-              {actionKind === 'CREATE_SCOPED_RULE' ? (
-                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
-                  <SelectInput aria-label="Rule scope dimension" value={ruleScopeDimension} onChange={(event) => setRuleScopeDimension(event.target.value as RuleScopeDimension)}>
-                    <option value="customer">Customer</option><option value="businessUnit">Subdomain</option><option value="site">Site</option><option value="vendor">Vendor</option><option value="model">Model</option><option value="productFamily">Product family</option><option value="deviceType">Device type</option>
-                  </SelectInput>
-                  <TextInput aria-label="Rule scope value" placeholder="Exact scope value" value={ruleScopeValue} onChange={(event) => setRuleScopeValue(event.target.value)} />
-                </div>
-              ) : null}
-
-              <TextInput aria-label="Decision explanation" value={explanation} onChange={(event) => setExplanation(event.target.value)} />
-              <Button variant="primary" className="w-full" disabled={!action || actionBusy} onClick={() => void requestPreview()}>
-                {actionKind === 'CHANGE_SET' ? `Review ${effectiveQueuedChanges.length} change${effectiveQueuedChanges.length === 1 ? '' : 's'}` : 'Preview exact scope'}
-              </Button>
             </div>
           )}
-          {actionMessage ? <p role="status" className="mt-2 text-xs leading-5 text-[var(--accent-light)]">{actionMessage}</p> : null}
+
+          {actionMessage ? (
+            <p role="status" className="mt-2 text-xs leading-5 text-[var(--accent-light)]">
+              {actionMessage}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </aside>
