@@ -48,8 +48,28 @@ export function ImporterV2PublicationPanel({ batchId }: { batchId: string }) {
   }, [batchId])
 
   useEffect(() => {
-    void loadQa()
-  }, [loadQa])
+    let cancelled = false
+
+    const loadInitialQa = async () => {
+      try {
+        const response = await fetch(`/api/v1/device-import-v2/batches/${batchId}/publication`, { cache: 'no-store' })
+        const next = await responseData<ImporterV2PublicationQa>(response)
+        if (cancelled) return
+        setQa(next)
+        setApproved(new Set())
+      } catch (loadError) {
+        if (cancelled) return
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load publication QA.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadInitialQa()
+    return () => {
+      cancelled = true
+    }
+  }, [batchId])
 
   const candidateRows = useMemo(() => {
     if (!qa) return []
