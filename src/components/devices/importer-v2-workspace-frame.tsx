@@ -6,10 +6,32 @@ import { ImporterV2WorkspaceShell } from '@/components/devices/importer-v2-works
 import styles from './importer-v2-workspace-frame.module.css'
 
 type WorkspaceView = 'compact' | 'evidence'
+type MaintenanceAction = 'automation' | 'recheck'
 
 export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
   const [view, setView] = useState<WorkspaceView>('compact')
   const [publicationOpen, setPublicationOpen] = useState(false)
+  const [maintenanceBusy, setMaintenanceBusy] = useState<MaintenanceAction | null>(null)
+
+  const runMaintenance = async (action: MaintenanceAction) => {
+    setMaintenanceBusy(action)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/${action}`,
+        { method: 'POST' },
+      )
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(body?.error?.message ?? 'Importer maintenance failed.')
+      }
+      window.location.reload()
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : 'Importer maintenance failed.',
+      )
+      setMaintenanceBusy(null)
+    }
+  }
 
   return (
     <div
@@ -40,6 +62,24 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
           aria-pressed={view === 'evidence'}
         >
           Evidence columns
+        </button>
+        <button
+          type="button"
+          onClick={() => void runMaintenance('automation')}
+          className={styles.viewButton}
+          disabled={maintenanceBusy !== null}
+          title="Apply safe grouped proposals, remembered mappings and active importer rules to this staged batch."
+        >
+          {maintenanceBusy === 'automation' ? 'Automating…' : 'Run automation'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void runMaintenance('recheck')}
+          className={styles.viewButton}
+          disabled={maintenanceBusy !== null}
+          title="Re-evaluate staged corrections and clear RECHECK REQUIRED when the effective row is valid."
+        >
+          {maintenanceBusy === 'recheck' ? 'Rechecking…' : 'Recheck corrections'}
         </button>
         <button
           type="button"
