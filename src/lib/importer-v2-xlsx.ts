@@ -23,11 +23,6 @@ const HEADER_ALIASES: Record<ImporterV2Field, readonly string[]> = {
   notes: ['notes', 'note', 'comments', 'comment'],
 }
 
-const HEADER_LOOKUP = new Map<string, ImporterV2Field>()
-for (const field of IMPORTER_V2_FIELDS) {
-  for (const alias of HEADER_ALIASES[field]) HEADER_LOOKUP.set(normalizeImporterV2Header(alias), field)
-}
-
 function clean(value: string | null | undefined) {
   const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
   return normalized || null
@@ -38,6 +33,11 @@ export function normalizeImporterV2Header(value: string | null | undefined) {
     .toLocaleLowerCase('en-US')
     .replace(/[_.]+/g, ' ')
     .replace(/\s+/g, ' ')
+}
+
+const HEADER_LOOKUP = new Map<string, ImporterV2Field>()
+for (const field of IMPORTER_V2_FIELDS) {
+  for (const alias of HEADER_ALIASES[field]) HEADER_LOOKUP.set(normalizeImporterV2Header(alias), field)
 }
 
 function headerScore(row: XlsxRow) {
