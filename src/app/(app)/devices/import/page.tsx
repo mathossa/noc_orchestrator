@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ImporterV2Upload } from '@/components/devices/importer-v2-upload'
 import { listImporterV2WorkspaceBatches } from '@/lib/importer-v2-workspace-store'
 import { PageHeader } from '@/components/ui/page-header'
 
@@ -11,16 +12,22 @@ export default async function DeviceImportPage() {
       <PageHeader
         eyebrow="Inventory"
         title="Device import"
-        description="Review staged device imports, resolve matching and data issues, and prepare them for publication."
+        description="Upload source inventory, evaluate it in quarantine, resolve matching and data issues, and publish only after final QA."
       />
 
-      <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+      <ImporterV2Upload />
+
+      <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold text-[var(--foreground)]">Staged imports</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">Unfinished and published Importer v2 batches remain available for review and audit.</p>
+        </div>
         <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_150px] gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
           <span>Batch</span><span>Provider</span><span>Rows</span><span>Status</span>
         </div>
         {batches.length === 0 ? (
           <div className="p-6 text-sm text-[var(--muted)]">
-            No device imports are ready for review yet.
+            No staged imports yet. Upload an XLSX workbook above to start one.
           </div>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
@@ -42,7 +49,7 @@ export default async function DeviceImportPage() {
             ))}
           </ul>
         )}
-      </div>
+      </section>
     </div>
   )
 }
