@@ -19,6 +19,8 @@ import {
   type ImporterV2FirmwareProofRow,
 } from '@/lib/importer-v2-firmware'
 
+export const IMPORTER_V2_AUTOMATION_POLICY_VERSION = '2.0.0'
+
 export type ImporterV2FirmwareEvaluationInput = ImporterV2EvaluationInput & {
   firmwareContext: ImporterV2FirmwareInterpretationContext
   providerMetadataByRow?: Readonly<
@@ -40,6 +42,20 @@ export type ImporterV2FirmwareEvaluationResult = Omit<
   rows: readonly ImporterV2FirmwareEvaluatedRow[]
   firmwareProofGroups: readonly ImporterV2FirmwareProofGroup[]
 }
+
+const TRUSTED_AUTOMATION_SOURCES = new Set([
+  'MANUAL_OVERRIDE',
+  'REMEMBERED_EXACT_MAPPING',
+  'PROFILE_RULE',
+  'DETERMINISTIC_PARSER',
+  'EXACT_CATALOG_MATCH',
+  'UNRESOLVED',
+])
+
+const NON_BLOCKING_FIRMWARE_WARNINGS = new Set([
+  'BOOT_FIRMWARE_IGNORED',
+  'PLACEHOLDER_FIRMWARE_IGNORED',
+])
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
@@ -68,7 +84,7 @@ function parserDecision(
     source: value ? 'DETERMINISTIC_PARSER' : 'UNRESOLVED',
     confidence: firmware.confidence,
     explanation,
-    requiresConfirmation: Boolean(value),
+    requiresConfirmation: false,
     matchedRuleId: null,
     matchedRuleVersion: null,
     matchedParserId: value ? firmware.interpreterId : null,
@@ -133,6 +149,26 @@ function firmwareIssues(
   return issues
 }
 
+function proposalBackedRequiredIssue(
+  row: ImporterV2EvaluatedRow,
+  issue: ImporterV2FieldIssue,
+) {
+  if (issue.code !== 'REQUIRED_FIELD_UNRESOLVED') return false
+  const label = row.proposedCanonicalValues[issue.field]?.label
+  return Boolean(label?.normalize('NFKC').trim())
+}
+
+function genericDecisionNeedsReview(row: ImporterV2EvaluatedRow) {
+  return Object.values(row.fields).some((field) => {
+    const source = field.decision.source
+    if (source === 'NON_BINDING_SUGGESTION') return true
+    return (
+      field.decision.requiresConfirmation &&
+      !TRUSTED_AUTOMATION_SOURCES.has(source)
+    )
+  })
+}
+
 function firmwareStatuses(
   row: ImporterV2EvaluatedRow,
   firmware: ImporterV2FirmwareInterpretation,
@@ -142,13 +178,25 @@ function firmwareStatuses(
 
   const statuses = new Set(row.statuses)
   statuses.delete('VALID')
-  statuses.add('NEEDS_REVIEW')
-  if (
+  statuses.delete('WARNING')
+  statuses.delete('NEEDS_REVIEW')
+
+  const hasWarnings =
     firmware.warnings.length > 0 ||
     issues.some((issue) => issue.severity === 'WARNING')
-  ) {
-    statuses.add('WARNING')
-  }
+  const firmwareNeedsReview =
+    !firmware.runningVersion ||
+    firmware.warnings.some(
+      (warning) => !NON_BLOCKING_FIRMWARE_WARNINGS.has(warning.code),
+    )
+  const needsReview =
+    issues.some((issue) => issue.severity === 'ERROR') ||
+    genericDecisionNeedsReview(row) ||
+    firmwareNeedsReview
+
+  if (needsReview) statuses.add('NEEDS_REVIEW')
+  if (hasWarnings) statuses.add('WARNING')
+  if (!needsReview && !hasWarnings) statuses.add('VALID')
   return [...statuses]
 }
 
@@ -245,7 +293,9 @@ export function evaluateImporterV2WithFirmware(
 
     const inheritedIssues = row.issues.filter(
       (issue) =>
-        issue.field !== 'currentFirmware' && issue.field !== 'softwarePlatform',
+        issue.field !== 'currentFirmware' &&
+        issue.field !== 'softwarePlatform' &&
+        !proposalBackedRequiredIssue(row, issue),
     )
     const interpretedIssues = firmwareIssues(row, firmware, input)
     for (const issue of interpretedIssues) {
@@ -280,6 +330,7 @@ export function evaluateImporterV2WithFirmware(
   return {
     ...base,
     evaluationFingerprint: fingerprint({
+      automationPolicyVersion: IMPORTER_V2_AUTOMATION_POLICY_VERSION,
       baseEvaluationFingerprint: base.evaluationFingerprint,
       firmwareContext: input.firmwareContext,
       interpretations: rows.map((row) => ({
