@@ -90,9 +90,7 @@ async function ensureRuleBook(batch: {
 
 async function activeRuleSet(ruleBookId: string): Promise<ImporterV2RuleSetSnapshot> {
   const active = await getActiveImporterV2RuleSet(ruleBookId)
-  if (!active) {
-    throw new Error('The importer rule book has no active revision.')
-  }
+  if (!active) throw new Error('The importer rule book has no active revision.')
   return active
 }
 
@@ -129,7 +127,6 @@ function ruleScope(input: {
 }
 
 function candidateRule(input: {
-  active: ImporterV2RuleSetSnapshot
   batch: { provider: string; sourceAdapterId: string; profileId: string }
   rowValues: Partial<Record<ImporterV2Field, string | null>>
   wizard: ImporterV2RuleWizardInput
@@ -182,28 +179,10 @@ function candidateRule(input: {
   }
 }
 
-async function context(input: ImporterV2RuleWizardInput) {
-  const batch = await prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
-    where: { id: inputBatchId.get() },
-  })
-  return batch
-}
-
-// The small holder avoids duplicating the batch id through the private helpers
-// while keeping the exported API explicit and request-local.
-const inputBatchId = {
-  value: '' as string,
-  set(value: string) {
-    this.value = value
-  },
-  get() {
-    return this.value
-  },
-}
-
 async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput) {
-  inputBatchId.set(batchId)
-  const batch = await context(wizard)
+  const batch = await prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
+    where: { id: batchId },
+  })
   const ruleBookId = await ensureRuleBook({
     id: batch.id,
     provider: batch.provider,
@@ -223,7 +202,6 @@ async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput
     }),
   ])
   const candidate = candidateRule({
-    active,
     batch: {
       provider: batch.provider,
       sourceAdapterId: batch.sourceAdapterId,
@@ -253,7 +231,7 @@ async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput
     matchedRowCount: preview.matchedRowCount,
     conflicts: preview.conflicts,
   })
-  return { batch, ruleBookId, active, candidate, preview, scopeToken }
+  return { ruleBookId, active, candidate, preview, scopeToken }
 }
 
 export async function previewImporterV2GuidedRule(input: {
@@ -284,7 +262,9 @@ export async function applyImporterV2GuidedRule(input: {
     throw new Error('This automation matches no staged rows.')
   }
   if (result.preview.conflicts.length > 0) {
-    throw new Error('Resolve the displayed equal-priority rule conflict before activating this automation.')
+    throw new Error(
+      'Resolve the displayed equal-priority rule conflict before activating this automation.',
+    )
   }
 
   const nextRules = [
