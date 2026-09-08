@@ -11,9 +11,11 @@ model ImporterV2WorkspaceBatch {
   evaluationFingerprint String @unique
   status                String @default("RECONCILING")
   rowCount              Int
+  publishedRowCount     Int @default(0)
 
-  rows      ImporterV2WorkspaceRow[]
-  decisions ImporterV2WorkspaceDecision[]
+  rows                ImporterV2WorkspaceRow[]
+  decisions           ImporterV2WorkspaceDecision[]
+  publicationAttempts ImporterV2PublicationAttempt[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -36,6 +38,8 @@ model ImporterV2WorkspaceRow {
   hasErrors             Boolean @default(false)
   needsReevaluation     Boolean @default(false)
   reviewRevision        Int @default(0)
+  publishedAt           DateTime?
+  publicationAttemptId  String?
 
   sourceName              String?
   hostname                String?
@@ -75,6 +79,8 @@ model ImporterV2WorkspaceRow {
   @@index([batchId, canonicalModel])
   @@index([batchId, firmwareEvidencePattern])
   @@index([batchId, hasErrors, issueCount])
+  @@index([batchId, publishedAt])
+  @@index([publicationAttemptId])
 }
 
 model ImporterV2WorkspaceDecision {
@@ -98,4 +104,29 @@ model ImporterV2WorkspaceDecision {
   @@index([rowId, field, createdAt])
   @@index([scopeToken])
   @@index([actorUserId])
+}
+
+model ImporterV2PublicationAttempt {
+  id                   String @id @default(uuid())
+  batchId              String
+  idempotencyKey       String
+  mode                 String
+  qaFingerprint        String
+  status               String @default("COMMITTING")
+  approvedProposalKeys String[]
+  actorUserId          String?
+  sourceMetadata       Json
+  counts               Json?
+  result               Json?
+  publishedAt          DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+
+  batch ImporterV2WorkspaceBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@unique([batchId, idempotencyKey])
+  @@index([batchId, publishedAt])
+  @@index([qaFingerprint])
+  @@index([actorUserId])
+  @@index([status])
 }

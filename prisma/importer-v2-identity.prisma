@@ -35,6 +35,7 @@ model ImporterV2SourceSnapshot {
   sourceAdapterId       String
   profileVersion        String
   evaluationFingerprint String
+  publicationAttemptId  String? @unique
   isFullInventoryExport Boolean @default(false)
   publishedAt           DateTime @default(now())
 
@@ -42,7 +43,7 @@ model ImporterV2SourceSnapshot {
 
   createdAt DateTime @default(now())
 
-  @@unique([provider, sourceAdapterId, evaluationFingerprint])
+  @@index([provider, sourceAdapterId, evaluationFingerprint])
   @@index([provider, sourceAdapterId, publishedAt])
 }
 

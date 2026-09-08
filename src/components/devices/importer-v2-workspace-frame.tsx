@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ImporterV2PublicationPanel } from '@/components/devices/importer-v2-publication-panel'
 import { ImporterV2WorkspaceShell } from '@/components/devices/importer-v2-workspace-shell'
 import styles from './importer-v2-workspace-frame.module.css'
 
@@ -41,6 +42,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
         </button>
       </div>
       <ImporterV2WorkspaceShell batchId={batchId} />
+      <ImporterV2PublicationPanel batchId={batchId} />
     </div>
   )
 }
