@@ -144,13 +144,19 @@ function automaticIdentityDecision(input: {
   sourceKind: string | null
   candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
 }) {
-  if (input.source.requiresConfirmation !== false) return null
+  // NEW is only emitted by the identity resolver after it has found at least
+  // one valid durable identifier. Treat it as a safe create proposal even for
+  // staged batches produced before the automation policy changed.
   if (input.sourceKind === 'NEW') {
     return {
       kind: 'CREATE_NEW' as const,
       canonicalDeviceId: null,
     }
   }
+
+  // A single HIGH candidate means source ID agrees, or at least two durable
+  // identifiers agree without conflict. This is safe to reuse automatically;
+  // ambiguous or medium-confidence evidence remains manual.
   if (
     input.sourceKind === 'MATCH_SUGGESTED' &&
     input.candidates.length === 1 &&
@@ -161,6 +167,7 @@ function automaticIdentityDecision(input: {
       canonicalDeviceId: input.candidates[0].canonicalDeviceId,
     }
   }
+
   return null
 }
 
