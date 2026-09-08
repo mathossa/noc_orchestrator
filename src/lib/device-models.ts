@@ -34,7 +34,8 @@ export type DeviceModelRecord = {
   deviceTypeId: string
   familyId: string | null
   model: string
-  platform: string | null
+  /** The model's explicit broad firmware-platform compatibility selection. */
+  supportedPlatforms: string[]
   notes: string | null
   isActive: boolean
   source: string
@@ -104,6 +105,31 @@ function optionalText(value: unknown) {
   return cleaned.length > 0 ? cleaned : null
 }
 
+function parseSupportedPlatforms(value: unknown, errors: DeviceModelFieldErrors) {
+  if (!Array.isArray(value)) {
+    errors.supportedPlatforms = 'Supported platforms must be a list.'
+    return []
+  }
+  const platforms = new Map<string, string>()
+  for (const raw of value) {
+    const platform = optionalText(raw)
+    if (!platform) continue
+    if (platform.length > 160) {
+      errors.supportedPlatforms = 'Each supported platform must be 160 characters or fewer.'
+      continue
+    }
+    platforms.set(platform.toLocaleLowerCase('en-US'), platform)
+  }
+  return [...platforms.values()]
+}
+
+function parseLegacyPlatformStorage(value: unknown, errors: DeviceModelFieldErrors) {
+  if (typeof value !== 'string') return null
+  const raw = value.normalize('NFKC').trim()
+  if (!raw) return []
+  return parseSupportedPlatforms(raw.split(',').map((part) => part.trim()), errors)
+}
+
 export function cleanDeviceModelName(value: unknown) {
   return optionalText(value) ?? ''
 }
@@ -118,13 +144,23 @@ export function parseDeviceModelInput(input: unknown) {
   const deviceTypeId = optionalText(body.deviceTypeId) ?? ''
   const familyId = optionalText(body.familyId)
   const model = cleanDeviceModelName(body.model)
-  const platform = optionalText(body.platform)
   const notes = optionalText(body.notes)
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
   const externalProvider = optionalText(body.externalProvider)
   const externalId = optionalText(body.externalId)
   const isActive = typeof body.isActive === 'boolean' ? body.isActive : true
   const errors: DeviceModelFieldErrors = {}
+  const hasSupportedPlatforms = Object.prototype.hasOwnProperty.call(body, 'supportedPlatforms')
+  const hasLegacyPlatformStorage = Object.prototype.hasOwnProperty.call(body, 'platform')
+  const supportedPlatforms = hasSupportedPlatforms
+    ? parseSupportedPlatforms(body.supportedPlatforms, errors)
+    : hasLegacyPlatformStorage
+      ? parseLegacyPlatformStorage(body.platform, errors)
+      : null
+
+  // DeviceModel.platform remains an internal serialized DB column during the
+  // migration. The public model contract exposes supportedPlatforms only.
+  const platform = supportedPlatforms ? supportedPlatforms.join(', ') || null : optionalText(body.platform)
 
   if (!vendorId) errors.vendorId = 'Vendor is required.'
   if (!deviceTypeId) errors.deviceTypeId = 'Device type is required.'
@@ -132,7 +168,9 @@ export function parseDeviceModelInput(input: unknown) {
   if (!model) errors.model = 'Model name is required.'
   else if (model.length > 160) errors.model = 'Model name must be 160 characters or fewer.'
 
-  if (platform && platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
+  if (platform && platform.length > 160) {
+    errors.supportedPlatforms = 'The supported-platform list must be 160 characters or fewer in total.'
+  }
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
 
   if (!['MANUAL', 'API', 'IMPORT'].includes(source)) errors.source = 'Choose MANUAL, API, or IMPORT.'
@@ -147,6 +185,7 @@ export function parseDeviceModelInput(input: unknown) {
     familyId,
     model,
     platform,
+    supportedPlatforms,
     notes,
     isActive,
     source,

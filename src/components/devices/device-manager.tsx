@@ -61,13 +61,15 @@ function emptyForm(customerId = '', siteId = ''): FormState {
   }
 }
 
-function normalizePlatform(value: string | null | undefined) {
-  return (value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+function normalizePlatform(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
 
 function releaseMatchesModel(release: DeviceFirmwareReference, model: DeviceModelReference | undefined) {
   if (!model || release.vendorId !== model.vendor.id) return false
-  return !model.platform || normalizePlatform(release.platform) === normalizePlatform(model.platform)
+  if (model.supportedPlatforms.length === 0) return true
+  const releasePlatform = normalizePlatform(release.platform)
+  return model.supportedPlatforms.some((platform) => normalizePlatform(platform) === releasePlatform)
 }
 
 function toLocalDateTimeInput(value: string | null) {
@@ -378,10 +380,15 @@ export function DeviceManager({
               <FormField label="Serial number" htmlFor="device-serial" error={fieldErrors.serialNumber}>
                 <TextInput id="device-serial" value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} />
               </FormField>
-              <FormField label="Current firmware" htmlFor="device-current-firmware" description={form.deviceModelId ? 'Only catalog releases compatible with the selected model are shown.' : 'Select a model first.'} error={fieldErrors.currentFirmwareReleaseId}>
+              <FormField
+                label="Current firmware"
+                htmlFor="device-current-firmware"
+                description={form.deviceModelId ? 'Same-vendor releases excluded by the model supported-platform selection are hidden. Exact compatibility is verified when saved.' : 'Select a model first.'}
+                error={fieldErrors.currentFirmwareReleaseId}
+              >
                 <SelectInput id="device-current-firmware" value={form.currentFirmwareReleaseId} onChange={(event) => setForm({ ...form, currentFirmwareReleaseId: event.target.value, currentFirmwareObservedAt: event.target.value ? form.currentFirmwareObservedAt : '' })} disabled={!form.deviceModelId}>
                   <option value="">Unknown / not recorded</option>
-                  {formReleases.map((release) => <option key={release.id} value={release.id}>{release.version}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''} · {release.status}{release.isActive ? '' : ' · archived'}</option>)}
+                  {formReleases.map((release) => <option key={release.id} value={release.id}>{release.version} · {release.platform}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''} · {release.status}{release.isActive ? '' : ' · archived'}</option>)}
                 </SelectInput>
               </FormField>
               <FormField label="Firmware source" htmlFor="device-firmware-source" error={fieldErrors.currentFirmwareSource}>
@@ -456,7 +463,7 @@ export function DeviceManager({
                       <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
                         <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
                         <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? record.site.name : 'No site'}</div></td>
-                        <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name}{record.deviceModel.platform ? ` · ${record.deviceModel.platform}` : ''}</div></td>
+                        <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name} · {record.deviceModel.supportedPlatforms.length ? record.deviceModel.supportedPlatforms.join(', ') : 'platform support unknown'}</div></td>
                         <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
                         <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
                         <td className="px-4 py-3"><TechnicalStatusBadge state={record.technicalState} /></td>

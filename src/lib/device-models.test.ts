@@ -25,11 +25,36 @@ describe('device model validation', () => {
       familyId: null,
       model: 'C9300-24P',
       platform: null,
+      supportedPlatforms: null,
       notes: null,
       isActive: true,
       source: 'MANUAL',
       externalProvider: null,
       externalId: null,
+    })
+  })
+
+  it('accepts multiple supported platforms in the existing model platform field', () => {
+    expect(parseDeviceModelInput({
+      vendorId: 'vendor-1',
+      deviceTypeId: 'type-1',
+      model: '2530-24G',
+      platform: ' AOS-S,   AOS-S-v2 ',
+    })).toMatchObject({
+      platform: 'AOS-S, AOS-S-v2',
+      supportedPlatforms: ['AOS-S', 'AOS-S-v2'],
+    })
+  })
+
+  it('deduplicates supported platforms case-insensitively', () => {
+    expect(parseDeviceModelInput({
+      vendorId: 'vendor-1',
+      deviceTypeId: 'type-1',
+      model: '2530-24G',
+      supportedPlatforms: ['AOS-S', 'aos-s', 'AOS-S-v2'],
+    })).toMatchObject({
+      platform: 'aos-s, AOS-S-v2',
+      supportedPlatforms: ['aos-s', 'AOS-S-v2'],
     })
   })
 
