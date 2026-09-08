@@ -24,6 +24,13 @@ function object(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function validField(value: unknown): value is ImporterV2Field {
+  return (
+    typeof value === 'string' &&
+    IMPORTER_V2_FIELDS.includes(value as ImporterV2Field)
+  )
+}
+
 function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   const input = object(value)
   if (!input) throw new Error('wizard input is required.')
@@ -34,11 +41,11 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   ) {
     throw new Error('wizard.rowNumber must be a positive integer.')
   }
-  if (
-    typeof input.field !== 'string' ||
-    !IMPORTER_V2_FIELDS.includes(input.field as ImporterV2Field)
-  ) {
+  if (!validField(input.field)) {
     throw new Error('wizard.field must be a supported importer field.')
+  }
+  if (input.matchField !== undefined && !validField(input.matchField)) {
+    throw new Error('wizard.matchField must be a supported importer field.')
   }
   if (typeof input.operator !== 'string' || !OPERATORS.has(input.operator)) {
     throw new Error('wizard.operator must use a supported guided match type.')
