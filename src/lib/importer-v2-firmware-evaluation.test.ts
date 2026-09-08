@@ -77,7 +77,7 @@ function baseInput(): ImporterV2FirmwareEvaluationInput {
 }
 
 describe('Importer v2 centralized firmware evaluation boundary', () => {
-  it('attaches one deterministic firmware proof to the staged row', () => {
+  it('attaches one deterministic firmware proof to the staged row without forcing per-row confirmation', () => {
     const result = evaluateImporterV2WithFirmware(baseInput())
     const row = result.rows[0]
 
@@ -91,7 +91,7 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
       source: 'DETERMINISTIC_PARSER',
       matchedParserId: 'importer-v2-firmware-interpreter',
       matchedParserVersion: '1.0.0',
-      requiresConfirmation: true,
+      requiresConfirmation: false,
     })
   })
 
@@ -109,7 +109,7 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     expect(row.fields.currentFirmware.decision.matchedSuggestionId).toBeNull()
   })
 
-  it('keeps unknown running firmware importable as a warning even when the profile previously required it', () => {
+  it('keeps unknown running firmware importable as a warning and review item even when the profile previously required it', () => {
     const input = baseInput()
     input.rows[0].rawValues.firmwareVersion = '10.3.9'
     input.rows[0].rawValues.softwareVersion = 'ExampleOS 10.4.3 build 711'
@@ -173,6 +173,22 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
         code: 'REQUIRED_FIELD_UNRESOLVED',
       }),
     )
+  })
+
+  it('turns populated unmatched required catalog values into grouped publication proposals instead of row errors', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'vendor', 'model', 'deviceType']
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.issues).not.toContainEqual(
+      expect.objectContaining({ severity: 'ERROR' }),
+    )
+    expect(row.statuses).not.toContain('NEEDS_REVIEW')
+    expect(row.proposedCanonicalValues.customer).toEqual({
+      id: null,
+      label: 'Customer A',
+    })
   })
 
   it('creates proof groups from included rows so one evidence pattern can be reviewed once', () => {
