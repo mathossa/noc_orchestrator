@@ -27,7 +27,11 @@ function object(value: unknown): Record<string, unknown> | null {
 function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   const input = object(value)
   if (!input) throw new Error('wizard input is required.')
-  if (!Number.isInteger(input.rowNumber) || Number(input.rowNumber) < 1) {
+  if (
+    typeof input.rowNumber !== 'number' ||
+    !Number.isInteger(input.rowNumber) ||
+    input.rowNumber < 1
+  ) {
     throw new Error('wizard.rowNumber must be a positive integer.')
   }
   if (
