@@ -22,7 +22,10 @@ export type ImporterV2RuleWizardScope =
 
 export type ImporterV2RuleWizardInput = {
   rowNumber: number
+  /** Field that the automation writes. */
   field: ImporterV2Field
+  /** Source field that the condition evaluates. Defaults to `field` for old clients. */
+  matchField?: ImporterV2Field
   operator: Extract<
     ImporterV2RuleConditionOperator,
     'NORMALIZED_EXACT' | 'PREFIX' | 'CONTAINS' | 'PATTERN' | 'VERSION_MATCH'
@@ -106,13 +109,16 @@ function ruleScope(input: {
   batch: { provider: string; sourceAdapterId: string; profileId: string }
   rowValues: Partial<Record<ImporterV2Field, string | null>>
   scope: ImporterV2RuleWizardScope
-  field: ImporterV2Field
+  targetField: ImporterV2Field
 }): ImporterV2RuleScope {
   const scope: ImporterV2RuleScope = {
     profileIds: [input.batch.profileId],
     providers: [input.batch.provider],
     sourceAdapterIds: [input.batch.sourceAdapterId],
-    sourceFields: [input.field],
+    // `sourceFields` in the current rule matcher constrains action fields. Keep
+    // this bound to the field being written; the condition itself carries the
+    // independent source/match field.
+    sourceFields: [input.targetField],
   }
   if (input.scope === 'CUSTOMER' && clean(input.rowValues.customer)) {
     scope.customers = [clean(input.rowValues.customer)!]
@@ -133,12 +139,14 @@ function candidateRule(input: {
 }): ImporterV2RuleDefinition {
   const matchValue = clean(input.wizard.matchValue)
   const targetLabel = clean(input.wizard.target.label)
+  const matchField = input.wizard.matchField ?? input.wizard.field
   if (!matchValue) throw new Error('Enter a source pattern to match.')
   if (!targetLabel) throw new Error('Choose or enter the value that the rule should set.')
   if (matchValue.length > 160) throw new Error('Rule patterns are limited to 160 characters.')
 
   const identity = hash({
     field: input.wizard.field,
+    matchField,
     operator: input.wizard.operator,
     matchValue,
     target: input.wizard.target,
@@ -151,7 +159,7 @@ function candidateRule(input: {
     version: 1,
     name:
       clean(input.wizard.name) ??
-      `${input.wizard.field}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue}`,
+      `${matchField}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue} → ${input.wizard.field}`,
     description:
       clean(input.wizard.explanation) ??
       'Created from the Importer v2 guided automation wizard.',
@@ -161,11 +169,11 @@ function candidateRule(input: {
       batch: input.batch,
       rowValues: input.rowValues,
       scope: input.wizard.scope,
-      field: input.wizard.field,
+      targetField: input.wizard.field,
     }),
     when: {
       kind: 'CONDITION',
-      field: input.wizard.field,
+      field: matchField,
       operator: input.wizard.operator,
       value: matchValue,
     },
