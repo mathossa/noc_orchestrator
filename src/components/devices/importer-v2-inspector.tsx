@@ -109,6 +109,28 @@ function fieldLabel(field: string) {
   )
 }
 
+function suggestedRuleMatchField(
+  actionField: ImporterV2Field,
+  detail: RowDetail | null,
+): ImporterV2Field {
+  const raw = detail?.evaluated.rawValues
+  if (raw?.[actionField]) return actionField
+  if (
+    (actionField === 'vendor' ||
+      actionField === 'productFamily' ||
+      actionField === 'softwarePlatform' ||
+      actionField === 'deviceType') &&
+    raw?.model
+  ) {
+    return 'model'
+  }
+  if (actionField === 'currentFirmware') {
+    if (raw?.softwareVersion) return 'softwareVersion'
+    if (raw?.firmwareVersion) return 'firmwareVersion'
+  }
+  return actionField
+}
+
 function identitySignalLabel(kind: string) {
   const labels: Record<string, string> = {
     SOURCE_ID: 'Source ID',
@@ -226,6 +248,7 @@ export function ImporterV2Inspector({
   const [identityPreview, setIdentityPreview] = useState<IdentityPreview | null>(null)
   const [identityBusy, setIdentityBusy] = useState(false)
   const [ruleOpen, setRuleOpen] = useState(false)
+  const [ruleMatchField, setRuleMatchField] = useState<ImporterV2Field>('model')
   const [ruleOperator, setRuleOperator] = useState<
     'NORMALIZED_EXACT' | 'PREFIX' | 'CONTAINS' | 'PATTERN' | 'VERSION_MATCH'
   >('NORMALIZED_EXACT')
@@ -235,6 +258,7 @@ export function ImporterV2Inspector({
   const [ruleBusy, setRuleBusy] = useState(false)
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
+  const ruleSourceValue = detail?.evaluated.rawValues?.[ruleMatchField] ?? null
   const proposedValue = detail?.evaluated.fields?.[actionField]?.proposedValue ?? null
   const selectedIdentityId =
     identityChoice ||
@@ -420,9 +444,11 @@ export function ImporterV2Inspector({
   }
 
   const openRuleWizard = () => {
+    const matchField = suggestedRuleMatchField(actionField, detail)
+    setRuleMatchField(matchField)
     setRuleOpen(true)
     setRulePreview(null)
-    setRuleMatch(rawSourceValue ?? '')
+    setRuleMatch(detail?.evaluated.rawValues?.[matchField] ?? '')
   }
 
   const wizardPayload = () => {
@@ -430,6 +456,7 @@ export function ImporterV2Inspector({
     return {
       rowNumber: detail.rowNumber,
       field: actionField,
+      matchField: ruleMatchField,
       operator: ruleOperator,
       matchValue: ruleMatch.trim(),
       target: { id: targetId.trim() || null, label: targetLabel.trim() },
@@ -1048,8 +1075,48 @@ export function ImporterV2Inspector({
                   {ruleOpen ? (
                     <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
                       <p className="text-[10px] leading-4 text-[var(--muted)]">
-                        No regex knowledge required. Choose how the source text should match. Wildcard uses <code>*</code> for any text and <code>?</code> for one character.
+                        Build a simple IF → THEN rule. Choose which source column contains the pattern; it does not have to be the field you are fixing.
                       </p>
+
+                      <div className="rounded border border-[var(--border)] bg-[var(--background)] p-2 text-[10px]">
+                        <strong className="text-[var(--foreground)]">THEN</strong>{' '}
+                        <span className="text-[var(--muted-strong)]">
+                          set {fieldLabel(actionField)} to “{targetLabel.trim()}”
+                        </span>
+                      </div>
+
+                      <label className="block text-[10px] font-semibold text-[var(--muted-strong)]">
+                        Match source field
+                      </label>
+                      <SelectInput
+                        aria-label="Automation source field"
+                        value={ruleMatchField}
+                        onChange={(event) => {
+                          const field = event.target.value as ImporterV2Field
+                          setRuleMatchField(field)
+                          setRuleMatch(detail.evaluated.rawValues?.[field] ?? '')
+                          setRulePreview(null)
+                        }}
+                      >
+                        {CLIENT_FIELDS.map((field) => (
+                          <option key={field} value={field}>
+                            {fieldLabel(field)}
+                          </option>
+                        ))}
+                      </SelectInput>
+
+                      <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-2 text-[10px]">
+                        <span className="text-[var(--muted)]">Source value on this row</span>
+                        <p className="mt-0.5 break-words font-mono text-[var(--muted-strong)]">
+                          {display(ruleSourceValue)}
+                        </p>
+                        {!ruleSourceValue ? (
+                          <p className="mt-1 text-[#f0a0a0]">
+                            This source field is blank on the selected row. Choose the column that actually contains the text you want to match.
+                          </p>
+                        ) : null}
+                      </div>
+
                       <SelectInput
                         aria-label="Automation match type"
                         value={ruleOperator}
@@ -1073,6 +1140,9 @@ export function ImporterV2Inspector({
                         }}
                         placeholder={ruleOperator === 'PATTERN' ? 'Example: Cisco WS-C2960X-*' : 'Source text to match'}
                       />
+                      <p className="text-[10px] leading-4 text-[var(--muted)]">
+                        No regex knowledge required. Wildcard uses <code>*</code> for any text and <code>?</code> for one character.
+                      </p>
                       <SelectInput
                         aria-label="Automation scope"
                         value={ruleScope}
@@ -1099,7 +1169,7 @@ export function ImporterV2Inspector({
                           ) : null}
                           {rulePreview.preview.examples.slice(0, 4).map((example) => (
                             <p key={example.rowNumber} className="mt-1 text-[10px] text-[var(--muted-strong)]">
-                              #{example.rowNumber}: {display(example.before[actionField])} → {display(example.after[actionField])}
+                              #{example.rowNumber}: {fieldLabel(ruleMatchField)} “{display(example.before[ruleMatchField])}” → {fieldLabel(actionField)} “{display(example.after[actionField])}”
                             </p>
                           ))}
                           <div className="mt-2 grid grid-cols-2 gap-2">
