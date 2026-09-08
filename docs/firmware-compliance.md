@@ -53,3 +53,11 @@ Use synthetic devices and releases:
 5. Block the preferred release currently running on a device. Reload: it must be actionable everywhere, including devices with historical DONE/IGNORED records; those records must remain unchanged.
 6. Use an unlinked raw version, an opaque comparison, and a rebuild suffix with/without explicit variant equivalence. Inspect explanations and compatibility in detail.
 7. For a moving train policy, add a newer observed/verified but unevaluated release: preferred must stay fixed. Explicitly mark it policy-eligible and verify the target changes, subject to compatibility resolution.
+
+## Configuring policies in the UI
+
+Open **Firmware → Models → Desired** for a model (or **Edit model → Configure desired firmware**). Both links open the existing **Desired firmware policy** section at `/models/<id>#desired-firmware-policy`; the former exact-only form has been replaced, with no additional navigation menu.
+
+Choose Exact release, Minimum version, Approved range, or Latest approved in train. The form shows only applicable release/train fields and boundary-inclusion controls. Minimum/maximum choices follow the preferred release's platform. Save writes a new version of the same model baseline/default track through the existing desired-firmware endpoint. Reopening shows the saved mode, bounds, inclusivity and train. Clear explicitly removes the concrete-model baseline, allowing inherited policy to apply.
+
+The existing multi-model bulk action remains an explicitly labeled exact-release shortcut. Customer/site/device overrides and the complete policy workspace remain outside this editor.

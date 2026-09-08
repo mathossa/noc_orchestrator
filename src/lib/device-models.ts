@@ -75,6 +75,11 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
   desiredFirmware: {
     available: true
     policyId: string | null
+    minimumRelease: DeviceModelFirmwareReference | null
+    maximumRelease: DeviceModelFirmwareReference | null
+    minimumInclusive: boolean
+    maximumInclusive: boolean
+    firmwareTrain: { id: string; name: string; platform: string } | null
     policyMode: FirmwarePolicyMode | null
     trackKey: string | null
     desiredPlatform: string | null

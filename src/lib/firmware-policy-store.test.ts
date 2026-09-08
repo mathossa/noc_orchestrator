@@ -42,6 +42,7 @@ vi.mock('@/lib/firmware-compatibility-policy', () => ({
 
 import {
   appendFirmwarePolicyVersion,
+  saveModelDesiredFirmwareConfiguration,
   bulkClearModelDesiredFirmwarePolicies,
   bulkSetModelDesiredFirmwarePolicies,
   clearModelDesiredFirmwarePolicy,
@@ -347,5 +348,55 @@ describe('scoped policy foundation persistence', () => {
     mocks.policyFindMany.mockResolvedValue([policyRecord(allowedRelease, 'family', null, { deviceModelFamilyId: 'family-1' }), policyRecord(allowedRelease, 'customer', null, { deviceModelFamilyId: 'family-1', customerId: 'customer-1' }), policyRecord(allowedRelease, 'site', null, { deviceModelFamilyId: 'family-1', siteId: 'site-1' })])
     const result = await resolveEffectiveFirmwarePolicyForDevice('device-1', new Date('2026-09-04T00:00:00Z'))
     expect(result).toMatchObject({ status: 'RESOLVED', policy: { id: 'site' }, source: { scope: 'SITE', policyId: 'site' } })
+  })
+})
+
+describe('existing model desired-firmware editor configuration', () => {
+  const min = { ...allowedRelease, id: 'min', version: '10.6.0.1', logicalVersion: '10.6.0.1' }
+  const max = { ...allowedRelease, id: 'max', version: '10.8.0.1', logicalVersion: '10.8.0.1' }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.modelFindUnique.mockResolvedValue({ id: 'model-1', vendorId: 'vendor-1' })
+    mocks.policyFindFirst.mockResolvedValue(null)
+    mocks.releaseFindUnique.mockResolvedValue(allowedRelease)
+    mocks.trainFindUnique.mockResolvedValue({ id: 'train-1', name: 'Synthetic train', vendorId: 'vendor-1', platform: 'AOS-10', isActive: true })
+    mocks.releaseFindMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => [min, allowedRelease, max].filter(r => where.id.in.includes(r.id)))
+    mocks.previewLogicalTarget.mockResolvedValue(resolvedImpact)
+    mocks.previewTrain.mockResolvedValue(resolvedImpact)
+    mocks.auditCreate.mockResolvedValue({ id: 'audit' })
+    mocks.policyCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => policyRecord(allowedRelease, 'saved', 'model-1', data))
+    mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ firmwarePolicy: { create: mocks.policyCreate }, auditEvent: { create: mocks.auditCreate } }))
+  })
+  it.each(['EXACT', 'MINIMUM', 'RANGE', 'LATEST_APPROVED_IN_TRAIN'])('saves %s through the existing model policy scope', async policyMode => {
+    await saveModelDesiredFirmwareConfiguration('model-1', { policyMode, targetFirmwareReleaseId: 'fw-1', minimumFirmwareReleaseId: 'min', maximumFirmwareReleaseId: 'max', minimumInclusive: false, maximumInclusive: false, firmwareTrainId: 'train-1', customerId: 'injected', deviceModelFamilyId: 'injected' }, 'actor')
+    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      policyMode, deviceModelId: 'model-1', customerId: null, deviceModelFamilyId: null, desiredPlatform: 'AOS-10',
+      targetFirmwareReleaseId: policyMode === 'LATEST_APPROVED_IN_TRAIN' ? null : 'fw-1',
+      minimumFirmwareReleaseId: ['MINIMUM', 'RANGE'].includes(policyMode) ? 'min' : null,
+      maximumFirmwareReleaseId: policyMode === 'RANGE' ? 'max' : null,
+      firmwareTrainId: policyMode === 'LATEST_APPROVED_IN_TRAIN' ? 'train-1' : null,
+      maximumInclusive: policyMode === 'RANGE' ? false : true,
+    }) }))
+    expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ actorUserId: 'actor' }) }))
+  })
+  it('preserves the existing default track instead of adding a competing menu-created track', async () => {
+    mocks.policyFindFirst.mockResolvedValue(policyRecord(allowedRelease, 'previous', 'model-1', { trackKey: 'preferred-track', trackName: 'Preferred track', policyVersion: 2 }))
+    await saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'EXACT', targetFirmwareReleaseId: 'fw-1', trackKey: 'injected' })
+    expect(mocks.policyCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ trackKey: 'preferred-track', policyVersion: 3 }) }))
+  })
+  it('rejects missing bounds, malformed inclusion, reversed bounds and blocked targets without writing', async () => {
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'MINIMUM', targetFirmwareReleaseId: 'fw-1' })).rejects.toThrow('minimum')
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'RANGE', targetFirmwareReleaseId: 'fw-1' })).rejects.toThrow('minimum and/or maximum')
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'RANGE', minimumInclusive: 'false' })).rejects.toThrow('true or false')
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'RANGE', targetFirmwareReleaseId: 'fw-1', minimumFirmwareReleaseId: 'max' })).rejects.toThrow('Minimum firmware cannot be newer')
+    mocks.releaseFindMany.mockResolvedValue([{ ...allowedRelease, catalogState: 'BLOCKED' }])
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'EXACT', targetFirmwareReleaseId: 'fw-1' })).rejects.toThrow('Blocked or withdrawn')
+    expect(mocks.policyCreate).not.toHaveBeenCalled()
+  })
+  it('rejects explicit incompatibility but allows unknown policy intent', async () => {
+    mocks.previewLogicalTarget.mockResolvedValue(incompatibleImpact)
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'EXACT', targetFirmwareReleaseId: 'fw-1' })).rejects.toBeInstanceOf(FirmwarePolicyCompatibilityError)
+    mocks.previewLogicalTarget.mockResolvedValue(unknownImpact)
+    await expect(saveModelDesiredFirmwareConfiguration('model-1', { policyMode: 'EXACT', targetFirmwareReleaseId: 'fw-1' })).resolves.toMatchObject({ id: 'saved' })
   })
 })
