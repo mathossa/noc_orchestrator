@@ -19,7 +19,13 @@ function parseStageConfig(value: FormDataEntryValue | null): ImporterV2XlsxStage
   if (typeof parsed.provider !== 'string' || !parsed.provider.trim()) throw new Error('Provider is required.')
   if (typeof parsed.sourceAdapterId !== 'string' || !parsed.sourceAdapterId.trim()) throw new Error('Source adapter is required.')
   if (typeof parsed.sheetName !== 'string' || !parsed.sheetName.trim()) throw new Error('Worksheet is required.')
-  if (!Number.isInteger(parsed.headerRow) || Number(parsed.headerRow) < 1) throw new Error('Header row must be a positive integer.')
+  if (
+    typeof parsed.headerRow !== 'number' ||
+    !Number.isInteger(parsed.headerRow) ||
+    parsed.headerRow < 1
+  ) {
+    throw new Error('Header row must be a positive integer.')
+  }
   if (!Array.isArray(parsed.columnMappings)) throw new Error('Column mappings are required.')
   if (parsed.confirmProfile !== true) throw new Error('Confirm the source profile before staging.')
   return parsed as unknown as ImporterV2XlsxStageConfig
