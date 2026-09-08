@@ -5,7 +5,7 @@ import {
   resolveTechnicalFirmwareState,
   type TechnicalFirmwareState,
 } from '@/lib/firmware-state'
-import { prisma } from '@/lib/prisma'
+import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
 import type {
   DashboardCustomerAttentionRow,
   DashboardDimensionAttentionRow,
@@ -15,22 +15,6 @@ import type {
   DashboardWorkflowState,
   FirmwareLifecycleDashboard,
 } from '@/lib/dashboard'
-
-// Transitional exact-target dashboard view. #58 replaces this equality-only
-// aggregation with full effective-policy compliance. Keep it limited to active,
-// effective, default concrete-model policies and never let a nullable moving
-// target crash or masquerade as an exact target.
-const MODEL_POLICY_SCOPE = {
-  isActive: true,
-  deviceModelFamilyId: null,
-  customerId: null,
-  siteId: null,
-  contractTypeId: null,
-  deviceId: null,
-  vendorId: null,
-  deviceTypeId: null,
-  isDefaultTrack: true,
-} as const
 
 type PriorityCounts = {
   actionRequired: number
@@ -158,24 +142,7 @@ function dimensionRows(buckets: Map<string, DimensionBucket>) {
 export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycleDashboard> {
   const allDevices = await listDevices()
   const devices = allDevices.filter((device) => device.isActive)
-  const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
-  const policies = modelIds.length
-    ? await prisma.firmwarePolicy.findMany({
-        where: {
-          ...MODEL_POLICY_SCOPE,
-          deviceModelId: { in: modelIds },
-          effectiveFrom: { lte: new Date() },
-        },
-        orderBy: [{ effectiveFrom: 'desc' }, { policyVersion: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-        select: { deviceModelId: true, targetFirmwareReleaseId: true },
-      })
-    : []
-
-  const desiredByModel = new Map<string, string>()
-  for (const policy of policies) {
-    if (!policy.deviceModelId || !policy.targetFirmwareReleaseId || desiredByModel.has(policy.deviceModelId)) continue
-    desiredByModel.set(policy.deviceModelId, policy.targetFirmwareReleaseId)
-  }
+  const complianceByDevice = await resolveFirmwareComplianceBatch(devices.map((device) => device.id))
 
   const technical = emptyTechnicalFirmwareStateCounts()
   const workflow = emptyWorkflowCounts()
@@ -185,10 +152,8 @@ export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycle
   const firmware = new Map<string, DashboardFirmwareAttentionRow>()
 
   for (const device of devices) {
-    const state = resolveTechnicalFirmwareState({
-      currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-      desiredFirmwareReleaseId: desiredByModel.get(device.deviceModelId),
-    })
+    const compliance = complianceByDevice.get(device.id)!
+    const state = resolveTechnicalFirmwareState(compliance)
     incrementTechnicalFirmwareStateCount(technical, state)
     incrementWorkflow(workflow, device.lifecycle?.state ?? null)
 
@@ -215,7 +180,7 @@ export async function getFirmwareLifecycleDashboard(): Promise<FirmwareLifecycle
     vendor.devices += 1
     incrementPriority(vendor, state)
 
-    const blocked = device.currentFirmwareRelease?.status.toUpperCase() === 'BLOCKED'
+    const blocked = compliance.compliance === 'BLOCKED_RELEASE'
     if (blocked) {
       contract.blocked += 1
       vendor.blocked += 1

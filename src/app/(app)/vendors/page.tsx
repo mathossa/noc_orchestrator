@@ -13,7 +13,7 @@ export default function VendorsPage() {
         kind="vendors"
         basePath="/vendors"
         title="Firmware lifecycle drill-down"
-        description="Open a vendor to inspect models, devices, exact desired-state compliance, workflow decisions, release usage, provenance, and freshness."
+        description="Open a vendor to inspect models, devices, effective policy compliance, workflow decisions, release usage, provenance, and freshness."
       />
     </>
   )

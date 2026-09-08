@@ -1,5 +1,6 @@
 'use client'
 
+import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
-import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { WorkflowStatusBadge } from '@/components/ui/status-badge'
 import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
   DeviceFieldErrors,
@@ -466,7 +467,7 @@ export function DeviceManager({
                         <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name} · {record.deviceModel.supportedPlatforms.length ? record.deviceModel.supportedPlatforms.join(', ') : 'platform support unknown'}</div></td>
                         <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
                         <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
-                        <td className="px-4 py-3"><TechnicalStatusBadge state={record.technicalState} /></td>
+                        <td className="px-4 py-3"><FirmwareComplianceStatus result={record.firmwareCompliance} /></td>
                         <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No decision</span>}</td>
                         <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                         <td className="px-4 py-3 text-xs">{record.source}<div className="mt-1 text-[var(--muted)]">{record.isActive ? 'Active' : 'Archived'}</div></td>

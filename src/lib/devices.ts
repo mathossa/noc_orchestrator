@@ -1,3 +1,4 @@
+import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { AuditEventRecord } from '@/lib/audit-events'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
@@ -96,6 +97,7 @@ export type DeviceRecord = {
 }
 
 export type DeviceDetailRecord = DeviceRecord & {
+  firmwareCompliance: FirmwareComplianceResult
   createdAt: string
   updatedAt: string
   desiredFirmware: { available: true; release: DeviceFirmwareReference | null }

@@ -52,15 +52,15 @@ export function VendorDetail({ vendorId }: { vendorId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryStat label="Devices" value={<Link href={allDevicesHref} className="text-[var(--accent-light)] hover:underline">{vendor.deviceCount}</Link>} detail="Recorded devices using this vendor's concrete models." />
         <SummaryStat label="Models" value={vendor.modelCount} detail="Concrete device models configured for this vendor." />
-        <SummaryStat label="Current" value={<Link href={technicalStateDeviceHref(scope, 'CURRENT')} className="text-[var(--accent-light)] hover:underline">{vendor.technicalStateCounts.current}</Link>} detail="Devices on their exact desired release." />
-        <SummaryStat label="Action required" value={<Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="text-[var(--accent-light)] hover:underline">{vendor.technicalStateCounts.actionRequired}</Link>} detail="Recorded current firmware differs from desired." />
+        <SummaryStat label="No action recommended" value={<Link href={technicalStateDeviceHref(scope, 'CURRENT')} className="text-[var(--accent-light)] hover:underline">{vendor.technicalStateCounts.current}</Link>} detail="Devices with no technical action recommended." />
+        <SummaryStat label="Action required" value={<Link href={technicalStateDeviceHref(scope, 'ACTION_REQUIRED')} className="text-[var(--accent-light)] hover:underline">{vendor.technicalStateCounts.actionRequired}</Link>} detail="A technical update, migration, or review is recommended." />
         <SummaryStat label="Catalog releases" value={vendor.releaseCount} detail="Firmware releases recorded for this vendor." />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
-          <StateGrid title="Technical firmware state" description="Exact current-versus-desired comparison; each count opens the matching device list." items={[
-            ['Current', vendor.technicalStateCounts.current, technicalStateDeviceHref(scope, 'CURRENT')],
+          <StateGrid title="Technical firmware state" description="Central policy-aware technical recommendations; each count opens the matching device list." items={[
+            ['No action recommended', vendor.technicalStateCounts.current, technicalStateDeviceHref(scope, 'CURRENT')],
             ['Action required', vendor.technicalStateCounts.actionRequired, technicalStateDeviceHref(scope, 'ACTION_REQUIRED')],
             ['Unknown current', vendor.technicalStateCounts.unknown, technicalStateDeviceHref(scope, 'UNKNOWN')],
             ['No policy', vendor.technicalStateCounts.noPolicy, technicalStateDeviceHref(scope, 'NO_POLICY')],

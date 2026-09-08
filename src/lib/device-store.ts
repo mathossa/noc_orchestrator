@@ -3,7 +3,7 @@ import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { evaluateModelFirmwareCompatibility } from '@/lib/firmware-compatibility-store'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
-import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
+import { resolveFirmwareComplianceForDevice } from '@/lib/firmware-compliance-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import {
   normalizedDeviceName,
@@ -311,14 +311,12 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
-  const [desiredPolicy, auditHistory] = await Promise.all([
-    getActiveModelDesiredPolicy(record.deviceModelId),
+  const [firmwareCompliance, auditHistory] = await Promise.all([
+    resolveFirmwareComplianceForDevice(id),
     listAuditEventsForEntity('Device', id),
   ])
-  const desiredRelease = desiredPolicy?.release
-    ? { id: desiredPolicy.release.id, vendorId: desiredPolicy.release.vendorId, platform: desiredPolicy.release.platform, version: desiredPolicy.release.version, status: desiredPolicy.release.status, isActive: desiredPolicy.release.isActive, firmwareTrain: desiredPolicy.release.firmwareTrain }
-    : null
-  const technicalState = resolveTechnicalFirmwareState({ currentFirmwareReleaseId: record.currentFirmwareReleaseId, desiredFirmwareReleaseId: desiredRelease?.id })
+  const desiredRelease = firmwareCompliance.preferredTarget
+  const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
 
   return {
     ...serializeDevice(record as IncludedDevice),
@@ -326,6 +324,7 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     updatedAt: record.updatedAt.toISOString(),
     desiredFirmware: { available: true, release: desiredRelease },
     technicalState: { available: true, state: technicalState },
+    firmwareCompliance,
     auditHistory,
   }
 }

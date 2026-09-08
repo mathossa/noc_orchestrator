@@ -823,3 +823,42 @@ export async function resolveEffectiveFirmwarePolicyForDevice(deviceIdValue: unk
   })
   return resolveFirmwarePolicyTimeline(rows.map((row) => candidateFromRow(row as PolicyCandidateRow)), context, at)
 }
+
+/** Edit the existing concrete-model baseline; scope and track cannot be injected by the form. */
+export async function saveModelDesiredFirmwareConfiguration(
+  modelId: string,
+  raw: FirmwarePolicyWriteInput,
+  actorUserId: string | null = null,
+) {
+  const mode = cleanString(raw.policyMode)
+  if (!FIRMWARE_POLICY_MODES.includes(mode as FirmwarePolicyMode)) {
+    throw new FirmwarePolicyValidationError('Choose a supported policy mode.')
+  }
+  for (const value of [raw.minimumInclusive, raw.maximumInclusive]) {
+    if (value !== undefined && typeof value !== 'boolean') throw new FirmwarePolicyValidationError('Boundary inclusion must be true or false.')
+  }
+  const moving = mode === 'LATEST_APPROVED_IN_TRAIN'
+  const referenceId = cleanId(moving ? raw.firmwareTrainId : raw.targetFirmwareReleaseId)
+  if (!referenceId) throw new FirmwarePolicyValidationError(moving ? 'Choose a firmware train.' : 'Choose a preferred firmware release.')
+  const reference = moving
+    ? await prisma.firmwareTrain.findUnique({ where: { id: referenceId }, select: { platform: true } })
+    : await prisma.firmwareRelease.findUnique({ where: { id: referenceId }, select: { platform: true } })
+  if (!reference) throw new FirmwarePolicyReferenceError('The selected firmware target no longer exists.')
+  const current = await getActiveModelDesiredPolicy(modelId)
+  return appendFirmwarePolicyVersion({
+    deviceModelId: modelId,
+    policyMode: mode,
+    trackKey: current?.trackKey ?? 'default',
+    trackName: current?.trackName ?? 'Default',
+    trackClass: current?.trackClass ?? 'PREFERRED',
+    isDefaultTrack: true,
+    desiredPlatform: reference.platform,
+    targetFirmwareReleaseId: moving ? null : referenceId,
+    firmwareTrainId: moving ? referenceId : null,
+    minimumFirmwareReleaseId: mode === 'MINIMUM' || mode === 'RANGE' ? raw.minimumFirmwareReleaseId : null,
+    maximumFirmwareReleaseId: mode === 'RANGE' ? raw.maximumFirmwareReleaseId : null,
+    minimumInclusive: mode === 'MINIMUM' || mode === 'RANGE' ? raw.minimumInclusive : true,
+    maximumInclusive: mode === 'RANGE' ? raw.maximumInclusive : true,
+    notes: current?.notes ?? null,
+  }, actorUserId)
+}

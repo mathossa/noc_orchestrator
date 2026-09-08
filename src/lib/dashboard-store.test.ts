@@ -1,12 +1,16 @@
+import { result as complianceResult } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DeviceContractReference, DeviceRecord } from '@/lib/devices'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   listDevices: vi.fn(),
   policyFindMany: vi.fn(),
 }))
 
 vi.mock('@/lib/device-store', () => ({ listDevices: mocks.listDevices }))
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     firmwarePolicy: { findMany: mocks.policyFindMany },
@@ -136,10 +140,12 @@ function device({
 describe('firmware lifecycle dashboard aggregation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.policyFindMany.mockResolvedValue([
-      { deviceModelId: 'model-1', targetFirmwareReleaseId: 'release-1' },
-      { deviceModelId: 'model-2', targetFirmwareReleaseId: 'release-2' },
-    ])
+    mocks.compliance.mockResolvedValue(new Map([
+      ['device-1', complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED' })],
+      ['device-2', complianceResult({ compliance: 'UNKNOWN_FIRMWARE', recommendation: 'REVIEW_REQUIRED' })],
+      ['device-3', complianceResult({ compliance: 'BLOCKED_RELEASE', recommendation: 'REVIEW_REQUIRED' })],
+      ['device-4', complianceResult({ compliance: 'ACCEPTED', relationToPreferred: 'ABOVE_PREFERRED', recommendation: 'NO_ACTION' })],
+    ]))
   })
 
   it('prioritizes customer/site, effective contract, vendor, and bad-release attention without conflating workflow', async () => {
@@ -222,7 +228,7 @@ describe('firmware lifecycle dashboard aggregation', () => {
     const result = await getFirmwareLifecycleDashboard()
 
     expect(result.activeDevices).toBe(4)
-    expect(result.technical).toEqual({ current: 1, actionRequired: 1, unknown: 1, noPolicy: 1 })
+    expect(result.technical).toEqual({ current: 1, actionRequired: 2, unknown: 1, noPolicy: 0 })
     expect(result.workflow).toEqual({ planned: 1, ignored: 1, customerDeclined: 0, done: 1, undecided: 1 })
 
     expect(result.customerAttention[0]).toEqual(
@@ -233,14 +239,14 @@ describe('firmware lifecycle dashboard aggregation', () => {
       expect.objectContaining({ id: 'site-2', name: 'Rotterdam', unknown: 1 }),
     ])
     expect(result.customerAttention).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'customer-2', noPolicy: 1 })]),
+      expect.arrayContaining([expect.objectContaining({ id: 'customer-2', actionRequired: 1, noPolicy: 0 })]),
     )
 
     expect(result.contractAttention).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'contract-gold', actionRequired: 1, unknown: 0 }),
         expect.objectContaining({ id: 'contract-premium', actionRequired: 0, unknown: 1 }),
-        expect.objectContaining({ id: null, name: 'No contract', noPolicy: 1, blocked: 1 }),
+        expect.objectContaining({ id: null, name: 'No contract', actionRequired: 1, noPolicy: 0, blocked: 1 }),
       ]),
     )
     expect(result.contractAttention.find((row) => row.id === 'contract-gold')?.devices).toBe(1)
@@ -250,22 +256,20 @@ describe('firmware lifecycle dashboard aggregation', () => {
     expect(result.vendorAttention).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'vendor-a', actionRequired: 1 }),
-        expect.objectContaining({ id: 'vendor-b', unknown: 1, noPolicy: 1, blocked: 1 }),
+        expect.objectContaining({ id: 'vendor-b', unknown: 1, actionRequired: 1, noPolicy: 0, blocked: 1 }),
       ]),
     )
 
     expect(result.firmwareAttention).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'release-old', actionRequired: 1, blocked: 0 }),
-        expect.objectContaining({ id: 'release-blocked', actionRequired: 0, blocked: 1, status: 'BLOCKED' }),
+        expect.objectContaining({ id: 'release-blocked', actionRequired: 1, blocked: 1, status: 'BLOCKED' }),
       ]),
     )
     expect(result.firmwareAttention.find((release) => release.id === 'release-1')).toBeUndefined()
 
-    expect(mocks.policyFindMany).toHaveBeenCalledTimes(1)
-    const modelIds = mocks.policyFindMany.mock.calls[0][0].where.deviceModelId.in
-    expect(modelIds).toEqual(expect.arrayContaining(['model-1', 'model-2', 'model-3']))
-    expect(modelIds).not.toContain('model-4')
+    expect(mocks.compliance).toHaveBeenCalledWith(['device-1', 'device-2', 'device-3', 'device-4'])
+    expect(mocks.policyFindMany).not.toHaveBeenCalled()
   })
 
   it('returns a useful zero state without querying desired policies', async () => {

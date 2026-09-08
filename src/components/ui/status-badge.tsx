@@ -57,7 +57,7 @@ export function StatusBadge({
 }
 
 const technicalStyles: Record<TechnicalFirmwareState, { label: string; tone: StatusTone }> = {
-  CURRENT: { label: 'Current', tone: 'success' },
+  CURRENT: { label: 'No action recommended', tone: 'success' },
   ACTION_REQUIRED: { label: 'Action required', tone: 'warning' },
   UNKNOWN: { label: 'Unknown', tone: 'neutral' },
   NO_POLICY: { label: 'No policy', tone: 'info' },

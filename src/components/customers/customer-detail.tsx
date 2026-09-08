@@ -64,8 +64,8 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryStat label="Devices" value={customer.deviceCount} detail="Inventory records assigned to this customer." />
         <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations; sites may override the default contract." />
-        <SummaryStat label="Desired state current" value={customer.desiredStateSummary.current} detail="Devices on the exact desired firmware release." />
-        <SummaryStat label="Needs attention" value={customer.desiredStateSummary.actionRequired} detail="Recorded current release differs from desired." />
+        <SummaryStat label="No action recommended" value={customer.desiredStateSummary.current} detail="Devices whose effective policy recommends no action." />
+        <SummaryStat label="Needs attention" value={customer.desiredStateSummary.actionRequired} detail="Devices with a technical update, migration, or review recommendation." />
         <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Operational workflow state, separate from compliance." />
       </div>
 
@@ -76,11 +76,11 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="border-b border-[var(--border)] px-4 py-3">
               <h2 className="text-sm font-semibold">Technical firmware state</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">Exact current-versus-desired comparison. Version strings are never treated as SemVer or ordered implicitly.</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Effective policy, canonical version comparison, and model compatibility determine these summaries.</p>
             </div>
             <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ['Current', customer.desiredStateSummary.current],
+                ['No action recommended', customer.desiredStateSummary.current],
                 ['Action required', customer.desiredStateSummary.actionRequired],
                 ['Unknown current', customer.desiredStateSummary.unknown],
                 ['No policy', customer.desiredStateSummary.noPolicy],

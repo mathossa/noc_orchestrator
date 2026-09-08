@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { parseCustomerInput } from '@/lib/customers'
-import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
+import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
 import {
   emptyTechnicalFirmwareStateCounts,
   incrementTechnicalFirmwareStateCount,
@@ -121,6 +121,7 @@ export async function getCustomer(id: string) {
     prisma.device.findMany({
       where: { customerId: id },
       select: {
+        id: true,
         deviceModelId: true,
         currentFirmwareReleaseId: true,
         lifecycle: { select: { state: true } },
@@ -141,11 +142,7 @@ export async function getCustomer(id: string) {
     }),
   ])
 
-  const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
-  const desiredPolicies = await Promise.all(
-    modelIds.map(async (modelId) => [modelId, await getActiveModelDesiredPolicy(modelId)] as const),
-  )
-  const desiredByModel = new Map(desiredPolicies)
+  const complianceByDevice = await resolveFirmwareComplianceBatch(devices.map((device) => device.id))
 
   const workflowCounts = {
     planned: 0,
@@ -156,13 +153,9 @@ export async function getCustomer(id: string) {
   const desiredStateSummary = emptyTechnicalFirmwareStateCounts()
 
   for (const device of devices) {
-    const desiredPolicy = desiredByModel.get(device.deviceModelId)
     incrementTechnicalFirmwareStateCount(
       desiredStateSummary,
-      resolveTechnicalFirmwareState({
-        currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-        desiredFirmwareReleaseId: desiredPolicy?.release?.id,
-      }),
+      resolveTechnicalFirmwareState(complianceByDevice.get(device.id)!),
     )
 
     switch (device.lifecycle?.state) {

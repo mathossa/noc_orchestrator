@@ -1,6 +1,8 @@
+import { result as complianceResult } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   deviceModelFindMany: vi.fn(),
   deviceModelFindUnique: vi.fn(),
   deviceModelCreate: vi.fn(),
@@ -22,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   listSupportedPlatforms: vi.fn(),
   syncSupportedPlatforms: vi.fn(),
 }))
+
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -114,6 +118,7 @@ function policyRow(target: ReturnType<typeof release>, overrides: Record<string,
 describe('device model persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.compliance.mockResolvedValue(new Map([['d1', complianceResult()], ['d2', complianceResult({ compliance: 'UNKNOWN_FIRMWARE', recommendation: 'REVIEW_REQUIRED' })]]))
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1' })
     mocks.deviceTypeFindUnique.mockResolvedValue({ id: 'type-1' })
     mocks.familyFindUnique.mockResolvedValue(null)

@@ -1,3 +1,5 @@
+import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
+import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import { prisma } from '@/lib/prisma'
 import { listDevices } from '@/lib/device-store'
 import {
@@ -13,7 +15,7 @@ import type {
   VendorDrilldownRecord,
 } from '@/lib/firmware-drilldowns'
 
-// Transitional exact-target summary. Full scoped compliance belongs to #58.
+// Model baseline display only. All device state and target counts use effective compliance.
 const MODEL_POLICY_SCOPE = {
   isActive: true,
   deviceModelFamilyId: null,
@@ -82,19 +84,15 @@ async function loadDesiredByModel(modelIds: string[]) {
 
 function summarizeLifecycle(
   devices: Awaited<ReturnType<typeof listDevices>>,
-  desiredByModel: Map<string, DrilldownFirmwareReference>,
+  complianceByDevice: Map<string, FirmwareComplianceResult>,
 ) {
   const technicalStateCounts = emptyTechnicalFirmwareStateCounts()
   const workflowCounts = emptyWorkflowCounts()
 
   for (const device of devices) {
-    const desired = desiredByModel.get(device.deviceModelId)
     incrementTechnicalFirmwareStateCount(
       technicalStateCounts,
-      resolveTechnicalFirmwareState({
-        currentFirmwareReleaseId: device.currentFirmwareReleaseId,
-        desiredFirmwareReleaseId: desired?.id,
-      }),
+      resolveTechnicalFirmwareState(complianceByDevice.get(device.id)!),
     )
     switch (device.lifecycle?.state) {
       case 'PLANNED': workflowCounts.planned += 1; break
@@ -148,7 +146,8 @@ export async function getVendorDrilldown(id: string): Promise<VendorDrilldownRec
 
   const devices = allDevices.filter((device) => device.deviceModel.vendor.id === id)
   const desiredByModel = await loadDesiredByModel(models.map((model) => model.id))
-  const { technicalStateCounts, workflowCounts } = summarizeLifecycle(devices, desiredByModel)
+  const complianceByDevice = await resolveFirmwareComplianceBatch(devices.map((device) => device.id))
+  const { technicalStateCounts, workflowCounts } = summarizeLifecycle(devices, complianceByDevice)
 
   const deviceCountByModel = new Map<string, number>()
   const currentCountByRelease = new Map<string, number>()
@@ -158,7 +157,7 @@ export async function getVendorDrilldown(id: string): Promise<VendorDrilldownRec
     if (device.currentFirmwareReleaseId) {
       currentCountByRelease.set(device.currentFirmwareReleaseId, (currentCountByRelease.get(device.currentFirmwareReleaseId) ?? 0) + 1)
     }
-    const desired = desiredByModel.get(device.deviceModelId)
+    const desired = complianceByDevice.get(device.id)?.preferredTarget
     if (desired) desiredCountByRelease.set(desired.id, (desiredCountByRelease.get(desired.id) ?? 0) + 1)
   }
 
@@ -206,9 +205,8 @@ export async function getContractDrilldown(id: string): Promise<ContractDrilldow
 
   const allDevices = await listDevices()
   const devices = allDevices.filter((device) => device.effectiveContractType?.id === id)
-  const modelIds = [...new Set(devices.map((device) => device.deviceModelId))]
-  const desiredByModel = await loadDesiredByModel(modelIds)
-  const { technicalStateCounts, workflowCounts } = summarizeLifecycle(devices, desiredByModel)
+  const complianceByDevice = await resolveFirmwareComplianceBatch(devices.map((device) => device.id))
+  const { technicalStateCounts, workflowCounts } = summarizeLifecycle(devices, complianceByDevice)
 
   const customerMap = new Map<string, { id: string; name: string; deviceCount: number }>()
   const siteMap = new Map<string, { id: string; name: string; customerId: string; customerName: string; deviceCount: number }>()

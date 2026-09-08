@@ -1,6 +1,8 @@
+import { result as complianceResult } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   customerFindMany: vi.fn(),
   customerFindUnique: vi.fn(),
   customerCreate: vi.fn(),
@@ -16,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   policyCount: vi.fn(),
   auditCount: vi.fn(),
 }))
+
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -69,58 +73,6 @@ function storedCustomer(overrides: Record<string, unknown> = {}) {
     updatedAt: new Date('2026-08-31T18:00:00Z'),
     _count: { devices: 0, sites: 0 },
     ...overrides,
-  }
-}
-
-function desiredPolicy(modelId: string, releaseId: string) {
-  const timestamp = new Date('2026-09-01T00:00:00Z')
-  return {
-    id: `policy-${modelId}`,
-    policyMode: 'EXACT',
-    trackKey: 'default',
-    trackName: 'Default',
-    trackClass: 'PREFERRED',
-    isDefaultTrack: true,
-    desiredPlatform: 'IOS XE',
-    minimumFirmwareReleaseId: null,
-    targetFirmwareReleaseId: releaseId,
-    maximumFirmwareReleaseId: null,
-    firmwareTrainId: null,
-    minimumInclusive: true,
-    maximumInclusive: true,
-    effectiveFrom: timestamp,
-    policyVersion: 1,
-    isActive: true,
-    notes: null,
-    deviceModelFamilyId: null,
-    deviceModelId: modelId,
-    customerId: null,
-    siteId: null,
-    deviceId: null,
-    contractTypeId: null,
-    vendorId: null,
-    deviceTypeId: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    minimumFirmwareRelease: null,
-    targetFirmwareRelease: {
-      id: releaseId,
-      vendorId: 'vendor-1',
-      platform: 'IOS XE',
-      version: releaseId,
-      logicalVersion: releaseId,
-      variant: null,
-      imageCode: null,
-      catalogState: 'VERIFIED',
-      policyEligibility: 'ALLOWED',
-      variantEquivalence: 'EXACT_ONLY',
-      status: 'APPROVED',
-      isActive: true,
-      releasedAt: null,
-      firmwareTrain: null,
-    },
-    maximumFirmwareRelease: null,
-    firmwareTrain: null,
   }
 }
 
@@ -196,15 +148,17 @@ describe('customer persistence rules', () => {
   it('returns site, workflow, and canonical technical firmware summaries', async () => {
     mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1 } }))
     mocks.deviceFindMany.mockResolvedValue([
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },
-      { deviceModelId: 'model-1', currentFirmwareReleaseId: null, lifecycle: { state: 'DONE' } },
-      { deviceModelId: 'model-2', currentFirmwareReleaseId: 'release-x', lifecycle: null },
+      { id: 'd1', deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
+      { id: 'd2', deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },
+      { id: 'd3', deviceModelId: 'model-1', currentFirmwareReleaseId: null, lifecycle: { state: 'DONE' } },
+      { id: 'd4', deviceModelId: 'model-2', currentFirmwareReleaseId: 'release-x', lifecycle: null },
     ])
-    mocks.policyFindFirst.mockImplementation(({ where }: { where: { deviceModelId: string } }) => {
-      if (where.deviceModelId === 'model-1') return Promise.resolve(desiredPolicy('model-1', 'release-a'))
-      return Promise.resolve(null)
-    })
+    mocks.compliance.mockResolvedValue(new Map([
+      ['d1', complianceResult()],
+      ['d2', complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED' })],
+      ['d3', complianceResult({ compliance: 'UNKNOWN_FIRMWARE', recommendation: 'REVIEW_REQUIRED' })],
+      ['d4', complianceResult({ compliance: 'NO_POLICY', recommendation: 'REVIEW_REQUIRED' })],
+    ]))
     mocks.siteFindMany.mockResolvedValue([
       { id: 'site-1', name: 'Head office', code: 'HQ', city: 'Zwolle', country: 'Netherlands', isActive: true, _count: { devices: 3 } },
     ])

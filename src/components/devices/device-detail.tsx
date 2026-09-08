@@ -1,12 +1,13 @@
 'use client'
 
+import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
 import { AuditHistory } from '@/components/ui/audit-history'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
-import { TechnicalStatusBadge, WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { WorkflowStatusBadge } from '@/components/ui/status-badge'
 import type { DeviceDetailRecord } from '@/lib/devices'
 import type { FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
 
@@ -123,8 +124,8 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
-        <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Model policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No desired model policy.'} />
-        <SummaryStat label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} detail="Exact current-versus-desired comparison." />
+        <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Effective policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No resolved preferred target.'} />
+        <SummaryStat label="Technical state" value={<FirmwareComplianceStatus result={device.firmwareCompliance} />} detail={device.firmwareCompliance.explanation} />
         <SummaryStat label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No decision'} detail="Operational decision; it never changes technical compliance." />
       </div>
 
@@ -134,19 +135,27 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             <h2 className="text-sm font-semibold">Firmware state</h2>
             <dl className="mt-4 space-y-3 text-sm">
               <DetailRow label="Current release" value={device.currentFirmwareRelease ? <Link href={`/firmware/${device.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{device.currentFirmwareRelease.version}</Link> : 'Unknown'} />
+              <DetailRow label="Raw observation" value={device.currentFirmwareRawVersion ?? '—'} />
               <DetailRow label="Current train" value={device.currentFirmwareRelease?.firmwareTrain?.name ?? '—'} />
               <DetailRow label="Current platform" value={device.currentFirmwareRelease?.platform ?? 'Unknown'} />
               <DetailRow label="Firmware source" value={device.currentFirmwareRelease ? device.currentFirmwareSource : '—'} />
               <DetailRow label="Observed / reported" value={device.currentFirmwareObservedAt ? new Date(device.currentFirmwareObservedAt).toLocaleString() : 'Unknown'} />
               <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />
-              <DetailRow label="Desired release" value={desired ? <Link href={`/firmware/${desired.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{desired.version}</Link> : 'No model policy'} />
+              <DetailRow label="Desired release" value={desired ? <Link href={`/firmware/${desired.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{desired.version}</Link> : 'No resolved preferred target'} />
               <DetailRow label="Desired train" value={desired?.firmwareTrain?.name ?? '—'} />
               <DetailRow label="Desired status" value={desired ? `${desired.status}${desired.isActive ? '' : ' · archived'}` : '—'} />
-              <DetailRow label="Technical state" value={<TechnicalStatusBadge state={device.technicalState.state} />} />
+              <DetailRow label="Technical state" value={<FirmwareComplianceStatus result={device.firmwareCompliance} />} />
+              <DetailRow label="Policy source" value={device.firmwareCompliance.policySource ? `${device.firmwareCompliance.policySource.scope} · ${device.firmwareCompliance.policySource.trackName} · v${device.firmwareCompliance.policySource.policyVersion}` : 'No resolved policy'} />
+              <DetailRow label="Policy mode" value={device.firmwareCompliance.effectivePolicy.policy?.policyMode ?? '—'} />
+              <DetailRow label="Preferred position" value={device.firmwareCompliance.relationToPreferred.replaceAll('_', ' ')} />
+              <DetailRow label="Recommendation" value={device.firmwareCompliance.recommendation.replaceAll('_', ' ')} />
+              <DetailRow label="Target compatibility" value={device.firmwareCompliance.targetCompatibility?.status ?? 'Unknown'} />
+              <DetailRow label="Resolved image" value={device.firmwareCompliance.resolvedTarget?.version ?? 'Unresolved'} />
+              <DetailRow label="Explanation" value={device.firmwareCompliance.explanation} />
               <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
               <DetailRow label="Workflow target" value={device.lifecycle ? `${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}` : '—'} />
             </dl>
-            {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The model&apos;s desired release is archived in the catalog. It remains the explicit desired target until the model policy is changed or cleared.</div> : null}
+            {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The effective preferred release is archived in the catalog and requires policy review.</div> : null}
           </section>
 
           <section id="lifecycle-decision" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">

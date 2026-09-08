@@ -1,6 +1,8 @@
+import { result as complianceResult, release as complianceRelease } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  compliance: vi.fn(),
   listDevices: vi.fn(),
   vendorFindUnique: vi.fn(),
   contractFindUnique: vi.fn(),
@@ -10,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/device-store', () => ({ listDevices: mocks.listDevices }))
+vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     vendor: { findUnique: mocks.vendorFindUnique },
@@ -59,6 +63,7 @@ function device(overrides: Record<string, unknown> = {}) {
 describe('firmware drill-down aggregation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.compliance.mockResolvedValue(new Map([['device-1', complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })], ['device-2', complianceResult({ preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })]]))
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1', code: 'CISCO', name: 'Cisco', websiteUrl: null, isActive: true, createdAt: now, updatedAt: now })
     mocks.contractFindUnique.mockResolvedValue({ id: 'contract-1', code: 'FULL', name: 'Full', description: null, firmwareManagementEnabled: true, isActive: true, createdAt: now, updatedAt: now, _count: { customers: 1, sites: 1 } })
     mocks.modelFindMany.mockResolvedValue([{ id: 'model-1', model: 'C9300', platform: 'IOS XE', isActive: true, source: 'MANUAL', lastSynchronizedAt: null, deviceType: { id: 'type-1', name: 'Switch' } }])
