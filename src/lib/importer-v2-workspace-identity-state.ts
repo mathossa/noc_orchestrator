@@ -204,5 +204,9 @@ export function importerV2WorkspaceIdentityNeedsReview(input: {
   identityResolution: unknown
   decisions?: readonly WorkspaceDecision[]
 }) {
-  return importerV2WorkspaceIdentityReview(input)?.requiresConfirmation ?? false
+  const review = importerV2WorkspaceIdentityReview(input)
+  return Boolean(
+    review &&
+      (review.requiresConfirmation || review.kind === 'INVALID'),
+  )
 }
