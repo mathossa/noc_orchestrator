@@ -7,6 +7,15 @@ export const dynamic = 'force-dynamic'
 
 export default async function DeviceImportPage() {
   const batches = await listImporterV2WorkspaceBatches()
+  const clientBatches = batches.map((batch) => ({
+    id: batch.id,
+    name: batch.name,
+    provider: batch.provider,
+    profileVersion: batch.profileVersion,
+    status: batch.status,
+    rowCount: batch.rowCount,
+  }))
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -27,7 +36,7 @@ export default async function DeviceImportPage() {
         <div className="grid grid-cols-[minmax(0,1fr)_120px_100px_150px_110px] gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
           <span>Batch</span><span>Provider</span><span>Rows</span><span>Status</span><span>Actions</span>
         </div>
-        <ImporterV2BatchList batches={batches} />
+        <ImporterV2BatchList batches={clientBatches} />
       </section>
     </div>
   )
