@@ -7,14 +7,39 @@ import styles from './importer-v2-workspace-frame.module.css'
 
 type WorkspaceView = 'compact' | 'evidence'
 type MaintenanceAction = 'automation' | 'recheck'
+type MaintenanceResult = {
+  checked: number
+  valid: number
+  warning: number
+  review: number
+  excluded: number
+  automaticDecisionsApplied?: number
+}
+
+function maintenanceMessage(action: MaintenanceAction, result: MaintenanceResult) {
+  if (action === 'automation') {
+    const applied = result.automaticDecisionsApplied ?? 0
+    if (applied === 0) {
+      return `No new saved automation matched this batch. Current result: ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning. Create a remembered exact mapping or guided automation from a finding in the Inspector, then apply saved automations again.`
+    }
+    return `Applied ${applied.toLocaleString()} new automated decision${applied === 1 ? '' : 's'}. ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning.`
+  }
+  if (result.checked === 0) {
+    return 'No corrections are waiting for recheck. New manual fixes are rechecked automatically.'
+  }
+  return `Rechecked ${result.checked.toLocaleString()} corrected row${result.checked === 1 ? '' : 's'}. ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning.`
+}
 
 export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
   const [view, setView] = useState<WorkspaceView>('compact')
   const [publicationOpen, setPublicationOpen] = useState(false)
   const [maintenanceBusy, setMaintenanceBusy] = useState<MaintenanceAction | null>(null)
+  const [maintenanceStatus, setMaintenanceStatus] = useState<string | null>(null)
+  const [workspaceRevision, setWorkspaceRevision] = useState(0)
 
   const runMaintenance = async (action: MaintenanceAction) => {
     setMaintenanceBusy(action)
+    setMaintenanceStatus(null)
     try {
       const response = await fetch(
         `/api/v1/device-import-v2/batches/${batchId}/${action}`,
@@ -24,11 +49,14 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
       if (!response.ok) {
         throw new Error(body?.error?.message ?? 'Importer maintenance failed.')
       }
-      window.location.reload()
+      const result = body.data as MaintenanceResult
+      setMaintenanceStatus(maintenanceMessage(action, result))
+      setWorkspaceRevision((current) => current + 1)
     } catch (error) {
-      window.alert(
+      setMaintenanceStatus(
         error instanceof Error ? error.message : 'Importer maintenance failed.',
       )
+    } finally {
       setMaintenanceBusy(null)
     }
   }
@@ -40,57 +68,74 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
         view === 'compact' ? styles.compact : styles.evidence,
       ].join(' ')}
     >
-      <div className={styles.viewToolbar} aria-label="Importer table view">
-        <button
-          type="button"
-          onClick={() => setView('compact')}
-          className={[
-            styles.viewButton,
-            view === 'compact' ? styles.viewButtonActive : '',
-          ].join(' ')}
-          aria-pressed={view === 'compact'}
-        >
-          Compact view
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('evidence')}
-          className={[
-            styles.viewButton,
-            view === 'evidence' ? styles.viewButtonActive : '',
-          ].join(' ')}
-          aria-pressed={view === 'evidence'}
-        >
-          Evidence columns
-        </button>
-        <button
-          type="button"
-          onClick={() => void runMaintenance('automation')}
-          className={styles.viewButton}
-          disabled={maintenanceBusy !== null}
-          title="Apply safe grouped proposals, remembered mappings and active importer rules to this staged batch."
-        >
-          {maintenanceBusy === 'automation' ? 'Automating…' : 'Run automation'}
-        </button>
-        <button
-          type="button"
-          onClick={() => void runMaintenance('recheck')}
-          className={styles.viewButton}
-          disabled={maintenanceBusy !== null}
-          title="Re-evaluate staged corrections and clear RECHECK REQUIRED when the effective row is valid."
-        >
-          {maintenanceBusy === 'recheck' ? 'Rechecking…' : 'Recheck corrections'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setPublicationOpen(true)}
-          className={styles.viewButton}
-        >
-          Final QA / Publish
-        </button>
-      </div>
+      <section className={styles.workbenchBar} aria-label="Importer workspace controls">
+        <div className={styles.controlGroup}>
+          <span className={styles.controlLabel}>View</span>
+          <div className={styles.segmentedControl}>
+            <button
+              type="button"
+              onClick={() => setView('compact')}
+              className={[
+                styles.viewButton,
+                view === 'compact' ? styles.viewButtonActive : '',
+              ].join(' ')}
+              aria-pressed={view === 'compact'}
+            >
+              Compact
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('evidence')}
+              className={[
+                styles.viewButton,
+                view === 'evidence' ? styles.viewButtonActive : '',
+              ].join(' ')}
+              aria-pressed={view === 'evidence'}
+            >
+              Evidence
+            </button>
+          </div>
+        </div>
 
-      <ImporterV2WorkspaceShell batchId={batchId} />
+        <div className={styles.batchControls}>
+          <span className={styles.controlLabel}>Batch</span>
+          <button
+            type="button"
+            onClick={() => void runMaintenance('automation')}
+            className={styles.viewButton}
+            disabled={maintenanceBusy !== null}
+            title="Apply remembered exact mappings and active guided importer rules to this staged batch."
+          >
+            {maintenanceBusy === 'automation'
+              ? 'Applying…'
+              : 'Apply saved automations'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runMaintenance('recheck')}
+            className={styles.viewButton}
+            disabled={maintenanceBusy !== null}
+            title="Re-evaluate any older staged corrections still marked for recheck. New fixes are rechecked automatically."
+          >
+            {maintenanceBusy === 'recheck' ? 'Rechecking…' : 'Recheck corrections'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPublicationOpen(true)}
+            className={[styles.viewButton, styles.publishButton].join(' ')}
+          >
+            Final QA / Publish
+          </button>
+        </div>
+
+        {maintenanceStatus ? (
+          <p className={styles.maintenanceStatus} role="status">
+            {maintenanceStatus}
+          </p>
+        ) : null}
+      </section>
+
+      <ImporterV2WorkspaceShell key={workspaceRevision} batchId={batchId} />
 
       {publicationOpen ? (
         <div
