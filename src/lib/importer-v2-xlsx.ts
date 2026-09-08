@@ -25,7 +25,7 @@ const HEADER_ALIASES: Record<ImporterV2Field, readonly string[]> = {
 
 const HEADER_LOOKUP = new Map<string, ImporterV2Field>()
 for (const field of IMPORTER_V2_FIELDS) {
-  for (const alias of HEADER_ALIASES[field]) HEADER_LOOKUP.set(normalizeHeader(alias), field)
+  for (const alias of HEADER_ALIASES[field]) HEADER_LOOKUP.set(normalizeImporterV2Header(alias), field)
 }
 
 function clean(value: string | null | undefined) {
