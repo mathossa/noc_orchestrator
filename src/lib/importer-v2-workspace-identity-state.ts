@@ -22,7 +22,12 @@ export type ImporterV2WorkspaceIdentityReview = {
   kind: string | null
   requiresConfirmation: boolean
   resolved: boolean
-  selectedDecision: 'CONFIRM_MATCH' | 'CHOOSE_CANDIDATE' | 'CREATE_NEW' | 'MANUAL_OVERRIDE' | null
+  selectedDecision:
+    | 'CONFIRM_MATCH'
+    | 'CHOOSE_CANDIDATE'
+    | 'CREATE_NEW'
+    | 'MANUAL_OVERRIDE'
+    | null
   selectedCanonicalDeviceId: string | null
   explanation: string | null
   candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
@@ -35,8 +40,15 @@ type IdentityDecisionKind = NonNullable<
 
 type WorkspaceDecision = {
   action: string
+  field?: string | null
   value?: unknown
 }
+
+const DURABLE_IDENTITY_FIELDS = new Set([
+  'sourceId',
+  'serialNumber',
+  'macAddress',
+])
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -139,14 +151,38 @@ function latestIdentityDecision(
   return null
 }
 
+function decisionTargetText(decision: WorkspaceDecision) {
+  if (decision.action === 'CLEAR_FIELD') return null
+  if (
+    decision.action !== 'SET_FIELD' &&
+    decision.action !== 'LINK_FIELD' &&
+    decision.action !== 'REMEMBER_EXACT' &&
+    decision.action !== 'CREATE_SCOPED_RULE'
+  ) {
+    return undefined
+  }
+  const value = object(decision.value)
+  return text(value?.label)
+}
+
+function manualDurableIdentity(decisions: readonly WorkspaceDecision[]) {
+  const values = new Map<string, string | null>()
+  for (const decision of decisions) {
+    if (!decision.field || !DURABLE_IDENTITY_FIELDS.has(decision.field)) continue
+    const value = decisionTargetText(decision)
+    if (value !== undefined) values.set(decision.field, value)
+  }
+  for (const field of DURABLE_IDENTITY_FIELDS) {
+    const value = values.get(field)
+    if (value) return { field, value }
+  }
+  return null
+}
+
 function automaticIdentityDecision(input: {
-  source: Record<string, unknown>
   sourceKind: string | null
   candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
 }) {
-  // NEW is only emitted by the identity resolver after it has found at least
-  // one valid durable identifier. Treat it as a safe create proposal even for
-  // staged batches produced before the automation policy changed.
   if (input.sourceKind === 'NEW') {
     return {
       kind: 'CREATE_NEW' as const,
@@ -154,9 +190,6 @@ function automaticIdentityDecision(input: {
     }
   }
 
-  // A single HIGH candidate means source ID agrees, or at least two durable
-  // identifiers agree without conflict. This is safe to reuse automatically;
-  // ambiguous or medium-confidence evidence remains manual.
   if (
     input.sourceKind === 'MATCH_SUGGESTED' &&
     input.candidates.length === 1 &&
@@ -178,30 +211,41 @@ export function importerV2WorkspaceIdentityReview(input: {
   const source = object(input.identityResolution)
   if (!source) return null
 
+  const decisions = input.decisions ?? []
   const normalizedCandidates = candidates(source)
   const sourceKind = text(source.kind) ?? text(source.status)
-  const explicitDecision = latestIdentityDecision(input.decisions ?? [])
+  const suppliedIdentity = manualDurableIdentity(decisions)
+
+  // A stale source record can arrive without source ID, serial or MAC. An
+  // engineer may add one of those durable identifiers in the staged workspace.
+  // That turns INVALID into a new-device proposal, but final publication still
+  // performs the provider-wide uniqueness check before creating a crosswalk.
+  const effectiveKind =
+    sourceKind === 'INVALID' && suppliedIdentity ? 'NEW' : sourceKind
+
+  const explicitDecision = latestIdentityDecision(decisions)
   const automaticDecision = explicitDecision
     ? null
     : automaticIdentityDecision({
-        source,
-        sourceKind,
+        sourceKind: effectiveKind,
         candidates: normalizedCandidates,
       })
   const decision = explicitDecision ?? automaticDecision
   const requiresConfirmation =
     decision === null &&
     (source.requiresConfirmation === true ||
-      (typeof sourceKind === 'string' && sourceKind.includes('REVIEW')) ||
-      sourceKind === 'AMBIGUOUS')
+      (typeof effectiveKind === 'string' && effectiveKind.includes('REVIEW')) ||
+      effectiveKind === 'AMBIGUOUS')
 
   return {
-    kind: sourceKind,
+    kind: effectiveKind,
     requiresConfirmation,
     resolved: decision !== null,
     selectedDecision: decision?.kind ?? null,
     selectedCanonicalDeviceId: decision?.canonicalDeviceId ?? null,
-    explanation: text(source.explanation),
+    explanation: suppliedIdentity
+      ? `A durable ${suppliedIdentity.field} was supplied during reconciliation. Final publication will verify that it is unique before creating the device.`
+      : text(source.explanation),
     candidates: normalizedCandidates,
     options: stringList(source.options),
   }
@@ -213,7 +257,6 @@ export function importerV2WorkspaceIdentityNeedsReview(input: {
 }) {
   const review = importerV2WorkspaceIdentityReview(input)
   return Boolean(
-    review &&
-      (review.requiresConfirmation || review.kind === 'INVALID'),
+    review && (review.requiresConfirmation || review.kind === 'INVALID'),
   )
 }
