@@ -96,10 +96,22 @@
   line-height: 1.45;
 }
 
-/* Desktop importer routes are workbenches rather than long document pages.
-   The app shell already contributes 3.5rem of vertical main padding at this
-   breakpoint, so consume the remainder of the viewport and keep scrolling in
-   the work surfaces rather than in the page itself. */
+/* Group cards were useful during the first reconciliation prototype, but the
+   actual workflow is search/filter + inspector. Keep the server contract
+   backwards-compatible while removing the redundant grouping UI. */
+.workspace :global(select[aria-label='Group staged devices']) {
+  display: none;
+}
+
+.workspace :global(section[aria-label^='Groups by ']) {
+  display: none;
+}
+
+.workspace :global(div:has(> input[aria-label='Search all staged devices']):has(> select[aria-label='Group staged devices'])) {
+  grid-template-columns: minmax(280px, 1fr) 190px 190px !important;
+}
+
+/* Desktop importer routes are workbenches rather than long document pages. */
 @media (min-width: 1024px) {
   .workspace {
     display: flex;
@@ -120,6 +132,7 @@
   .workspace :global(div:has(> section[aria-label='Staged device grid']):has(> aside[aria-label='Reconciliation inspector'])) {
     min-height: 0;
     flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr) minmax(390px, 42vw) !important;
     align-items: stretch;
     overflow: hidden;
   }
@@ -143,6 +156,7 @@
     position: relative !important;
     top: auto !important;
     align-self: stretch !important;
+    width: 100%;
     height: 100%;
     min-height: 0;
     overflow: hidden !important;
@@ -156,9 +170,15 @@
 
   .workspace :global(aside[aria-label='Reconciliation inspector'] [data-inspector-footer]) {
     flex: 0 0 auto;
-    max-height: 54%;
+    max-height: 58%;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+}
+
+@media (min-width: 1440px) {
+  .workspace :global(div:has(> section[aria-label='Staged device grid']):has(> aside[aria-label='Reconciliation inspector'])) {
+    grid-template-columns: minmax(0, 1fr) clamp(500px, 35vw, 680px) !important;
   }
 }
 
@@ -174,6 +194,10 @@
 
   .batchControls {
     width: 100%;
+  }
+
+  .workspace :global(div:has(> input[aria-label='Search all staged devices']):has(> select[aria-label='Group staged devices'])) {
+    grid-template-columns: 1fr !important;
   }
 
   .workspace :global(section[aria-label='Staged device grid'] > .noc-scrollbar) {
