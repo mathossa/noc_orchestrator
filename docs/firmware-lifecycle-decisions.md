@@ -1,5 +1,11 @@
 # Firmware lifecycle decisions
 
+Since #59, new lifecycle decisions are **Planned** or **Done**. Declines and
+internal deviations use [scoped firmware exceptions](firmware-exceptions.md).
+Existing Ignored/Customer Declined records are migrated with their full evidence
+and audit history preserved. The original #11 description below is historical
+context for these migrated records.
+
 Firmware lifecycle decisions are operational workflow state. They are deliberately separate from the technical current-versus-desired firmware state implemented by Issue #10.
 
 ## States

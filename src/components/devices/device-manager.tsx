@@ -314,6 +314,7 @@ export function DeviceManager({
         description="Filter and group recorded inventory across customer, site, vendor, model, type, effective contract, firmware state, workflow, and provenance."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/firmware/exceptions" className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
             <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>
             <Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button>
           </div>

@@ -585,3 +585,43 @@ model ImporterV2SourceProfile {
   @@index([sourceAdapterId, provider, schemaFingerprint, isActive])
   @@index([isActive, name])
 }
+// Scope IDs and evidence are historical snapshots, deliberately not cascading
+// relations: archiving/deleting inventory must not erase exception decisions.
+model FirmwareException {
+  id String @id @default(uuid())
+  scope String
+  scopeId String
+  scopeLabel String
+  subject String
+  reasonCode String
+  notes String?
+  releaseId String?
+  vendorId String?
+  platform String?
+  minimumVersion String?
+  maximumVersion String?
+  trainId String?
+  fromPlatform String?
+  toPlatform String?
+  duration String
+  expiresAt DateTime?
+  policySnapshots Json
+  actorUserId String?
+  contactReference String?
+  ticketReference String?
+  decidedAt DateTime @default(now())
+  supersededAt DateTime?
+  supersededByUserId String?
+  legacyLifecycleId String? @unique
+  legacyEvidence Json?
+  @@index([scope, scopeId, supersededAt])
+  @@index([expiresAt])
+  @@index([reasonCode])
+}
+
+model FirmwareExceptionReason {
+  code String @id
+  label String
+  replacementRelated Boolean @default(false)
+  isActive Boolean @default(true)
+}

@@ -27,6 +27,7 @@ const navigation: readonly NavigationGroup[] = [
     children: [
       { label: 'Catalog', href: '/firmware' },
       { label: 'Models', href: '/models' },
+      { label: 'Exceptions', href: '/firmware/exceptions' },
     ],
   },
   {
@@ -57,6 +58,7 @@ function isActivePath(pathname: string, href: string) {
   if (href === '/customers') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !isCustomerSitePath(pathname)
   }
+  if (href === '/firmware') return (pathname === href || pathname.startsWith('/firmware/')) && !pathname.startsWith('/firmware/exceptions')
   if (href === '/devices') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
   }
