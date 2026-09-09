@@ -8,6 +8,7 @@ import {
   applyImporterV2WorkspaceEffectiveOverlay,
   importerV2WorkspacePreviewChangeReason,
 } from '@/lib/importer-v2-workspace-effective-overlay'
+import { reconcileImporterV2ManualIdentity } from '@/lib/importer-v2-workspace-identity-repair'
 import { recheckImporterV2Workspace } from '@/lib/importer-v2-workspace-maintenance'
 import {
   applyImporterV2WorkspaceAction,
@@ -149,12 +150,14 @@ export async function POST(request: Request, context: RouteContext) {
       scopeToken: result.scopeToken,
       action: body.action,
     })
+    const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
     const recheck = await recheckImporterV2Workspace(batchId)
 
     return NextResponse.json({
       data: {
         ...result,
         ...effectiveState,
+        identityRepair,
         recheck,
       },
     })
