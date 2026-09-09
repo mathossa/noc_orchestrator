@@ -136,4 +136,59 @@ describe('Importer v2 workspace identity review state', () => {
       selectedCanonicalDeviceId: 'b',
     })
   })
+
+  it('turns an invalid stale row into a safe new-device proposal after manual serial entry', () => {
+    const input = {
+      identityResolution: {
+        kind: 'INVALID',
+        requiresConfirmation: true,
+        explanation: 'No source ID, serial number or MAC address was reported.',
+        candidates: [],
+      },
+      decisions: [
+        {
+          field: 'serialNumber',
+          action: 'SET_FIELD',
+          value: { id: null, label: 'MANUAL-SERIAL-123' },
+        },
+      ],
+    }
+
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(false)
+    expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
+      kind: 'NEW',
+      requiresConfirmation: false,
+      resolved: true,
+      selectedDecision: 'CREATE_NEW',
+      selectedCanonicalDeviceId: null,
+    })
+  })
+
+  it('keeps an invalid stale row blocked when a manually entered durable identifier is cleared', () => {
+    const input = {
+      identityResolution: {
+        kind: 'INVALID',
+        requiresConfirmation: true,
+        candidates: [],
+      },
+      decisions: [
+        {
+          field: 'serialNumber',
+          action: 'SET_FIELD',
+          value: { id: null, label: 'TEMP-SERIAL' },
+        },
+        {
+          field: 'serialNumber',
+          action: 'CLEAR_FIELD',
+          value: null,
+        },
+      ],
+    }
+
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(true)
+    expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
+      kind: 'INVALID',
+      resolved: false,
+    })
+  })
 })
