@@ -5,8 +5,10 @@ import {
   IMPORTER_V2_FIRMWARE_VERIFICATION_ACTION,
   importerV2ObservedFirmwareVerificationDecision,
   importerV2ObservedFirmwareWasVerified,
+  type ImporterV2ObservedFirmwareSnapshot,
   type ImporterV2ObservedFirmwareVerificationValue,
 } from '@/lib/importer-v2-firmware-verification-policy'
+import { inferImporterV2ObservedPlatform } from '@/lib/importer-v2-observed-platform'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceWhere } from '@/lib/importer-v2-workspace-store'
 import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
@@ -66,6 +68,64 @@ function chunks<T>(values: readonly T[], size = 1_000) {
     result.push(values.slice(index, index + size))
   }
   return result
+}
+
+function text(value: unknown) {
+  if (typeof value !== 'string') return null
+  const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  return normalized || null
+}
+
+type EffectiveSnapshot = ImporterV2ObservedFirmwareSnapshot & {
+  rawValues?: Record<string, string | null>
+  proposedCanonicalValues?: Record<
+    string,
+    { id?: string | null; label?: string } | null
+  >
+}
+
+function effectiveText(snapshot: EffectiveSnapshot, field: string) {
+  return (
+    text(snapshot.proposedCanonicalValues?.[field]?.label) ??
+    text(snapshot.rawValues?.[field])
+  )
+}
+
+/**
+ * Old staged batches keep their immutable original evaluator result. Apply only
+ * current high-signal platform inference here so a later parser improvement can
+ * make bulk verification possible without forcing a re-upload. The derived
+ * platform is persisted only when the engineer presses Verify selected.
+ */
+function withCurrentObservedPlatformInference(
+  snapshot: EffectiveSnapshot,
+): EffectiveSnapshot {
+  const currentPlatform =
+    effectiveText(snapshot, 'softwarePlatform') ??
+    text(snapshot.firmware?.proposedSoftwarePlatform)
+  if (currentPlatform) return snapshot
+
+  const inference = inferImporterV2ObservedPlatform({
+    vendor: effectiveText(snapshot, 'vendor'),
+    model: effectiveText(snapshot, 'model'),
+    productFamily: effectiveText(snapshot, 'productFamily'),
+    softwarePlatform: null,
+    firmwareVersion: text(snapshot.rawValues?.firmwareVersion),
+    softwareVersion: text(snapshot.rawValues?.softwareVersion),
+  })
+  if (!inference) return snapshot
+
+  return {
+    ...snapshot,
+    proposedCanonicalValues: {
+      ...(snapshot.proposedCanonicalValues ?? {}),
+      softwarePlatform: { id: null, label: inference.platform },
+    },
+    firmware: {
+      ...(snapshot.firmware ?? {}),
+      proposedSoftwarePlatform: inference.platform,
+    },
+  }
 }
 
 async function loadSelectedRows(
@@ -152,9 +212,10 @@ export async function verifyImporterV2WorkspaceObservedFirmware(input: {
       inclusion: row.inclusion,
       decisions: row.decisions,
     })
-    const decision = importerV2ObservedFirmwareVerificationDecision(
-      effective.evaluated,
+    const snapshot = withCurrentObservedPlatformInference(
+      effective.evaluated as EffectiveSnapshot,
     )
+    const decision = importerV2ObservedFirmwareVerificationDecision(snapshot)
     if (decision.status === 'ALREADY_TRUSTED') {
       alreadyTrustedCount += 1
       continue
