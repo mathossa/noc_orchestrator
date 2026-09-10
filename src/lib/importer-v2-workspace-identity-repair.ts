@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '../generated/prisma/client'
 import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import {
   resolveImporterV2Identity,
@@ -174,7 +175,7 @@ export async function reconcileImporterV2ManualIdentity(batchId: string) {
         // changes durable identity, do not reuse that diff against another
         // canonical device. Publication falls back to its conservative update
         // policy until a future import supplies a fresh repeat snapshot.
-        repeatDiff: null,
+        repeatDiff: Prisma.DbNull,
         // QA fingerprints include reviewRevision. Increment it only when live
         // identity state actually changes so repeated QA refreshes are stable.
         reviewRevision: { increment: 1 },
