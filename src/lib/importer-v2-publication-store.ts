@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '../generated/prisma/client'
-import { normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
+import {
+  importerV2SourceIdentityForCrosswalk,
+  normalizeImporterV2Identity,
+} from '@/lib/importer-v2-identity'
 import {
   buildImporterV2PublicationQa,
   importerV2CatalogProposalKey,
@@ -12,6 +15,7 @@ import {
   type ImporterV2PublicationQa,
   type ImporterV2PublicationQaRowInput,
 } from '@/lib/importer-v2-publication'
+import { importerV2ShouldReplaceCurrentFirmware } from '@/lib/importer-v2-publication-firmware'
 import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
@@ -621,9 +625,17 @@ function identifiers(snapshot: EffectiveSnapshot) {
 }
 
 function publicationIdentifiers(row: ImporterV2PublicationQaRowInput, snapshot: EffectiveSnapshot) {
+  const sourceIdentifiers = importerV2SourceIdentityForCrosswalk({
+    rawIdentifiers: {
+      sourceId: snapshot.rawValues?.sourceId ?? null,
+      serialNumber: snapshot.rawValues?.serialNumber ?? null,
+      macAddress: snapshot.rawValues?.macAddress ?? null,
+    },
+    effectiveIdentifiers: identifiers(snapshot),
+  })
   return importerV2PublicationIdentityFields({
     topology: importerV2TopologyFromDecisions(row.decisions),
-    ...identifiers(snapshot),
+    ...sourceIdentifiers,
   })
 }
 
@@ -960,6 +972,10 @@ async function publishRow(input: {
   const firmwareCompatible = snapshot.firmware?.compatibility?.status === 'COMPATIBLE'
   const currentFirmwareReleaseId = firmwareCompatible ? observedRelease.releaseId : null
   const currentFirmwareRawVersion = observedRelease.rawVersion
+  const replaceCurrentFirmware = importerV2ShouldReplaceCurrentFirmware({
+    runningVersion: currentFirmwareRawVersion,
+    decisions: row.decisions,
+  })
   const name = effectiveText(snapshot, 'deviceName') ?? effectiveText(snapshot, 'hostname')
   if (!name) {
     throw new ImporterV2PublicationValidationError(
@@ -998,22 +1014,26 @@ async function publishRow(input: {
     }
     const allowed = allowedUpdateFields(row)
     const data: Prisma.DeviceUpdateInput = {
-      currentFirmwareRelease: currentFirmwareReleaseId
-        ? { connect: { id: currentFirmwareReleaseId } }
-        : { disconnect: true },
-      currentFirmwareObservedAt: currentFirmwareRawVersion ? publishedAt : null,
-      currentFirmwareSource: 'IMPORT',
-      currentFirmwareRawVersion,
-      currentFirmwareNormalizedVersion: currentFirmwareRawVersion,
-      currentFirmwareEvidence: jsonValue({
-        rawFirmwareVersion: snapshot.rawValues?.firmwareVersion ?? null,
-        rawSoftwareVersion: snapshot.rawValues?.softwareVersion ?? null,
-        interpretation: snapshot.firmware ?? null,
-        topologyRole: topology.role,
-      }),
-      currentFirmwareInterpreterId: text(snapshot.firmware?.interpreterId),
-      currentFirmwareInterpreterVersion: text(snapshot.firmware?.interpreterVersion),
       lastSynchronizedAt: publishedAt,
+    }
+    if (replaceCurrentFirmware) {
+      Object.assign(data, {
+        currentFirmwareRelease: currentFirmwareReleaseId
+          ? { connect: { id: currentFirmwareReleaseId } }
+          : { disconnect: true },
+        currentFirmwareObservedAt: currentFirmwareRawVersion ? publishedAt : null,
+        currentFirmwareSource: 'IMPORT',
+        currentFirmwareRawVersion,
+        currentFirmwareNormalizedVersion: currentFirmwareRawVersion,
+        currentFirmwareEvidence: jsonValue({
+          rawFirmwareVersion: snapshot.rawValues?.firmwareVersion ?? null,
+          rawSoftwareVersion: snapshot.rawValues?.softwareVersion ?? null,
+          interpretation: snapshot.firmware ?? null,
+          topologyRole: topology.role,
+        }),
+        currentFirmwareInterpreterId: text(snapshot.firmware?.interpreterId),
+        currentFirmwareInterpreterVersion: text(snapshot.firmware?.interpreterVersion),
+      })
     }
     if (allowed.has('customer')) data.customer = { connect: { id: customerId } }
     if (allowed.has('site')) data.site = { connect: { id: siteId } }
@@ -1130,6 +1150,7 @@ async function publishRow(input: {
   })
 
   if (
+    replaceCurrentFirmware &&
     beforeFirmware &&
     (beforeFirmware.releaseId !== currentFirmwareReleaseId ||
       beforeFirmware.rawVersion !== currentFirmwareRawVersion)
