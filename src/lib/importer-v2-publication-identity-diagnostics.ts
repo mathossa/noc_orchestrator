@@ -137,18 +137,18 @@ export function findImporterV2StagedIdentityCollisions(rows: readonly StagedIden
     if (bucket.length < 2) continue
     const field = bucketKey.slice(0, bucketKey.indexOf(':')) as IdentityField
     for (const row of bucket) {
-      const others = byRow.get(row.rowNumber) ?? new Map()
+      const others = byRow.get(row.rowNumber) ?? new Map<number, { row: StagedIdentityRow; matchingIdentifiers: MatchingIdentifier[] }>()
       for (const other of bucket) {
         if (other.rowNumber === row.rowNumber) continue
         const existing = others.get(other.rowNumber) ?? {
           row: other,
-          matchingIdentifiers: [],
+          matchingIdentifiers: [] as MatchingIdentifier[],
         }
         const value = identityValue(row, field)
         if (
           value &&
           !existing.matchingIdentifiers.some(
-            (match) => match.field === field && match.value === value,
+            (match: MatchingIdentifier) => match.field === field && match.value === value,
           )
         ) {
           existing.matchingIdentifiers.push({ field, value })
