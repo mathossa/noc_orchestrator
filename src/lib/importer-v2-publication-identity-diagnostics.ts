@@ -12,6 +12,25 @@ type EffectiveSnapshot = {
 }
 
 type IdentityField = 'sourceId' | 'serialNumber' | 'macAddress'
+type MatchingIdentifier = { field: IdentityField; value: string }
+
+type StagedIdentityRow = {
+  rowNumber: number
+  sourceName: string | null
+  hostname: string | null
+  customer: string | null
+  organizationUnit: string | null
+  site: string | null
+  vendor: string | null
+  model: string | null
+  selectedCanonicalDeviceId: string | null
+  sourceIdentifiers: {
+    sourceId: string | null
+    serialNumber: string | null
+    macAddress: string | null
+  }
+  normalized: ReturnType<typeof normalizeImporterV2Identity>
+}
 
 export type ImporterV2IdentityConflictDiagnostic = {
   rowNumber: number
@@ -33,10 +52,19 @@ export type ImporterV2IdentityConflictDiagnostic = {
     organizationUnit: string | null
     vendor: string | null
     model: string | null
-    matchingIdentifiers: Array<{
-      field: IdentityField
-      value: string
-    }>
+    matchingIdentifiers: MatchingIdentifier[]
+  }>
+  stagedConflicts: Array<{
+    rowNumber: number
+    sourceName: string | null
+    hostname: string | null
+    customer: string | null
+    organizationUnit: string | null
+    site: string | null
+    vendor: string | null
+    model: string | null
+    selectedCanonicalDeviceId: string | null
+    matchingIdentifiers: MatchingIdentifier[]
   }>
 }
 
@@ -68,6 +96,66 @@ function chosenDeviceId(input: {
     return review.candidates[0].canonicalDeviceId
   }
   return null
+}
+
+function identityValue(row: StagedIdentityRow, field: IdentityField) {
+  switch (field) {
+    case 'sourceId':
+      return row.sourceIdentifiers.sourceId
+    case 'serialNumber':
+      return row.sourceIdentifiers.serialNumber
+    case 'macAddress':
+      return row.sourceIdentifiers.macAddress
+  }
+}
+
+export function findImporterV2StagedIdentityCollisions(rows: readonly StagedIdentityRow[]) {
+  const buckets = new Map<string, StagedIdentityRow[]>()
+  const definitions: Array<[IdentityField, keyof StagedIdentityRow['normalized']]> = [
+    ['sourceId', 'sourceId'],
+    ['serialNumber', 'serialNumber'],
+    ['macAddress', 'macAddress'],
+  ]
+
+  for (const row of rows) {
+    for (const [field, key] of definitions) {
+      const value = row.normalized[key]
+      if (!value) continue
+      const bucketKey = `${field}:${value}`
+      const bucket = buckets.get(bucketKey) ?? []
+      bucket.push(row)
+      buckets.set(bucketKey, bucket)
+    }
+  }
+
+  const byRow = new Map<number, Map<number, { row: StagedIdentityRow; matchingIdentifiers: MatchingIdentifier[] }>>()
+  for (const [bucketKey, bucket] of buckets) {
+    if (bucket.length < 2) continue
+    const field = bucketKey.slice(0, bucketKey.indexOf(':')) as IdentityField
+    for (const row of bucket) {
+      const others = byRow.get(row.rowNumber) ?? new Map()
+      for (const other of bucket) {
+        if (other.rowNumber === row.rowNumber) continue
+        const existing = others.get(other.rowNumber) ?? {
+          row: other,
+          matchingIdentifiers: [],
+        }
+        const value = identityValue(row, field)
+        if (
+          value &&
+          !existing.matchingIdentifiers.some(
+            (match) => match.field === field && match.value === value,
+          )
+        ) {
+          existing.matchingIdentifiers.push({ field, value })
+        }
+        others.set(other.rowNumber, existing)
+      }
+      byRow.set(row.rowNumber, others)
+    }
+  }
+
+  return byRow
 }
 
 export async function findImporterV2PublicationIdentityConflicts(input: {
@@ -103,7 +191,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
   })
   if (!batch) return []
 
-  const rows = batch.rows.map((row) => {
+  const rows: StagedIdentityRow[] = batch.rows.map((row) => {
     const snapshot = importerV2WorkspaceEffectiveEvaluated({
       evaluated: row.evaluated,
       inclusion: 'INCLUDED',
@@ -115,7 +203,14 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
       macAddress: effectiveText(snapshot, 'macAddress'),
     }
     return {
-      row,
+      rowNumber: row.rowNumber,
+      sourceName: row.sourceName ?? effectiveText(snapshot, 'deviceName'),
+      hostname: row.hostname ?? effectiveText(snapshot, 'hostname'),
+      customer: effectiveText(snapshot, 'customer'),
+      organizationUnit: effectiveText(snapshot, 'businessUnit'),
+      site: effectiveText(snapshot, 'site'),
+      vendor: effectiveText(snapshot, 'vendor'),
+      model: effectiveText(snapshot, 'model'),
       sourceIdentifiers,
       normalized: normalizeImporterV2Identity(sourceIdentifiers),
       selectedCanonicalDeviceId: chosenDeviceId({
@@ -125,6 +220,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
     }
   })
 
+  const stagedCollisions = findImporterV2StagedIdentityCollisions(rows)
   const sourceIds = [...new Set(rows.flatMap((row) => row.normalized.sourceId ? [row.normalized.sourceId] : []))]
   const serialNumbers = [...new Set(rows.flatMap((row) => row.normalized.serialNumber ? [row.normalized.serialNumber] : []))]
   const macAddresses = [...new Set(rows.flatMap((row) => row.normalized.macAddress ? [row.normalized.macAddress] : []))]
@@ -133,22 +229,29 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
     ...(serialNumbers.length ? [{ normalizedSerialNumber: { in: serialNumbers } }] : []),
     ...(macAddresses.length ? [{ normalizedMacAddress: { in: macAddresses } }] : []),
   ]
-  if (OR.length === 0) return []
 
-  const crosswalks = await prisma.importerV2DeviceCrosswalk.findMany({
-    where: { provider: batch.provider, OR },
-    select: {
-      canonicalDeviceId: true,
-      normalizedSourceId: true,
-      normalizedSerialNumber: true,
-      normalizedMacAddress: true,
-    },
-  })
+  const crosswalks = OR.length
+    ? await prisma.importerV2DeviceCrosswalk.findMany({
+        where: { provider: batch.provider, OR },
+        select: {
+          canonicalDeviceId: true,
+          normalizedSourceId: true,
+          normalizedSerialNumber: true,
+          normalizedMacAddress: true,
+        },
+      })
+    : []
+
   const conflictingDeviceIds = new Set<string>()
-  const rawConflicts = rows.map((row) => {
+  const canonicalMatchesByRow = new Map<number, Array<{
+    crosswalk: (typeof crosswalks)[number]
+    matchingIdentifiers: MatchingIdentifier[]
+  }>>()
+
+  for (const row of rows) {
     const matches = crosswalks
       .map((crosswalk) => {
-        const matchingIdentifiers: Array<{ field: IdentityField; value: string }> = []
+        const matchingIdentifiers: MatchingIdentifier[] = []
         if (
           row.normalized.sourceId &&
           crosswalk.normalizedSourceId === row.normalized.sourceId
@@ -174,60 +277,77 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
           matchingIdentifiers.length > 0 &&
           crosswalk.canonicalDeviceId !== row.selectedCanonicalDeviceId,
       )
-
+    canonicalMatchesByRow.set(row.rowNumber, matches)
     for (const match of matches) conflictingDeviceIds.add(match.crosswalk.canonicalDeviceId)
-    return { ...row, matches }
-  })
+  }
 
-  if (conflictingDeviceIds.size === 0) return []
-  const devices = await prisma.device.findMany({
-    where: { id: { in: [...conflictingDeviceIds] } },
-    select: {
-      id: true,
-      name: true,
-      hostname: true,
-      serialNumber: true,
-      customer: { select: { name: true } },
-      site: {
+  const devices = conflictingDeviceIds.size
+    ? await prisma.device.findMany({
+        where: { id: { in: [...conflictingDeviceIds] } },
         select: {
+          id: true,
           name: true,
-          organizationUnit: { select: { name: true } },
+          hostname: true,
+          serialNumber: true,
+          customer: { select: { name: true } },
+          site: {
+            select: {
+              name: true,
+              organizationUnit: { select: { name: true } },
+            },
+          },
+          deviceModel: {
+            select: {
+              model: true,
+              vendor: { select: { name: true } },
+            },
+          },
         },
-      },
-      deviceModel: {
-        select: {
-          model: true,
-          vendor: { select: { name: true } },
-        },
-      },
-    },
-  })
+      })
+    : []
   const deviceById = new Map(devices.map((device) => [device.id, device]))
 
-  return rawConflicts
-    .filter((row) => row.matches.length > 0)
-    .map((row) => ({
-      rowNumber: row.row.rowNumber,
-      sourceName: row.row.sourceName,
-      hostname: row.row.hostname,
-      selectedCanonicalDeviceId: row.selectedCanonicalDeviceId,
-      sourceIdentifiers: row.sourceIdentifiers,
-      conflicts: row.matches.map(({ crosswalk, matchingIdentifiers }) => {
-        const device = deviceById.get(crosswalk.canonicalDeviceId)
-        return {
-          canonicalDeviceId: crosswalk.canonicalDeviceId,
-          name: device?.name ?? null,
-          hostname: device?.hostname ?? null,
-          serialNumber: device?.serialNumber ?? null,
-          customer: device?.customer.name ?? null,
-          site: device?.site?.name ?? null,
-          organizationUnit: device?.site?.organizationUnit?.name ?? null,
-          vendor: device?.deviceModel.vendor.name ?? null,
-          model: device?.deviceModel.model ?? null,
+  return rows
+    .map((row) => {
+      const canonicalMatches = canonicalMatchesByRow.get(row.rowNumber) ?? []
+      const stagedMatches = [...(stagedCollisions.get(row.rowNumber)?.values() ?? [])]
+      if (canonicalMatches.length === 0 && stagedMatches.length === 0) return null
+      return {
+        rowNumber: row.rowNumber,
+        sourceName: row.sourceName,
+        hostname: row.hostname,
+        selectedCanonicalDeviceId: row.selectedCanonicalDeviceId,
+        sourceIdentifiers: row.sourceIdentifiers,
+        conflicts: canonicalMatches.map(({ crosswalk, matchingIdentifiers }) => {
+          const device = deviceById.get(crosswalk.canonicalDeviceId)
+          return {
+            canonicalDeviceId: crosswalk.canonicalDeviceId,
+            name: device?.name ?? null,
+            hostname: device?.hostname ?? null,
+            serialNumber: device?.serialNumber ?? null,
+            customer: device?.customer.name ?? null,
+            site: device?.site?.name ?? null,
+            organizationUnit: device?.site?.organizationUnit?.name ?? null,
+            vendor: device?.deviceModel.vendor.name ?? null,
+            model: device?.deviceModel.model ?? null,
+            matchingIdentifiers,
+          }
+        }),
+        stagedConflicts: stagedMatches.map(({ row: other, matchingIdentifiers }) => ({
+          rowNumber: other.rowNumber,
+          sourceName: other.sourceName,
+          hostname: other.hostname,
+          customer: other.customer,
+          organizationUnit: other.organizationUnit,
+          site: other.site,
+          vendor: other.vendor,
+          model: other.model,
+          selectedCanonicalDeviceId: other.selectedCanonicalDeviceId,
           matchingIdentifiers,
-        }
-      }),
-    }))
+        })),
+      }
+    })
+    .filter((row): row is ImporterV2IdentityConflictDiagnostic => row !== null)
 }
 
 const IDENTITY_LABELS: Record<IdentityField, string> = {
@@ -239,7 +359,7 @@ const IDENTITY_LABELS: Record<IdentityField, string> = {
 export function formatImporterV2IdentityConflictMessage(
   conflicts: readonly ImporterV2IdentityConflictDiagnostic[],
 ) {
-  const examples = conflicts.slice(0, 4).map((conflict) => {
+  const examples = conflicts.slice(0, 8).map((conflict) => {
     const sourceLabel = conflict.sourceName ?? conflict.hostname ?? 'unnamed staged device'
     const destinations = conflict.conflicts.slice(0, 3).map((device) => {
       const identity = device.matchingIdentifiers
@@ -251,19 +371,31 @@ export function formatImporterV2IdentityConflictMessage(
         .join(' / ')
       const model = [device.vendor, device.model].filter(Boolean).join(' ')
       const context = [location, model].filter(Boolean).join(' · ')
-      return `${identity} already belongs to “${deviceLabel}”${context ? ` (${context})` : ''}`
+      return `${identity} already belongs to canonical device “${deviceLabel}”${context ? ` (${context})` : ''}`
+    })
+    const staged = conflict.stagedConflicts.slice(0, 3).map((other) => {
+      const identity = other.matchingIdentifiers
+        .map((match) => `${IDENTITY_LABELS[match.field]} “${match.value}”`)
+        .join(' + ')
+      const otherLabel = other.sourceName ?? other.hostname ?? 'unnamed staged device'
+      const location = [other.customer, other.organizationUnit, other.site]
+        .filter(Boolean)
+        .join(' / ')
+      const model = [other.vendor, other.model].filter(Boolean).join(' ')
+      const context = [location, model].filter(Boolean).join(' · ')
+      return `${identity} is also used by staged row #${other.rowNumber} “${otherLabel}”${context ? ` (${context})` : ''}`
     })
     const selected = conflict.selectedCanonicalDeviceId
-      ? ` The staged row currently points to canonical device ${conflict.selectedCanonicalDeviceId}.`
-      : ' The staged row is currently set to create a new device.'
-    return `Row #${conflict.rowNumber} “${sourceLabel}”: ${destinations.join('; ')}.${selected}`
+      ? ` This row currently points to canonical device ${conflict.selectedCanonicalDeviceId}.`
+      : ' This row is currently set to create a new device.'
+    return `Row #${conflict.rowNumber} “${sourceLabel}”: ${[...destinations, ...staged].join('; ')}.${selected}`
   })
   const remaining = conflicts.length - examples.length
   return [
-    `Durable source identity conflict on ${conflicts.length} staged row(s).`,
+    `Durable identity conflict on ${conflicts.length} staged row(s).`,
     ...examples,
     remaining > 0 ? `${remaining} more conflicting row(s) are not shown.` : null,
-    'Open the listed row(s) in the Inspector and choose the existing device or correct the Source ID / serial / MAC before publishing.',
+    'Resolve the listed duplicate Source ID / serial / MAC in the Inspector, link the row to the correct existing device, or explicitly exclude a stale duplicate before publishing.',
   ]
     .filter(Boolean)
     .join(' ')
