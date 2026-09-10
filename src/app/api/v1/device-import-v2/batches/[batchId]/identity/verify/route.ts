@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
+import { verifyImporterV2WorkspaceObservedFirmware } from '@/lib/importer-v2-workspace-bulk-firmware'
 import { verifyImporterV2WorkspaceIdentities } from '@/lib/importer-v2-workspace-bulk-identity'
+import { recomputeImporterV2WorkspaceRows } from '@/lib/importer-v2-workspace-maintenance'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
@@ -43,12 +45,30 @@ export async function POST(request: Request, context: RouteContext) {
     const { batchId } = await context.params
     const body = parseRequest(await request.json())
     const session = await auth.api.getSession({ headers: request.headers })
-    const result = await verifyImporterV2WorkspaceIdentities({
+    const actorUserId = session?.user.id ?? null
+
+    // One engineer action verifies both reusable identity matches and safe
+    // observed-current-firmware evidence. Ambiguous/conflicting evidence stays
+    // unresolved for the Inspector instead of being bulk accepted.
+    const identity = await verifyImporterV2WorkspaceIdentities({
       batchId,
       selection: body.selection,
-      actorUserId: session?.user.id ?? null,
+      actorUserId,
     })
-    return NextResponse.json({ data: result })
+    const firmware = await verifyImporterV2WorkspaceObservedFirmware({
+      batchId,
+      selection: body.selection,
+      actorUserId,
+    })
+    const recompute = await recomputeImporterV2WorkspaceRows({ batchId })
+
+    return NextResponse.json({
+      data: {
+        ...identity,
+        firmware,
+        recompute,
+      },
+    })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
@@ -64,8 +84,10 @@ export async function POST(request: Request, context: RouteContext) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Unable to bulk verify staged identities.'
-    const stale = message.includes('changed while bulk verification')
+        : 'Unable to bulk verify staged device evidence.'
+    const stale =
+      message.includes('changed while bulk verification') ||
+      message.includes('changed while bulk verification was running')
     const badRequest =
       message.includes('selection') ||
       message.includes('Select at least') ||
@@ -75,8 +97,8 @@ export async function POST(request: Request, context: RouteContext) {
       {
         error: {
           code: stale
-            ? 'STALE_BULK_IDENTITY_SELECTION'
-            : 'BULK_IDENTITY_VERIFICATION_FAILED',
+            ? 'STALE_BULK_VERIFICATION_SELECTION'
+            : 'BULK_VERIFICATION_FAILED',
           message,
         },
       },
