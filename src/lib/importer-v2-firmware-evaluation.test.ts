@@ -95,6 +95,28 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     })
   })
 
+  it('infers classic IOS for a Cisco 15.2(7)E2 observation and treats the observed model/platform pair as compatible evidence', () => {
+    const input = baseInput()
+    input.firmwareContext.compatibilityRules = []
+    input.rows[0].rawValues.model = 'WS-C2960X-48FPS-L'
+    input.rows[0].rawValues.firmwareVersion = null
+    input.rows[0].rawValues.softwareVersion = '15.2(7)E2'
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.firmware.runningVersion).toBe('15.2(7)E2')
+    expect(row.firmware.proposedSoftwarePlatform).toBe('IOS')
+    expect(row.firmware.compatibility.status).toBe('COMPATIBLE')
+    expect(row.proposedCanonicalValues.currentFirmware).toEqual({
+      id: null,
+      label: '15.2(7)E2',
+    })
+    expect(row.proposedCanonicalValues.softwarePlatform).toEqual({
+      id: null,
+      label: 'IOS',
+    })
+  })
+
   it('never auto-links an interpreted version to an exact or fuzzy catalog release', () => {
     const input = baseInput()
     input.rows[0].rawValues.currentFirmware = '17.12.05'
