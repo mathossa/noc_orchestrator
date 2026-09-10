@@ -69,6 +69,8 @@ export async function POST(request: Request) {
         automation: {
           ...data.automation,
           ...finalState,
+          automaticDecisionsApplied:
+            (data.automation.automaticDecisionsApplied ?? 0) + derivedStackIdentity.appliedCount,
           derivedStackSourceIdsApplied: derivedStackIdentity.appliedCount,
           repairedStackIdentityCount: derivedStackIdentity.repairedIdentityCount,
         },
