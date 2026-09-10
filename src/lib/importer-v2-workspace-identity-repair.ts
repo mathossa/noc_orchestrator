@@ -1,54 +1,179 @@
 import { prisma } from '@/lib/prisma'
-import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
+import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
+import {
+  resolveImporterV2Identity,
+  type ImporterV2IdentityContext,
+  type ImporterV2IdentityIdentifiers,
+} from '@/lib/importer-v2-identity'
+import { findImporterV2IdentityCandidates } from '@/lib/importer-v2-identity-store'
+import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
+
+const DURABLE_IDENTITY_FIELDS = ['sourceId', 'serialNumber', 'macAddress'] as const
+
+type CanonicalTarget = { id?: string | null; label?: string } | null
+type EffectiveSnapshot = {
+  rawValues?: Partial<Record<ImporterV2Field, string | null>>
+  proposedCanonicalValues?: Partial<Record<ImporterV2Field, CanonicalTarget>>
+}
+
+function clean(value: string | null | undefined) {
+  const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  return normalized || null
+}
+
+function effectiveText(snapshot: EffectiveSnapshot, field: ImporterV2Field) {
+  return (
+    clean(snapshot.proposedCanonicalValues?.[field]?.label) ??
+    clean(snapshot.rawValues?.[field])
+  )
+}
+
+function identifiers(snapshot: EffectiveSnapshot): ImporterV2IdentityIdentifiers {
+  return {
+    sourceId: effectiveText(snapshot, 'sourceId'),
+    serialNumber: effectiveText(snapshot, 'serialNumber'),
+    macAddress: effectiveText(snapshot, 'macAddress'),
+  }
+}
+
+function context(snapshot: EffectiveSnapshot): ImporterV2IdentityContext {
+  const fields: ImporterV2Field[] = [
+    'deviceName',
+    'hostname',
+    'customer',
+    'businessUnit',
+    'site',
+    'vendor',
+    'productFamily',
+    'deviceType',
+    'model',
+    'softwarePlatform',
+  ]
+  return Object.fromEntries(
+    fields.map((field) => [field, effectiveText(snapshot, field)]),
+  ) as ImporterV2IdentityContext
+}
+
+export function repairedRepeatClassification(input: {
+  current: string | null
+  identityKind: string
+}) {
+  if (input.identityKind === 'AMBIGUOUS') return 'AMBIGUOUS'
+  if (input.identityKind === 'MATCH_SUGGESTED') {
+    return input.current === 'AMBIGUOUS' || input.current === 'NEW'
+      ? 'CHANGED'
+      : input.current
+  }
+  if (input.identityKind === 'NEW') {
+    return input.current === 'AMBIGUOUS' ? 'NEW' : input.current
+  }
+  return input.current
+}
 
 /**
- * Repeat-import identity is calculated from the immutable source snapshot.
- * When an engineer supplies a missing durable identifier later, an originally
- * INVALID row can safely become a NEW create proposal. In that specific case
- * the old AMBIGUOUS repeat classification is no longer meaningful.
+ * Durable identity decisions are evaluated against the live provider crosswalk.
+ * This matters for stale source rows that initially had no source ID, serial or
+ * MAC and were corrected later in the reconciliation workspace.
  *
- * Existing-device selection is deliberately not inferred here: hostname/site/
- * customer are context clues, not durable identity. Publication still performs
- * the provider-wide uniqueness check before writing a crosswalk.
+ * A manual identifier is never assumed to mean "new device":
+ * - no live crosswalk match -> NEW
+ * - one durable match -> MATCH_SUGGESTED (high confidence may auto-resolve)
+ * - multiple/conflicting durable matches -> AMBIGUOUS
+ * - no durable identifier after all -> INVALID
+ *
+ * Hostname/customer/site remain context only. They never become durable keys.
  */
 export async function reconcileImporterV2ManualIdentity(batchId: string) {
+  const batch = await prisma.importerV2WorkspaceBatch.findUnique({
+    where: { id: batchId },
+    select: { provider: true, sourceAdapterId: true },
+  })
+  if (!batch) throw new Error('Importer batch was not found.')
+
   const rows = await prisma.importerV2WorkspaceRow.findMany({
     where: {
       batchId,
-      repeatClassification: 'AMBIGUOUS',
       inclusion: 'INCLUDED',
+      decisions: {
+        some: { field: { in: [...DURABLE_IDENTITY_FIELDS] } },
+      },
     },
     select: {
       id: true,
+      repeatClassification: true,
       identityResolution: true,
+      evaluated: true,
       decisions: {
         orderBy: { createdAt: 'asc' },
-        select: { action: true, field: true, value: true },
+        select: {
+          field: true,
+          action: true,
+          value: true,
+          explanation: true,
+          actorUserId: true,
+          createdAt: true,
+        },
       },
     },
   })
 
-  const repairedIds: string[] = []
+  let repairedRowCount = 0
+  let matchedExistingCount = 0
+  let newCount = 0
+  let ambiguousCount = 0
+  let invalidCount = 0
+
   for (const row of rows) {
-    const review = importerV2WorkspaceIdentityReview({
-      identityResolution: row.identityResolution,
+    const snapshot = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: row.evaluated,
+      inclusion: 'INCLUDED',
       decisions: row.decisions,
+    }).evaluated as EffectiveSnapshot
+    const sourceIdentifiers = identifiers(snapshot)
+    const candidates = await findImporterV2IdentityCandidates({
+      provider: batch.provider,
+      sourceAdapterId: batch.sourceAdapterId,
+      identifiers: sourceIdentifiers,
     })
-    if (
-      review?.kind === 'NEW' &&
-      review.resolved &&
-      review.selectedDecision === 'CREATE_NEW'
-    ) {
-      repairedIds.push(row.id)
-    }
+    const resolution = resolveImporterV2Identity(
+      {
+        provider: batch.provider,
+        sourceAdapterId: batch.sourceAdapterId,
+        identifiers: sourceIdentifiers,
+        context: context(snapshot),
+      },
+      candidates,
+    )
+    const repeatClassification = repairedRepeatClassification({
+      current: row.repeatClassification,
+      identityKind: resolution.kind,
+    })
+
+    if (resolution.kind === 'MATCH_SUGGESTED') matchedExistingCount += 1
+    else if (resolution.kind === 'NEW') newCount += 1
+    else if (resolution.kind === 'AMBIGUOUS') ambiguousCount += 1
+    else invalidCount += 1
+
+    await prisma.importerV2WorkspaceRow.update({
+      where: { id: row.id },
+      data: {
+        identityResolution: JSON.parse(JSON.stringify(resolution)),
+        repeatClassification,
+        // A repeat diff was calculated for the old identity. Once an engineer
+        // changes durable identity, do not reuse that diff against another
+        // canonical device. Publication falls back to its conservative update
+        // policy until a future import supplies a fresh repeat snapshot.
+        repeatDiff: null,
+      },
+    })
+    repairedRowCount += 1
   }
 
-  if (repairedIds.length > 0) {
-    await prisma.importerV2WorkspaceRow.updateMany({
-      where: { id: { in: repairedIds } },
-      data: { repeatClassification: 'NEW' },
-    })
+  return {
+    repairedRowCount,
+    matchedExistingCount,
+    newCount,
+    ambiguousCount,
+    invalidCount,
   }
-
-  return { repairedRowCount: repairedIds.length }
 }
