@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {},
+}))
+
 import { importerV2BulkIdentityDecision } from '@/lib/importer-v2-workspace-bulk-identity'
 import type { ImporterV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
