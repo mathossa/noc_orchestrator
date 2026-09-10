@@ -20,6 +20,8 @@ export async function POST(_request: Request, context: RouteContext) {
       data: {
         ...automation,
         ...finalState,
+        automaticDecisionsApplied:
+          (automation.automaticDecisionsApplied ?? 0) + derivedStackIdentity.appliedCount,
         derivedStackSourceIdsApplied: derivedStackIdentity.appliedCount,
         repairedStackIdentityCount: derivedStackIdentity.repairedIdentityCount,
       },
