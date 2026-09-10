@@ -189,6 +189,7 @@ export async function verifyImporterV2WorkspaceObservedFirmware(input: {
   let alreadyVerifiedCount = 0
   let alreadyTrustedCount = 0
   let manualReviewCount = 0
+  let notApplicableCount = 0
   let excludedCount = 0
   let publishedCount = 0
   const manualReviewRows: Array<{ rowNumber: number; reason: string }> = []
@@ -218,6 +219,10 @@ export async function verifyImporterV2WorkspaceObservedFirmware(input: {
     const decision = importerV2ObservedFirmwareVerificationDecision(snapshot)
     if (decision.status === 'ALREADY_TRUSTED') {
       alreadyTrustedCount += 1
+      continue
+    }
+    if (decision.status === 'NOT_APPLICABLE') {
+      notApplicableCount += 1
       continue
     }
     if (decision.status === 'MANUAL_REVIEW') {
@@ -309,6 +314,7 @@ export async function verifyImporterV2WorkspaceObservedFirmware(input: {
     alreadyVerifiedCount,
     alreadyTrustedCount,
     manualReviewCount,
+    notApplicableCount,
     excludedCount,
     publishedCount,
     manualReviewRows,
