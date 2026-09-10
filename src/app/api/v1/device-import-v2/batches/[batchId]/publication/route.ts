@@ -7,6 +7,8 @@ import {
   publishImporterV2Batch,
 } from '@/lib/importer-v2-publication-store'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
+import { reconcileImporterV2ManualIdentity } from '@/lib/importer-v2-workspace-identity-repair'
+import { recheckImporterV2Workspace } from '@/lib/importer-v2-workspace-maintenance'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
@@ -47,6 +49,10 @@ function parsePublishRequest(value: unknown): PublishRequest {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
+    const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
+    if (identityRepair.repairedRowCount > 0) {
+      await recheckImporterV2Workspace(batchId)
+    }
     return NextResponse.json({ data: await getImporterV2PublicationQa(batchId) })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to build importer publication QA.'
