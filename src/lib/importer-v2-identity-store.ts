@@ -63,15 +63,63 @@ export async function findImporterV2IdentityCandidates(input: {
     orderBy: [{ canonicalDeviceId: 'asc' }, { id: 'asc' }],
   })
 
-  return records.map((record) => ({
-    canonicalDeviceId: record.canonicalDeviceId,
-    crosswalkId: record.id,
-    identifiers: {
-      sourceId: record.sourceId,
-      serialNumber: record.serialNumber,
-      macAddress: record.macAddress,
-    },
-  }))
+  const canonicalDeviceIds = [
+    ...new Set(records.map((record) => record.canonicalDeviceId)),
+  ]
+  const devices = canonicalDeviceIds.length
+    ? await prisma.device.findMany({
+        where: { id: { in: canonicalDeviceIds } },
+        select: {
+          id: true,
+          name: true,
+          hostname: true,
+          customer: { select: { name: true } },
+          site: {
+            select: {
+              name: true,
+              organizationUnit: { select: { name: true } },
+            },
+          },
+          deviceModel: {
+            select: {
+              model: true,
+              platform: true,
+              vendor: { select: { name: true } },
+              deviceType: { select: { name: true } },
+              family: { select: { name: true } },
+            },
+          },
+        },
+      })
+    : []
+  const devicesById = new Map(devices.map((device) => [device.id, device]))
+
+  return records.map((record) => {
+    const device = devicesById.get(record.canonicalDeviceId)
+    return {
+      canonicalDeviceId: record.canonicalDeviceId,
+      crosswalkId: record.id,
+      identifiers: {
+        sourceId: record.sourceId,
+        serialNumber: record.serialNumber,
+        macAddress: record.macAddress,
+      },
+      context: device
+        ? {
+            deviceName: device.name,
+            hostname: device.hostname,
+            customer: device.customer.name,
+            businessUnit: device.site?.organizationUnit?.name ?? null,
+            site: device.site?.name ?? null,
+            vendor: device.deviceModel.vendor.name,
+            productFamily: device.deviceModel.family?.name ?? null,
+            deviceType: device.deviceModel.deviceType.name,
+            model: device.deviceModel.model,
+            softwarePlatform: device.deviceModel.platform,
+          }
+        : undefined,
+    }
+  })
 }
 
 export async function getLatestSuccessfulImporterV2SourceSnapshot(input: {
