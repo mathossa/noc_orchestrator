@@ -18,8 +18,12 @@ import {
   type ImporterV2FirmwareProofGroup,
   type ImporterV2FirmwareProofRow,
 } from '@/lib/importer-v2-firmware'
+import {
+  inferImporterV2ObservedPlatform,
+  importerV2ObservedCompatibilityRule,
+} from '@/lib/importer-v2-observed-platform'
 
-export const IMPORTER_V2_AUTOMATION_POLICY_VERSION = '2.0.0'
+export const IMPORTER_V2_AUTOMATION_POLICY_VERSION = '2.1.0'
 
 export type ImporterV2FirmwareEvaluationInput = ImporterV2EvaluationInput & {
   firmwareContext: ImporterV2FirmwareInterpretationContext
@@ -214,6 +218,14 @@ function proofRow(
   }
 }
 
+function resolvedValue(
+  row: ImporterV2EvaluatedRow,
+  field: 'vendor' | 'model' | 'productFamily' | 'deviceType',
+  fallback: string | null | undefined,
+) {
+  return row.proposedCanonicalValues[field]?.label ?? row.normalizedValues[field] ?? fallback ?? null
+}
+
 /**
  * Canonical Importer v2 evaluation boundary for any stage that consumes firmware.
  *
@@ -247,21 +259,70 @@ export function evaluateImporterV2WithFirmware(
 
   const rows = base.rows.map((row, index) => {
     const stagedRow = input.rows[index]
-    const firmware = interpretImporterV2Firmware(
-      {
-        provider: input.profile.provider,
-        vendor: stagedRow.rawValues.vendor,
-        model: stagedRow.rawValues.model,
-        productFamily: stagedRow.rawValues.productFamily,
-        softwarePlatform: stagedRow.rawValues.softwarePlatform,
-        sourceDeviceType: stagedRow.rawValues.deviceType,
-        firmwareVersion: stagedRow.rawValues.firmwareVersion,
-        softwareVersion: stagedRow.rawValues.softwareVersion,
-        providerMetadata:
-          input.providerMetadataByRow?.[stagedRow.rowNumber] ?? null,
-      },
-      input.firmwareContext,
+    const vendor = resolvedValue(row, 'vendor', stagedRow.rawValues.vendor)
+    const model = resolvedValue(row, 'model', stagedRow.rawValues.model)
+    const productFamily = resolvedValue(
+      row,
+      'productFamily',
+      stagedRow.rawValues.productFamily,
     )
+    const sourceDeviceType = resolvedValue(
+      row,
+      'deviceType',
+      stagedRow.rawValues.deviceType,
+    )
+    const platformInference = inferImporterV2ObservedPlatform({
+      vendor,
+      model,
+      productFamily,
+      softwarePlatform: stagedRow.rawValues.softwarePlatform,
+      firmwareVersion: stagedRow.rawValues.firmwareVersion,
+      softwareVersion: stagedRow.rawValues.softwareVersion,
+    })
+    const observedRule = importerV2ObservedCompatibilityRule({
+      vendor,
+      model,
+      inference: platformInference,
+      existingRules: input.firmwareContext.compatibilityRules,
+    })
+    const firmwareContext = observedRule
+      ? {
+          ...input.firmwareContext,
+          compatibilityRules: [
+            ...input.firmwareContext.compatibilityRules,
+            observedRule,
+          ],
+        }
+      : input.firmwareContext
+    const rawSoftwarePlatform = stagedRow.rawValues.softwarePlatform ?? null
+    const firmwareInput = {
+      provider: input.profile.provider,
+      vendor,
+      model,
+      productFamily,
+      softwarePlatform: rawSoftwarePlatform ?? platformInference?.platform ?? null,
+      sourceDeviceType,
+      firmwareVersion: stagedRow.rawValues.firmwareVersion,
+      softwareVersion: stagedRow.rawValues.softwareVersion,
+      providerMetadata:
+        input.providerMetadataByRow?.[stagedRow.rowNumber] ?? null,
+    }
+    const interpreted = interpretImporterV2Firmware(firmwareInput, firmwareContext)
+    const firmware: ImporterV2FirmwareInterpretation = platformInference && !rawSoftwarePlatform
+      ? {
+          ...interpreted,
+          rawEvidence: {
+            ...interpreted.rawEvidence,
+            softwarePlatform: null,
+          },
+          normalizedEvidence: {
+            ...interpreted.normalizedEvidence,
+            softwarePlatform: null,
+          },
+          platformEvidence: 'VERSION_EVIDENCE',
+          explanation: `${interpreted.explanation} Meraki firmware family ${platformInference.firmwareFamily} was read directly from the observed version prefix and mapped to ${platformInference.platform}.`,
+        }
+      : interpreted
 
     const currentFirmwareIssues: ImporterV2FieldIssue[] = []
     const softwarePlatformIssues: ImporterV2FieldIssue[] = []
