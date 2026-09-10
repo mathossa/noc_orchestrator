@@ -137,11 +137,11 @@ describe('Importer v2 workspace identity review state', () => {
     })
   })
 
-  it('turns an invalid stale row into a safe new-device proposal after manual serial entry', () => {
+  it('keeps INVALID blocked until manual durable identity has been re-resolved against live crosswalks', () => {
     const input = {
       identityResolution: {
         kind: 'INVALID',
-        requiresConfirmation: true,
+        requiresConfirmation: false,
         explanation: 'No source ID, serial number or MAC address was reported.',
         candidates: [],
       },
@@ -154,41 +154,49 @@ describe('Importer v2 workspace identity review state', () => {
       ],
     }
 
-    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(false)
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(true)
     expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
-      kind: 'NEW',
-      requiresConfirmation: false,
-      resolved: true,
-      selectedDecision: 'CREATE_NEW',
-      selectedCanonicalDeviceId: null,
+      kind: 'INVALID',
+      resolved: false,
+      selectedDecision: null,
     })
   })
 
-  it('keeps an invalid stale row blocked when a manually entered durable identifier is cleared', () => {
+  it('ignores a stale Create new decision when live identity now points at an existing device', () => {
     const input = {
       identityResolution: {
-        kind: 'INVALID',
+        kind: 'MATCH_SUGGESTED',
         requiresConfirmation: true,
-        candidates: [],
+        explanation: 'Serial matches one existing provider crosswalk.',
+        candidates: [
+          {
+            canonicalDeviceId: 'device-existing',
+            confidence: 'MEDIUM',
+            signals: [
+              {
+                kind: 'SERIAL_NUMBER',
+                sourceValue: 'SER-123',
+                candidateValue: 'SER-123',
+                status: 'AGREE',
+              },
+            ],
+          },
+        ],
       },
       decisions: [
         {
-          field: 'serialNumber',
-          action: 'SET_FIELD',
-          value: { id: null, label: 'TEMP-SERIAL' },
-        },
-        {
-          field: 'serialNumber',
-          action: 'CLEAR_FIELD',
-          value: null,
+          action: 'IDENTITY_RESOLUTION',
+          value: { kind: 'CREATE_NEW', canonicalDeviceId: null },
         },
       ],
     }
 
     expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(true)
     expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
-      kind: 'INVALID',
+      kind: 'MATCH_SUGGESTED',
       resolved: false,
+      selectedDecision: null,
+      selectedCanonicalDeviceId: null,
     })
   })
 })
