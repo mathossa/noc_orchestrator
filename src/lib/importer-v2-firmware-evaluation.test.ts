@@ -131,12 +131,13 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     expect(row.fields.currentFirmware.decision.matchedSuggestionId).toBeNull()
   })
 
-  it('keeps unknown running firmware importable as a warning and review item even when the profile previously required it', () => {
+  it('keeps missing running firmware importable as a non-blocking warning even when the profile previously required it', () => {
     const input = baseInput()
-    input.rows[0].rawValues.firmwareVersion = '10.3.9'
-    input.rows[0].rawValues.softwareVersion = 'ExampleOS 10.4.3 build 711'
-    input.rows[0].rawValues.vendor = 'Example Networks'
-    input.rows[0].rawValues.model = 'EX-2400'
+    input.rows[0].rawValues.firmwareVersion = null
+    input.rows[0].rawValues.softwareVersion = null
+    input.rows[0].rawValues.softwarePlatform = 'Meraki MR'
+    input.rows[0].rawValues.vendor = 'Cisco Meraki'
+    input.rows[0].rawValues.model = 'MR44'
 
     const row = evaluateImporterV2WithFirmware(input).rows[0]
     const firmwareIssue = row.issues.find(
@@ -148,15 +149,15 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
       severity: 'WARNING',
       code: 'OPTIONAL_FIELD_UNRESOLVED',
     })
+    expect(firmwareIssue?.message).toMatch(/preserves an existing canonical current-firmware observation/i)
     expect(row.issues).not.toContainEqual(
       expect.objectContaining({
         field: 'currentFirmware',
         severity: 'ERROR',
       }),
     )
-    expect(row.statuses).toEqual(
-      expect.arrayContaining(['WARNING', 'NEEDS_REVIEW']),
-    )
+    expect(row.statuses).toContain('WARNING')
+    expect(row.statuses).not.toContain('NEEDS_REVIEW')
   })
 
   it('uses the interpreted platform to satisfy a required software platform', () => {
