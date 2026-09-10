@@ -208,17 +208,40 @@ describe('device inventory persistence rules', () => {
     expect(mocks.compatibilityCheck).toHaveBeenCalledWith('model-1', 'release-other')
   })
 
-  it('rejects UNKNOWN or INCOMPATIBLE canonical links and explains preserving raw evidence', async () => {
+  it('allows UNKNOWN current-firmware compatibility as observed state but rejects explicit INCOMPATIBLE links', async () => {
     mocks.firmwareFindUnique.mockResolvedValue({ id: 'release-other', vendorId: 'vendor-1' })
-    for (const status of ['UNKNOWN', 'INCOMPATIBLE'] as const) {
-      mocks.compatibilityCheck.mockResolvedValueOnce({
-        status,
-        decision: status === 'INCOMPATIBLE' ? 'DENY' : null,
-        provenance: { kind: 'NO_EVIDENCE', id: null, sourceType: 'SYSTEM', explanation: 'No proven mapping.', inherited: false },
-        matchedRuleIds: [],
-      })
-      await expect(createDevice({ customerId: 'customer-1', deviceModelId: 'model-1', name: 'HQ-SW-01', currentFirmwareReleaseId: 'release-other' })).rejects.toThrow(/Preserve the raw reported version/)
-    }
+    mocks.compatibilityCheck.mockResolvedValueOnce({
+      status: 'UNKNOWN',
+      decision: null,
+      provenance: { kind: 'NO_EVIDENCE', id: null, sourceType: 'SYSTEM', explanation: 'No proven mapping.', inherited: false },
+      matchedRuleIds: [],
+    })
+    mocks.deviceCreate.mockResolvedValue({
+      ...storedDevice,
+      currentFirmwareReleaseId: 'release-other',
+      currentFirmwareRelease: { ...release, id: 'release-other' },
+    })
+    await expect(createDevice({
+      customerId: 'customer-1',
+      deviceModelId: 'model-1',
+      name: 'HQ-SW-01',
+      currentFirmwareReleaseId: 'release-other',
+      currentFirmwareSource: 'MANUAL',
+    })).resolves.toBeDefined()
+
+    mocks.compatibilityCheck.mockResolvedValueOnce({
+      status: 'INCOMPATIBLE',
+      decision: 'DENY',
+      provenance: { kind: 'MODEL_RULE', id: 'deny-1', sourceType: 'CONFIGURED_RULE', explanation: 'Explicitly unsupported.', inherited: false },
+      matchedRuleIds: ['deny-1'],
+    })
+    await expect(createDevice({
+      customerId: 'customer-1',
+      deviceModelId: 'model-1',
+      name: 'HQ-SW-02',
+      currentFirmwareReleaseId: 'release-other',
+      currentFirmwareSource: 'MANUAL',
+    })).rejects.toThrow(/compatibility is incompatible/)
   })
 
   it('preserves a raw incompatible report without forcing a canonical release link', async () => {
