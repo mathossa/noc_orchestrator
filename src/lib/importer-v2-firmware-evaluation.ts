@@ -320,7 +320,7 @@ export function evaluateImporterV2WithFirmware(
             softwarePlatform: null,
           },
           platformEvidence: 'VERSION_EVIDENCE',
-          explanation: `${interpreted.explanation} Meraki firmware family ${platformInference.firmwareFamily} was read directly from the observed version prefix and mapped to ${platformInference.platform}.`,
+          explanation: `${interpreted.explanation} ${platformInference.explanation}`,
         }
       : interpreted
 
