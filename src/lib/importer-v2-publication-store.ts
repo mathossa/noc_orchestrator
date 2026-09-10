@@ -15,7 +15,10 @@ import {
   type ImporterV2PublicationQa,
   type ImporterV2PublicationQaRowInput,
 } from '@/lib/importer-v2-publication'
-import { importerV2ShouldReplaceCurrentFirmware } from '@/lib/importer-v2-publication-firmware'
+import {
+  importerV2CurrentFirmwareReleaseId,
+  importerV2ShouldReplaceCurrentFirmware,
+} from '@/lib/importer-v2-publication-firmware'
 import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
@@ -815,8 +818,13 @@ async function publishStackMembers(input: {
       input.batch.provider,
       input.approvals,
     )
-    const firmwareCompatible = memberSnapshot.firmware?.compatibility?.status === 'COMPATIBLE'
-    const firmwareReleaseId = firmwareCompatible ? observedRelease.releaseId : null
+    const firmwareReleaseId = importerV2CurrentFirmwareReleaseId({
+      releaseId: observedRelease.releaseId,
+      runningVersion: observedRelease.rawVersion,
+      softwarePlatform: targetLabel(memberSnapshot, 'softwarePlatform'),
+      compatibilityStatus: memberSnapshot.firmware?.compatibility?.status,
+      decisions: memberRow.decisions,
+    })
     const memberIdentifiers = identifiers(memberSnapshot)
     const normalizedMemberIdentity = normalizeImporterV2Identity(memberIdentifiers)
 
@@ -969,8 +977,13 @@ async function publishRow(input: {
     batch.provider,
     approvals,
   )
-  const firmwareCompatible = snapshot.firmware?.compatibility?.status === 'COMPATIBLE'
-  const currentFirmwareReleaseId = firmwareCompatible ? observedRelease.releaseId : null
+  const currentFirmwareReleaseId = importerV2CurrentFirmwareReleaseId({
+    releaseId: observedRelease.releaseId,
+    runningVersion: observedRelease.rawVersion,
+    softwarePlatform: targetLabel(snapshot, 'softwarePlatform'),
+    compatibilityStatus: snapshot.firmware?.compatibility?.status,
+    decisions: row.decisions,
+  })
   const currentFirmwareRawVersion = observedRelease.rawVersion
   const replaceCurrentFirmware = importerV2ShouldReplaceCurrentFirmware({
     runningVersion: currentFirmwareRawVersion,
