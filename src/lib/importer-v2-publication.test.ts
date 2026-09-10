@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildImporterV2PublicationQa,
   importerV2OwnedDeviceScalarPatch,
+  importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
   type ImporterV2PublicationQaRowInput,
 } from '@/lib/importer-v2-publication'
@@ -166,6 +167,121 @@ describe('Importer v2 final QA and publication selection', () => {
     expect(result.publication.excludedRows).toEqual([1])
     expect(result.publication.unresolvedRows).toEqual([])
     expect(selectImporterV2PublicationRows(result, 'ALL_RESOLVED')).toEqual([2])
+  })
+
+  it('publishes a detected stack as one logical device while carrying member source rows with it', () => {
+    const parent = row(5, {
+      statuses: ['VALID', 'NEW', 'STACK'],
+      primaryStatus: 'VALID',
+      decisions: [
+        ...row(5).decisions,
+        {
+          field: null,
+          action: 'TOPOLOGY_STACK_PARENT',
+          value: {
+            role: 'STACK',
+            groupKey: 'auvik|customer|site|stack-a',
+            parentRowNumber: 5,
+            memberIndex: null,
+            memberRows: [{ rowNumber: 6, memberIndex: 1 }],
+            source: 'AUVIK_MEMBER_NAMING',
+          },
+        },
+      ],
+    })
+    const member = row(6, {
+      statuses: ['STACK_MEMBER'],
+      primaryStatus: 'STACK_MEMBER',
+      repeatClassification: 'NEW',
+      decisions: [
+        {
+          field: null,
+          action: 'TOPOLOGY_STACK_MEMBER',
+          value: {
+            role: 'STACK_MEMBER',
+            groupKey: 'auvik|customer|site|stack-a',
+            parentRowNumber: 5,
+            memberIndex: 1,
+            memberRows: [],
+            source: 'AUVIK_MEMBER_NAMING',
+          },
+        },
+      ],
+    })
+
+    const result = qa([parent, member])
+    expect(result.counts.stacks).toBe(1)
+    expect(result.counts.stackMembers).toBe(1)
+    expect(result.topology.stackGroups).toEqual([
+      expect.objectContaining({
+        parentRowNumber: 5,
+        memberRows: [expect.objectContaining({ rowNumber: 6, memberIndex: 1 })],
+      }),
+    ])
+    expect(selectImporterV2PublicationRows(result, 'ALL_RESOLVED')).toEqual([5])
+    expect(
+      [...importerV2PublicationRowsIncludingStackMembers(result, [5])].sort(
+        (left, right) => left - right,
+      ),
+    ).toEqual([5, 6])
+  })
+
+  it('blocks the logical stack when a physical member still has a field error', () => {
+    const parent = row(5, {
+      decisions: [
+        ...row(5).decisions,
+        {
+          field: null,
+          action: 'TOPOLOGY_STACK_PARENT',
+          value: {
+            role: 'STACK',
+            groupKey: 'stack-a',
+            parentRowNumber: 5,
+            memberIndex: null,
+            memberRows: [{ rowNumber: 6, memberIndex: 1 }],
+            source: 'AUVIK_MEMBER_NAMING',
+          },
+        },
+      ],
+    })
+    const memberSource = row(6)
+    const memberEvaluated = structuredClone(memberSource.evaluated) as Record<string, unknown>
+    memberEvaluated.issues = [
+      {
+        field: 'model',
+        severity: 'ERROR',
+        code: 'REQUIRED_FIELD_UNRESOLVED',
+        message: 'Model must be resolved.',
+      },
+    ]
+    const member = row(6, {
+      primaryStatus: 'NEEDS_REVIEW',
+      statuses: ['NEEDS_REVIEW'],
+      evaluated: memberEvaluated,
+      decisions: [
+        {
+          field: null,
+          action: 'TOPOLOGY_STACK_MEMBER',
+          value: {
+            role: 'STACK_MEMBER',
+            groupKey: 'stack-a',
+            parentRowNumber: 5,
+            memberIndex: 1,
+            memberRows: [],
+            source: 'AUVIK_MEMBER_NAMING',
+          },
+        },
+      ],
+    })
+
+    const result = qa([parent, member])
+    expect(result.publication.unresolvedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rowNumber: 5 }),
+        expect.objectContaining({ rowNumber: 6 }),
+      ]),
+    )
+    expect(result.publication.allResolvedCandidateRows).not.toContain(5)
   })
 
   it('only produces scalar updates for import-owned inventory fields', () => {

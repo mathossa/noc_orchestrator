@@ -72,10 +72,10 @@ const PROPOSAL_ORDER: ImporterV2CatalogProposalField[] = [
 ]
 
 function proposalContext(proposal: ImporterV2CatalogProposal) {
-  const values = Object.entries(proposal.context)
+  return Object.entries(proposal.context)
     .filter(([, value]) => Boolean(value))
     .map(([key, value]) => `${key}: ${value}`)
-  return values.join(' · ')
+    .join(' · ')
 }
 
 function proposalGroups(proposals: ImporterV2CatalogProposal[]) {
@@ -92,11 +92,23 @@ function candidateRowsFor(qa: ImporterV2PublicationQa, mode: ImporterV2Publicati
     : qa.publication.allResolvedCandidateRows
 }
 
-function requiredProposalsFor(
+function publicationSourceRowsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
 ) {
   const rows = new Set(candidateRowsFor(qa, mode))
+  for (const stack of qa.topology.stackGroups) {
+    if (!rows.has(stack.parentRowNumber)) continue
+    for (const member of stack.memberRows) rows.add(member.rowNumber)
+  }
+  return rows
+}
+
+function requiredProposalsFor(
+  qa: ImporterV2PublicationQa,
+  mode: ImporterV2PublicationMode,
+) {
+  const rows = publicationSourceRowsFor(qa, mode)
   return qa.catalogProposals.filter((proposal) =>
     proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
   )
@@ -108,7 +120,8 @@ type RetryRequest = {
 }
 
 type PublicationResult = {
-  publishedRows: Array<{ rowNumber: number }>
+  publishedRows: Array<{ rowNumber: number; stackMemberCount?: number }>
+  publishedStackMemberRowCount?: number
   remainingIncludedRows: number
   batchStatus: string
 }
@@ -184,6 +197,10 @@ export function ImporterV2PublicationPanel({
 
   const candidateRows = useMemo(
     () => (qa ? candidateRowsFor(qa, mode) : []),
+    [mode, qa],
+  )
+  const publicationSourceRows = useMemo(
+    () => (qa ? publicationSourceRowsFor(qa, mode) : new Set<number>()),
     [mode, qa],
   )
   const requiredProposals = useMemo(
@@ -272,8 +289,6 @@ export function ImporterV2PublicationPanel({
           throw publishError
         }
 
-        // Keep the immutable-snapshot safety boundary, but recover gracefully
-        // when QA changed between opening the dialog and pressing Publish.
         const freshQa = await fetchQa()
         const freshRequired = requiredProposalsFor(freshQa, mode)
         const freshRequiredKeys = new Set(freshRequired.map((item) => item.key))
@@ -298,8 +313,9 @@ export function ImporterV2PublicationPanel({
       }
 
       retryRequest.current = null
+      const memberCount = result.publishedStackMemberRowCount ?? 0
       setSuccess(
-        `${result.publishedRows.length.toLocaleString()} row(s) published atomically. ${result.remainingIncludedRows.toLocaleString()} included row(s) remain staged.`,
+        `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
       await loadQa()
     } catch (publishError) {
@@ -378,7 +394,7 @@ export function ImporterV2PublicationPanel({
             Review and publish
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
-            Review exceptions and the canonical objects this import would create. Existing exact canonical links do not require approval; only new canonical proposals do.
+            Review exceptions and canonical objects this import would create. Logical stacks publish as one managed Device while physical member evidence is retained below them.
           </p>
         </div>
         <Button variant="secondary" onClick={() => void loadQa()} disabled={loading || publishing}>
@@ -388,18 +404,65 @@ export function ImporterV2PublicationPanel({
 
       {qa ? (
         <>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
             <Stat label="Valid" value={qa.counts.valid} />
             <Stat label="Warnings" value={qa.counts.warning} />
             <Stat label="Needs review" value={qa.counts.needsReview} />
             <Stat label="Excluded" value={qa.counts.excluded} />
-            <Stat label="Already published" value={qa.counts.alreadyPublished} />
+            <Stat label="Stacks" value={qa.counts.stacks} />
+            <Stat label="Stack members" value={qa.counts.stackMembers} />
             <Stat label="Create" value={qa.counts.create} />
             <Stat label="Update" value={qa.counts.update} />
             <Stat label="Unchanged" value={qa.counts.unchanged} />
             <Stat label="Conflicts" value={qa.counts.conflict} />
             <Stat label="Field errors" value={qa.fieldErrors.length} />
+            <Stat label="Already published" value={qa.counts.alreadyPublished} />
           </div>
+
+          {qa.topology.stackGroups.length ? (
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">Detected logical stacks</h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {qa.topology.stackGroups.length.toLocaleString()} stack(s) contain {qa.counts.stackMembers.toLocaleString()} physical member row(s). The stack is the firmware/planning target; member serial, model and firmware evidence are retained without creating duplicate managed devices.
+              </p>
+              <div className="mt-3 space-y-2">
+                {qa.topology.stackGroups.map((stack) => (
+                  <details key={stack.groupKey} className="rounded border border-[var(--border)] bg-[var(--background)]">
+                    <summary className="cursor-pointer px-3 py-2 text-sm">
+                      <strong>{stack.parentName}</strong>
+                      <span className="ml-2 text-xs text-[var(--muted)]">
+                        row #{stack.parentRowNumber} · {stack.memberRows.length} member(s)
+                      </span>
+                    </summary>
+                    <div className="overflow-x-auto border-t border-[var(--border)] p-2">
+                      <table className="w-full min-w-[620px] text-left text-xs">
+                        <thead className="text-[var(--muted)]">
+                          <tr>
+                            <th className="px-2 py-1">Member</th>
+                            <th className="px-2 py-1">Source row</th>
+                            <th className="px-2 py-1">Serial</th>
+                            <th className="px-2 py-1">Model</th>
+                            <th className="px-2 py-1">Firmware</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stack.memberRows.map((member) => (
+                            <tr key={member.rowNumber} className="border-t border-[var(--border)]">
+                              <td className="px-2 py-1.5">{member.memberIndex} · {member.name}</td>
+                              <td className="px-2 py-1.5">#{member.rowNumber}</td>
+                              <td className="px-2 py-1.5">{member.serialNumber ?? '—'}</td>
+                              <td className="px-2 py-1.5">{member.model ?? '—'}</td>
+                              <td className="px-2 py-1.5">{member.firmware ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {qa.publication.unresolvedRows.length ? (
             <div className="rounded-md border border-[#8f4747] bg-[#512b2b] p-3 text-sm text-[#ffd7d7]">
@@ -407,7 +470,7 @@ export function ImporterV2PublicationPanel({
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
               </div>
               <p className="mt-1 text-xs opacity-90">
-                Rows with incomplete source identity can either be given a Source ID / serial / MAC in the Inspector, or explicitly excluded as stale below. Hostname/site/customer remain context, not durable identity.
+                Incomplete standalone devices can be given a Source ID / serial / MAC or explicitly excluded as stale. Stack members are resolved through their logical parent but still need valid model/catalog evidence.
               </p>
               <div className="mt-3 space-y-2">
                 {qa.publication.unresolvedRows.slice(0, 20).map((row) => (
@@ -440,7 +503,7 @@ export function ImporterV2PublicationPanel({
                     New canonical data to create
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} publishable row(s). Approve all, approve a category, or open a category to inspect individual values and context.
+                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} managed device(s) across {publicationSourceRows.size.toLocaleString()} source row(s), including stack members. Approve all, approve a category, or inspect individual values.
                   </p>
                 </div>
                 <Button
@@ -476,7 +539,7 @@ export function ImporterV2PublicationPanel({
                           <div>
                             <strong className="text-sm text-[var(--foreground)]">{group.label}</strong>
                             <span className="ml-2 text-xs text-[var(--muted)]">
-                              {group.proposals.length} proposal(s) · {affectedRows} affected row(s)
+                              {group.proposals.length} proposal(s) · {affectedRows} affected source row(s)
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -517,7 +580,7 @@ export function ImporterV2PublicationPanel({
                                 </span>
                               ) : null}
                               <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                                Used by {proposal.rowNumbers.length.toLocaleString()} row(s) · sample #{proposal.rowNumbers.slice(0, 6).join(', #')}
+                                Used by {proposal.rowNumbers.length.toLocaleString()} source row(s) · sample #{proposal.rowNumbers.slice(0, 6).join(', #')}
                               </span>
                             </span>
                           </label>
@@ -582,12 +645,12 @@ export function ImporterV2PublicationPanel({
                   className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
                 >
                   <option value="ALL_RESOLVED">Publish entire resolved batch</option>
-                  <option value="VALID_ONLY">Publish only currently valid rows</option>
+                  <option value="VALID_ONLY">Publish only currently valid devices</option>
                 </select>
               </label>
               <div className="text-right">
                 <div className="mb-1 text-xs text-[var(--muted)]">
-                  {candidateRows.length.toLocaleString()} row(s) · {approvedRequiredCount}/{requiredProposals.length} proposal approvals
+                  {candidateRows.length.toLocaleString()} managed device(s) · {publicationSourceRows.size.toLocaleString()} source row(s) · {approvedRequiredCount}/{requiredProposals.length} proposal approvals
                 </div>
                 <Button onClick={() => void publish()} disabled={!canPublish || publishing || loading}>
                   {publishing ? 'Publishing…' : 'Publish atomically'}

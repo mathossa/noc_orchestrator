@@ -5,6 +5,10 @@ import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
 import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
 import { getActiveImporterV2RuleSet } from '@/lib/importer-v2-rule-store'
 import {
+  automaticImporterV2StackTopologyDecisions,
+  importerV2TopologyFromDecisions,
+} from '@/lib/importer-v2-stack-topology'
+import {
   importerV2WorkspaceEffectiveEvaluated,
   importerV2WorkspaceIssueState,
 } from '@/lib/importer-v2-workspace-effective-overlay'
@@ -348,6 +352,8 @@ export async function recomputeImporterV2WorkspaceRows(input: {
   let warning = 0
   let review = 0
   let excluded = 0
+  let stackMembers = 0
+  let stacks = 0
 
   for (const row of rows) {
     const effective = importerV2WorkspaceEffectiveEvaluated({
@@ -361,16 +367,22 @@ export async function recomputeImporterV2WorkspaceRows(input: {
       inclusion: row.inclusion,
       decisions: row.decisions,
     })
+    const topology = importerV2TopologyFromDecisions(row.decisions)
+    const isStackMember = topology.role === 'STACK_MEMBER'
+    if (topology.role === 'STACK') stacks += 1
+
     const excludedByDecision = row.decisions.some(
       (decision) => decision.action === 'EXCLUDE_ROW',
     )
     const isExcluded = row.inclusion === 'EXCLUDED' || excludedByDecision
-    const identityNeedsReview = importerV2WorkspaceIdentityNeedsReview({
-      identityResolution: row.identityResolution,
-      decisions: row.decisions,
-    })
+    const identityNeedsReview = isStackMember
+      ? false
+      : importerV2WorkspaceIdentityNeedsReview({
+          identityResolution: row.identityResolution,
+          decisions: row.decisions,
+        })
     const suggestionNeedsReview = decisionRequiresManualReview(snapshot)
-    const repeatAmbiguous = row.repeatClassification === 'AMBIGUOUS'
+    const repeatAmbiguous = !isStackMember && row.repeatClassification === 'AMBIGUOUS'
 
     let primaryStatus: string
     if (isExcluded) {
@@ -384,6 +396,9 @@ export async function recomputeImporterV2WorkspaceRows(input: {
     ) {
       primaryStatus = 'NEEDS_REVIEW'
       review += 1
+    } else if (isStackMember) {
+      primaryStatus = 'STACK_MEMBER'
+      stackMembers += 1
     } else if (issueState.activeWarningCount > 0) {
       primaryStatus = 'WARNING'
       warning += 1
@@ -393,8 +408,11 @@ export async function recomputeImporterV2WorkspaceRows(input: {
     }
 
     const statuses = [primaryStatus]
+    if (topology.role === 'STACK' && !statuses.includes('STACK')) statuses.push('STACK')
+    if (isStackMember && issueState.activeWarningCount > 0) statuses.push('WARNING')
     if (
       row.repeatClassification &&
+      !isStackMember &&
       row.repeatClassification !== primaryStatus &&
       row.repeatClassification !== 'AMBIGUOUS'
     ) {
@@ -436,7 +454,7 @@ export async function recomputeImporterV2WorkspaceRows(input: {
     })
   }
 
-  return { checked: rows.length, valid, warning, review, excluded }
+  return { checked: rows.length, valid, warning, review, excluded, stacks, stackMembers }
 }
 
 export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
@@ -453,7 +471,17 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
   const rows = await prisma.importerV2WorkspaceRow.findMany({
     where: { batchId },
     orderBy: { rowNumber: 'asc' },
-    select: { id: true, rowNumber: true, evaluated: true },
+    select: {
+      id: true,
+      rowNumber: true,
+      sourceName: true,
+      hostname: true,
+      customer: true,
+      businessUnit: true,
+      site: true,
+      deviceType: true,
+      evaluated: true,
+    },
   })
   const ruleBookId = await ensureRuleBook({
     batchId,
@@ -477,7 +505,12 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
     ),
   )
 
-  const proposed = [
+  const topology = automaticImporterV2StackTopologyDecisions({
+    provider: batch.provider,
+    rows,
+  })
+  const proposed: WorkspaceDecisionInput[] = [
+    ...topology.decisions,
     ...rows.flatMap(automaticCatalogProposalDecisions),
     ...(await activeRuleDecisions({
       batch: {
@@ -518,6 +551,14 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
   return {
     ...result,
     automaticDecisionsApplied: fresh.length,
+    topologyDecisionsApplied: fresh.filter((decision) =>
+      decision.action.startsWith('TOPOLOGY_STACK_'),
+    ).length,
+    detectedStackGroups: topology.groups.length,
+    detectedStackMembers: topology.groups.reduce(
+      (count, group) => count + group.memberRows.length,
+      0,
+    ),
     ruleBookId,
   }
 }

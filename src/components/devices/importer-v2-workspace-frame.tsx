@@ -13,16 +13,26 @@ type MaintenanceResult = {
   warning: number
   review: number
   excluded: number
+  stacks?: number
+  stackMembers?: number
   automaticDecisionsApplied?: number
+  topologyDecisionsApplied?: number
+  detectedStackGroups?: number
+  detectedStackMembers?: number
 }
 
 function maintenanceMessage(action: MaintenanceAction, result: MaintenanceResult) {
   if (action === 'automation') {
     const applied = result.automaticDecisionsApplied ?? 0
+    const detectedStacks = result.detectedStackGroups ?? result.stacks ?? 0
+    const detectedMembers = result.detectedStackMembers ?? result.stackMembers ?? 0
+    const topologySummary = detectedStacks > 0
+      ? ` Detected ${detectedStacks.toLocaleString()} logical stack${detectedStacks === 1 ? '' : 's'} with ${detectedMembers.toLocaleString()} physical member row${detectedMembers === 1 ? '' : 's'}; members will publish under their stack instead of as separate devices.`
+      : ''
     if (applied === 0) {
-      return `No new saved automation matched this batch. Current result: ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning. Create a remembered exact mapping or guided automation from a finding in the Inspector, then apply saved automations again.`
+      return `No new saved automation matched this batch.${topologySummary} Current result: ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning.`
     }
-    return `Applied ${applied.toLocaleString()} new automated decision${applied === 1 ? '' : 's'}. ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning.`
+    return `Applied ${applied.toLocaleString()} new automated decision${applied === 1 ? '' : 's'}.${topologySummary} ${result.valid.toLocaleString()} valid · ${result.review.toLocaleString()} review · ${result.warning.toLocaleString()} warning.`
   }
   if (result.checked === 0) {
     return 'No corrections are waiting for recheck. New manual fixes are rechecked automatically.'
@@ -104,7 +114,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
             onClick={() => void runMaintenance('automation')}
             className={styles.viewButton}
             disabled={maintenanceBusy !== null}
-            title="Apply remembered exact mappings and active guided importer rules to this staged batch."
+            title="Apply topology detection, remembered exact mappings and active guided importer rules to this staged batch."
           >
             {maintenanceBusy === 'automation'
               ? 'Applying…'

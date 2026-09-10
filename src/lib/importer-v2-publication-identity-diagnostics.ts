@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import { normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
+import {
+  importerV2PublicationIdentityFields,
+  importerV2TopologyFromDecisions,
+} from '@/lib/importer-v2-stack-topology'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
@@ -191,18 +195,22 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
   })
   if (!batch) return []
 
-  const rows: StagedIdentityRow[] = batch.rows.map((row) => {
+  const rows: StagedIdentityRow[] = batch.rows.flatMap((row) => {
+    const topology = importerV2TopologyFromDecisions(row.decisions)
+    if (topology.role === 'STACK_MEMBER') return []
+
     const snapshot = importerV2WorkspaceEffectiveEvaluated({
       evaluated: row.evaluated,
       inclusion: 'INCLUDED',
       decisions: row.decisions,
     }).evaluated as EffectiveSnapshot
-    const sourceIdentifiers = {
+    const sourceIdentifiers = importerV2PublicationIdentityFields({
+      topology,
       sourceId: effectiveText(snapshot, 'sourceId'),
       serialNumber: effectiveText(snapshot, 'serialNumber'),
       macAddress: effectiveText(snapshot, 'macAddress'),
-    }
-    return {
+    })
+    return [{
       rowNumber: row.rowNumber,
       sourceName: row.sourceName ?? effectiveText(snapshot, 'deviceName'),
       hostname: row.hostname ?? effectiveText(snapshot, 'hostname'),
@@ -217,7 +225,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
         identityResolution: row.identityResolution,
         decisions: row.decisions,
       }),
-    }
+    }]
   })
 
   const stagedCollisions = findImporterV2StagedIdentityCollisions(rows)

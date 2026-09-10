@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ImporterV2Field, ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
+import { importerV2TopologyFromDecisions } from '@/lib/importer-v2-stack-topology'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
@@ -51,6 +52,21 @@ export type ImporterV2CatalogProposal = {
   rowNumbers: number[]
 }
 
+export type ImporterV2StackQaGroup = {
+  groupKey: string
+  parentRowNumber: number
+  parentName: string
+  source: string | null
+  memberRows: Array<{
+    rowNumber: number
+    memberIndex: number
+    name: string
+    serialNumber: string | null
+    model: string | null
+    firmware: string | null
+  }>
+}
+
 export type ImporterV2PublicationQa = {
   qaFingerprint: string
   batch: {
@@ -76,6 +92,8 @@ export type ImporterV2PublicationQa = {
     conflict: number
     alreadyPublished: number
     pending: number
+    stacks: number
+    stackMembers: number
   }
   fieldErrors: Array<{
     rowNumber: number
@@ -91,6 +109,9 @@ export type ImporterV2PublicationQa = {
     explanation: string | null
     candidateDeviceIds: string[]
   }>
+  topology: {
+    stackGroups: ImporterV2StackQaGroup[]
+  }
   evidence: {
     decisionSources: Array<{
       source: string
@@ -207,6 +228,13 @@ function targetLabel(value: CanonicalTarget) {
   return normalized(value?.label)
 }
 
+function effectiveText(snapshot: EvaluatedSnapshot, field: ImporterV2Field) {
+  return (
+    targetLabel(snapshot.proposedCanonicalValues?.[field] ?? null) ??
+    normalized(snapshot.rawValues?.[field])
+  )
+}
+
 function proposalContext(
   field: ImporterV2CatalogProposalField,
   values: Partial<Record<ImporterV2Field, CanonicalTarget>>,
@@ -256,14 +284,24 @@ function activeClassification(row: ImporterV2PublicationQaRowInput) {
   return statuses
 }
 
-function rowBlockers(
-  row: ImporterV2PublicationQaRowInput,
-  activeErrorCount: number,
-) {
+function rowBlockers(input: {
+  row: ImporterV2PublicationQaRowInput
+  activeErrorCount: number
+  sourceId: string | null
+}) {
+  const { row, activeErrorCount } = input
   if (row.inclusion === 'EXCLUDED') return []
+  const topology = importerV2TopologyFromDecisions(row.decisions)
   const reasons: string[] = []
   if (row.needsReevaluation) reasons.push('Re-evaluation is required after a staged correction.')
   if (activeErrorCount > 0) reasons.push(`${activeErrorCount} unresolved validation error(s) remain.`)
+
+  if (topology.role === 'STACK_MEMBER') return reasons
+
+  if (topology.role === 'STACK' && !input.sourceId) {
+    reasons.push('Logical stack requires a provider Source ID; member serial/MAC values cannot identify the stack itself.')
+  }
+
   const identity = importerV2WorkspaceIdentityReview({
     identityResolution: row.identityResolution,
     decisions: row.decisions,
@@ -308,6 +346,8 @@ export function buildImporterV2PublicationQa(input: {
     conflict: 0,
     alreadyPublished: 0,
     pending: 0,
+    stacks: 0,
+    stackMembers: 0,
   }
   const fieldErrors: ImporterV2PublicationQa['fieldErrors'] = []
   const identityConflicts: ImporterV2PublicationQa['identityConflicts'] = []
@@ -329,6 +369,13 @@ export function buildImporterV2PublicationQa(input: {
   const validOnlyCandidateRows: number[] = []
   const unresolvedRows: Array<{ rowNumber: number; reasons: string[] }> = []
   const excludedRows: number[] = []
+  const rowTopology = new Map<number, {
+    topology: ReturnType<typeof importerV2TopologyFromDecisions>
+    name: string
+    serialNumber: string | null
+    model: string | null
+    firmware: string | null
+  }>()
 
   for (const row of [...input.rows].sort((a, b) => a.rowNumber - b.rowNumber)) {
     if (row.publishedAt) counts.alreadyPublished += 1
@@ -340,29 +387,44 @@ export function buildImporterV2PublicationQa(input: {
       continue
     }
 
-    if (row.primaryStatus === 'VALID') counts.valid += 1
-    else if (row.primaryStatus === 'WARNING') counts.warning += 1
-    else counts.needsReview += 1
-
-    const classifications = activeClassification(row)
-    if (classifications.has('NEW')) counts.create += 1
-    if (
-      classifications.has('UPDATE') ||
-      classifications.has('CHANGED') ||
-      classifications.has('MOVED') ||
-      classifications.has('RENAMED')
-    ) counts.update += 1
-    if (classifications.has('UNCHANGED')) counts.unchanged += 1
-    if (row.repeatClassification) {
-      repeatImport[row.repeatClassification] = (repeatImport[row.repeatClassification] ?? 0) + 1
-    }
-
     const effective = importerV2WorkspaceEffectiveEvaluated({
       evaluated: row.evaluated,
       inclusion: row.inclusion,
       decisions: row.decisions,
     })
     const snapshot = effective.evaluated as EvaluatedSnapshot
+    const topology = importerV2TopologyFromDecisions(row.decisions)
+    const isStackMember = topology.role === 'STACK_MEMBER'
+    if (topology.role === 'STACK') counts.stacks += 1
+    if (isStackMember) counts.stackMembers += 1
+
+    rowTopology.set(row.rowNumber, {
+      topology,
+      name: effectiveText(snapshot, 'deviceName') ?? effectiveText(snapshot, 'hostname') ?? `Row #${row.rowNumber}`,
+      serialNumber: effectiveText(snapshot, 'serialNumber'),
+      model: effectiveText(snapshot, 'model'),
+      firmware: effectiveText(snapshot, 'currentFirmware'),
+    })
+
+    if (!isStackMember) {
+      if (row.primaryStatus === 'VALID') counts.valid += 1
+      else if (row.primaryStatus === 'WARNING') counts.warning += 1
+      else counts.needsReview += 1
+
+      const classifications = activeClassification(row)
+      if (classifications.has('NEW')) counts.create += 1
+      if (
+        classifications.has('UPDATE') ||
+        classifications.has('CHANGED') ||
+        classifications.has('MOVED') ||
+        classifications.has('RENAMED')
+      ) counts.update += 1
+      if (classifications.has('UNCHANGED')) counts.unchanged += 1
+      if (row.repeatClassification) {
+        repeatImport[row.repeatClassification] = (repeatImport[row.repeatClassification] ?? 0) + 1
+      }
+    }
+
     const issues = snapshot.issues ?? []
     for (const issue of issues) {
       fieldErrors.push({
@@ -374,24 +436,30 @@ export function buildImporterV2PublicationQa(input: {
       })
     }
 
-    const identity = importerV2WorkspaceIdentityReview({
-      identityResolution: row.identityResolution,
-      decisions: row.decisions,
-    })
-    if (identity?.requiresConfirmation || identity?.kind === 'AMBIGUOUS' || identity?.kind === 'INVALID') {
-      identityConflicts.push({
-        rowNumber: row.rowNumber,
-        kind: identity.kind,
-        explanation: identity.explanation,
-        candidateDeviceIds: identity.candidates.map((candidate) => candidate.canonicalDeviceId),
+    if (!isStackMember) {
+      const identity = importerV2WorkspaceIdentityReview({
+        identityResolution: row.identityResolution,
+        decisions: row.decisions,
       })
+      if (identity?.requiresConfirmation || identity?.kind === 'AMBIGUOUS' || identity?.kind === 'INVALID') {
+        identityConflicts.push({
+          rowNumber: row.rowNumber,
+          kind: identity.kind,
+          explanation: identity.explanation,
+          candidateDeviceIds: identity.candidates.map((candidate) => candidate.canonicalDeviceId),
+        })
+      }
     }
 
-    const blockers = rowBlockers(row, effective.activeErrorCount)
+    const blockers = rowBlockers({
+      row,
+      activeErrorCount: effective.activeErrorCount,
+      sourceId: effectiveText(snapshot, 'sourceId'),
+    })
     if (blockers.length > 0) {
       counts.conflict += 1
       if (!row.publishedAt) unresolvedRows.push({ rowNumber: row.rowNumber, reasons: blockers })
-    } else if (!row.publishedAt) {
+    } else if (!row.publishedAt && !isStackMember) {
       allResolvedCandidateRows.push(row.rowNumber)
       if (row.primaryStatus === 'VALID') validOnlyCandidateRows.push(row.rowNumber)
     }
@@ -460,19 +528,69 @@ export function buildImporterV2PublicationQa(input: {
     addSample(evidencePatterns, row.firmwareEvidencePattern || '(unclassified)', row.rowNumber)
   }
 
+  const stackGroups: ImporterV2StackQaGroup[] = []
+  const unresolvedNumbers = new Set(unresolvedRows.map((row) => row.rowNumber))
+  for (const [rowNumber, parent] of rowTopology) {
+    if (parent.topology.role !== 'STACK') continue
+    const members = parent.topology.memberRows.flatMap((reference) => {
+      const member = rowTopology.get(reference.rowNumber)
+      if (!member || member.topology.role !== 'STACK_MEMBER') return []
+      return [{
+        rowNumber: reference.rowNumber,
+        memberIndex: reference.memberIndex,
+        name: member.name,
+        serialNumber: member.serialNumber,
+        model: member.model,
+        firmware: member.firmware,
+      }]
+    })
+    stackGroups.push({
+      groupKey: parent.topology.groupKey ?? `stack-row-${rowNumber}`,
+      parentRowNumber: rowNumber,
+      parentName: parent.name,
+      source: parent.topology.source,
+      memberRows: members,
+    })
+
+    const unresolvedMembers = members
+      .filter((member) => unresolvedNumbers.has(member.rowNumber))
+      .map((member) => member.rowNumber)
+    if (unresolvedMembers.length > 0 && !unresolvedNumbers.has(rowNumber)) {
+      unresolvedRows.push({
+        rowNumber,
+        reasons: [`Stack member row(s) #${unresolvedMembers.join(', #')} still require review before this logical stack can publish.`],
+      })
+      unresolvedNumbers.add(rowNumber)
+      counts.conflict += 1
+    }
+    if (unresolvedMembers.length > 0) {
+      const allIndex = allResolvedCandidateRows.indexOf(rowNumber)
+      if (allIndex >= 0) allResolvedCandidateRows.splice(allIndex, 1)
+      const validIndex = validOnlyCandidateRows.indexOf(rowNumber)
+      if (validIndex >= 0) validOnlyCandidateRows.splice(validIndex, 1)
+    }
+  }
+
   const qaFingerprint = hash({
     batchId: input.batch.id,
     evaluationFingerprint: input.batch.evaluationFingerprint,
     status: input.batch.status,
     rows: [...input.rows]
       .sort((a, b) => a.rowNumber - b.rowNumber)
-      .map((row) => ({
-        rowNumber: row.rowNumber,
-        inclusion: row.inclusion,
-        reviewRevision: row.reviewRevision,
-        publishedAt: row.publishedAt instanceof Date ? row.publishedAt.toISOString() : row.publishedAt ?? null,
-        publicationAttemptId: row.publicationAttemptId ?? null,
-      })),
+      .map((row) => {
+        const topology = importerV2TopologyFromDecisions(row.decisions)
+        return {
+          rowNumber: row.rowNumber,
+          inclusion: row.inclusion,
+          reviewRevision: row.reviewRevision,
+          topologyRole: topology.role,
+          topologyGroupKey: topology.groupKey,
+          topologyParentRowNumber: topology.parentRowNumber,
+          topologyMemberIndex: topology.memberIndex,
+          publishedAt: row.publishedAt instanceof Date ? row.publishedAt.toISOString() : row.publishedAt ?? null,
+          publicationAttemptId: row.publicationAttemptId ?? null,
+        }
+      }),
   })
 
   return {
@@ -485,6 +603,9 @@ export function buildImporterV2PublicationQa(input: {
     fieldErrors,
     catalogProposals: [...proposals.values()].sort((a, b) => a.field.localeCompare(b.field) || a.label.localeCompare(b.label)),
     identityConflicts,
+    topology: {
+      stackGroups: stackGroups.sort((a, b) => a.parentRowNumber - b.parentRowNumber),
+    },
     evidence: {
       decisionSources: [...decisionSources.entries()].map(([source, value]) => ({ source, ...value })).sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)),
       workspaceDecisions: [...workspaceDecisions.entries()].map(([action, value]) => ({ action, ...value })).sort((a, b) => b.count - a.count || a.action.localeCompare(b.action)),
@@ -505,12 +626,11 @@ export function buildImporterV2PublicationQa(input: {
     publication: {
       allResolvedCandidateRows,
       validOnlyCandidateRows,
-      unresolvedRows,
+      unresolvedRows: unresolvedRows.sort((a, b) => a.rowNumber - b.rowNumber),
       excludedRows,
     },
   }
 }
-
 
 export function importerV2OwnedDeviceScalarPatch(input: {
   allowedFields: ReadonlySet<string>
@@ -533,6 +653,18 @@ export function importerV2OwnedDeviceScalarPatch(input: {
   }
   if (input.allowedFields.has('notes')) patch.notes = input.values.notes ?? null
   return patch
+}
+
+export function importerV2PublicationRowsIncludingStackMembers(
+  qa: ImporterV2PublicationQa,
+  rowNumbers: readonly number[],
+) {
+  const rows = new Set(rowNumbers)
+  for (const group of qa.topology.stackGroups) {
+    if (!rows.has(group.parentRowNumber)) continue
+    for (const member of group.memberRows) rows.add(member.rowNumber)
+  }
+  return rows
 }
 
 export function selectImporterV2PublicationRows(
