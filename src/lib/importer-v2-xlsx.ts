@@ -8,7 +8,10 @@ const HEADER_ALIASES: Record<ImporterV2Field, readonly string[]> = {
   site: ['site', 'site name', 'location', 'location name'],
   deviceName: ['device name', 'device', 'name', 'display name'],
   hostname: ['hostname', 'host name', 'fqdn', 'dns name'],
-  sourceId: ['source id', 'source device id', 'device id', 'external id', 'id'],
+  // Never guess that a generic ID column is a durable device identifier. In
+  // exports such as Auvik the ID beside a device row can be a site/tenant ID.
+  // Only explicitly named source-identity columns are safe to map automatically.
+  sourceId: ['source id', 'source device id', 'external id'],
   serialNumber: ['serial number', 'serial', 'serial no', 'serial #', 'sn'],
   macAddress: ['mac address', 'mac', 'macaddress'],
   vendor: ['vendor', 'manufacturer', 'make', 'manufacturer name'],
