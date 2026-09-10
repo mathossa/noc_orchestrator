@@ -8,6 +8,7 @@ import {
   stageImporterV2XlsxWithAutomation,
 } from '@/lib/importer-v2-workspace-maintenance'
 import { ensureImporterV2DerivedStackSourceIdentities } from '@/lib/importer-v2-stack-identity-store'
+import { ensureImporterV2DerivedAuvikStandaloneIdentities } from '@/lib/importer-v2-auvik-derived-identity-store'
 import { XlsxImportError } from '@/lib/xlsx-reader'
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -59,7 +60,10 @@ export async function POST(request: Request) {
     const config = parseStageConfig(formData.get('config'))
     const data = await stageImporterV2XlsxWithAutomation({ file, config })
     const derivedStackIdentity = await ensureImporterV2DerivedStackSourceIdentities(data.batch.id)
-    const finalState = derivedStackIdentity.appliedCount > 0
+    const derivedAuvikIdentity = await ensureImporterV2DerivedAuvikStandaloneIdentities(data.batch.id)
+    const derivedIdentityCount =
+      derivedStackIdentity.appliedCount + derivedAuvikIdentity.appliedCount
+    const finalState = derivedIdentityCount > 0
       ? await recomputeImporterV2WorkspaceRows({ batchId: data.batch.id })
       : data.automation
 
@@ -70,9 +74,12 @@ export async function POST(request: Request) {
           ...data.automation,
           ...finalState,
           automaticDecisionsApplied:
-            (data.automation.automaticDecisionsApplied ?? 0) + derivedStackIdentity.appliedCount,
+            (data.automation.automaticDecisionsApplied ?? 0) + derivedIdentityCount,
           derivedStackSourceIdsApplied: derivedStackIdentity.appliedCount,
           repairedStackIdentityCount: derivedStackIdentity.repairedIdentityCount,
+          derivedAuvikDeviceSourceIdsApplied: derivedAuvikIdentity.appliedCount,
+          bootstrappedAuvikDeviceMatches: derivedAuvikIdentity.bootstrappedExistingCount,
+          repairedAuvikIdentityCount: derivedAuvikIdentity.repairedIdentityCount,
         },
       },
     }, { status: 201 })
