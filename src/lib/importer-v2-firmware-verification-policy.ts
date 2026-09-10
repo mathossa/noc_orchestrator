@@ -129,18 +129,35 @@ export function importerV2ObservedFirmwareVerificationDecision(
   }
 }
 
+export function importerV2ObservedFirmwareVerificationValue(
+  decisions: readonly { action: string; value?: unknown }[],
+): ImporterV2ObservedFirmwareVerificationValue | null {
+  for (const decision of [...decisions].reverse()) {
+    if (decision.action !== IMPORTER_V2_FIRMWARE_VERIFICATION_ACTION) continue
+    const value = decision.value
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const candidate = value as Partial<ImporterV2ObservedFirmwareVerificationValue>
+    const runningVersion = text(candidate.runningVersion)
+    const softwarePlatform = text(candidate.softwarePlatform)
+    if (
+      !runningVersion ||
+      !softwarePlatform ||
+      candidate.verificationScope !== 'OBSERVED_CURRENT_FIRMWARE_ONLY'
+    ) {
+      continue
+    }
+    return {
+      runningVersion,
+      softwarePlatform,
+      originalCompatibilityStatus: text(candidate.originalCompatibilityStatus),
+      verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+    }
+  }
+  return null
+}
+
 export function importerV2ObservedFirmwareWasVerified(
   decisions: readonly { action: string; value?: unknown }[],
 ) {
-  return decisions.some((decision) => {
-    if (decision.action !== IMPORTER_V2_FIRMWARE_VERIFICATION_ACTION) return false
-    const value = decision.value
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-    const candidate = value as Partial<ImporterV2ObservedFirmwareVerificationValue>
-    return (
-      text(candidate.runningVersion) !== null &&
-      text(candidate.softwarePlatform) !== null &&
-      candidate.verificationScope === 'OBSERVED_CURRENT_FIRMWARE_ONLY'
-    )
-  })
+  return importerV2ObservedFirmwareVerificationValue(decisions) !== null
 }
