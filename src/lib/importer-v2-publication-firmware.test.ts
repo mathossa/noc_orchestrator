@@ -121,4 +121,38 @@ describe('Importer v2 current firmware publication ownership', () => {
       }),
     ).toBeNull()
   })
+
+  it('fails publication instead of silently losing a compatible current-firmware link', () => {
+    expect(() =>
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: null,
+        runningVersion: 'MR 32.2.4',
+        softwarePlatform: 'Meraki MR',
+        compatibilityStatus: 'COMPATIBLE',
+        decisions: [],
+      }),
+    ).toThrow('Publication was stopped to prevent Current firmware from becoming Unknown')
+  })
+
+  it('fails publication instead of silently losing an explicitly verified current-firmware link', () => {
+    expect(() =>
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: null,
+        runningVersion: '15.2(7)E2',
+        softwarePlatform: 'IOS',
+        compatibilityStatus: 'UNKNOWN',
+        decisions: [
+          {
+            action: 'VERIFY_OBSERVED_FIRMWARE',
+            value: {
+              runningVersion: '15.2(7)E2',
+              softwarePlatform: 'IOS',
+              originalCompatibilityStatus: 'UNKNOWN',
+              verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+            },
+          },
+        ],
+      }),
+    ).toThrow('Publication was stopped to prevent Current firmware from becoming Unknown')
+  })
 })
