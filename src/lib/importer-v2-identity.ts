@@ -155,7 +155,7 @@ export function normalizeImporterV2Identity(
 export function importerV2SourceIdentityForCrosswalk(input: {
   rawIdentifiers: ImporterV2IdentityIdentifiers
   effectiveIdentifiers: ImporterV2IdentityIdentifiers
-}): ImporterV2IdentityIdentifiers {
+}): { sourceId: string | null; serialNumber: string | null; macAddress: string | null } {
   return {
     sourceId:
       normalizeText(input.rawIdentifiers.sourceId) ??
