@@ -119,7 +119,7 @@ function firmwareIssues(
       severity: 'WARNING',
       code: 'OPTIONAL_FIELD_UNRESOLVED',
       message:
-        'Observed running firmware is unknown. The device remains importable and the evidence must be reviewed.',
+        'Observed running firmware is not reported by this source. The row remains importable; publication preserves an existing canonical current-firmware observation unless an operator explicitly changes or clears it.',
     })
   }
 
@@ -188,11 +188,9 @@ function firmwareStatuses(
   const hasWarnings =
     firmware.warnings.length > 0 ||
     issues.some((issue) => issue.severity === 'WARNING')
-  const firmwareNeedsReview =
-    !firmware.runningVersion ||
-    firmware.warnings.some(
-      (warning) => !NON_BLOCKING_FIRMWARE_WARNINGS.has(warning.code),
-    )
+  const firmwareNeedsReview = firmware.warnings.some(
+    (warning) => !NON_BLOCKING_FIRMWARE_WARNINGS.has(warning.code),
+  )
   const needsReview =
     issues.some((issue) => issue.severity === 'ERROR') ||
     genericDecisionNeedsReview(row) ||
