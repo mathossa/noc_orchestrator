@@ -42,6 +42,7 @@ describe('Importer v2 manual identity repair', () => {
       {
         id: 'row-13',
         repeatClassification: 'AMBIGUOUS',
+        repeatDiff: null,
         identityResolution: { kind: 'INVALID' },
         evaluated: {},
         decisions: [
@@ -110,6 +111,7 @@ describe('Importer v2 manual identity repair', () => {
         }),
         repeatClassification: 'CHANGED',
         repeatDiff: null,
+        reviewRevision: { increment: 1 },
       },
     })
     expect(result).toMatchObject({
@@ -134,6 +136,7 @@ describe('Importer v2 manual identity repair', () => {
         }),
         repeatClassification: 'NEW',
         repeatDiff: null,
+        reviewRevision: { increment: 1 },
       }),
     })
     expect(result).toMatchObject({
@@ -141,6 +144,47 @@ describe('Importer v2 manual identity repair', () => {
       matchedExistingCount: 0,
       newCount: 1,
     })
+  })
+
+  it('does not rewrite or bump QA revision when live identity is already current', async () => {
+    const liveResolution = {
+      kind: 'NEW',
+      requiresConfirmation: false,
+      normalizedIdentifiers: {
+        sourceId: null,
+        serialNumber: 'SER-123',
+        macAddress: null,
+      },
+      candidates: [],
+      options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
+      explanation:
+        'No canonical device is supported by the supplied durable identifiers. The row can be proposed as a new device without per-row confirmation; final batch publication remains explicit.',
+    }
+    mocks.rowFindMany.mockResolvedValue([
+      {
+        id: 'row-13',
+        repeatClassification: 'NEW',
+        repeatDiff: null,
+        identityResolution: liveResolution,
+        evaluated: {},
+        decisions: [
+          {
+            field: 'serialNumber',
+            action: 'SET_FIELD',
+            value: { id: null, label: 'SER-123' },
+            explanation: 'Manual serial.',
+            actorUserId: null,
+            createdAt: new Date('2026-09-10T08:00:00Z'),
+          },
+        ],
+      },
+    ])
+    mocks.findCandidates.mockResolvedValue([])
+
+    const result = await reconcileImporterV2ManualIdentity('batch-1')
+
+    expect(mocks.rowUpdate).not.toHaveBeenCalled()
+    expect(result.repairedRowCount).toBe(0)
   })
 
   it('maps repaired repeat state conservatively when identity changes', () => {
