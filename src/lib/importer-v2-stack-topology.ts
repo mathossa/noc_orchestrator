@@ -286,7 +286,8 @@ export function importerV2TopologyFromDecisions(
       continue
     }
     const value = object(decision.value)
-    const role = value?.role
+    if (!value) continue
+    const role = value.role
     if (role !== 'STACK' && role !== 'STACK_MEMBER') continue
     const rawMembers = Array.isArray(value.memberRows) ? value.memberRows : []
     const memberRows = rawMembers.flatMap((item) => {
