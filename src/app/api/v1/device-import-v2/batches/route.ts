@@ -3,7 +3,11 @@ import { listImporterV2WorkspaceBatches } from '@/lib/importer-v2-workspace-stor
 import {
   type ImporterV2XlsxStageConfig,
 } from '@/lib/importer-v2-ingestion-store'
-import { stageImporterV2XlsxWithAutomation } from '@/lib/importer-v2-workspace-maintenance'
+import {
+  recomputeImporterV2WorkspaceRows,
+  stageImporterV2XlsxWithAutomation,
+} from '@/lib/importer-v2-workspace-maintenance'
+import { ensureImporterV2DerivedStackSourceIdentities } from '@/lib/importer-v2-stack-identity-store'
 import { XlsxImportError } from '@/lib/xlsx-reader'
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -54,7 +58,22 @@ export async function POST(request: Request) {
     }
     const config = parseStageConfig(formData.get('config'))
     const data = await stageImporterV2XlsxWithAutomation({ file, config })
-    return NextResponse.json({ data }, { status: 201 })
+    const derivedStackIdentity = await ensureImporterV2DerivedStackSourceIdentities(data.batch.id)
+    const finalState = derivedStackIdentity.appliedCount > 0
+      ? await recomputeImporterV2WorkspaceRows({ batchId: data.batch.id })
+      : data.automation
+
+    return NextResponse.json({
+      data: {
+        ...data,
+        automation: {
+          ...data.automation,
+          ...finalState,
+          derivedStackSourceIdsApplied: derivedStackIdentity.appliedCount,
+          repairedStackIdentityCount: derivedStackIdentity.repairedIdentityCount,
+        },
+      },
+    }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The workbook could not be staged.'
     return NextResponse.json(
