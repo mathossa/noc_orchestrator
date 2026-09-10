@@ -54,6 +54,10 @@ function context(snapshot: EffectiveSnapshot): ImporterV2IdentityContext {
   ) as ImporterV2IdentityContext
 }
 
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export function repairedRepeatClassification(input: {
   current: string | null
   identityKind: string
@@ -101,6 +105,7 @@ export async function reconcileImporterV2ManualIdentity(batchId: string) {
     select: {
       id: true,
       repeatClassification: true,
+      repeatDiff: true,
       identityResolution: true,
       evaluated: true,
       decisions: {
@@ -154,6 +159,12 @@ export async function reconcileImporterV2ManualIdentity(batchId: string) {
     else if (resolution.kind === 'AMBIGUOUS') ambiguousCount += 1
     else invalidCount += 1
 
+    const changed =
+      !sameJson(row.identityResolution, resolution) ||
+      row.repeatClassification !== repeatClassification ||
+      row.repeatDiff !== null
+    if (!changed) continue
+
     await prisma.importerV2WorkspaceRow.update({
       where: { id: row.id },
       data: {
@@ -164,6 +175,9 @@ export async function reconcileImporterV2ManualIdentity(batchId: string) {
         // canonical device. Publication falls back to its conservative update
         // policy until a future import supplies a fresh repeat snapshot.
         repeatDiff: null,
+        // QA fingerprints include reviewRevision. Increment it only when live
+        // identity state actually changes so repeated QA refreshes are stable.
+        reviewRevision: { increment: 1 },
       },
     })
     repairedRowCount += 1
