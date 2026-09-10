@@ -7,6 +7,10 @@ import {
   publishImporterV2Batch,
 } from '@/lib/importer-v2-publication-store'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
+import {
+  findImporterV2PublicationIdentityConflicts,
+  formatImporterV2IdentityConflictMessage,
+} from '@/lib/importer-v2-publication-identity-diagnostics'
 import { reconcileImporterV2ManualIdentity } from '@/lib/importer-v2-workspace-identity-repair'
 import { recheckImporterV2Workspace } from '@/lib/importer-v2-workspace-maintenance'
 
@@ -46,13 +50,18 @@ function parsePublishRequest(value: unknown): PublishRequest {
   return body as unknown as PublishRequest
 }
 
+async function reconcileBeforeQa(batchId: string) {
+  const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
+  if (identityRepair.repairedRowCount > 0) {
+    await recheckImporterV2Workspace(batchId)
+  }
+  return identityRepair
+}
+
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
-    const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
-    if (identityRepair.repairedRowCount > 0) {
-      await recheckImporterV2Workspace(batchId)
-    }
+    await reconcileBeforeQa(batchId)
     return NextResponse.json({ data: await getImporterV2PublicationQa(batchId) })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to build importer publication QA.'
@@ -67,6 +76,36 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const body = parsePublishRequest(await request.json())
+
+    // Reconcile manually edited durable identities against the live provider
+    // crosswalk before entering the publication transaction. If this changes a
+    // row, its QA fingerprint changes and the client must review the refreshed
+    // state instead of publishing a stale Create-new decision.
+    await reconcileBeforeQa(batchId)
+    const currentQa = await getImporterV2PublicationQa(batchId)
+    if (currentQa.qaFingerprint !== body.qaFingerprint) {
+      throw new ImporterV2PublicationConflictError(
+        'The staged QA snapshot changed after review. QA has been refreshed; review the changed identity state before publishing.',
+      )
+    }
+
+    // Keep the transaction-level uniqueness assertion as the final safeguard,
+    // but diagnose the same condition before publication so engineers see the
+    // exact staged row, durable identifier and canonical device involved.
+    const candidateRows =
+      body.mode === 'VALID_ONLY'
+        ? currentQa.publication.validOnlyCandidateRows
+        : currentQa.publication.allResolvedCandidateRows
+    const identityConflicts = await findImporterV2PublicationIdentityConflicts({
+      batchId,
+      rowNumbers: candidateRows,
+    })
+    if (identityConflicts.length > 0) {
+      throw new ImporterV2PublicationValidationError(
+        formatImporterV2IdentityConflictMessage(identityConflicts),
+      )
+    }
+
     const session = await auth.api.getSession({ headers: request.headers })
     const result = await publishImporterV2Batch({
       batchId,
