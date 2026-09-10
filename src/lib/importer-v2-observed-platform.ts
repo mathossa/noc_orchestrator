@@ -9,8 +9,9 @@ export type ImporterV2ObservedPlatformEvidence = {
 
 export type ImporterV2ObservedPlatformInference = {
   platform: string
-  evidence: 'MERAKI_FIRMWARE_FAMILY'
+  evidence: 'MERAKI_FIRMWARE_FAMILY' | 'CISCO_CLASSIC_IOS_VERSION'
   firmwareFamily: string
+  explanation: string
 }
 
 function clean(value: string | null | undefined) {
@@ -29,23 +30,25 @@ function merakiFirmwareFamily(value: string | null | undefined) {
   return match?.[1]?.toUpperCase() ?? null
 }
 
+function hasCiscoClassicIosVersion(value: string | null | undefined) {
+  const normalized = clean(value)
+  if (!normalized) return false
+  return /\b\d+\.\d+\(\d+[A-Za-z]?\)[A-Za-z0-9._-]+\b/.test(normalized)
+}
+
 /**
  * Infer only high-signal observed platforms that are encoded in the source
  * firmware value itself. This does not infer a platform from a model name alone.
  *
  * Meraki exports running software as e.g. "MR 32.2.4", "MS 17.2.1" and
- * "MX 19.1.4". The family prefix is part of the firmware product line, so it is
- * safe evidence for the observed platform when the row also has Meraki context.
+ * "MX 19.1.4". Classic Cisco IOS releases use the long-lived
+ * "15.2(7)E2"-style train syntax. Both are sufficiently distinctive when the
+ * row also carries matching vendor/model context.
  */
 export function inferImporterV2ObservedPlatform(
   input: ImporterV2ObservedPlatformEvidence,
 ): ImporterV2ObservedPlatformInference | null {
   if (clean(input.softwarePlatform)) return null
-
-  const firmwareFamily =
-    merakiFirmwareFamily(input.softwareVersion) ??
-    merakiFirmwareFamily(input.firmwareVersion)
-  if (!firmwareFamily) return null
 
   const context = [input.vendor, input.model, input.productFamily]
     .map(key)
@@ -53,13 +56,33 @@ export function inferImporterV2ObservedPlatform(
     .join(' ')
   const merakiContext = context.includes('meraki')
   const ciscoContext = context.includes('cisco')
-  if (!merakiContext && !ciscoContext) return null
 
-  return {
-    platform: `Meraki ${firmwareFamily}`,
-    evidence: 'MERAKI_FIRMWARE_FAMILY',
-    firmwareFamily,
+  const firmwareFamily =
+    merakiFirmwareFamily(input.softwareVersion) ??
+    merakiFirmwareFamily(input.firmwareVersion)
+  if (firmwareFamily && (merakiContext || ciscoContext)) {
+    return {
+      platform: `Meraki ${firmwareFamily}`,
+      evidence: 'MERAKI_FIRMWARE_FAMILY',
+      firmwareFamily,
+      explanation: `Meraki firmware family ${firmwareFamily} was read directly from the observed version prefix and mapped to Meraki ${firmwareFamily}.`,
+    }
   }
+
+  const classicIos =
+    hasCiscoClassicIosVersion(input.softwareVersion) ||
+    hasCiscoClassicIosVersion(input.firmwareVersion)
+  if (classicIos && ciscoContext && !merakiContext) {
+    return {
+      platform: 'IOS',
+      evidence: 'CISCO_CLASSIC_IOS_VERSION',
+      firmwareFamily: 'IOS',
+      explanation:
+        'Classic Cisco IOS train syntax was read directly from the observed version and mapped to IOS.',
+    }
+  }
+
+  return null
 }
 
 export function importerV2ObservedCompatibilityRule(input: {
