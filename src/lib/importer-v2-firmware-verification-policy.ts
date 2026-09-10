@@ -9,6 +9,7 @@ export type ImporterV2ObservedFirmwareVerificationValue = {
 }
 
 export type ImporterV2ObservedFirmwareSnapshot = {
+  rawValues?: Record<string, string | null>
   proposedCanonicalValues?: Record<
     string,
     { id?: string | null; label?: string } | null
@@ -30,6 +31,10 @@ export type ImporterV2ObservedFirmwareVerificationDecision =
       status: 'ALREADY_TRUSTED'
       runningVersion: string
       softwarePlatform: string
+    }
+  | {
+      status: 'NOT_APPLICABLE'
+      reason: string
     }
   | {
       status: 'MANUAL_REVIEW'
@@ -74,12 +79,23 @@ export function importerV2ObservedFirmwareVerificationDecision(
     targetLabel(snapshot, 'softwarePlatform') ??
     text(snapshot.firmware?.proposedSoftwarePlatform)
   const compatibilityStatus = text(snapshot.firmware?.compatibility?.status)
+  const hasRawFirmwareEvidence = Boolean(
+    text(snapshot.rawValues?.firmwareVersion) ||
+      text(snapshot.rawValues?.softwareVersion) ||
+      text(snapshot.rawValues?.currentFirmware),
+  )
 
+  if (!runningVersion && !hasRawFirmwareEvidence) {
+    return {
+      status: 'NOT_APPLICABLE',
+      reason: 'The source row contains no observed firmware evidence.',
+    }
+  }
   if (!runningVersion) {
     return {
       status: 'MANUAL_REVIEW',
       reason:
-        'No deterministic running firmware is available. Correct the firmware evidence before verification.',
+        'Source firmware evidence exists, but no deterministic running firmware is available. Correct the firmware evidence before verification.',
     }
   }
   if (!softwarePlatform) {
