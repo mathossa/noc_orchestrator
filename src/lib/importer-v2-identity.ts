@@ -146,6 +146,29 @@ export function normalizeImporterV2Identity(
   }
 }
 
+/**
+ * Keep the durable values reported by the source as crosswalk aliases. A manual
+ * correction changes the canonical Device field, not the identity alias that
+ * the source will report again on the next import. When the source omitted an
+ * identifier entirely, an explicitly supplied effective value may seed it.
+ */
+export function importerV2SourceIdentityForCrosswalk(input: {
+  rawIdentifiers: ImporterV2IdentityIdentifiers
+  effectiveIdentifiers: ImporterV2IdentityIdentifiers
+}): ImporterV2IdentityIdentifiers {
+  return {
+    sourceId:
+      normalizeText(input.rawIdentifiers.sourceId) ??
+      normalizeText(input.effectiveIdentifiers.sourceId),
+    serialNumber:
+      normalizeText(input.rawIdentifiers.serialNumber) ??
+      normalizeText(input.effectiveIdentifiers.serialNumber),
+    macAddress:
+      normalizeText(input.rawIdentifiers.macAddress) ??
+      normalizeText(input.effectiveIdentifiers.macAddress),
+  }
+}
+
 function contextDifferences(
   source: ImporterV2IdentityContext | undefined,
   candidate: ImporterV2IdentityContext | undefined,
@@ -195,13 +218,13 @@ function candidateSignals(
 function candidateConfidence(signals: readonly ImporterV2IdentitySignal[]) {
   const agreed = signals.filter((signal) => signal.status === 'AGREE')
   const disagreed = signals.filter((signal) => signal.status === 'DISAGREE')
+
+  // Provider source IDs are the strongest source-specific durable key. A stale
+  // serial/MAC on the same crosswalk must not force repetitive manual review as
+  // long as those identifiers do not independently resolve to another device.
+  if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
   if (disagreed.length > 0) return 'LOW' as const
-  if (
-    agreed.some((signal) => signal.kind === 'SOURCE_ID') ||
-    agreed.length >= 2
-  ) {
-    return 'HIGH' as const
-  }
+  if (agreed.length >= 2) return 'HIGH' as const
   return 'MEDIUM' as const
 }
 
@@ -216,7 +239,7 @@ function candidateExplanation(signals: readonly ImporterV2IdentitySignal[]) {
   if (disagreed.length === 0) {
     return `Durable identity agreement: ${agreedText}. Context fields did not affect confidence.`
   }
-  return `Durable identity agreement: ${agreedText}; conflicting durable identifiers: ${disagreed.join(', ')}.`
+  return `Durable identity agreement: ${agreedText}; changed or stale source identifiers: ${disagreed.join(', ')}.`
 }
 
 export function resolveImporterV2Identity(
@@ -273,10 +296,18 @@ export function resolveImporterV2Identity(
     }
   }
 
+  const onlyCandidate = matchedCandidates.length === 1 ? matchedCandidates[0] : null
+  const uniqueProviderSourceIdAgreement = Boolean(
+    onlyCandidate?.signals.some(
+      (signal) => signal.kind === 'SOURCE_ID' && signal.status === 'AGREE',
+    ),
+  )
   const hasDurableConflict = matchedCandidates.some((candidate) =>
     candidate.signals.some((signal) => signal.status === 'DISAGREE'),
   )
-  const ambiguous = matchedCandidates.length > 1 || hasDurableConflict
+  const ambiguous =
+    matchedCandidates.length > 1 ||
+    (hasDurableConflict && !uniqueProviderSourceIdAgreement)
 
   if (ambiguous) {
     return {
@@ -294,6 +325,9 @@ export function resolveImporterV2Identity(
 
   const candidate = matchedCandidates[0]
   const automaticallyTrusted = candidate.confidence === 'HIGH'
+  const hasChangedIdentifiers = candidate.signals.some(
+    (signal) => signal.status === 'DISAGREE',
+  )
   return {
     kind: 'MATCH_SUGGESTED',
     requiresConfirmation: !automaticallyTrusted,
@@ -301,7 +335,9 @@ export function resolveImporterV2Identity(
     candidates: matchedCandidates,
     options: ['CONFIRM_MATCH', 'CREATE_NEW', 'MANUAL_OVERRIDE'],
     explanation: automaticallyTrusted
-      ? 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
+      ? hasChangedIdentifiers && uniqueProviderSourceIdAgreement
+        ? 'One canonical device is uniquely supported by the provider Source ID. Other source identifiers changed but do not resolve to another canonical device, so the confirmed Source ID match is reused automatically.'
+        : 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
       : 'One canonical device is supported by durable identity evidence, but the evidence is not strong enough for automatic reuse and still requires confirmation.',
   }
 }
