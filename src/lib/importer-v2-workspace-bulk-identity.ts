@@ -89,6 +89,14 @@ function scopeToken(input: {
     .digest('hex')
 }
 
+function chunks<T>(values: readonly T[], size = 1_000) {
+  const result: T[][] = []
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size))
+  }
+  return result
+}
+
 type BulkRow = Awaited<ReturnType<typeof loadSelectedRows>>[number]
 
 type PlannedVerification = {
@@ -282,19 +290,22 @@ export async function verifyImporterV2WorkspaceIdentities(input: {
         }
       }
 
-      await tx.importerV2WorkspaceDecision.createMany({
-        data: plans.map((plan) => ({
-          batchId: input.batchId,
-          rowId: plan.row.id,
-          rowNumber: plan.row.rowNumber,
-          field: null,
-          action: 'IDENTITY_RESOLUTION',
-          value: plan.decision,
-          explanation: plan.decision.explanation,
-          scopeToken: token,
-          actorUserId: input.actorUserId ?? null,
-        })),
-      })
+      const decisionRows = plans.map((plan) => ({
+        batchId: input.batchId,
+        rowId: plan.row.id,
+        rowNumber: plan.row.rowNumber,
+        field: null,
+        action: 'IDENTITY_RESOLUTION',
+        value: plan.decision,
+        explanation: plan.decision.explanation,
+        scopeToken: token,
+        actorUserId: input.actorUserId ?? null,
+      }))
+      for (const decisionChunk of chunks(decisionRows)) {
+        await tx.importerV2WorkspaceDecision.createMany({
+          data: decisionChunk,
+        })
+      }
 
       const groups = new Map<
         string,
@@ -325,16 +336,18 @@ export async function verifyImporterV2WorkspaceIdentities(input: {
       }
 
       for (const group of groups.values()) {
-        await tx.importerV2WorkspaceRow.updateMany({
-          where: { id: { in: group.ids } },
-          data: {
-            reviewRevision: { increment: 1 },
-            issueCount: group.issueCount,
-            hasErrors: group.hasErrors,
-            primaryStatus: group.primaryStatus,
-            statuses: group.statuses,
-          },
-        })
+        for (const idChunk of chunks(group.ids, 5_000)) {
+          await tx.importerV2WorkspaceRow.updateMany({
+            where: { id: { in: idChunk } },
+            data: {
+              reviewRevision: { increment: 1 },
+              issueCount: group.issueCount,
+              hasErrors: group.hasErrors,
+              primaryStatus: group.primaryStatus,
+              statuses: group.statuses,
+            },
+          })
+        }
       }
     })
   }
