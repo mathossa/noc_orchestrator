@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Prisma } from '../generated/prisma/client'
 
 const mocks = vi.hoisted(() => ({
   batchFindUnique: vi.fn(),
@@ -110,7 +111,7 @@ describe('Importer v2 manual identity repair', () => {
           ],
         }),
         repeatClassification: 'CHANGED',
-        repeatDiff: null,
+        repeatDiff: Prisma.DbNull,
         reviewRevision: { increment: 1 },
       },
     })
@@ -135,7 +136,7 @@ describe('Importer v2 manual identity repair', () => {
           candidates: [],
         }),
         repeatClassification: 'NEW',
-        repeatDiff: null,
+        repeatDiff: Prisma.DbNull,
         reviewRevision: { increment: 1 },
       }),
     })
