@@ -16,6 +16,8 @@ describe('Importer v2 observed platform inference', () => {
       platform: 'Meraki MR',
       evidence: 'MERAKI_FIRMWARE_FAMILY',
       firmwareFamily: 'MR',
+      explanation:
+        'Meraki firmware family MR was read directly from the observed version prefix and mapped to Meraki MR.',
     })
   })
 
@@ -32,6 +34,32 @@ describe('Importer v2 observed platform inference', () => {
         softwareVersion,
       })?.platform,
     ).toBe(platform)
+  })
+
+  it('infers IOS from classic Cisco train syntax with Cisco context', () => {
+    expect(
+      inferImporterV2ObservedPlatform({
+        vendor: 'Cisco',
+        model: 'WS-C2960X-48FPS-L',
+        softwareVersion: '15.2(7)E2',
+      }),
+    ).toEqual({
+      platform: 'IOS',
+      evidence: 'CISCO_CLASSIC_IOS_VERSION',
+      firmwareFamily: 'IOS',
+      explanation:
+        'Classic Cisco IOS train syntax was read directly from the observed version and mapped to IOS.',
+    })
+  })
+
+  it('does not infer IOS from classic-looking syntax without Cisco context', () => {
+    expect(
+      inferImporterV2ObservedPlatform({
+        vendor: 'Example Networks',
+        model: 'Switch-100',
+        softwareVersion: '15.2(7)E2',
+      }),
+    ).toBeNull()
   })
 
   it('does not infer from a bare MR-like value without Cisco/Meraki context', () => {
