@@ -45,6 +45,16 @@ const EMPTY_FILTERS: ImporterV2WorkspaceFilters = {
   repeatClassification: null,
 }
 
+type BulkIdentityVerificationResult = {
+  selectedCount: number
+  verifiedCount: number
+  alreadyResolvedCount: number
+  manualReviewCount: number
+  invalidCount: number
+  publishedCount: number
+  manualReviewRows: number[]
+}
+
 async function responseData<T>(response: Response): Promise<T> {
   const body = await response.json()
   if (!response.ok) {
@@ -211,6 +221,8 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
     useState<ImporterV2WorkspaceFilters | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [loadedDetail, setLoadedDetail] = useState<RowDetail | null>(null)
+  const [verifyBusy, setVerifyBusy] = useState(false)
+  const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
 
   useEffect(() => {
@@ -253,6 +265,9 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
     : explicitSelection.length
       ? { mode: 'ROWS', rowNumbers: explicitSelection }
       : null
+  const selectedCount = querySelection
+    ? (data?.total ?? 0)
+    : explicitSelection.length
   const inspectedRowNumber =
     !querySelection && explicitSelection.length === 1
       ? explicitSelection[0]
@@ -327,6 +342,51 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
       : explicitSelection.length > 1
         ? `${explicitSelection.length} explicit rows selected.`
         : 'Select one or more rows to inspect or reconcile.'
+
+  const verifySelectedIdentities = async () => {
+    if (!selection) return
+    setVerifyBusy(true)
+    setVerifyMessage(null)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/identity/verify`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ selection }),
+        },
+      )
+      const result = await responseData<BulkIdentityVerificationResult>(response)
+      const unresolved = result.manualReviewCount + result.invalidCount
+      const parts = [
+        `${result.verifiedCount.toLocaleString()} identity match${result.verifiedCount === 1 ? '' : 'es'} verified`,
+      ]
+      if (result.alreadyResolvedCount > 0) {
+        parts.push(
+          `${result.alreadyResolvedCount.toLocaleString()} already resolved`,
+        )
+      }
+      if (unresolved > 0) {
+        parts.push(
+          `${unresolved.toLocaleString()} still require individual review`,
+        )
+      }
+      if (result.publishedCount > 0) {
+        parts.push(`${result.publishedCount.toLocaleString()} already published`)
+      }
+      setVerifyMessage(`${parts.join(' · ')}.`)
+      setRefreshKey((key) => key + 1)
+    } catch (verifyError) {
+      setError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : 'Unable to verify selected identities.',
+      )
+    } finally {
+      setVerifyBusy(false)
+    }
+  }
 
   const groupLabel =
     GROUPS.find((group) => group.value === groupBy)?.label ?? 'None'
@@ -615,10 +675,22 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
               </Button>
               {selection ? (
                 <Button
+                  variant="primary"
+                  disabled={verifyBusy}
+                  onClick={() => void verifySelectedIdentities()}
+                >
+                  {verifyBusy
+                    ? 'Verifying…'
+                    : `Verify selected (${selectedCount.toLocaleString()})`}
+                </Button>
+              ) : null}
+              {selection ? (
+                <Button
                   variant="ghost"
                   onClick={() => {
                     setSelectedRows(new Set())
                     setQuerySelection(null)
+                    setVerifyMessage(null)
                   }}
                 >
                   Clear selection
@@ -635,6 +707,15 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
               </span>
             )}
           </div>
+
+          {verifyMessage ? (
+            <div
+              role="status"
+              className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-3 py-2 text-xs text-[var(--muted-strong)]"
+            >
+              {verifyMessage}
+            </div>
+          ) : null}
 
           <div className="noc-scrollbar min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <table className="w-full min-w-[2050px] border-collapse text-left text-xs">
