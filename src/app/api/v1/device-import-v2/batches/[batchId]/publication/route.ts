@@ -11,8 +11,6 @@ import {
   findImporterV2PublicationIdentityConflicts,
   formatImporterV2IdentityConflictMessage,
 } from '@/lib/importer-v2-publication-identity-diagnostics'
-import { reconcileImporterV2ManualIdentity } from '@/lib/importer-v2-workspace-identity-repair'
-import { recheckImporterV2Workspace } from '@/lib/importer-v2-workspace-maintenance'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
@@ -50,18 +48,14 @@ function parsePublishRequest(value: unknown): PublishRequest {
   return body as unknown as PublishRequest
 }
 
-async function reconcileBeforeQa(batchId: string) {
-  const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
-  if (identityRepair.repairedRowCount > 0) {
-    await recheckImporterV2Workspace(batchId)
-  }
-  return identityRepair
-}
-
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
-    await reconcileBeforeQa(batchId)
+
+    // QA reads must be immutable. Reconciliation is performed when an engineer
+    // applies a workspace correction or explicitly requests Recheck. Mutating
+    // rows here made concurrent GETs increment reviewRevision and invalidate
+    // each other's QA fingerprints without any user-visible change.
     return NextResponse.json({ data: await getImporterV2PublicationQa(batchId) })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to build importer publication QA.'
@@ -77,15 +71,14 @@ export async function POST(request: Request, context: RouteContext) {
     const { batchId } = await context.params
     const body = parsePublishRequest(await request.json())
 
-    // Reconcile manually edited durable identities against the live provider
-    // crosswalk before entering the publication transaction. If this changes a
-    // row, its QA fingerprint changes and the client must review the refreshed
-    // state instead of publishing a stale Create-new decision.
-    await reconcileBeforeQa(batchId)
+    // Publication validation is read-only until the atomic publication
+    // transaction begins. Manual identity edits are reconciled by the action /
+    // recheck endpoints; publication must never silently rewrite the reviewed
+    // workspace snapshot immediately before comparing its fingerprint.
     const currentQa = await getImporterV2PublicationQa(batchId)
     if (currentQa.qaFingerprint !== body.qaFingerprint) {
       throw new ImporterV2PublicationConflictError(
-        'The staged QA snapshot changed after review. QA has been refreshed; review the changed identity state before publishing.',
+        'The staged QA snapshot changed after review. QA has been refreshed; review the latest staged changes before publishing.',
       )
     }
 
