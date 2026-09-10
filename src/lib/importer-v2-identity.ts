@@ -222,8 +222,11 @@ function candidateConfidence(
   const agreed = signals.filter((signal) => signal.status === 'AGREE')
   const disagreed = signals.filter((signal) => signal.status === 'DISAGREE')
 
-  if (disagreed.length > 0) return 'LOW' as const
+  // A genuine provider-scoped device ID is the strongest durable signal and
+  // may remain authoritative when a stale serial/MAC changed. Auvik XLSX does
+  // not supply such an ID; its Site ID is filtered before identity resolution.
   if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
+  if (disagreed.length > 0) return 'LOW' as const
   if (agreed.length >= 2) return 'HIGH' as const
 
   // A unique serial/MAC match to a persisted crosswalk is not a fresh guess:
