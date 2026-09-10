@@ -45,6 +45,21 @@ describe('Importer v2 observed firmware verification policy', () => {
     })
   })
 
+  it('skips rows that contain no observed firmware evidence', () => {
+    expect(
+      importerV2ObservedFirmwareVerificationDecision({
+        rawValues: {},
+        firmware: {
+          compatibility: { status: 'NOT_APPLICABLE' },
+          warnings: [],
+        },
+      }),
+    ).toEqual({
+      status: 'NOT_APPLICABLE',
+      reason: 'The source row contains no observed firmware evidence.',
+    })
+  })
+
   it('keeps incompatible or conflicting evidence out of bulk verification', () => {
     expect(
       importerV2ObservedFirmwareVerificationDecision({
