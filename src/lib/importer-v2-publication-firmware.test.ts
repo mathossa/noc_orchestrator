@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { importerV2ShouldReplaceCurrentFirmware } from '@/lib/importer-v2-publication-firmware'
+import {
+  importerV2CurrentFirmwareReleaseId,
+  importerV2ShouldReplaceCurrentFirmware,
+} from '@/lib/importer-v2-publication-firmware'
 
 describe('Importer v2 current firmware publication ownership', () => {
   it('preserves an existing canonical current firmware when the source reports no running version', () => {
@@ -27,5 +30,95 @@ describe('Importer v2 current firmware publication ownership', () => {
         decisions: [{ field: 'currentFirmware', action: 'CLEAR_FIELD' }],
       }),
     ).toBe(true)
+  })
+
+  it('links a compatible observed release without additional verification', () => {
+    expect(
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: 'release-mr-32-2-4',
+        runningVersion: 'MR 32.2.4',
+        softwarePlatform: 'Meraki MR',
+        compatibilityStatus: 'COMPATIBLE',
+        decisions: [],
+      }),
+    ).toBe('release-mr-32-2-4')
+  })
+
+  it('links the exact unknown-compatibility release after observation-only engineer verification', () => {
+    expect(
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: 'release-mr-32-2-4',
+        runningVersion: 'MR 32.2.4',
+        softwarePlatform: 'Meraki MR',
+        compatibilityStatus: 'UNKNOWN',
+        decisions: [
+          {
+            action: 'VERIFY_OBSERVED_FIRMWARE',
+            value: {
+              runningVersion: 'MR 32.2.4',
+              softwarePlatform: 'Meraki MR',
+              originalCompatibilityStatus: 'UNKNOWN',
+              verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+            },
+          },
+        ],
+      }),
+    ).toBe('release-mr-32-2-4')
+  })
+
+  it('does not let a stale firmware verification link a different release or platform', () => {
+    const decisions = [
+      {
+        action: 'VERIFY_OBSERVED_FIRMWARE',
+        value: {
+          runningVersion: 'MR 32.2.4',
+          softwarePlatform: 'Meraki MR',
+          originalCompatibilityStatus: 'UNKNOWN',
+          verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+        },
+      },
+    ]
+
+    expect(
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: 'release-mr-32-3',
+        runningVersion: 'MR 32.3',
+        softwarePlatform: 'Meraki MR',
+        compatibilityStatus: 'UNKNOWN',
+        decisions,
+      }),
+    ).toBeNull()
+
+    expect(
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: 'release-ms-32-2-4',
+        runningVersion: 'MR 32.2.4',
+        softwarePlatform: 'Meraki MS',
+        compatibilityStatus: 'UNKNOWN',
+        decisions,
+      }),
+    ).toBeNull()
+  })
+
+  it('never bypasses an explicitly incompatible model/release result', () => {
+    expect(
+      importerV2CurrentFirmwareReleaseId({
+        releaseId: 'release-mr-32-2-4',
+        runningVersion: 'MR 32.2.4',
+        softwarePlatform: 'Meraki MR',
+        compatibilityStatus: 'INCOMPATIBLE',
+        decisions: [
+          {
+            action: 'VERIFY_OBSERVED_FIRMWARE',
+            value: {
+              runningVersion: 'MR 32.2.4',
+              softwarePlatform: 'Meraki MR',
+              originalCompatibilityStatus: 'INCOMPATIBLE',
+              verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+            },
+          },
+        ],
+      }),
+    ).toBeNull()
   })
 })
