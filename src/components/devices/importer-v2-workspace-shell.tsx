@@ -45,7 +45,7 @@ const EMPTY_FILTERS: ImporterV2WorkspaceFilters = {
   repeatClassification: null,
 }
 
-type BulkIdentityVerificationResult = {
+type BulkVerificationResult = {
   selectedCount: number
   verifiedCount: number
   alreadyResolvedCount: number
@@ -53,6 +53,17 @@ type BulkIdentityVerificationResult = {
   invalidCount: number
   publishedCount: number
   manualReviewRows: number[]
+  firmware: {
+    selectedCount: number
+    verifiedCount: number
+    alreadyVerifiedCount: number
+    alreadyTrustedCount: number
+    manualReviewCount: number
+    notApplicableCount: number
+    excludedCount: number
+    publishedCount: number
+    manualReviewRows: Array<{ rowNumber: number; reason: string }>
+  }
 }
 
 async function responseData<T>(response: Response): Promise<T> {
@@ -343,7 +354,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
         ? `${explicitSelection.length} explicit rows selected.`
         : 'Select one or more rows to inspect or reconcile.'
 
-  const verifySelectedIdentities = async () => {
+  const verifySelectedEvidence = async () => {
     if (!selection) return
     setVerifyBusy(true)
     setVerifyMessage(null)
@@ -357,31 +368,67 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
           body: JSON.stringify({ selection }),
         },
       )
-      const result = await responseData<BulkIdentityVerificationResult>(response)
-      const unresolved = result.manualReviewCount + result.invalidCount
-      const parts = [
-        `${result.verifiedCount.toLocaleString()} identity match${result.verifiedCount === 1 ? '' : 'es'} verified`,
-      ]
+      const result = await responseData<BulkVerificationResult>(response)
+      const identityUnresolved = result.manualReviewCount + result.invalidCount
+      const firmware = result.firmware
+      const parts: string[] = []
+
+      if (result.verifiedCount > 0) {
+        parts.push(
+          `${result.verifiedCount.toLocaleString()} identity match${result.verifiedCount === 1 ? '' : 'es'} verified`,
+        )
+      }
       if (result.alreadyResolvedCount > 0) {
         parts.push(
-          `${result.alreadyResolvedCount.toLocaleString()} already resolved`,
+          `${result.alreadyResolvedCount.toLocaleString()} identities already resolved`,
         )
       }
-      if (unresolved > 0) {
+      if (identityUnresolved > 0) {
         parts.push(
-          `${unresolved.toLocaleString()} still require individual review`,
+          `${identityUnresolved.toLocaleString()} identity row${identityUnresolved === 1 ? '' : 's'} need manual review`,
         )
       }
-      if (result.publishedCount > 0) {
-        parts.push(`${result.publishedCount.toLocaleString()} already published`)
+      if (firmware.verifiedCount > 0) {
+        parts.push(
+          `${firmware.verifiedCount.toLocaleString()} observed firmware value${firmware.verifiedCount === 1 ? '' : 's'} verified`,
+        )
       }
+      if (firmware.alreadyVerifiedCount > 0) {
+        parts.push(
+          `${firmware.alreadyVerifiedCount.toLocaleString()} firmware value${firmware.alreadyVerifiedCount === 1 ? '' : 's'} already verified`,
+        )
+      }
+      if (firmware.alreadyTrustedCount > 0) {
+        parts.push(
+          `${firmware.alreadyTrustedCount.toLocaleString()} firmware value${firmware.alreadyTrustedCount === 1 ? '' : 's'} already trusted`,
+        )
+      }
+      if (firmware.manualReviewCount > 0) {
+        parts.push(
+          `${firmware.manualReviewCount.toLocaleString()} firmware row${firmware.manualReviewCount === 1 ? '' : 's'} need manual review`,
+        )
+      }
+      if (firmware.notApplicableCount > 0) {
+        parts.push(
+          `${firmware.notApplicableCount.toLocaleString()} row${firmware.notApplicableCount === 1 ? '' : 's'} have no firmware evidence`,
+        )
+      }
+      const alreadyPublished = Math.max(
+        result.publishedCount,
+        firmware.publishedCount,
+      )
+      if (alreadyPublished > 0) {
+        parts.push(`${alreadyPublished.toLocaleString()} already published`)
+      }
+      if (parts.length === 0) parts.push('Selected evidence required no changes')
+
       setVerifyMessage(`${parts.join(' · ')}.`)
       setRefreshKey((key) => key + 1)
     } catch (verifyError) {
       setError(
         verifyError instanceof Error
           ? verifyError.message
-          : 'Unable to verify selected identities.',
+          : 'Unable to verify selected device evidence.',
       )
     } finally {
       setVerifyBusy(false)
@@ -677,7 +724,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
                 <Button
                   variant="primary"
                   disabled={verifyBusy}
-                  onClick={() => void verifySelectedIdentities()}
+                  onClick={() => void verifySelectedEvidence()}
                 >
                   {verifyBusy
                     ? 'Verifying…'
