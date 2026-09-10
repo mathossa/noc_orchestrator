@@ -44,12 +44,6 @@ type WorkspaceDecision = {
   value?: unknown
 }
 
-const DURABLE_IDENTITY_FIELDS = new Set([
-  'sourceId',
-  'serialNumber',
-  'macAddress',
-])
-
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -151,32 +145,33 @@ function latestIdentityDecision(
   return null
 }
 
-function decisionTargetText(decision: WorkspaceDecision) {
-  if (decision.action === 'CLEAR_FIELD') return null
-  if (
-    decision.action !== 'SET_FIELD' &&
-    decision.action !== 'LINK_FIELD' &&
-    decision.action !== 'REMEMBER_EXACT' &&
-    decision.action !== 'CREATE_SCOPED_RULE'
-  ) {
-    return undefined
-  }
-  const value = object(decision.value)
-  return text(value?.label)
-}
+function explicitDecisionStillApplies(input: {
+  decision: ReturnType<typeof latestIdentityDecision>
+  sourceKind: string | null
+  candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
+}) {
+  const decision = input.decision
+  if (!decision) return null
 
-function manualDurableIdentity(decisions: readonly WorkspaceDecision[]) {
-  const values = new Map<string, string | null>()
-  for (const decision of decisions) {
-    if (!decision.field || !DURABLE_IDENTITY_FIELDS.has(decision.field)) continue
-    const value = decisionTargetText(decision)
-    if (value !== undefined) values.set(decision.field, value)
+  if (decision.kind === 'CREATE_NEW') {
+    return input.sourceKind === 'NEW' ? decision : null
   }
-  for (const field of DURABLE_IDENTITY_FIELDS) {
-    const value = values.get(field)
-    if (value) return { field, value }
+
+  if (decision.kind === 'MANUAL_OVERRIDE') {
+    return decision.canonicalDeviceId ? decision : null
   }
-  return null
+
+  if (!decision.canonicalDeviceId) return null
+  const candidateStillExists = input.candidates.some(
+    (candidate) => candidate.canonicalDeviceId === decision.canonicalDeviceId,
+  )
+  if (!candidateStillExists) return null
+
+  if (decision.kind === 'CONFIRM_MATCH' && input.candidates.length !== 1) {
+    return null
+  }
+
+  return decision
 }
 
 function automaticIdentityDecision(input: {
@@ -211,41 +206,33 @@ export function importerV2WorkspaceIdentityReview(input: {
   const source = object(input.identityResolution)
   if (!source) return null
 
-  const decisions = input.decisions ?? []
   const normalizedCandidates = candidates(source)
   const sourceKind = text(source.kind) ?? text(source.status)
-  const suppliedIdentity = manualDurableIdentity(decisions)
-
-  // A stale source record can arrive without source ID, serial or MAC. An
-  // engineer may add one of those durable identifiers in the staged workspace.
-  // That turns INVALID into a new-device proposal, but final publication still
-  // performs the provider-wide uniqueness check before creating a crosswalk.
-  const effectiveKind =
-    sourceKind === 'INVALID' && suppliedIdentity ? 'NEW' : sourceKind
-
-  const explicitDecision = latestIdentityDecision(decisions)
+  const explicitDecision = explicitDecisionStillApplies({
+    decision: latestIdentityDecision(input.decisions ?? []),
+    sourceKind,
+    candidates: normalizedCandidates,
+  })
   const automaticDecision = explicitDecision
     ? null
     : automaticIdentityDecision({
-        sourceKind: effectiveKind,
+        sourceKind,
         candidates: normalizedCandidates,
       })
   const decision = explicitDecision ?? automaticDecision
   const requiresConfirmation =
     decision === null &&
     (source.requiresConfirmation === true ||
-      (typeof effectiveKind === 'string' && effectiveKind.includes('REVIEW')) ||
-      effectiveKind === 'AMBIGUOUS')
+      (typeof sourceKind === 'string' && sourceKind.includes('REVIEW')) ||
+      sourceKind === 'AMBIGUOUS')
 
   return {
-    kind: effectiveKind,
+    kind: sourceKind,
     requiresConfirmation,
     resolved: decision !== null,
     selectedDecision: decision?.kind ?? null,
     selectedCanonicalDeviceId: decision?.canonicalDeviceId ?? null,
-    explanation: suppliedIdentity
-      ? `A durable ${suppliedIdentity.field} was supplied during reconciliation. Final publication will verify that it is unique before creating the device.`
-      : text(source.explanation),
+    explanation: text(source.explanation),
     candidates: normalizedCandidates,
     options: stringList(source.options),
   }
