@@ -38,6 +38,11 @@ export function normalizeImporterV2Header(value: string | null | undefined) {
     .replace(/\s+/g, ' ')
 }
 
+function explicitSourceIdentityHeader(value: string | null | undefined) {
+  const normalized = normalizeImporterV2Header(value)
+  return normalized === 'source id' || normalized === 'source device id' || normalized === 'external id'
+}
+
 const HEADER_LOOKUP = new Map<string, ImporterV2Field>()
 for (const field of IMPORTER_V2_FIELDS) {
   for (const alias of HEADER_ALIASES[field]) HEADER_LOOKUP.set(normalizeImporterV2Header(alias), field)
@@ -109,6 +114,12 @@ export function mappedImporterV2Rows(input: {
       if (fallback) rawValues[field] = fallback
     }
     for (const mapping of input.mappings) {
+      // Old saved profiles may still contain the historical generic ID mapping.
+      // Refuse to materialize that value as device identity unless the source
+      // header itself explicitly says it is a source/external device ID.
+      if (mapping.targetField === 'sourceId' && !explicitSourceIdentityHeader(mapping.sourceHeader)) {
+        continue
+      }
       rawValues[mapping.targetField] = clean(sourceRow.values[mapping.columnIndex])
     }
     if (!Object.values(rawValues).some(Boolean)) continue
