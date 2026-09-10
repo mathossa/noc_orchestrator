@@ -215,16 +215,23 @@ function candidateSignals(
   })
 }
 
-function candidateConfidence(signals: readonly ImporterV2IdentitySignal[]) {
+function candidateConfidence(
+  signals: readonly ImporterV2IdentitySignal[],
+  candidate: ImporterV2IdentityCandidate,
+) {
   const agreed = signals.filter((signal) => signal.status === 'AGREE')
   const disagreed = signals.filter((signal) => signal.status === 'DISAGREE')
 
-  // Provider source IDs are the strongest source-specific durable key. A stale
-  // serial/MAC on the same crosswalk must not force repetitive manual review as
-  // long as those identifiers do not independently resolve to another device.
-  if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
   if (disagreed.length > 0) return 'LOW' as const
+  if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
   if (agreed.length >= 2) return 'HIGH' as const
+
+  // A unique serial/MAC match to a persisted crosswalk is not a fresh guess:
+  // publication previously confirmed that raw source alias for this canonical
+  // device. Reuse it automatically on later imports instead of making the
+  // engineer reconfirm the same source imperfection every time.
+  if (candidate.crosswalkId && agreed.length === 1) return 'HIGH' as const
+
   return 'MEDIUM' as const
 }
 
@@ -268,7 +275,7 @@ export function resolveImporterV2Identity(
       return {
         canonicalDeviceId: candidate.canonicalDeviceId,
         crosswalkId: candidate.crosswalkId ?? null,
-        confidence: candidateConfidence(signals),
+        confidence: candidateConfidence(signals, candidate),
         requiresConfirmation: true as const,
         signals,
         contextDifferences: contextDifferences(source.context, candidate.context),
@@ -337,7 +344,9 @@ export function resolveImporterV2Identity(
     explanation: automaticallyTrusted
       ? hasChangedIdentifiers && uniqueProviderSourceIdAgreement
         ? 'One canonical device is uniquely supported by the provider Source ID. Other source identifiers changed but do not resolve to another canonical device, so the confirmed Source ID match is reused automatically.'
-        : 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
+        : candidate.crosswalkId
+          ? 'One canonical device is supported by a previously confirmed source-identity crosswalk. The same raw serial/MAC alias is reused automatically; final batch publication remains explicit.'
+          : 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
       : 'One canonical device is supported by durable identity evidence, but the evidence is not strong enough for automatic reuse and still requires confirmation.',
   }
 }
