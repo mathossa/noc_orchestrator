@@ -1,5 +1,6 @@
 import type { Prisma } from '../generated/prisma/client'
 import type { ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
+import { importerV2ObservedFirmwareVerificationValue } from '@/lib/importer-v2-firmware-verification-policy'
 import { importerV2WorkspaceIdentityNeedsReview } from '@/lib/importer-v2-workspace-identity-state'
 import type {
   ImporterV2WorkspaceAction,
@@ -22,6 +23,17 @@ type EvaluatedSnapshot = {
   >
   fields?: Record<string, Record<string, unknown>>
   issues?: ImporterV2FieldIssue[]
+  firmware?: {
+    runningVersion?: string | null
+    proposedSoftwarePlatform?: string | null
+    compatibility?: {
+      status?: string
+      ruleId?: string | null
+      allowedPlatforms?: string[]
+      explanation?: string
+    }
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 
@@ -85,6 +97,8 @@ function decisionResolvesIssue(
       return targetFromDecision(decision) !== undefined
         ? true
         : issue.code === 'AMBIGUOUS_DECISION'
+    case 'VERIFY_OBSERVED_FIRMWARE':
+      return issue.field === 'currentFirmware'
     case 'IGNORE_FIELD':
       return (
         issue.code === 'OPTIONAL_FIELD_UNRESOLVED' ||
@@ -128,6 +142,46 @@ export function importerV2WorkspaceIssueState(input: {
     activeWarningCount: activeIssues.filter(
       (issue) => issue.severity === 'WARNING',
     ).length,
+  }
+}
+
+function verifiedObservedFirmwareOverlay(
+  evaluated: EvaluatedSnapshot,
+  decisions: readonly WorkspaceDecision[],
+) {
+  const verification = importerV2ObservedFirmwareVerificationValue(decisions)
+  if (!verification) return evaluated.firmware
+
+  const current = evaluated.firmware ?? {}
+  const compatibility = current.compatibility ?? {}
+  // A bulk verification is never allowed to override an explicit incompatible
+  // interpretation. Keep that state defensive even if malformed decision data
+  // somehow reaches this overlay.
+  if (compatibility.status === 'INCOMPATIBLE') return current
+
+  return {
+    ...current,
+    runningVersion: verification.runningVersion,
+    proposedSoftwarePlatform: verification.softwarePlatform,
+    observedVerification: {
+      status: 'VERIFIED',
+      scope: verification.verificationScope,
+      runningVersion: verification.runningVersion,
+      softwarePlatform: verification.softwarePlatform,
+      originalCompatibilityStatus: verification.originalCompatibilityStatus,
+    },
+    compatibility: {
+      ...compatibility,
+      status: 'COMPATIBLE',
+      ruleId: 'engineer-observed-current-firmware-verification',
+      allowedPlatforms:
+        compatibility.allowedPlatforms?.length
+          ? compatibility.allowedPlatforms
+          : [verification.softwarePlatform],
+      explanation:
+        `Engineer verified “${verification.runningVersion}” on “${verification.softwarePlatform}” as the observed current firmware for this device. ` +
+        'This row-scoped verification permits canonical current-firmware publication only; it does not make the release globally model-compatible, preferred, recommended, desired, or policy-eligible.',
+    },
   }
 }
 
@@ -176,12 +230,33 @@ export function importerV2WorkspaceEffectiveEvaluated(input: {
     }
   }
 
+  const firmwareVerification = importerV2ObservedFirmwareVerificationValue(
+    input.decisions,
+  )
+  if (firmwareVerification) {
+    const currentTarget = proposedCanonicalValues.currentFirmware
+    if (!currentTarget?.label) {
+      proposedCanonicalValues.currentFirmware = {
+        id: null,
+        label: firmwareVerification.runningVersion,
+      }
+    }
+    const platformTarget = proposedCanonicalValues.softwarePlatform
+    if (!platformTarget?.label) {
+      proposedCanonicalValues.softwarePlatform = {
+        id: null,
+        label: firmwareVerification.softwarePlatform,
+      }
+    }
+  }
+
   return {
     evaluated: {
       ...evaluated,
       proposedCanonicalValues,
       fields,
       issues: issueState.activeIssues,
+      firmware: verifiedObservedFirmwareOverlay(evaluated, input.decisions),
     },
     resolvedIssues: issueState.resolvedIssues,
     activeErrorCount: issueState.activeErrorCount,
