@@ -13,7 +13,20 @@ function createPrismaClient() {
   }
 
   const adapter = new PrismaPg({ connectionString: databaseUrl })
-  return new PrismaClient({ adapter })
+  return new PrismaClient({
+    adapter,
+    transactionOptions: {
+      // Importer v2 publication intentionally commits the approved batch as one
+      // atomic interactive transaction. Prisma's 5 second default is too short
+      // even for a normal ~200-device batch once identity, catalog, topology,
+      // firmware, audit and source-snapshot writes are included.
+      //
+      // Keep the transaction bounded, but allow enough time for the atomic
+      // publication path to complete instead of expiring halfway through.
+      maxWait: 15_000,
+      timeout: 120_000,
+    },
+  })
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient()
