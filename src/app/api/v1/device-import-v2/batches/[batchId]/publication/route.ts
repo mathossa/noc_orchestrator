@@ -48,6 +48,21 @@ function parsePublishRequest(value: unknown): PublishRequest {
   return body as unknown as PublishRequest
 }
 
+async function diagnoseIdentityConflict(batchId: string, mode: ImporterV2PublicationMode) {
+  const qa = await getImporterV2PublicationQa(batchId)
+  const candidateRows =
+    mode === 'VALID_ONLY'
+      ? qa.publication.validOnlyCandidateRows
+      : qa.publication.allResolvedCandidateRows
+  const conflicts = await findImporterV2PublicationIdentityConflicts({
+    batchId,
+    rowNumbers: candidateRows,
+  })
+  return conflicts.length > 0
+    ? formatImporterV2IdentityConflictMessage(conflicts)
+    : null
+}
+
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
@@ -67,9 +82,12 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  let batchId: string | null = null
+  let body: PublishRequest | null = null
+
   try {
-    const { batchId } = await context.params
-    const body = parsePublishRequest(await request.json())
+    ;({ batchId } = await context.params)
+    body = parsePublishRequest(await request.json())
 
     // Publication validation is read-only until the atomic publication
     // transaction begins. Manual identity edits are reconciled by the action /
@@ -82,9 +100,9 @@ export async function POST(request: Request, context: RouteContext) {
       )
     }
 
-    // Keep the transaction-level uniqueness assertion as the final safeguard,
-    // but diagnose the same condition before publication so engineers see the
-    // exact staged row, durable identifier and canonical device involved.
+    // Diagnose both staged-vs-canonical and staged-vs-staged durable identity
+    // collisions before starting the transaction. The transaction repeats the
+    // uniqueness assertion as the final race-condition safeguard.
     const candidateRows =
       body.mode === 'VALID_ONLY'
         ? currentQa.publication.validOnlyCandidateRows
@@ -116,6 +134,35 @@ export async function POST(request: Request, context: RouteContext) {
         { status: 400 },
       )
     }
+
+    // Never leave an engineer with the transaction guard's generic identity
+    // sentence. A conflict may arise only after an earlier row in this same
+    // batch created a crosswalk, or due to a concurrent canonical change. Run
+    // the detailed diagnostic again after rollback and return row/device data.
+    if (
+      error instanceof ImporterV2PublicationConflictError &&
+      batchId &&
+      body &&
+      error.message.includes('Durable source identity')
+    ) {
+      try {
+        const diagnostic = await diagnoseIdentityConflict(batchId, body.mode)
+        if (diagnostic) {
+          return NextResponse.json(
+            {
+              error: {
+                code: 'IMPORTER_IDENTITY_CONFLICT',
+                message: diagnostic,
+              },
+            },
+            { status: 400 },
+          )
+        }
+      } catch {
+        // Preserve the original atomic-publication error if diagnostics fail.
+      }
+    }
+
     const message = error instanceof Error ? error.message : 'Unable to publish importer batch.'
     if (error instanceof ImporterV2PublicationConflictError) {
       return NextResponse.json(
