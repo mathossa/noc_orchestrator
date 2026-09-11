@@ -117,19 +117,25 @@ export async function resolveDeviceExceptionSummaries(
 
     const selected = resolution.selected
     const selectedExpiry = selected ? dateIso(selected.expiresAt) : null
-    const selectedExpiryDate = selectedExpiry ? new Date(selectedExpiry) : null
+    const applicableExpiries = resolution.applicable
+      .map((record) => dateIso(record.expiresAt))
+      .filter((value): value is string => Boolean(value))
+      .sort()
+    const nearestApplicableExpiry = applicableExpiries[0] ?? null
+    const reviewDueAt = selectedExpiry ?? nearestApplicableExpiry
+    const reviewDueDate = reviewDueAt ? new Date(reviewDueAt) : null
     const policyChanged = resolution.records.some(
       (record) => record.status === 'POLICY_CHANGED' && record.subjectMatches,
     )
     const expired = resolution.records.some(
       (record) => record.status === 'EXPIRED' && record.subjectMatches,
     )
-    const selectedReviewDue = Boolean(
-      selectedExpiryDate && selectedExpiryDate <= reviewThreshold,
+    const activeReviewDue = Boolean(
+      reviewDueDate && reviewDueDate <= reviewThreshold,
     )
 
-    const state: DeviceExceptionSummaryState = selected
-      ? selectedReviewDue
+    const state: DeviceExceptionSummaryState = resolution.applicable.length > 0
+      ? activeReviewDue
         ? 'REVIEW_DUE'
         : 'ACTIVE'
       : policyChanged
@@ -155,9 +161,9 @@ export async function resolveDeviceExceptionSummaries(
       activeCount: resolution.applicable.length,
       inheritedCount: selected
         ? Math.max(0, resolution.applicable.length - 1)
-        : 0,
+        : resolution.applicable.length,
       historyCount: resolution.records.length,
-      reviewDueAt: selectedExpiry,
+      reviewDueAt,
     })
   }
 
