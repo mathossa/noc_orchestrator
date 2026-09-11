@@ -9,6 +9,7 @@ import {
   previewFirmwareException,
   supersedeFirmwareException,
 } from '@/lib/firmware-exception-store'
+
 function errorResponse(error: unknown) {
   if (error instanceof FirmwareExceptionError)
     return NextResponse.json(
@@ -41,14 +42,9 @@ function errorResponse(error: unknown) {
     { status: 500 },
   )
 }
+
 export async function GET(request: Request) {
   try {
-    const session = await auth.api.getSession({ headers: request.headers })
-    if (!session)
-      return NextResponse.json(
-        { error: { message: 'Sign in to view exceptions.' } },
-        { status: 401 },
-      )
     const url = new URL(request.url)
     return NextResponse.json({
       data:
@@ -62,35 +58,41 @@ export async function GET(request: Request) {
     return errorResponse(error)
   }
 }
+
 export async function POST(request: Request) {
   try {
     const session = await auth.api.getSession({ headers: request.headers })
-    if (!session)
-      return NextResponse.json(
-        { error: { message: 'Sign in to manage exceptions.' } },
-        { status: 401 },
-      )
+    const actorUserId = session?.user.id ?? null
     const body = await request.json()
+
     if (body.action === 'preview')
       return NextResponse.json({
         data: await previewFirmwareException(body.input),
       })
+
     if (body.action === 'create')
       return NextResponse.json(
         {
           data: await createFirmwareException(
             body.input,
-            session.user.id,
+            actorUserId as string,
             body.token,
           ),
         },
         { status: 201 },
       )
+
     if (body.action === 'supersede' && typeof body.id === 'string')
       return NextResponse.json({
-        data: await supersedeFirmwareException(body.id, session.user.id),
+        data: await supersedeFirmwareException(body.id, actorUserId as string),
       })
+
     if (body.action === 'reason') {
+      if (!session)
+        return NextResponse.json(
+          { error: { message: 'Sign in as an administrator to add reason codes.' } },
+          { status: 401 },
+        )
       if (session.user.role !== 'admin')
         return NextResponse.json(
           { error: { message: 'An administrator can add reason codes.' } },
@@ -101,6 +103,7 @@ export async function POST(request: Request) {
         { status: 201 },
       )
     }
+
     throw new FirmwareExceptionError('Choose a valid action.')
   } catch (error) {
     return errorResponse(error)
