@@ -49,6 +49,14 @@ function dateIso(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
+export async function listDeviceExceptionReasonReferences() {
+  return prisma.firmwareExceptionReason.findMany({
+    where: { isActive: true },
+    select: { code: true, label: true },
+    orderBy: { label: 'asc' },
+  })
+}
+
 export async function resolveDeviceExceptionSummaries(
   devices: SummaryDevice[],
   technicalByDevice: Map<string, FirmwareComplianceResult>,
