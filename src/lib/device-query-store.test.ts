@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   compliance: vi.fn(),
+  exceptions: vi.fn(),
+  exceptionReasons: vi.fn(),
   listDevices: vi.fn(),
   listDeviceReferences: vi.fn(),
   policyFindMany: vi.fn(),
@@ -14,6 +16,11 @@ vi.mock('@/lib/device-store', () => ({
 }))
 
 vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
+
+vi.mock('@/lib/device-exception-summary-store', () => ({
+  resolveDeviceExceptionSummaries: mocks.exceptions,
+  listDeviceExceptionReasonReferences: mocks.exceptionReasons,
+}))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { firmwarePolicy: { findMany: mocks.policyFindMany } },
@@ -37,7 +44,9 @@ function record(overrides: Record<string, unknown> = {}) {
     id: 'device-1', customerId: 'customer-1', siteId: 'site-1', deviceModelId: 'model-1', name: 'HQ-SW-01',
     hostname: 'hq-sw-01', serialNumber: null, managementAddress: '10.0.0.1', notes: null,
     currentFirmwareReleaseId: 'fw-old', currentFirmwareObservedAt: null, currentFirmwareAgeDays: null,
-    currentFirmwareSource: 'API', isActive: true, source: 'API', externalProvider: null, externalId: null,
+    currentFirmwareSource: 'API', currentFirmwareRawVersion: null, currentFirmwareNormalizedVersion: null,
+    currentFirmwareInterpreterId: null, currentFirmwareInterpreterVersion: null,
+    isActive: true, source: 'API', externalProvider: null, externalId: null,
     lastSynchronizedAt: null, customer, site, effectiveContractType: contractSite, contractSource: 'SITE',
     deviceModel: model, currentFirmwareRelease: oldRelease,
     lifecycle: { id: 'life-1', state: 'IGNORED', reason: 'Deferred internally', notes: null, plannedFor: null, reviewAt: null, decidedAt: '2026-09-01T00:00:00Z', completedAt: null, decidedBy: null, targetFirmwareRelease: { id: 'fw-new', version: '17.15.5', platform: 'IOS XE' } },
@@ -52,10 +61,26 @@ const references = {
   firmwareReleases: [oldRelease, desiredRelease],
 }
 
+function noException() {
+  return {
+    state: 'NONE',
+    effective: null,
+    activeCount: 0,
+    inheritedCount: 0,
+    historyCount: 0,
+    reviewDueAt: null,
+  }
+}
+
 describe('device cross-dimensional query service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
+    mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map(devices.map((device) => [device.id, noException()])))
+    mocks.exceptionReasons.mockResolvedValue([
+      { code: 'CUSTOMER_DECLINED', label: 'Customer declined' },
+      { code: 'NO_OPERATIONAL_BENEFIT', label: 'No operational benefit' },
+    ])
     mocks.listDeviceReferences.mockResolvedValue(references)
     mocks.policyFindMany.mockResolvedValue([{ deviceModelId: 'model-1', targetFirmwareRelease: desiredRelease }])
   })
@@ -77,12 +102,50 @@ describe('device cross-dimensional query service', () => {
     expect(result.data[0]).toMatchObject({
       desiredFirmwareRelease: { id: 'fw-new', version: '17.15.5' },
       technicalState: 'ACTION_REQUIRED',
+      exceptionSummary: { state: 'NONE', effective: null },
       effectiveContractType: { id: 'contract-site' },
       contractSource: 'SITE',
     })
+    expect(result.meta.exceptionReasons).toEqual([
+      { code: 'CUSTOMER_DECLINED', label: 'Customer declined' },
+      { code: 'NO_OPERATIONAL_BENEFIT', label: 'No operational benefit' },
+    ])
     expect(result.meta.pagination).toMatchObject({ total: 1, inventoryTotal: 2 })
     expect(mocks.compliance).toHaveBeenCalledWith(['device-1', 'device-2'])
     expect(mocks.policyFindMany).not.toHaveBeenCalled()
+  })
+
+  it('filters by effective operational exception reason, scope and state without changing technical state', async () => {
+    mocks.listDevices.mockResolvedValue([
+      record(),
+      record({ id: 'device-2', name: 'HQ-SW-02' }),
+    ])
+    mocks.exceptions.mockResolvedValue(new Map([
+      ['device-1', {
+        state: 'ACTIVE',
+        effective: {
+          id: 'exception-1', reasonCode: 'CUSTOMER_DECLINED', reasonLabel: 'Customer declined',
+          scope: 'CUSTOMER', scopeLabel: 'Acme', duration: 'NEXT_REVIEW', expiresAt: '2026-12-11T00:00:00.000Z',
+        },
+        activeCount: 2, inheritedCount: 1, historyCount: 2, reviewDueAt: '2026-12-11T00:00:00.000Z',
+      }],
+      ['device-2', noException()],
+    ]))
+
+    const result = await queryDevices(parseDeviceQuery(new URLSearchParams({
+      exceptionState: 'ACTIVE', exceptionReason: 'CUSTOMER_DECLINED', exceptionScope: 'CUSTOMER',
+    })))
+
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]).toMatchObject({
+      id: 'device-1',
+      technicalState: 'ACTION_REQUIRED',
+      exceptionSummary: {
+        state: 'ACTIVE',
+        inheritedCount: 1,
+        effective: { reasonLabel: 'Customer declined', scope: 'CUSTOMER', scopeLabel: 'Acme' },
+      },
+    })
   })
 
   it('uses customer contract fallback only when the site has no override', async () => {
@@ -131,6 +194,8 @@ describe('device cross-dimensional query service', () => {
 
 it('filters and groups by unit while keeping site-less devices separate from ungrouped sites', async () => {
   mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
+  mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map(devices.map((device) => [device.id, noException()])))
+  mocks.exceptionReasons.mockResolvedValue([])
   mocks.listDeviceReferences.mockResolvedValue(references)
   mocks.policyFindMany.mockResolvedValue([])
   const unit = { id: 'east', customerId: customer.id, parentId: null, name: 'East', isActive: true }
