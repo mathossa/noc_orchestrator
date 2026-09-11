@@ -44,8 +44,8 @@ WITH observed_candidates AS (
 )
 UPDATE "Device" d
 SET
-  "currentFirmwareReleaseId" = match.release_id,
+  "currentFirmwareReleaseId" = resolved.release_id,
   "updatedAt" = CURRENT_TIMESTAMP
-FROM unique_matches match
-WHERE d.id = match.device_id
+FROM unique_matches resolved
+WHERE d.id = resolved.device_id
   AND d."currentFirmwareReleaseId" IS NULL;
