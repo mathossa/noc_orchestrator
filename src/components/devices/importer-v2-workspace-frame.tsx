@@ -145,7 +145,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
         ) : null}
       </section>
 
-      <ImporterV2WorkspaceShell key={workspaceRevision} batchId={batchId} />
+      <ImporterV2WorkspaceShell revision={workspaceRevision} batchId={batchId} />
 
       {publicationOpen ? (
         <div
