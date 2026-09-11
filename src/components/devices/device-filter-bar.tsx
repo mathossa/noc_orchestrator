@@ -6,8 +6,8 @@ import type { DeviceQueryMeta } from '@/lib/device-query'
 
 type ParamName =
   | 'organizationUnit' | 'q' | 'customer' | 'site' | 'vendor' | 'model' | 'deviceType' | 'contract'
-  | 'currentFirmware' | 'desiredFirmware' | 'technicalState' | 'workflow' | 'source'
-  | 'archive' | 'groupBy' | 'sort' | 'direction' | 'pageSize' | 'page'
+  | 'currentFirmware' | 'desiredFirmware' | 'technicalState' | 'exceptionState' | 'exceptionReason' | 'exceptionScope'
+  | 'workflow' | 'source' | 'archive' | 'groupBy' | 'sort' | 'direction' | 'pageSize' | 'page'
 
 export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
   const router = useRouter()
@@ -27,6 +27,9 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
     currentFirmware: urlValue('currentFirmware'),
     desiredFirmware: urlValue('desiredFirmware'),
     technicalState: urlValue('technicalState', query.technicalState).toUpperCase(),
+    exceptionState: urlValue('exceptionState', query.exceptionState).toUpperCase(),
+    exceptionReason: urlValue('exceptionReason', query.exceptionReason).toUpperCase(),
+    exceptionScope: urlValue('exceptionScope', query.exceptionScope).toUpperCase(),
     workflow: urlValue('workflow', query.workflow).toUpperCase(),
     source: urlValue('source', query.source).toUpperCase(),
     archive: urlValue('archive', 'active'),
@@ -82,7 +85,10 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
   addChip('currentFirmware', 'Current', ui.currentFirmware === 'none' ? 'Unknown' : (meta.firmwareReleases.find((item) => item.id === ui.currentFirmware)?.version ?? ui.currentFirmware))
   addChip('desiredFirmware', 'Desired', ui.desiredFirmware === 'none' ? 'No policy' : (meta.firmwareReleases.find((item) => item.id === ui.desiredFirmware)?.version ?? ui.desiredFirmware))
   addChip('technicalState', 'Technical', ui.technicalState.replaceAll('_', ' '))
-  addChip('workflow', 'Workflow', ui.workflow.replaceAll('_', ' '))
+  addChip('exceptionState', 'Operational', ui.exceptionState.replaceAll('_', ' '))
+  addChip('exceptionReason', 'Exception reason', meta.exceptionReasons.find((item) => item.code === ui.exceptionReason)?.label ?? ui.exceptionReason)
+  addChip('exceptionScope', 'Exception scope', ui.exceptionScope.replaceAll('_', ' '))
+  addChip('workflow', 'Planning', ui.workflow.replaceAll('_', ' '))
   addChip('source', 'Source', ui.source)
   if (ui.archive !== 'active') addChip('archive', 'Records', ui.archive)
   if (ui.groupBy !== 'none') addChip('groupBy', 'Group', ui.groupBy)
@@ -99,7 +105,7 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
         <SelectInput aria-label="Group devices" value={ui.groupBy} onChange={(event) => setParam('groupBy', event.target.value)}><option value="none">No grouping</option><option value="customer">Group by customer</option><option value="site">Group by site</option><option value="organizationUnit">Group by business unit</option><option value="deviceType">Group by device type</option><option value="model">Group by model</option></SelectInput>
       </div>
 
-      <details className="border-t border-[var(--border)] px-4 py-3" open={Boolean(ui.deviceType || ui.contract || ui.currentFirmware || ui.desiredFirmware || ui.technicalState || ui.workflow || ui.source || ui.archive !== 'active')}>
+      <details className="border-t border-[var(--border)] px-4 py-3" open={Boolean(ui.deviceType || ui.contract || ui.currentFirmware || ui.desiredFirmware || ui.technicalState || ui.exceptionState || ui.exceptionReason || ui.exceptionScope || ui.workflow || ui.source || ui.archive !== 'active')}>
         <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">More filters and sorting</summary>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <SelectInput aria-label="Filter devices by device type" value={ui.deviceType} onChange={(event) => setParam('deviceType', event.target.value)}><option value="">All device types</option>{meta.deviceTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectInput>
@@ -107,10 +113,13 @@ export function DeviceFilterBar({ meta }: { meta: DeviceQueryMeta }) {
           <SelectInput aria-label="Filter devices by current firmware" value={ui.currentFirmware} onChange={(event) => setParam('currentFirmware', event.target.value)}><option value="">All current firmware</option><option value="none">Unknown current firmware</option>{meta.firmwareReleases.map((item) => <option key={item.id} value={item.id}>{vendorById.get(item.vendorId) ?? item.platform} · {item.version}</option>)}</SelectInput>
           <SelectInput aria-label="Filter devices by desired firmware" value={ui.desiredFirmware} onChange={(event) => setParam('desiredFirmware', event.target.value)}><option value="">All desired firmware</option><option value="none">No resolved preferred target</option>{meta.firmwareReleases.map((item) => <option key={item.id} value={item.id}>{vendorById.get(item.vendorId) ?? item.platform} · {item.version}</option>)}</SelectInput>
           <SelectInput aria-label="Filter devices by technical state" value={ui.technicalState} onChange={(event) => setParam('technicalState', event.target.value)}><option value="">All technical states</option><option value="CURRENT">No action recommended</option><option value="ACTION_REQUIRED">Action required</option><option value="UNKNOWN">Unknown</option><option value="NO_POLICY">No policy</option></SelectInput>
-          <SelectInput aria-label="Filter devices by workflow state" value={ui.workflow} onChange={(event) => setParam('workflow', event.target.value)}><option value="">All workflow states</option><option value="PLANNED">Planned</option><option value="DONE">Done</option><option value="UNDECIDED">No decision</option></SelectInput>
+          <SelectInput aria-label="Filter devices by operational exception state" value={ui.exceptionState} onChange={(event) => setParam('exceptionState', event.target.value)}><option value="">All operational decisions</option><option value="ACTIVE">Effective exception</option><option value="REVIEW_DUE">Review due / policy changed</option><option value="EXPIRED">Expired exception</option><option value="NONE">No effective exception</option></SelectInput>
+          <SelectInput aria-label="Filter devices by exception reason" value={ui.exceptionReason} onChange={(event) => setParam('exceptionReason', event.target.value)}><option value="">All exception reasons</option>{meta.exceptionReasons.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</SelectInput>
+          <SelectInput aria-label="Filter devices by exception scope" value={ui.exceptionScope} onChange={(event) => setParam('exceptionScope', event.target.value)}><option value="">All exception scopes</option><option value="DEVICE">Device</option><option value="SITE">Site</option><option value="CUSTOMER">Customer</option><option value="MODEL">Model</option><option value="FAMILY">Family</option></SelectInput>
+          <SelectInput aria-label="Filter devices by planning state" value={ui.workflow} onChange={(event) => setParam('workflow', event.target.value)}><option value="">All planning states</option><option value="PLANNED">Planned</option><option value="DONE">Done</option><option value="UNDECIDED">No plan</option></SelectInput>
           <SelectInput aria-label="Filter devices by source" value={ui.source} onChange={(event) => setParam('source', event.target.value)}><option value="">All sources</option><option value="MANUAL">Manual</option><option value="API">API</option><option value="IMPORT">Import</option></SelectInput>
           <SelectInput aria-label="Filter devices by archive state" value={ui.archive} onChange={(event) => setParam('archive', event.target.value === 'active' ? '' : event.target.value)}><option value="active">Active records</option><option value="archived">Archived records</option><option value="all">Active + archived</option></SelectInput>
-          <SelectInput aria-label="Sort devices" value={ui.sort} onChange={(event) => setParam('sort', event.target.value === 'customer' ? '' : event.target.value)}><option value="customer">Sort: customer</option><option value="site">Sort: site</option><option value="vendor">Sort: vendor</option><option value="model">Sort: model</option><option value="deviceType">Sort: device type</option><option value="name">Sort: device name</option><option value="currentFirmware">Sort: current firmware text</option><option value="desiredFirmware">Sort: desired firmware text</option><option value="technicalState">Sort: technical state</option><option value="workflow">Sort: workflow</option><option value="source">Sort: source</option></SelectInput>
+          <SelectInput aria-label="Sort devices" value={ui.sort} onChange={(event) => setParam('sort', event.target.value === 'customer' ? '' : event.target.value)}><option value="customer">Sort: customer</option><option value="site">Sort: site</option><option value="vendor">Sort: vendor</option><option value="model">Sort: model</option><option value="deviceType">Sort: device type</option><option value="name">Sort: device name</option><option value="currentFirmware">Sort: current firmware text</option><option value="desiredFirmware">Sort: desired firmware text</option><option value="technicalState">Sort: technical state</option><option value="operationalDecision">Sort: operational decision</option><option value="workflow">Sort: planning</option><option value="source">Sort: source</option></SelectInput>
           <SelectInput aria-label="Sort direction" value={ui.direction} onChange={(event) => setParam('direction', event.target.value === 'asc' ? '' : event.target.value)}><option value="asc">Ascending</option><option value="desc">Descending</option></SelectInput>
           <SelectInput aria-label="Page size" value={ui.pageSize} onChange={(event) => setParam('pageSize', event.target.value === '50' ? '' : event.target.value)}><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></SelectInput>
         </div>
