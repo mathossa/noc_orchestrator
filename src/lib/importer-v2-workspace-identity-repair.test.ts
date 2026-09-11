@@ -102,11 +102,12 @@ describe('Importer v2 manual identity repair', () => {
       data: {
         identityResolution: expect.objectContaining({
           kind: 'MATCH_SUGGESTED',
-          requiresConfirmation: true,
+          requiresConfirmation: false,
           candidates: [
             expect.objectContaining({
               canonicalDeviceId: 'device-existing',
-              confidence: 'MEDIUM',
+              crosswalkId: 'crosswalk-1',
+              confidence: 'HIGH',
             }),
           ],
         }),
