@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
   evaluateFirmwareCompatibility,
@@ -55,9 +56,10 @@ const logicalKey = (release: ComplianceRelease) =>
 export async function resolveFirmwareComplianceBatch(
   deviceIds: string[],
   at: Date = new Date(),
+  db: Prisma.TransactionClient = prisma,
 ): Promise<Map<string, FirmwareComplianceResult>> {
   if (deviceIds.length === 0) return new Map()
-  const devices = await prisma.device.findMany({
+  const devices = await db.device.findMany({
     where: { id: { in: [...new Set(deviceIds)] } },
     select: {
       id: true,
@@ -87,7 +89,7 @@ export async function resolveFirmwareComplianceBatch(
   ]
   const vendorIds = [...new Set(devices.map((d) => d.deviceModel.vendorId))]
   const [policyRows, releases, ruleRows, overrideRows] = await Promise.all([
-    prisma.firmwarePolicy.findMany({
+    db.firmwarePolicy.findMany({
       where: {
         isActive: true,
         OR: [
@@ -105,7 +107,7 @@ export async function resolveFirmwareComplianceBatch(
         ],
       },
     }),
-    prisma.firmwareRelease.findMany({
+    db.firmwareRelease.findMany({
       where: {
         OR: [
           { vendorId: { in: vendorIds } },
@@ -120,7 +122,7 @@ export async function resolveFirmwareComplianceBatch(
       },
       select: releaseSelect,
     }),
-    prisma.firmwareCompatibilityRule.findMany({
+    db.firmwareCompatibilityRule.findMany({
       where: {
         isActive: true,
         OR: [
@@ -129,7 +131,7 @@ export async function resolveFirmwareComplianceBatch(
         ],
       },
     }),
-    prisma.firmwareCompatibilityOverride.findMany({
+    db.firmwareCompatibilityOverride.findMany({
       where: { isActive: true, deviceModelId: { in: modelIds } },
     }),
   ])

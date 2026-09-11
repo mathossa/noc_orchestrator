@@ -1,6 +1,7 @@
 'use client'
 
 import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
+import { DeviceOperationalDecision } from '@/components/devices/device-operational-decision'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
@@ -311,9 +312,10 @@ export function DeviceManager({
       <PageHeader
         eyebrow="Recorded inventory"
         title="Devices"
-        description="Filter and group recorded inventory across customer, site, vendor, model, type, effective contract, firmware state, workflow, and provenance."
+        description="Filter and group recorded inventory across technical firmware state, accepted operational exceptions, planning, contract, and provenance."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/firmware/exceptions" className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
             <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>
             <Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button>
           </div>
@@ -442,7 +444,7 @@ export function DeviceManager({
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold">Device inventory</h2>
-          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Browse, filter and group recorded devices. Manual entry is kept separate above so the inventory remains the primary workspace.</p>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Technical firmware truth, accepted exceptions, and planning stay visible as separate columns so actionable work is not confused with an approved deviation.</p>
         </div>
         {meta ? <DeviceFilterBar meta={meta} /> : null}
 
@@ -454,21 +456,21 @@ export function DeviceManager({
         ) : null}
 
         {loading ? (
-          <LoadingState title="Loading devices" description="Applying backend inventory filters and firmware state resolution…" />
+          <LoadingState title="Loading devices" description="Applying backend inventory filters, firmware state resolution, and exception precedence…" />
         ) : meta?.pagination.inventoryTotal === 0 ? (
           <EmptyState title="No devices yet" description="Add a manual device to start the inventory." />
         ) : records.length === 0 ? (
           <EmptyState title="No devices match" description="The inventory contains devices, but none match the current URL-backed filters." />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1540px] text-left text-sm">
+            <table className="w-full min-w-[1760px] text-left text-sm">
               <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
-                <tr><th className="px-4 py-3">Device</th><th className="px-4 py-3">Customer / site</th><th className="px-4 py-3">Model / type</th><th className="px-4 py-3">Current</th><th className="px-4 py-3">Desired</th><th className="px-4 py-3">Technical</th><th className="px-4 py-3">Workflow</th><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Source</th><th className="px-4 py-3 text-right">Actions</th></tr>
+                <tr><th className="px-4 py-3">Device</th><th className="px-4 py-3">Customer / site</th><th className="px-4 py-3">Model / type</th><th className="px-4 py-3">Current</th><th className="px-4 py-3">Desired</th><th className="px-4 py-3">Technical</th><th className="px-4 py-3">Operational decision</th><th className="px-4 py-3">Planning</th><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Source</th><th className="px-4 py-3 text-right">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {pageGroups.map((group) => (
                   <Fragment key={group.key}>
-                    {group.label ? <tr className="bg-[var(--surface-raised)]"><td colSpan={10} className="px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">{group.label} · {meta?.groups.find((item) => item.key === group.key)?.count ?? group.records.length} matching</td></tr> : null}
+                    {group.label ? <tr className="bg-[var(--surface-raised)]"><td colSpan={11} className="px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">{group.label} · {meta?.groups.find((item) => item.key === group.key)?.count ?? group.records.length} matching</td></tr> : null}
                     {group.records.map((record) => (
                       <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
                         <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
@@ -477,7 +479,8 @@ export function DeviceManager({
                         <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : observedCurrentFirmwareVersion(record) ? <><span className="font-mono font-semibold text-[var(--foreground)]">{observedCurrentFirmwareVersion(record)}</span><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'} · catalog link unresolved</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
                         <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
                         <td className="px-4 py-3"><FirmwareComplianceStatus result={record.firmwareCompliance} /></td>
-                        <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No decision</span>}</td>
+                        <td className="px-4 py-3"><DeviceOperationalDecision deviceId={record.id} summary={record.exceptionSummary} /></td>
+                        <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No plan</span>}</td>
                         <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                         <td className="px-4 py-3 text-xs">{record.source}<div className="mt-1 text-[var(--muted)]">{record.isActive ? 'Active' : 'Archived'}</div></td>
                         <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>

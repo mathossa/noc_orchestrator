@@ -1,5 +1,6 @@
 'use client'
 
+import { DeviceExceptions } from '@/components/firmware/device-exceptions'
 import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -169,6 +170,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The effective preferred release is archived in the catalog and requires policy review.</div> : null}
           </section>
 
+          <DeviceExceptions deviceId={deviceId} />
           <section id="lifecycle-decision" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -198,8 +200,6 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
                 Workflow state
                 <select value={workflowState} onChange={(event) => { setWorkflowState(event.target.value as FirmwareWorkflowState); setLifecycleError(null); setLifecycleMessage(null) }} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]">
                   <option value="PLANNED">Planned</option>
-                  <option value="IGNORED">Ignored</option>
-                  <option value="CUSTOMER_DECLINED">Customer declined</option>
                   <option value="DONE">Done</option>
                 </select>
               </label>

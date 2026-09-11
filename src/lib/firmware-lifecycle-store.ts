@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { getActiveModelDesiredPolicy } from '@/lib/firmware-policy-store'
-import { parseFirmwareLifecycleInput, type FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
+import { parseFirmwareLifecycleInput, FirmwareLifecycleValidationError, type FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
 
 export class FirmwareLifecycleNotFoundError extends Error {
   constructor(message: string) {
@@ -95,6 +95,9 @@ export async function setFirmwareLifecycleDecision(
   actorUserId: string | null = null,
 ) {
   const input = parseFirmwareLifecycleInput(rawInput)
+  if (input.state === 'IGNORED' || input.state === 'CUSTOMER_DECLINED') {
+    throw new FirmwareLifecycleValidationError('Use Firmware → Exceptions for declines and deviations.', { state: 'Choose Planned or Done here; record declines in Exceptions.' })
+  }
   const device = await prisma.device.findUnique({
     where: { id: deviceId },
     select: { id: true, deviceModelId: true, customerId: true },

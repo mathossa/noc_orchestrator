@@ -1,4 +1,9 @@
 import { resolveFirmwareComplianceBatch } from '@/lib/firmware-compliance-store'
+import {
+  listDeviceExceptionReasonReferences,
+  resolveDeviceExceptionSummaries,
+  type DeviceExceptionSummary,
+} from '@/lib/device-exception-summary-store'
 import { listDeviceReferences, listDevices } from '@/lib/device-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import type {
@@ -10,6 +15,15 @@ import type {
   DeviceQueryReferenceData,
   DeviceSortField,
 } from '@/lib/device-query'
+
+const NO_EXCEPTION: DeviceExceptionSummary = {
+  state: 'NONE',
+  effective: null,
+  activeCount: 0,
+  inheritedCount: 0,
+  historyCount: 0,
+  reviewDueAt: null,
+}
 
 function normalize(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
@@ -28,14 +42,17 @@ function observedFirmwareVersion(record: DeviceQueryRecord) {
   )
 }
 
-function buildQueryReferences(references: Awaited<ReturnType<typeof listDeviceReferences>>): DeviceQueryReferenceData {
+function buildQueryReferences(
+  references: Awaited<ReturnType<typeof listDeviceReferences>>,
+  exceptionReasons: Awaited<ReturnType<typeof listDeviceExceptionReasonReferences>>,
+): DeviceQueryReferenceData {
   const vendors = uniqueReferences(references.models.map((model) => model.vendor)).sort((a, b) => a.name.localeCompare(b.name))
   const deviceTypes = uniqueReferences(references.models.map((model) => model.deviceType)).sort((a, b) => a.name.localeCompare(b.name))
   const contractTypes = uniqueReferences([
     ...references.customers.flatMap((customer) => customer.contractType ? [customer.contractType] : []),
     ...references.sites.flatMap((site) => site.contractType ? [site.contractType] : []),
   ]).sort((a, b) => a.name.localeCompare(b.name))
-  return { ...references, vendors, deviceTypes, contractTypes }
+  return { ...references, vendors, deviceTypes, contractTypes, exceptionReasons }
 }
 
 function matchesSearch(record: DeviceQueryRecord, q: string) {
@@ -57,6 +74,11 @@ function matchesSearch(record: DeviceQueryRecord, q: string) {
     record.desiredFirmwareRelease?.version ?? '',
     record.effectiveContractType?.name ?? '',
     record.technicalState,
+    record.exceptionSummary.state,
+    record.exceptionSummary.effective?.reasonCode ?? '',
+    record.exceptionSummary.effective?.reasonLabel ?? '',
+    record.exceptionSummary.effective?.scope ?? '',
+    record.exceptionSummary.effective?.scopeLabel ?? '',
     record.lifecycle?.state ?? 'UNDECIDED',
     record.source,
   ].join(' ')).includes(needle)
@@ -80,6 +102,9 @@ function matchesQuery(record: DeviceQueryRecord, query: DeviceQuery) {
   if (query.desiredFirmware === 'none' && record.desiredFirmwareRelease !== null) return false
   if (query.desiredFirmware && query.desiredFirmware !== 'none' && record.desiredFirmwareRelease?.id !== query.desiredFirmware) return false
   if (query.technicalState && record.technicalState !== query.technicalState) return false
+  if (query.exceptionState && record.exceptionSummary.state !== query.exceptionState) return false
+  if (query.exceptionReason && record.exceptionSummary.effective?.reasonCode !== query.exceptionReason) return false
+  if (query.exceptionScope && record.exceptionSummary.effective?.scope !== query.exceptionScope) return false
   if (query.workflow === 'UNDECIDED' && record.lifecycle !== null) return false
   if (query.workflow && query.workflow !== 'UNDECIDED' && record.lifecycle?.state !== query.workflow) return false
   if (query.source && record.source !== query.source) return false
@@ -114,6 +139,7 @@ function sortValue(record: DeviceQueryRecord, field: DeviceSortField) {
     case 'currentFirmware': return observedFirmwareVersion(record)
     case 'desiredFirmware': return record.desiredFirmwareRelease?.version ?? ''
     case 'technicalState': return record.technicalState
+    case 'operationalDecision': return record.exceptionSummary.effective?.reasonLabel ?? record.exceptionSummary.state
     case 'workflow': return record.lifecycle?.state ?? 'UNDECIDED'
     case 'source': return record.source
   }
@@ -158,20 +184,35 @@ function aggregateGroups(records: DeviceQueryRecord[], groupBy: DeviceGroupBy): 
 }
 
 export async function queryDevices(query: DeviceQuery): Promise<DeviceQueryPayload> {
-  const [records, baseReferences] = await Promise.all([listDevices(), listDeviceReferences()])
+  const [records, baseReferences, exceptionReasons] = await Promise.all([
+    listDevices(),
+    listDeviceReferences(),
+    listDeviceExceptionReasonReferences(),
+  ])
   const complianceByDevice = await resolveFirmwareComplianceBatch(records.map((record) => record.id))
-  const references = buildQueryReferences(baseReferences)
+  const exceptionByDevice = await resolveDeviceExceptionSummaries(
+    records.map((record) => ({
+      id: record.id,
+      customerId: record.customerId,
+      siteId: record.siteId,
+      deviceModelId: record.deviceModelId,
+    })),
+    complianceByDevice,
+  )
+  const references = buildQueryReferences(baseReferences, exceptionReasons)
 
   const enriched: DeviceQueryRecord[] = records.map((record) => {
     const firmwareCompliance = complianceByDevice.get(record.id)!
     const desiredFirmwareRelease = firmwareCompliance.preferredTarget
     const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
-    const group = groupFor({ ...record, firmwareCompliance, desiredFirmwareRelease, technicalState, groupKey: null, groupLabel: null }, query.groupBy)
+    const exceptionSummary = exceptionByDevice.get(record.id) ?? NO_EXCEPTION
+    const group = groupFor({ ...record, firmwareCompliance, desiredFirmwareRelease, technicalState, exceptionSummary, groupKey: null, groupLabel: null }, query.groupBy)
     return {
       ...record,
       firmwareCompliance,
       desiredFirmwareRelease,
       technicalState,
+      exceptionSummary,
       groupKey: group?.key ?? null,
       groupLabel: group?.label ?? null,
     }

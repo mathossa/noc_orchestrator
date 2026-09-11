@@ -200,43 +200,10 @@ describe('firmware lifecycle persistence', () => {
     )
   })
 
-  it('keeps customer decline distinct and audits its reason/review context', async () => {
-    mocks.lifecycleFindUnique.mockResolvedValue(currentLifecycle())
-    mocks.lifecycleUpsert.mockResolvedValue(
-      storedLifecycle({
-        state: 'CUSTOMER_DECLINED',
-        reason: 'Customer did not approve outage.',
-        reviewAt: new Date('2026-12-01T10:00:00Z'),
-      }),
-    )
-
-    const result = await setFirmwareLifecycleDecision('device-1', {
-      state: 'CUSTOMER_DECLINED',
-      reason: 'Customer did not approve outage.',
-      reviewAt: '2026-12-01T10:00:00Z',
-    })
-
-    expect(result.state).toBe('CUSTOMER_DECLINED')
-    expect(mocks.lifecycleUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({
-          state: 'CUSTOMER_DECLINED',
-          reason: 'Customer did not approve outage.',
-        }),
-      }),
-    )
-    expect(mocks.auditCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          action: 'FIRMWARE_LIFECYCLE_CUSTOMER_DECLINED',
-          before: expect.objectContaining({ state: 'PLANNED' }),
-          after: expect.objectContaining({
-            state: 'CUSTOMER_DECLINED',
-            reason: 'Customer did not approve outage.',
-          }),
-        }),
-      }),
-    )
+  it.each(['IGNORED', 'CUSTOMER_DECLINED'])('routes new %s decisions to scoped exceptions without writes', async (state) => {
+    await expect(setFirmwareLifecycleDecision('device-1', {state, reason: 'Compatibility'}, 'actor-1')).rejects.toThrow('Exceptions')
+    expect(mocks.lifecycleUpsert).not.toHaveBeenCalled()
+    expect(mocks.auditCreate).not.toHaveBeenCalled()
   })
 
   it('sets completion time when moving to DONE and preserves it on repeated DONE saves', async () => {
