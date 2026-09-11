@@ -8,7 +8,7 @@ model ImporterV2WorkspaceBatch {
   profileId             String
   profileVersion        String
   ruleBookId            String?
-  evaluationFingerprint String @unique
+  evaluationFingerprint String
   status                String @default("RECONCILING")
   rowCount              Int
   publishedRowCount     Int @default(0)
@@ -20,6 +20,7 @@ model ImporterV2WorkspaceBatch {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
+  @@index([evaluationFingerprint])
   @@index([status, updatedAt])
   @@index([provider, sourceAdapterId, updatedAt])
   @@index([profileId, updatedAt])
