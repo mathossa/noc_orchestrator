@@ -12,6 +12,10 @@ import {
 } from '@/lib/firmware-policies'
 import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import {
+  resolveObservedFirmwareRelease,
+  supportedFirmwarePlatforms,
+} from '@/lib/firmware-observation'
+import {
   resolveFirmwareCompliance,
   type ComplianceRelease,
   type FirmwareComplianceResult,
@@ -62,7 +66,15 @@ export async function resolveFirmwareComplianceBatch(
       deviceModelId: true,
       currentFirmwareReleaseId: true,
       currentFirmwareRawVersion: true,
-      deviceModel: { select: { id: true, vendorId: true, familyId: true } },
+      currentFirmwareNormalizedVersion: true,
+      deviceModel: {
+        select: {
+          id: true,
+          vendorId: true,
+          familyId: true,
+          platform: true,
+        },
+      },
     },
   })
   const modelIds = [...new Set(devices.map((d) => d.deviceModelId))]
@@ -215,8 +227,23 @@ export async function resolveFirmwareComplianceBatch(
       preferredTarget = moving.release
       targetReason = moving.reason
     }
-    const currentFirmware =
+
+    let currentFirmware =
       releaseById.get(device.currentFirmwareReleaseId ?? '') ?? null
+    if (!currentFirmware) {
+      const observedResolution = resolveObservedFirmwareRelease({
+        vendorId: model.vendorId,
+        observedVersion:
+          device.currentFirmwareNormalizedVersion ??
+          device.currentFirmwareRawVersion,
+        supportedPlatforms: supportedFirmwarePlatforms(model.platform),
+        releases,
+      })
+      if (observedResolution.status === 'MATCHED') {
+        currentFirmware = observedResolution.release
+      }
+    }
+
     const rules = [
       ...(rulesByModel.get(model.id) ?? []),
       ...(rulesByFamily.get(model.familyId ?? '') ?? []),
@@ -252,7 +279,9 @@ export async function resolveFirmwareComplianceBatch(
       device.id,
       resolveFirmwareCompliance({
         currentFirmware,
-        rawVersion: device.currentFirmwareRawVersion,
+        rawVersion:
+          device.currentFirmwareNormalizedVersion ??
+          device.currentFirmwareRawVersion,
         effectivePolicy,
         preferredTarget,
         currentCompatibility,
