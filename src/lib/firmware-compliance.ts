@@ -252,6 +252,12 @@ export function resolveFirmwareCompliance(
         'AT_PREFERRED',
         'NO_ACTION',
       )
+    if (preferredOrder === 'EQUAL')
+      return finish(
+        'NOT_COMPARABLE',
+        'Ordering is equal, but explicit release equivalence is not established.',
+        relation,
+      )
     return finish(
       'OUTSIDE_RANGE',
       'Running firmware does not match the exact effective target.',
