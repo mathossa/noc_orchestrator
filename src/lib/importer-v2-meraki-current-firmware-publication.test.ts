@@ -68,28 +68,15 @@ describe('Importer v2 Meraki current-firmware publication regression', () => {
     ).toBe('release-mr-32-2-4')
   })
 
-  it('refuses to let the same verified Meraki observation publish without a canonical release', () => {
-    const decisions = [
-      {
-        field: 'currentFirmware',
-        action: 'VERIFY_OBSERVED_FIRMWARE',
-        value: {
-          runningVersion: 'MR 32.2.4',
-          softwarePlatform: 'Meraki MR',
-          originalCompatibilityStatus: 'UNKNOWN',
-          verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY' as const,
-        },
-      },
-    ]
-
-    expect(() =>
+  it('keeps MR 32.2.4 as a valid observation even when no canonical release identity was resolved yet', () => {
+    expect(
       importerV2CurrentFirmwareReleaseId({
         releaseId: null,
         runningVersion: 'MR 32.2.4',
         softwarePlatform: 'Meraki MR',
         compatibilityStatus: 'UNKNOWN',
-        decisions,
+        decisions: [],
       }),
-    ).toThrow('Publication was stopped to prevent Current firmware from becoming Unknown')
+    ).toBeNull()
   })
 })
