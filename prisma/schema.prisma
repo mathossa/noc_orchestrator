@@ -85,7 +85,7 @@ model ContractType {
   id                        String  @id @default(uuid())
   code                      String  @unique
   name                      String  @unique
-  description               String?
+  description String?
   firmwareManagementEnabled Boolean @default(true)
   isActive                  Boolean @default(true)
 
@@ -624,4 +624,107 @@ model FirmwareExceptionReason {
   label String
   replacementRelated Boolean @default(false)
   isActive Boolean @default(true)
+}
+
+// Work planning is separate from technical compliance and exceptions. IDs and
+// labels on targets are historical snapshots on purpose: later inventory or
+// catalog changes must not rewrite what an engineer actually planned.
+model FirmwareWorkPlan {
+  id                         String   @id @default(uuid())
+  state                      String   @default("PROPOSED")
+  title                      String?
+  reason                     String?
+  notes                      String?
+  externalReference          String?
+  scheduledFor               DateTime?
+  maintenanceWindowReference String?
+  upgradeCapability          String   @default("UNKNOWN")
+  createdByUserId            String?
+  approvedByUserId           String?
+  approvedAt                 DateTime?
+  scheduledAt                DateTime?
+  startedAt                  DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  legacyLifecycleId          String?  @unique
+  legacyEvidence             Json?
+
+  targets FirmwareWorkPlanTarget[]
+  events  FirmwareWorkPlanEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([state, scheduledFor])
+  @@index([createdByUserId])
+  @@index([completedAt])
+}
+
+model FirmwareWorkPlanTarget {
+  id                               String  @id @default(uuid())
+  planId                           String
+  deviceId                         String
+  deviceName                       String
+  customerId                       String
+  customerName                     String
+  siteId                           String?
+  siteName                         String?
+  deviceModelId                    String
+  deviceModelName                  String
+  logicalGroupKey                  String?
+  observedFirmwareReleaseId        String?
+  observedFirmwareVersion          String?
+  observedFirmwareRawVersion       String?
+  observedFirmwareFingerprint      String?
+  observedAt                       DateTime?
+  policyId                         String?
+  policyScope                      String?
+  policyTrackKey                   String?
+  policyTrackName                  String?
+  policyVersion                    Int?
+  policyFingerprint                String?
+  recommendation                   String
+  preferredTargetFirmwareReleaseId String?
+  preferredTargetVersion           String?
+  targetFirmwareReleaseId          String
+  targetVersion                    String
+  targetLogicalVersion             String
+  targetPlatform                   String
+  targetVariant                    String?
+  targetImageCode                  String?
+  compatibilityStatus              String?
+  exceptionOverride                Boolean @default(false)
+  exceptionSnapshot                Json?
+  memberSnapshot                   Json?
+  upgradeCapability                String @default("UNKNOWN")
+
+  plan FirmwareWorkPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([planId, deviceId])
+  @@index([deviceId])
+  @@index([customerId])
+  @@index([siteId])
+  @@index([deviceModelId])
+  @@index([targetFirmwareReleaseId])
+}
+
+model FirmwareWorkPlanEvent {
+  id          String   @id @default(uuid())
+  planId      String
+  targetId    String?
+  fromState   String?
+  toState     String
+  actorUserId String?
+  reason      String?
+  notes       String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  plan FirmwareWorkPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, createdAt])
+  @@index([targetId])
+  @@index([actorUserId])
 }
