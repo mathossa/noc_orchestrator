@@ -81,6 +81,15 @@ function toLocalDateTimeInput(value: string | null) {
   return local.toISOString().slice(0, 16)
 }
 
+function observedCurrentFirmwareVersion(record: DeviceRecord) {
+  return (
+    record.currentFirmwareRelease?.version ??
+    record.currentFirmwareNormalizedVersion ??
+    record.currentFirmwareRawVersion ??
+    null
+  )
+}
+
 export function DeviceManager({
   initialCustomerId = '',
   initialSiteId = '',
@@ -465,7 +474,7 @@ export function DeviceManager({
                         <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
                         <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? `${record.site.organizationUnit?.name ?? 'Ungrouped'} / ${record.site.name}` : 'No site'}</div></td>
                         <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name} · {record.deviceModel.supportedPlatforms.length ? record.deviceModel.supportedPlatforms.join(', ') : 'platform support unknown'}</div></td>
-                        <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
+                        <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : observedCurrentFirmwareVersion(record) ? <><span className="font-mono font-semibold text-[var(--foreground)]">{observedCurrentFirmwareVersion(record)}</span><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'} · catalog link unresolved</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
                         <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
                         <td className="px-4 py-3"><FirmwareComplianceStatus result={record.firmwareCompliance} /></td>
                         <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No decision</span>}</td>
