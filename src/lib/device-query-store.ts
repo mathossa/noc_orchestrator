@@ -19,6 +19,15 @@ function uniqueReferences<T extends { id: string }>(items: T[]) {
   return [...new Map(items.map((item) => [item.id, item])).values()]
 }
 
+function observedFirmwareVersion(record: DeviceQueryRecord) {
+  return (
+    record.currentFirmwareRelease?.version ??
+    record.currentFirmwareNormalizedVersion ??
+    record.currentFirmwareRawVersion ??
+    ''
+  )
+}
+
 function buildQueryReferences(references: Awaited<ReturnType<typeof listDeviceReferences>>): DeviceQueryReferenceData {
   const vendors = uniqueReferences(references.models.map((model) => model.vendor)).sort((a, b) => a.name.localeCompare(b.name))
   const deviceTypes = uniqueReferences(references.models.map((model) => model.deviceType)).sort((a, b) => a.name.localeCompare(b.name))
@@ -44,7 +53,7 @@ function matchesSearch(record: DeviceQueryRecord, q: string) {
     record.deviceModel.vendor.name,
     record.deviceModel.model,
     record.deviceModel.deviceType.name,
-    record.currentFirmwareRelease?.version ?? '',
+    observedFirmwareVersion(record),
     record.desiredFirmwareRelease?.version ?? '',
     record.effectiveContractType?.name ?? '',
     record.technicalState,
@@ -66,7 +75,7 @@ function matchesQuery(record: DeviceQueryRecord, query: DeviceQuery) {
   if (query.deviceType && record.deviceModel.deviceType.id !== query.deviceType) return false
   if (query.contract === 'none' && record.effectiveContractType !== null) return false
   if (query.contract && query.contract !== 'none' && record.effectiveContractType?.id !== query.contract) return false
-  if (query.currentFirmware === 'none' && record.currentFirmwareReleaseId !== null) return false
+  if (query.currentFirmware === 'none' && observedFirmwareVersion(record)) return false
   if (query.currentFirmware && query.currentFirmware !== 'none' && record.currentFirmwareReleaseId !== query.currentFirmware) return false
   if (query.desiredFirmware === 'none' && record.desiredFirmwareRelease !== null) return false
   if (query.desiredFirmware && query.desiredFirmware !== 'none' && record.desiredFirmwareRelease?.id !== query.desiredFirmware) return false
@@ -102,7 +111,7 @@ function sortValue(record: DeviceQueryRecord, field: DeviceSortField) {
     case 'model': return record.deviceModel.model
     case 'deviceType': return record.deviceModel.deviceType.name
     case 'name': return record.name
-    case 'currentFirmware': return record.currentFirmwareRelease?.version ?? ''
+    case 'currentFirmware': return observedFirmwareVersion(record)
     case 'desiredFirmware': return record.desiredFirmwareRelease?.version ?? ''
     case 'technicalState': return record.technicalState
     case 'workflow': return record.lifecycle?.state ?? 'UNDECIDED'
