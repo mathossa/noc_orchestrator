@@ -1,5 +1,6 @@
 import { result as complianceResult, release as complianceRelease } from './test-fixtures/firmware-compliance'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DeviceExceptionSummary } from './device-exception-summary-store'
 
 const mocks = vi.hoisted(() => ({
   compliance: vi.fn(),
@@ -61,7 +62,7 @@ const references = {
   firmwareReleases: [oldRelease, desiredRelease],
 }
 
-function noException() {
+function noException(): DeviceExceptionSummary {
   return {
     state: 'NONE',
     effective: null,
@@ -76,7 +77,7 @@ describe('device cross-dimensional query service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
-    mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map(devices.map((device) => [device.id, noException()])))
+    mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map<string, DeviceExceptionSummary>(devices.map((device) => [device.id, noException()])) )
     mocks.exceptionReasons.mockResolvedValue([
       { code: 'CUSTOMER_DECLINED', label: 'Customer declined' },
       { code: 'NO_OPERATIONAL_BENEFIT', label: 'No operational benefit' },
@@ -120,7 +121,7 @@ describe('device cross-dimensional query service', () => {
       record(),
       record({ id: 'device-2', name: 'HQ-SW-02' }),
     ])
-    mocks.exceptions.mockResolvedValue(new Map([
+    mocks.exceptions.mockResolvedValue(new Map<string, DeviceExceptionSummary>([
       ['device-1', {
         state: 'ACTIVE',
         effective: {
@@ -194,7 +195,7 @@ describe('device cross-dimensional query service', () => {
 
 it('filters and groups by unit while keeping site-less devices separate from ungrouped sites', async () => {
   mocks.compliance.mockImplementation(async (ids: string[]) => new Map(ids.map((id) => [id, complianceResult({ compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED', preferredTarget: complianceRelease('17.15.5', { id: 'fw-new' }) })])))
-  mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map(devices.map((device) => [device.id, noException()])))
+  mocks.exceptions.mockImplementation(async (devices: Array<{ id: string }>) => new Map<string, DeviceExceptionSummary>(devices.map((device) => [device.id, noException()])))
   mocks.exceptionReasons.mockResolvedValue([])
   mocks.listDeviceReferences.mockResolvedValue(references)
   mocks.policyFindMany.mockResolvedValue([])
