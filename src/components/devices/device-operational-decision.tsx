@@ -48,19 +48,39 @@ export function DeviceOperationalDecision({
     )
   }
 
-  if (summary.state === 'REVIEW_DUE') {
+  if (summary.state === 'ACTIVE') {
     return (
-      <div className="text-xs">
-        <div className="font-semibold text-[var(--warning)]">Exception review due</div>
-        <div className="mt-1 text-[var(--muted)]">Policy changed or prior exception needs review.</div>
+      <div className="min-w-[190px] text-xs">
+        <Link href={`/devices/${deviceId}`} className="font-semibold text-[var(--accent-light)] hover:underline">
+          Active exception
+        </Link>
+        <div className="mt-1 text-[var(--muted)]">
+          {summary.activeCount} matching record{summary.activeCount === 1 ? '' : 's'} · no action currently needs suppression.
+        </div>
+      </div>
+    )
+  }
+
+  if (summary.state === 'REVIEW_DUE') {
+    const review = dateLabel(summary.reviewDueAt)
+    return (
+      <div className="min-w-[190px] text-xs">
+        <Link href={`/devices/${deviceId}`} className="font-semibold text-[var(--accent-light)] hover:underline">
+          Exception review due
+        </Link>
+        <div className="mt-1 text-[var(--muted)]">
+          Policy changed or prior exception needs review{review ? ` · ${review}` : ''}.
+        </div>
       </div>
     )
   }
 
   if (summary.state === 'EXPIRED') {
     return (
-      <div className="text-xs">
-        <div className="font-semibold text-[var(--muted-strong)]">Expired exception</div>
+      <div className="min-w-[190px] text-xs">
+        <Link href={`/devices/${deviceId}`} className="font-semibold text-[var(--muted-strong)] hover:underline">
+          Expired exception
+        </Link>
         <div className="mt-1 text-[var(--muted)]">No exception currently suppresses action.</div>
       </div>
     )
