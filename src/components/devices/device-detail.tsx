@@ -28,6 +28,15 @@ function localDateTime(value: string | null | undefined) {
   return local.toISOString().slice(0, 16)
 }
 
+function observedCurrentFirmwareVersion(device: DeviceDetailRecord) {
+  return (
+    device.currentFirmwareRelease?.version ??
+    device.currentFirmwareNormalizedVersion ??
+    device.currentFirmwareRawVersion ??
+    null
+  )
+}
+
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const [device, setDevice] = useState<DeviceDetailRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -107,6 +116,8 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
   const desired = device.desiredFirmware.release
   const needsReason = workflowState === 'IGNORED' || workflowState === 'CUSTOMER_DECLINED'
+  const currentVersion = observedCurrentFirmwareVersion(device)
+  const resolvedCurrent = device.currentFirmwareRelease ?? device.firmwareCompliance.currentFirmware
 
   return (
     <>
@@ -123,7 +134,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Current firmware" value={device.currentFirmwareRelease?.version ?? 'Unknown'} detail={device.currentFirmwareRelease ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}` : 'No recorded current firmware release.'} />
+        <SummaryStat label="Current firmware" value={currentVersion ?? 'Unknown'} detail={currentVersion ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}${device.currentFirmwareRelease ? '' : ' · catalog link unresolved'}` : 'No observed current firmware.'} />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Effective policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No resolved preferred target.'} />
         <SummaryStat label="Technical state" value={<FirmwareComplianceStatus result={device.firmwareCompliance} />} detail={device.firmwareCompliance.explanation} />
         <SummaryStat label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No decision'} detail="Operational decision; it never changes technical compliance." />
@@ -134,13 +145,13 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Firmware state</h2>
             <dl className="mt-4 space-y-3 text-sm">
-              <DetailRow label="Current release" value={device.currentFirmwareRelease ? <Link href={`/firmware/${device.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{device.currentFirmwareRelease.version}</Link> : 'Unknown'} />
+              <DetailRow label="Current release" value={device.currentFirmwareRelease ? <Link href={`/firmware/${device.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{device.currentFirmwareRelease.version}</Link> : currentVersion ? <span className="font-mono font-semibold">{currentVersion} <span className="font-sans font-normal text-[var(--muted)]">(observed; catalog link unresolved)</span></span> : 'Unknown'} />
               <DetailRow label="Raw observation" value={device.currentFirmwareRawVersion ?? '—'} />
-              <DetailRow label="Current train" value={device.currentFirmwareRelease?.firmwareTrain?.name ?? '—'} />
-              <DetailRow label="Current platform" value={device.currentFirmwareRelease?.platform ?? 'Unknown'} />
-              <DetailRow label="Firmware source" value={device.currentFirmwareRelease ? device.currentFirmwareSource : '—'} />
+              <DetailRow label="Current train" value={resolvedCurrent?.firmwareTrain?.name ?? '—'} />
+              <DetailRow label="Current platform" value={resolvedCurrent?.platform ?? (currentVersion ? 'Catalog link unresolved' : 'Unknown')} />
+              <DetailRow label="Firmware source" value={currentVersion ? device.currentFirmwareSource : '—'} />
               <DetailRow label="Observed / reported" value={device.currentFirmwareObservedAt ? new Date(device.currentFirmwareObservedAt).toLocaleString() : 'Unknown'} />
-              <DetailRow label="Observation age" value={device.currentFirmwareRelease ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />
+              <DetailRow label="Observation age" value={currentVersion ? firmwareAge(device.currentFirmwareAgeDays) : '—'} />
               <DetailRow label="Desired release" value={desired ? <Link href={`/firmware/${desired.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{desired.version}</Link> : 'No resolved preferred target'} />
               <DetailRow label="Desired train" value={desired?.firmwareTrain?.name ?? '—'} />
               <DetailRow label="Desired status" value={desired ? `${desired.status}${desired.isActive ? '' : ' · archived'}` : '—'} />
