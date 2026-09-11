@@ -73,6 +73,21 @@ describe('Importer v2 manual identity repair', () => {
     mocks.rowUpdate.mockResolvedValue({ id: 'row-13' })
   })
 
+  it('limits correction repair to durable decisions from this confirmed action', async () => {
+    mocks.rowFindMany.mockResolvedValue([])
+    await reconcileImporterV2ManualIdentity('batch-1', 'scope-five-rows')
+    expect(mocks.rowFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        batchId: 'batch-1', inclusion: 'INCLUDED',
+        decisions: { some: {
+          field: { in: ['sourceId', 'serialNumber', 'macAddress'] },
+          scopeToken: 'scope-five-rows',
+        } },
+      },
+    }))
+    expect(mocks.findCandidates).not.toHaveBeenCalled()
+  })
+
   it('turns a manually supplied serial that already exists into an existing-device suggestion, not NEW', async () => {
     mocks.findCandidates.mockResolvedValue([
       {

@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import type { ImporterV2Field, ImporterV2StagedRow } from '@/lib/importer-v2-evaluator'
+import { ensureImporterV2WorkspaceRuleBook } from '@/lib/importer-v2-workspace-rule-book'
+import type {
+  ImporterV2Field,
+  ImporterV2StagedRow,
+} from '@/lib/importer-v2-evaluator'
 import { previewImporterV2RuleChange } from '@/lib/importer-v2-rule-preview'
 import {
   getActiveImporterV2RuleSet,
@@ -15,10 +19,7 @@ import type {
 import { initializeImporterV2WorkspaceAutomation } from '@/lib/importer-v2-workspace-maintenance'
 
 export type ImporterV2RuleWizardScope =
-  | 'PROFILE'
-  | 'CUSTOMER'
-  | 'VENDOR'
-  | 'MODEL'
+  'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'
 
 export type ImporterV2RuleWizardInput = {
   rowNumber: number
@@ -60,38 +61,9 @@ function hash(value: unknown) {
     .digest('hex')
 }
 
-async function ensureRuleBook(batch: {
-  id: string
-  provider: string
-  profileId: string
-  ruleBookId: string | null
-}) {
-  if (batch.ruleBookId) return batch.ruleBookId
-  const name = `Importer v2 · ${batch.provider} · ${batch.profileId}`
-  let book = await prisma.importerV2RuleBook.findUnique({ where: { name } })
-  if (!book) {
-    book = await prisma.importerV2RuleBook.create({
-      data: {
-        name,
-        activeRevisionVersion: 1,
-        revisions: {
-          create: {
-            version: 1,
-            rules: [],
-            reason: 'Automatic rule book for this confirmed importer source profile.',
-          },
-        },
-      },
-    })
-  }
-  await prisma.importerV2WorkspaceBatch.update({
-    where: { id: batch.id },
-    data: { ruleBookId: book.id },
-  })
-  return book.id
-}
-
-async function activeRuleSet(ruleBookId: string): Promise<ImporterV2RuleSetSnapshot> {
+async function activeRuleSet(
+  ruleBookId: string,
+): Promise<ImporterV2RuleSetSnapshot> {
   const active = await getActiveImporterV2RuleSet(ruleBookId)
   if (!active) throw new Error('The importer rule book has no active revision.')
   return active
@@ -99,10 +71,12 @@ async function activeRuleSet(ruleBookId: string): Promise<ImporterV2RuleSetSnaps
 
 function rawValues(evaluated: unknown) {
   return (
-    evaluated as {
-      rawValues?: Partial<Record<ImporterV2Field, string | null>>
-    }
-  ).rawValues ?? {}
+    (
+      evaluated as {
+        rawValues?: Partial<Record<ImporterV2Field, string | null>>
+      }
+    ).rawValues ?? {}
+  )
 }
 
 function ruleScope(input: {
@@ -141,8 +115,10 @@ function candidateRule(input: {
   const targetLabel = clean(input.wizard.target.label)
   const matchField = input.wizard.matchField ?? input.wizard.field
   if (!matchValue) throw new Error('Enter a source pattern to match.')
-  if (!targetLabel) throw new Error('Choose or enter the value that the rule should set.')
-  if (matchValue.length > 160) throw new Error('Rule patterns are limited to 160 characters.')
+  if (!targetLabel)
+    throw new Error('Choose or enter the value that the rule should set.')
+  if (matchValue.length > 160)
+    throw new Error('Rule patterns are limited to 160 characters.')
 
   const identity = hash({
     field: input.wizard.field,
@@ -187,15 +163,18 @@ function candidateRule(input: {
   }
 }
 
-async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput) {
+async function previewContext(
+  batchId: string,
+  wizard: ImporterV2RuleWizardInput,
+) {
   const batch = await prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
     where: { id: batchId },
   })
-  const ruleBookId = await ensureRuleBook({
-    id: batch.id,
+  const ruleBookId = await ensureImporterV2WorkspaceRuleBook({
+    batchId: batch.id,
     provider: batch.provider,
     profileId: batch.profileId,
-    ruleBookId: batch.ruleBookId,
+    currentRuleBookId: batch.ruleBookId,
   })
   const [active, currentRow, rows] = await Promise.all([
     activeRuleSet(ruleBookId),
@@ -206,7 +185,7 @@ async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput
     prisma.importerV2WorkspaceRow.findMany({
       where: { batchId, inclusion: 'INCLUDED' },
       orderBy: { rowNumber: 'asc' },
-      select: { rowNumber: true, evaluated: true },
+      select: { rowNumber: true, reviewRevision: true, evaluated: true },
     }),
   ])
   const candidate = candidateRule({
@@ -234,6 +213,8 @@ async function previewContext(batchId: string, wizard: ImporterV2RuleWizardInput
     sampleLimit: 10,
   })
   const scopeToken = hash({
+    batchId,
+    rowVersions: rows.map((row) => [row.rowNumber, row.reviewRevision]),
     activeRevisionId: active.revisionId,
     candidate,
     matchedRowCount: preview.matchedRowCount,
@@ -285,7 +266,10 @@ export async function applyImporterV2GuidedRule(input: {
     reason: `Guided importer automation: ${result.candidate.name}`,
     activate: true,
   })
-  const automation = await initializeImporterV2WorkspaceAutomation(input.batchId)
+  const automation = await initializeImporterV2WorkspaceAutomation(
+    input.batchId,
+    true,
+  )
   return {
     rule: result.candidate,
     revision: { id: revision.revisionId, version: revision.version },

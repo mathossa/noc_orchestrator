@@ -150,8 +150,8 @@ export async function POST(request: Request, context: RouteContext) {
       scopeToken: result.scopeToken,
       action: body.action,
     })
-    const identityRepair = await reconcileImporterV2ManualIdentity(batchId)
-    const recheck = await recheckImporterV2Workspace(batchId)
+    const identityRepair = await reconcileImporterV2ManualIdentity(batchId, result.scopeToken)
+    const recheck = await recheckImporterV2Workspace(batchId, result.scopeToken)
 
     return NextResponse.json({
       data: {

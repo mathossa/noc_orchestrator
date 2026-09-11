@@ -88,7 +88,7 @@ export function repairedRepeatClassification(input: {
  *
  * Hostname/customer/site remain context only. They never become durable keys.
  */
-export async function reconcileImporterV2ManualIdentity(batchId: string) {
+export async function reconcileImporterV2ManualIdentity(batchId: string, scopeToken?: string) {
   const batch = await prisma.importerV2WorkspaceBatch.findUnique({
     where: { id: batchId },
     select: { provider: true, sourceAdapterId: true },
@@ -100,7 +100,10 @@ export async function reconcileImporterV2ManualIdentity(batchId: string) {
       batchId,
       inclusion: 'INCLUDED',
       decisions: {
-        some: { field: { in: [...DURABLE_IDENTITY_FIELDS] } },
+        some: {
+          field: { in: [...DURABLE_IDENTITY_FIELDS] },
+          ...(scopeToken ? { scopeToken } : {}),
+        },
       },
     },
     select: {
