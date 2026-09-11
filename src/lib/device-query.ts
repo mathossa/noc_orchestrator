@@ -1,17 +1,22 @@
 import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
+import type { DeviceExceptionSummary } from '@/lib/device-exception-summary-store'
 import type { DeviceContractReference, DeviceFirmwareReference, DeviceRecord, DeviceReferenceData } from '@/lib/devices'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
 export const DEVICE_GROUP_BY = ['none', 'customer', 'organizationUnit', 'site', 'deviceType', 'model'] as const
 export type DeviceGroupBy = (typeof DEVICE_GROUP_BY)[number]
 
-export const DEVICE_SORT_FIELDS = ['customer', 'site', 'vendor', 'model', 'deviceType', 'name', 'currentFirmware', 'desiredFirmware', 'technicalState', 'workflow', 'source'] as const
+export const DEVICE_SORT_FIELDS = ['customer', 'site', 'vendor', 'model', 'deviceType', 'name', 'currentFirmware', 'desiredFirmware', 'technicalState', 'operationalDecision', 'workflow', 'source'] as const
 export type DeviceSortField = (typeof DEVICE_SORT_FIELDS)[number]
 
 export const DEVICE_QUERY_PAGE_SIZES = [25, 50, 100] as const
 export const DEVICE_TECHNICAL_STATES: TechnicalFirmwareState[] = ['CURRENT', 'ACTION_REQUIRED', 'UNKNOWN', 'NO_POLICY']
 export const DEVICE_WORKFLOW_STATES = ['PLANNED', 'IGNORED', 'CUSTOMER_DECLINED', 'DONE', 'UNDECIDED'] as const
 export type DeviceWorkflowFilter = (typeof DEVICE_WORKFLOW_STATES)[number]
+export const DEVICE_EXCEPTION_STATES = ['NONE', 'ACTIVE', 'REVIEW_DUE', 'EXPIRED'] as const
+export type DeviceExceptionStateFilter = (typeof DEVICE_EXCEPTION_STATES)[number]
+export const DEVICE_EXCEPTION_SCOPES = ['DEVICE', 'SITE', 'CUSTOMER', 'MODEL', 'FAMILY'] as const
+export type DeviceExceptionScopeFilter = (typeof DEVICE_EXCEPTION_SCOPES)[number]
 export const DEVICE_SOURCES = ['MANUAL', 'API', 'IMPORT'] as const
 export const DEVICE_ARCHIVE_STATES = ['active', 'archived', 'all'] as const
 
@@ -27,6 +32,9 @@ export type DeviceQuery = {
   currentFirmware: string
   desiredFirmware: string
   technicalState: TechnicalFirmwareState | ''
+  exceptionState: DeviceExceptionStateFilter | ''
+  exceptionReason: string
+  exceptionScope: DeviceExceptionScopeFilter | ''
   workflow: DeviceWorkflowFilter | ''
   source: string
   archive: 'active' | 'archived' | 'all'
@@ -41,6 +49,7 @@ export type DeviceQueryRecord = DeviceRecord & {
   desiredFirmwareRelease: DeviceFirmwareReference | null
   technicalState: TechnicalFirmwareState
   firmwareCompliance: FirmwareComplianceResult
+  exceptionSummary: DeviceExceptionSummary
   groupKey: string | null
   groupLabel: string | null
 }
@@ -55,6 +64,7 @@ export type DeviceQueryReferenceData = DeviceReferenceData & {
   vendors: Array<{ id: string; code: string; name: string; isActive: boolean }>
   deviceTypes: Array<{ id: string; code: string; name: string; isActive: boolean }>
   contractTypes: DeviceContractReference[]
+  exceptionReasons: Array<{ code: string; label: string }>
 }
 
 export type DeviceQueryMeta = DeviceQueryReferenceData & {
@@ -108,6 +118,9 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
   const errors: DeviceQueryFieldErrors = {}
   const q = cleaned(params.get('q')).slice(0, 200)
   const technicalState = cleaned(params.get('technicalState')).toUpperCase()
+  const exceptionState = cleaned(params.get('exceptionState')).toUpperCase()
+  const exceptionReason = cleaned(params.get('exceptionReason')).toUpperCase()
+  const exceptionScope = cleaned(params.get('exceptionScope')).toUpperCase()
   const workflow = cleaned(params.get('workflow')).toUpperCase()
   const source = cleaned(params.get('source')).toUpperCase()
   const archive = cleaned(params.get('archive')) || 'active'
@@ -122,6 +135,8 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
 
   if (params.get('pageSize') && pageSize !== requestedPageSize) errors.pageSize = 'Choose page size 25, 50, or 100.'
   if (technicalState && !DEVICE_TECHNICAL_STATES.includes(technicalState as TechnicalFirmwareState)) errors.technicalState = 'Choose CURRENT, ACTION_REQUIRED, UNKNOWN, or NO_POLICY.'
+  if (exceptionState && !DEVICE_EXCEPTION_STATES.includes(exceptionState as DeviceExceptionStateFilter)) errors.exceptionState = 'Choose NONE, ACTIVE, REVIEW_DUE, or EXPIRED.'
+  if (exceptionScope && !DEVICE_EXCEPTION_SCOPES.includes(exceptionScope as DeviceExceptionScopeFilter)) errors.exceptionScope = 'Choose DEVICE, SITE, CUSTOMER, MODEL, or FAMILY.'
   if (workflow && !DEVICE_WORKFLOW_STATES.includes(workflow as DeviceWorkflowFilter)) errors.workflow = 'Choose a supported workflow state.'
   if (source && !DEVICE_SOURCES.includes(source as (typeof DEVICE_SOURCES)[number])) errors.source = 'Choose MANUAL, API, or IMPORT.'
   if (!DEVICE_ARCHIVE_STATES.includes(archive as (typeof DEVICE_ARCHIVE_STATES)[number])) errors.archive = 'Choose active, archived, or all.'
@@ -143,6 +158,9 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
     currentFirmware: cleaned(params.get('currentFirmware')),
     desiredFirmware: cleaned(params.get('desiredFirmware')),
     technicalState: technicalState as TechnicalFirmwareState | '',
+    exceptionState: exceptionState as DeviceExceptionStateFilter | '',
+    exceptionReason,
+    exceptionScope: exceptionScope as DeviceExceptionScopeFilter | '',
     workflow: workflow as DeviceWorkflowFilter | '',
     source,
     archive: archive as DeviceQuery['archive'],
@@ -157,6 +175,7 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
 export function deviceQueryHasFilters(query: DeviceQuery) {
   return Boolean(
     query.q || query.customer || query.organizationUnit || query.site || query.vendor || query.model || query.deviceType || query.contract ||
-    query.currentFirmware || query.desiredFirmware || query.technicalState || query.workflow || query.source || query.archive !== 'active',
+    query.currentFirmware || query.desiredFirmware || query.technicalState || query.exceptionState || query.exceptionReason || query.exceptionScope ||
+    query.workflow || query.source || query.archive !== 'active',
   )
 }
