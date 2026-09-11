@@ -59,6 +59,10 @@ const TRUSTED_AUTOMATION_SOURCES = new Set([
 const NON_BLOCKING_FIRMWARE_WARNINGS = new Set([
   'BOOT_FIRMWARE_IGNORED',
   'PLACEHOLDER_FIRMWARE_IGNORED',
+  // A source such as Auvik can legitimately omit current firmware (notably for
+  // Meraki). Absence of evidence is not a reconciliation conflict: publication
+  // preserves any existing canonical current-firmware observation.
+  'UNKNOWN_RUNNING_FIRMWARE',
 ])
 
 function stableValue(value: unknown): unknown {
