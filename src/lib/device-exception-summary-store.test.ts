@@ -80,7 +80,7 @@ describe('device exception overview summaries', () => {
         scopeId: 'customer-1',
         scopeLabel: 'Acme',
         reasonCode: 'CUSTOMER_DECLINED',
-        decidedAt: new Date('2026-09-11T12:01:00Z'),
+        decidedAt: new Date('2026-09-11T11:59:00Z'),
       }),
     ])
 
