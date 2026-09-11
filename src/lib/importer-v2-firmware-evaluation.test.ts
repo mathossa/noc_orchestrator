@@ -77,7 +77,7 @@ function baseInput(): ImporterV2FirmwareEvaluationInput {
 }
 
 describe('Importer v2 centralized firmware evaluation boundary', () => {
-  it('attaches one deterministic firmware proof to the staged row', () => {
+  it('attaches one deterministic firmware proof to the staged row without forcing per-row confirmation', () => {
     const result = evaluateImporterV2WithFirmware(baseInput())
     const row = result.rows[0]
 
@@ -91,7 +91,29 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
       source: 'DETERMINISTIC_PARSER',
       matchedParserId: 'importer-v2-firmware-interpreter',
       matchedParserVersion: '1.0.0',
-      requiresConfirmation: true,
+      requiresConfirmation: false,
+    })
+  })
+
+  it('infers classic IOS for a Cisco 15.2(7)E2 observation and treats the observed model/platform pair as compatible evidence', () => {
+    const input = baseInput()
+    input.firmwareContext.compatibilityRules = []
+    input.rows[0].rawValues.model = 'WS-C2960X-48FPS-L'
+    input.rows[0].rawValues.firmwareVersion = null
+    input.rows[0].rawValues.softwareVersion = '15.2(7)E2'
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.firmware.runningVersion).toBe('15.2(7)E2')
+    expect(row.firmware.proposedSoftwarePlatform).toBe('IOS')
+    expect(row.firmware.compatibility.status).toBe('COMPATIBLE')
+    expect(row.proposedCanonicalValues.currentFirmware).toEqual({
+      id: null,
+      label: '15.2(7)E2',
+    })
+    expect(row.proposedCanonicalValues.softwarePlatform).toEqual({
+      id: null,
+      label: 'IOS',
     })
   })
 
@@ -109,12 +131,13 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     expect(row.fields.currentFirmware.decision.matchedSuggestionId).toBeNull()
   })
 
-  it('keeps unknown running firmware importable as a warning even when the profile previously required it', () => {
+  it('keeps missing running firmware importable as a non-blocking warning even when the profile previously required it', () => {
     const input = baseInput()
-    input.rows[0].rawValues.firmwareVersion = '10.3.9'
-    input.rows[0].rawValues.softwareVersion = 'ExampleOS 10.4.3 build 711'
-    input.rows[0].rawValues.vendor = 'Example Networks'
-    input.rows[0].rawValues.model = 'EX-2400'
+    input.rows[0].rawValues.firmwareVersion = null
+    input.rows[0].rawValues.softwareVersion = null
+    input.rows[0].rawValues.softwarePlatform = 'Meraki MR'
+    input.rows[0].rawValues.vendor = 'Cisco Meraki'
+    input.rows[0].rawValues.model = 'MR44'
 
     const row = evaluateImporterV2WithFirmware(input).rows[0]
     const firmwareIssue = row.issues.find(
@@ -126,15 +149,33 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
       severity: 'WARNING',
       code: 'OPTIONAL_FIELD_UNRESOLVED',
     })
+    expect(firmwareIssue?.message).toMatch(/preserves an existing canonical current-firmware observation/i)
     expect(row.issues).not.toContainEqual(
       expect.objectContaining({
         field: 'currentFirmware',
         severity: 'ERROR',
       }),
     )
-    expect(row.statuses).toEqual(
-      expect.arrayContaining(['WARNING', 'NEEDS_REVIEW']),
+    expect(row.statuses).toContain('WARNING')
+    expect(row.statuses).not.toContain('NEEDS_REVIEW')
+  })
+
+  it('still requires review when source firmware is present but unparseable', () => {
+    const input = baseInput()
+    input.rows[0].rawValues.firmwareVersion = 'vendor-private-build-without-version'
+    input.rows[0].rawValues.softwareVersion = null
+    input.rows[0].rawValues.softwarePlatform = 'Meraki MR'
+    input.rows[0].rawValues.vendor = 'Cisco Meraki'
+    input.rows[0].rawValues.model = 'MR44'
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.firmware.runningVersion).toBeNull()
+    expect(row.firmware.warnings).toContainEqual(
+      expect.objectContaining({ code: 'UNPARSEABLE_VERSION' }),
     )
+    expect(row.statuses).toContain('WARNING')
+    expect(row.statuses).toContain('NEEDS_REVIEW')
   })
 
   it('uses the interpreted platform to satisfy a required software platform', () => {
@@ -173,6 +214,22 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
         code: 'REQUIRED_FIELD_UNRESOLVED',
       }),
     )
+  })
+
+  it('turns populated unmatched required catalog values into grouped publication proposals instead of row errors', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'vendor', 'model', 'deviceType']
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.issues).not.toContainEqual(
+      expect.objectContaining({ severity: 'ERROR' }),
+    )
+    expect(row.statuses).not.toContain('NEEDS_REVIEW')
+    expect(row.proposedCanonicalValues.customer).toEqual({
+      id: null,
+      label: 'Customer A',
+    })
   })
 
   it('creates proof groups from included rows so one evidence pattern can be reviewed once', () => {

@@ -18,6 +18,12 @@ import {
   type ImporterV2FirmwareProofGroup,
   type ImporterV2FirmwareProofRow,
 } from '@/lib/importer-v2-firmware'
+import {
+  inferImporterV2ObservedPlatform,
+  importerV2ObservedCompatibilityRule,
+} from '@/lib/importer-v2-observed-platform'
+
+export const IMPORTER_V2_AUTOMATION_POLICY_VERSION = '2.1.0'
 
 export type ImporterV2FirmwareEvaluationInput = ImporterV2EvaluationInput & {
   firmwareContext: ImporterV2FirmwareInterpretationContext
@@ -40,6 +46,24 @@ export type ImporterV2FirmwareEvaluationResult = Omit<
   rows: readonly ImporterV2FirmwareEvaluatedRow[]
   firmwareProofGroups: readonly ImporterV2FirmwareProofGroup[]
 }
+
+const TRUSTED_AUTOMATION_SOURCES = new Set([
+  'MANUAL_OVERRIDE',
+  'REMEMBERED_EXACT_MAPPING',
+  'PROFILE_RULE',
+  'DETERMINISTIC_PARSER',
+  'EXACT_CATALOG_MATCH',
+  'UNRESOLVED',
+])
+
+const NON_BLOCKING_FIRMWARE_WARNINGS = new Set([
+  'BOOT_FIRMWARE_IGNORED',
+  'PLACEHOLDER_FIRMWARE_IGNORED',
+  // A source such as Auvik can legitimately omit current firmware (notably for
+  // Meraki). Absence of evidence is not a reconciliation conflict: publication
+  // preserves any existing canonical current-firmware observation.
+  'UNKNOWN_RUNNING_FIRMWARE',
+])
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
@@ -68,7 +92,7 @@ function parserDecision(
     source: value ? 'DETERMINISTIC_PARSER' : 'UNRESOLVED',
     confidence: firmware.confidence,
     explanation,
-    requiresConfirmation: Boolean(value),
+    requiresConfirmation: false,
     matchedRuleId: null,
     matchedRuleVersion: null,
     matchedParserId: value ? firmware.interpreterId : null,
@@ -99,7 +123,7 @@ function firmwareIssues(
       severity: 'WARNING',
       code: 'OPTIONAL_FIELD_UNRESOLVED',
       message:
-        'Observed running firmware is unknown. The device remains importable and the evidence must be reviewed.',
+        'Observed running firmware is not reported by this source. The row remains importable; publication preserves an existing canonical current-firmware observation unless an operator explicitly changes or clears it.',
     })
   }
 
@@ -133,6 +157,26 @@ function firmwareIssues(
   return issues
 }
 
+function proposalBackedRequiredIssue(
+  row: ImporterV2EvaluatedRow,
+  issue: ImporterV2FieldIssue,
+) {
+  if (issue.code !== 'REQUIRED_FIELD_UNRESOLVED') return false
+  const label = row.proposedCanonicalValues[issue.field]?.label
+  return Boolean(label?.normalize('NFKC').trim())
+}
+
+function genericDecisionNeedsReview(row: ImporterV2EvaluatedRow) {
+  return Object.values(row.fields).some((field) => {
+    const source = field.decision.source
+    if (source === 'NON_BINDING_SUGGESTION') return true
+    return (
+      field.decision.requiresConfirmation &&
+      !TRUSTED_AUTOMATION_SOURCES.has(source)
+    )
+  })
+}
+
 function firmwareStatuses(
   row: ImporterV2EvaluatedRow,
   firmware: ImporterV2FirmwareInterpretation,
@@ -142,13 +186,23 @@ function firmwareStatuses(
 
   const statuses = new Set(row.statuses)
   statuses.delete('VALID')
-  statuses.add('NEEDS_REVIEW')
-  if (
+  statuses.delete('WARNING')
+  statuses.delete('NEEDS_REVIEW')
+
+  const hasWarnings =
     firmware.warnings.length > 0 ||
     issues.some((issue) => issue.severity === 'WARNING')
-  ) {
-    statuses.add('WARNING')
-  }
+  const firmwareNeedsReview = firmware.warnings.some(
+    (warning) => !NON_BLOCKING_FIRMWARE_WARNINGS.has(warning.code),
+  )
+  const needsReview =
+    issues.some((issue) => issue.severity === 'ERROR') ||
+    genericDecisionNeedsReview(row) ||
+    firmwareNeedsReview
+
+  if (needsReview) statuses.add('NEEDS_REVIEW')
+  if (hasWarnings) statuses.add('WARNING')
+  if (!needsReview && !hasWarnings) statuses.add('VALID')
   return [...statuses]
 }
 
@@ -164,6 +218,14 @@ function proofRow(
       row.normalizedValues.deviceName ?? row.normalizedValues.hostname,
     interpretation: row.firmware,
   }
+}
+
+function resolvedValue(
+  row: ImporterV2EvaluatedRow,
+  field: 'vendor' | 'model' | 'productFamily' | 'deviceType',
+  fallback: string | null | undefined,
+) {
+  return row.proposedCanonicalValues[field]?.label ?? row.normalizedValues[field] ?? fallback ?? null
 }
 
 /**
@@ -199,21 +261,70 @@ export function evaluateImporterV2WithFirmware(
 
   const rows = base.rows.map((row, index) => {
     const stagedRow = input.rows[index]
-    const firmware = interpretImporterV2Firmware(
-      {
-        provider: input.profile.provider,
-        vendor: stagedRow.rawValues.vendor,
-        model: stagedRow.rawValues.model,
-        productFamily: stagedRow.rawValues.productFamily,
-        softwarePlatform: stagedRow.rawValues.softwarePlatform,
-        sourceDeviceType: stagedRow.rawValues.deviceType,
-        firmwareVersion: stagedRow.rawValues.firmwareVersion,
-        softwareVersion: stagedRow.rawValues.softwareVersion,
-        providerMetadata:
-          input.providerMetadataByRow?.[stagedRow.rowNumber] ?? null,
-      },
-      input.firmwareContext,
+    const vendor = resolvedValue(row, 'vendor', stagedRow.rawValues.vendor)
+    const model = resolvedValue(row, 'model', stagedRow.rawValues.model)
+    const productFamily = resolvedValue(
+      row,
+      'productFamily',
+      stagedRow.rawValues.productFamily,
     )
+    const sourceDeviceType = resolvedValue(
+      row,
+      'deviceType',
+      stagedRow.rawValues.deviceType,
+    )
+    const platformInference = inferImporterV2ObservedPlatform({
+      vendor,
+      model,
+      productFamily,
+      softwarePlatform: stagedRow.rawValues.softwarePlatform,
+      firmwareVersion: stagedRow.rawValues.firmwareVersion,
+      softwareVersion: stagedRow.rawValues.softwareVersion,
+    })
+    const observedRule = importerV2ObservedCompatibilityRule({
+      vendor,
+      model,
+      inference: platformInference,
+      existingRules: input.firmwareContext.compatibilityRules,
+    })
+    const firmwareContext = observedRule
+      ? {
+          ...input.firmwareContext,
+          compatibilityRules: [
+            ...input.firmwareContext.compatibilityRules,
+            observedRule,
+          ],
+        }
+      : input.firmwareContext
+    const rawSoftwarePlatform = stagedRow.rawValues.softwarePlatform ?? null
+    const firmwareInput = {
+      provider: input.profile.provider,
+      vendor,
+      model,
+      productFamily,
+      softwarePlatform: rawSoftwarePlatform ?? platformInference?.platform ?? null,
+      sourceDeviceType,
+      firmwareVersion: stagedRow.rawValues.firmwareVersion,
+      softwareVersion: stagedRow.rawValues.softwareVersion,
+      providerMetadata:
+        input.providerMetadataByRow?.[stagedRow.rowNumber] ?? null,
+    }
+    const interpreted = interpretImporterV2Firmware(firmwareInput, firmwareContext)
+    const firmware: ImporterV2FirmwareInterpretation = platformInference && !rawSoftwarePlatform
+      ? {
+          ...interpreted,
+          rawEvidence: {
+            ...interpreted.rawEvidence,
+            softwarePlatform: null,
+          },
+          normalizedEvidence: {
+            ...interpreted.normalizedEvidence,
+            softwarePlatform: null,
+          },
+          platformEvidence: 'VERSION_EVIDENCE',
+          explanation: `${interpreted.explanation} ${platformInference.explanation}`,
+        }
+      : interpreted
 
     const currentFirmwareIssues: ImporterV2FieldIssue[] = []
     const softwarePlatformIssues: ImporterV2FieldIssue[] = []
@@ -245,7 +356,9 @@ export function evaluateImporterV2WithFirmware(
 
     const inheritedIssues = row.issues.filter(
       (issue) =>
-        issue.field !== 'currentFirmware' && issue.field !== 'softwarePlatform',
+        issue.field !== 'currentFirmware' &&
+        issue.field !== 'softwarePlatform' &&
+        !proposalBackedRequiredIssue(row, issue),
     )
     const interpretedIssues = firmwareIssues(row, firmware, input)
     for (const issue of interpretedIssues) {
@@ -280,6 +393,7 @@ export function evaluateImporterV2WithFirmware(
   return {
     ...base,
     evaluationFingerprint: fingerprint({
+      automationPolicyVersion: IMPORTER_V2_AUTOMATION_POLICY_VERSION,
       baseEvaluationFingerprint: base.evaluationFingerprint,
       firmwareContext: input.firmwareContext,
       interpretations: rows.map((row) => ({

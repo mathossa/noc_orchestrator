@@ -5,11 +5,11 @@ import {
 } from '@/lib/importer-v2-workspace-identity-state'
 
 describe('Importer v2 workspace identity review state', () => {
-  it('normalizes the #47 identity resolver shape', () => {
+  it('automatically accepts a high-confidence #47 identity resolver match', () => {
     const review = importerV2WorkspaceIdentityReview({
       identityResolution: {
         kind: 'MATCH_SUGGESTED',
-        requiresConfirmation: true,
+        requiresConfirmation: false,
         options: ['CONFIRM_MATCH', 'CREATE_NEW'],
         explanation: 'One durable candidate.',
         candidates: [
@@ -42,8 +42,10 @@ describe('Importer v2 workspace identity review state', () => {
 
     expect(review).toMatchObject({
       kind: 'MATCH_SUGGESTED',
-      requiresConfirmation: true,
-      resolved: false,
+      requiresConfirmation: false,
+      resolved: true,
+      selectedDecision: 'CONFIRM_MATCH',
+      selectedCanonicalDeviceId: 'device-1',
       candidates: [
         {
           canonicalDeviceId: 'device-1',
@@ -63,6 +65,27 @@ describe('Importer v2 workspace identity review state', () => {
           ],
         },
       ],
+    })
+  })
+
+  it('treats a safe NEW identity as an automatic create proposal', () => {
+    const review = importerV2WorkspaceIdentityReview({
+      identityResolution: {
+        kind: 'NEW',
+        requiresConfirmation: false,
+        options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
+        explanation: 'No existing durable identity match.',
+        candidates: [],
+      },
+      decisions: [],
+    })
+
+    expect(review).toMatchObject({
+      kind: 'NEW',
+      requiresConfirmation: false,
+      resolved: true,
+      selectedDecision: 'CREATE_NEW',
+      selectedCanonicalDeviceId: null,
     })
   })
 
@@ -111,6 +134,69 @@ describe('Importer v2 workspace identity review state', () => {
       resolved: true,
       selectedDecision: 'CHOOSE_CANDIDATE',
       selectedCanonicalDeviceId: 'b',
+    })
+  })
+
+  it('keeps INVALID blocked until manual durable identity has been re-resolved against live crosswalks', () => {
+    const input = {
+      identityResolution: {
+        kind: 'INVALID',
+        requiresConfirmation: false,
+        explanation: 'No source ID, serial number or MAC address was reported.',
+        candidates: [],
+      },
+      decisions: [
+        {
+          field: 'serialNumber',
+          action: 'SET_FIELD',
+          value: { id: null, label: 'MANUAL-SERIAL-123' },
+        },
+      ],
+    }
+
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(true)
+    expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
+      kind: 'INVALID',
+      resolved: false,
+      selectedDecision: null,
+    })
+  })
+
+  it('ignores a stale Create new decision when live identity now points at an existing device', () => {
+    const input = {
+      identityResolution: {
+        kind: 'MATCH_SUGGESTED',
+        requiresConfirmation: true,
+        explanation: 'Serial matches one existing provider crosswalk.',
+        candidates: [
+          {
+            canonicalDeviceId: 'device-existing',
+            confidence: 'MEDIUM',
+            signals: [
+              {
+                kind: 'SERIAL_NUMBER',
+                sourceValue: 'SER-123',
+                candidateValue: 'SER-123',
+                status: 'AGREE',
+              },
+            ],
+          },
+        ],
+      },
+      decisions: [
+        {
+          action: 'IDENTITY_RESOLUTION',
+          value: { kind: 'CREATE_NEW', canonicalDeviceId: null },
+        },
+      ],
+    }
+
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(true)
+    expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
+      kind: 'MATCH_SUGGESTED',
+      resolved: false,
+      selectedDecision: null,
+      selectedCanonicalDeviceId: null,
     })
   })
 })

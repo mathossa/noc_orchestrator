@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   analyzeImporterV2SourceRowIdentities,
+  importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
   resolveImporterV2Identity,
 } from '@/lib/importer-v2-identity'
 
 describe('Importer v2 stable device identity', () => {
-  it('uses provider source identity as high confidence but still requires confirmation', () => {
+  it('automatically trusts a unique high-confidence provider source identity', () => {
     const result = resolveImporterV2Identity(
       {
         provider: 'Auvik',
@@ -25,14 +26,82 @@ describe('Importer v2 stable device identity', () => {
     )
 
     expect(result.kind).toBe('MATCH_SUGGESTED')
-    expect(result.requiresConfirmation).toBe(true)
+    expect(result.requiresConfirmation).toBe(false)
     expect(result.candidates[0]?.confidence).toBe('HIGH')
     expect(result.candidates[0]?.contextDifferences.map((item) => item.field)).toEqual(
       expect.arrayContaining(['hostname', 'site', 'model']),
     )
   })
 
-  it('treats a unique serial-only match as medium confidence', () => {
+  it('keeps a unique provider source ID automatic when a stale serial changed', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'Auvik',
+        sourceAdapterId: 'xlsx-tabular-v1',
+        identifiers: { sourceId: 'device-42', serialNumber: 'AUVIK-WRONG-SERIAL' },
+      },
+      [
+        {
+          canonicalDeviceId: 'device-1',
+          crosswalkId: 'crosswalk-1',
+          identifiers: { sourceId: 'device-42', serialNumber: 'CORRECTED-SERIAL' },
+        },
+      ],
+    )
+
+    expect(result.kind).toBe('MATCH_SUGGESTED')
+    expect(result.requiresConfirmation).toBe(false)
+    expect(result.candidates[0]).toMatchObject({
+      canonicalDeviceId: 'device-1',
+      confidence: 'HIGH',
+    })
+    expect(result.candidates[0]?.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'SOURCE_ID', status: 'AGREE' }),
+        expect.objectContaining({ kind: 'SERIAL_NUMBER', status: 'DISAGREE' }),
+      ]),
+    )
+  })
+
+  it('keeps raw source aliases for the crosswalk while allowing a corrected canonical serial', () => {
+    expect(
+      importerV2SourceIdentityForCrosswalk({
+        rawIdentifiers: {
+          sourceId: ' auvik-device-42 ',
+          serialNumber: 'AUVIK-WRONG-SERIAL',
+          macAddress: null,
+        },
+        effectiveIdentifiers: {
+          sourceId: 'auvik-device-42',
+          serialNumber: 'CORRECTED-SERIAL',
+          macAddress: 'aa:bb:cc:dd:ee:ff',
+        },
+      }),
+    ).toEqual({
+      sourceId: 'auvik-device-42',
+      serialNumber: 'AUVIK-WRONG-SERIAL',
+      macAddress: 'aa:bb:cc:dd:ee:ff',
+    })
+  })
+
+  it('proposes a valid unmatched durable identity as a new device without row-by-row confirmation', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'Auvik',
+        sourceAdapterId: 'xlsx-tabular-v1',
+        identifiers: { sourceId: 'new-device-42', serialNumber: 'CN42' },
+      },
+      [],
+    )
+
+    expect(result).toMatchObject({
+      kind: 'NEW',
+      requiresConfirmation: false,
+      options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
+    })
+  })
+
+  it('treats a unique serial-only match as medium confidence and keeps it reviewable', () => {
     const result = resolveImporterV2Identity(
       {
         provider: 'Inventory',
@@ -48,6 +117,7 @@ describe('Importer v2 stable device identity', () => {
     )
 
     expect(result.kind).toBe('MATCH_SUGGESTED')
+    expect(result.requiresConfirmation).toBe(true)
     expect(result.candidates[0]?.confidence).toBe('MEDIUM')
   })
 

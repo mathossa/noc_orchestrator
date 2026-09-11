@@ -22,7 +22,12 @@ export type ImporterV2WorkspaceIdentityReview = {
   kind: string | null
   requiresConfirmation: boolean
   resolved: boolean
-  selectedDecision: 'CONFIRM_MATCH' | 'CHOOSE_CANDIDATE' | 'CREATE_NEW' | 'MANUAL_OVERRIDE' | null
+  selectedDecision:
+    | 'CONFIRM_MATCH'
+    | 'CHOOSE_CANDIDATE'
+    | 'CREATE_NEW'
+    | 'MANUAL_OVERRIDE'
+    | null
   selectedCanonicalDeviceId: string | null
   explanation: string | null
   candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
@@ -35,6 +40,7 @@ type IdentityDecisionKind = NonNullable<
 
 type WorkspaceDecision = {
   action: string
+  field?: string | null
   value?: unknown
 }
 
@@ -139,6 +145,60 @@ function latestIdentityDecision(
   return null
 }
 
+function explicitDecisionStillApplies(input: {
+  decision: ReturnType<typeof latestIdentityDecision>
+  sourceKind: string | null
+  candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
+}) {
+  const decision = input.decision
+  if (!decision) return null
+
+  if (decision.kind === 'CREATE_NEW') {
+    return input.sourceKind === 'NEW' ? decision : null
+  }
+
+  if (decision.kind === 'MANUAL_OVERRIDE') {
+    return decision.canonicalDeviceId ? decision : null
+  }
+
+  if (!decision.canonicalDeviceId) return null
+  const candidateStillExists = input.candidates.some(
+    (candidate) => candidate.canonicalDeviceId === decision.canonicalDeviceId,
+  )
+  if (!candidateStillExists) return null
+
+  if (decision.kind === 'CONFIRM_MATCH' && input.candidates.length !== 1) {
+    return null
+  }
+
+  return decision
+}
+
+function automaticIdentityDecision(input: {
+  sourceKind: string | null
+  candidates: readonly ImporterV2WorkspaceIdentityCandidate[]
+}) {
+  if (input.sourceKind === 'NEW') {
+    return {
+      kind: 'CREATE_NEW' as const,
+      canonicalDeviceId: null,
+    }
+  }
+
+  if (
+    input.sourceKind === 'MATCH_SUGGESTED' &&
+    input.candidates.length === 1 &&
+    input.candidates[0]?.confidence === 'HIGH'
+  ) {
+    return {
+      kind: 'CONFIRM_MATCH' as const,
+      canonicalDeviceId: input.candidates[0].canonicalDeviceId,
+    }
+  }
+
+  return null
+}
+
 export function importerV2WorkspaceIdentityReview(input: {
   identityResolution: unknown
   decisions?: readonly WorkspaceDecision[]
@@ -146,15 +206,25 @@ export function importerV2WorkspaceIdentityReview(input: {
   const source = object(input.identityResolution)
   if (!source) return null
 
-  const decision = latestIdentityDecision(input.decisions ?? [])
+  const normalizedCandidates = candidates(source)
   const sourceKind = text(source.kind) ?? text(source.status)
+  const explicitDecision = explicitDecisionStillApplies({
+    decision: latestIdentityDecision(input.decisions ?? []),
+    sourceKind,
+    candidates: normalizedCandidates,
+  })
+  const automaticDecision = explicitDecision
+    ? null
+    : automaticIdentityDecision({
+        sourceKind,
+        candidates: normalizedCandidates,
+      })
+  const decision = explicitDecision ?? automaticDecision
   const requiresConfirmation =
     decision === null &&
     (source.requiresConfirmation === true ||
       (typeof sourceKind === 'string' && sourceKind.includes('REVIEW')) ||
-      sourceKind === 'MATCH_SUGGESTED' ||
-      sourceKind === 'AMBIGUOUS' ||
-      sourceKind === 'NEW')
+      sourceKind === 'AMBIGUOUS')
 
   return {
     kind: sourceKind,
@@ -163,7 +233,7 @@ export function importerV2WorkspaceIdentityReview(input: {
     selectedDecision: decision?.kind ?? null,
     selectedCanonicalDeviceId: decision?.canonicalDeviceId ?? null,
     explanation: text(source.explanation),
-    candidates: candidates(source),
+    candidates: normalizedCandidates,
     options: stringList(source.options),
   }
 }
@@ -172,5 +242,8 @@ export function importerV2WorkspaceIdentityNeedsReview(input: {
   identityResolution: unknown
   decisions?: readonly WorkspaceDecision[]
 }) {
-  return importerV2WorkspaceIdentityReview(input)?.requiresConfirmation ?? false
+  const review = importerV2WorkspaceIdentityReview(input)
+  return Boolean(
+    review && (review.requiresConfirmation || review.kind === 'INVALID'),
+  )
 }

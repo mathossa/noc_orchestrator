@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
+  deviceFindMany: vi.fn(),
   findFirst: vi.fn(),
   transaction: vi.fn(),
   snapshotCreate: vi.fn(),
@@ -14,7 +15,10 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     importerV2DeviceCrosswalk: { findMany: mocks.findMany },
     importerV2SourceSnapshot: { findFirst: mocks.findFirst },
-    device: { update: mocks.deviceUpdate },
+    device: {
+      findMany: mocks.deviceFindMany,
+      update: mocks.deviceUpdate,
+    },
     $transaction: mocks.transaction,
   },
 }))
@@ -28,6 +32,7 @@ import {
 describe('Importer v2 identity persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.deviceFindMany.mockResolvedValue([])
     mocks.transaction.mockImplementation(async (callback) =>
       callback({
         importerV2SourceSnapshot: { create: mocks.snapshotCreate },
@@ -37,7 +42,7 @@ describe('Importer v2 identity persistence', () => {
     )
   })
 
-  it('queries provider crosswalks only by normalized durable identity signals', async () => {
+  it('queries provider crosswalks only by normalized durable identity signals and returns canonical context', async () => {
     mocks.findMany.mockResolvedValue([
       {
         id: 'crosswalk-1',
@@ -45,6 +50,25 @@ describe('Importer v2 identity persistence', () => {
         sourceId: 'Auvik-1',
         serialNumber: 'cn123',
         macAddress: 'aa-bb-cc-dd-ee-ff',
+      },
+    ])
+    mocks.deviceFindMany.mockResolvedValue([
+      {
+        id: 'device-1',
+        name: 'SW-ZWOLLE-01',
+        hostname: 'sw-zwolle-01.example',
+        customer: { name: 'Example customer' },
+        site: {
+          name: 'Zwolle',
+          organizationUnit: { name: 'Operations' },
+        },
+        deviceModel: {
+          model: 'CX6200-24G',
+          platform: 'AOS-CX',
+          vendor: { name: 'Aruba' },
+          deviceType: { name: 'Switch' },
+          family: { name: '6200' },
+        },
       },
     ])
 
@@ -69,7 +93,25 @@ describe('Importer v2 identity persistence', () => {
       },
       orderBy: [{ canonicalDeviceId: 'asc' }, { id: 'asc' }],
     })
-    expect(result[0]).toMatchObject({ canonicalDeviceId: 'device-1' })
+    expect(mocks.deviceFindMany).toHaveBeenCalledWith({
+      where: { id: { in: ['device-1'] } },
+      select: expect.any(Object),
+    })
+    expect(result[0]).toMatchObject({
+      canonicalDeviceId: 'device-1',
+      context: {
+        deviceName: 'SW-ZWOLLE-01',
+        hostname: 'sw-zwolle-01.example',
+        customer: 'Example customer',
+        businessUnit: 'Operations',
+        site: 'Zwolle',
+        vendor: 'Aruba',
+        productFamily: '6200',
+        deviceType: 'Switch',
+        model: 'CX6200-24G',
+        softwarePlatform: 'AOS-CX',
+      },
+    })
   })
 
   it('loads the latest successful source snapshot independent of workbook filename', async () => {

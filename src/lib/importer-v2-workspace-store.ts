@@ -96,11 +96,6 @@ export async function stageImporterV2Workspace(input: {
   evaluationFingerprint: string
   rows: readonly ImporterV2WorkspaceSeedRow[]
 }) {
-  const existing = await prisma.importerV2WorkspaceBatch.findUnique({
-    where: { evaluationFingerprint: input.evaluationFingerprint },
-  })
-  if (existing) return existing
-
   return prisma.$transaction(async (tx) => {
     const batch = await tx.importerV2WorkspaceBatch.create({
       data: {

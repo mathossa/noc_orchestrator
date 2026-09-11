@@ -1,0 +1,58 @@
+// Canonical logical-device topology. A Device remains the operational firmware /
+// planning target; physical HA/stack members are retained here for compatibility
+// and hardware evidence without turning every member into a separately managed Device.
+model DeviceTopology {
+  id              String   @id @default(uuid())
+  deviceId        String   @unique
+  kind            String   @default("STACK")
+  provider        String?
+  sourceAdapterId String?
+  sourceGroupKey  String?
+  sourceMetadata  Json?
+  lastSeenAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  members DeviceTopologyMember[]
+
+  @@index([kind])
+  @@index([provider, sourceGroupKey])
+  @@index([lastSeenAt])
+}
+
+model DeviceTopologyMember {
+  id         String @id @default(uuid())
+  topologyId String
+  position   Int
+
+  name             String?
+  hostname         String?
+  serialNumber     String?
+  macAddress       String?
+  deviceModelId    String
+  firmwareReleaseId String?
+
+  rawFirmwareVersion      String?
+  rawSoftwareVersion      String?
+  normalizedFirmwareVersion String?
+  firmwareEvidence        Json?
+
+  provider        String?
+  sourceAdapterId String?
+  sourceId        String?
+  sourceMetadata  Json?
+  isActive        Boolean  @default(true)
+  lastSeenAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  topology DeviceTopology @relation(fields: [topologyId], references: [id], onDelete: Cascade)
+
+  @@unique([topologyId, position])
+  @@index([deviceModelId])
+  @@index([firmwareReleaseId])
+  @@index([provider, sourceId])
+  @@index([serialNumber])
+  @@index([macAddress])
+  @@index([isActive])
+}

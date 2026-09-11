@@ -146,6 +146,29 @@ export function normalizeImporterV2Identity(
   }
 }
 
+/**
+ * Keep the durable values reported by the source as crosswalk aliases. A manual
+ * correction changes the canonical Device field, not the identity alias that
+ * the source will report again on the next import. When the source omitted an
+ * identifier entirely, an explicitly supplied effective value may seed it.
+ */
+export function importerV2SourceIdentityForCrosswalk(input: {
+  rawIdentifiers: ImporterV2IdentityIdentifiers
+  effectiveIdentifiers: ImporterV2IdentityIdentifiers
+}): { sourceId: string | null; serialNumber: string | null; macAddress: string | null } {
+  return {
+    sourceId:
+      normalizeText(input.rawIdentifiers.sourceId) ??
+      normalizeText(input.effectiveIdentifiers.sourceId),
+    serialNumber:
+      normalizeText(input.rawIdentifiers.serialNumber) ??
+      normalizeText(input.effectiveIdentifiers.serialNumber),
+    macAddress:
+      normalizeText(input.rawIdentifiers.macAddress) ??
+      normalizeText(input.effectiveIdentifiers.macAddress),
+  }
+}
+
 function contextDifferences(
   source: ImporterV2IdentityContext | undefined,
   candidate: ImporterV2IdentityContext | undefined,
@@ -192,16 +215,26 @@ function candidateSignals(
   })
 }
 
-function candidateConfidence(signals: readonly ImporterV2IdentitySignal[]) {
+function candidateConfidence(
+  signals: readonly ImporterV2IdentitySignal[],
+  candidate: ImporterV2IdentityCandidate,
+) {
   const agreed = signals.filter((signal) => signal.status === 'AGREE')
   const disagreed = signals.filter((signal) => signal.status === 'DISAGREE')
+
+  // A genuine provider-scoped device ID is the strongest durable signal and
+  // may remain authoritative when a stale serial/MAC changed. Auvik XLSX does
+  // not supply such an ID; its Site ID is filtered before identity resolution.
+  if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
   if (disagreed.length > 0) return 'LOW' as const
-  if (
-    agreed.some((signal) => signal.kind === 'SOURCE_ID') ||
-    agreed.length >= 2
-  ) {
-    return 'HIGH' as const
-  }
+  if (agreed.length >= 2) return 'HIGH' as const
+
+  // A unique serial/MAC match to a persisted crosswalk is not a fresh guess:
+  // publication previously confirmed that raw source alias for this canonical
+  // device. Reuse it automatically on later imports instead of making the
+  // engineer reconfirm the same source imperfection every time.
+  if (candidate.crosswalkId && agreed.length === 1) return 'HIGH' as const
+
   return 'MEDIUM' as const
 }
 
@@ -216,7 +249,7 @@ function candidateExplanation(signals: readonly ImporterV2IdentitySignal[]) {
   if (disagreed.length === 0) {
     return `Durable identity agreement: ${agreedText}. Context fields did not affect confidence.`
   }
-  return `Durable identity agreement: ${agreedText}; conflicting durable identifiers: ${disagreed.join(', ')}.`
+  return `Durable identity agreement: ${agreedText}; changed or stale source identifiers: ${disagreed.join(', ')}.`
 }
 
 export function resolveImporterV2Identity(
@@ -245,7 +278,7 @@ export function resolveImporterV2Identity(
       return {
         canonicalDeviceId: candidate.canonicalDeviceId,
         crosswalkId: candidate.crosswalkId ?? null,
-        confidence: candidateConfidence(signals),
+        confidence: candidateConfidence(signals, candidate),
         requiresConfirmation: true as const,
         signals,
         contextDifferences: contextDifferences(source.context, candidate.context),
@@ -264,19 +297,27 @@ export function resolveImporterV2Identity(
   if (matchedCandidates.length === 0) {
     return {
       kind: 'NEW',
-      requiresConfirmation: true,
+      requiresConfirmation: false,
       normalizedIdentifiers,
       candidates: [],
       options: ['CREATE_NEW', 'MANUAL_OVERRIDE'],
       explanation:
-        'No canonical device is supported by the supplied durable identifiers. Creating a new device still requires confirmation.',
+        'No canonical device is supported by the supplied durable identifiers. The row can be proposed as a new device without per-row confirmation; final batch publication remains explicit.',
     }
   }
 
+  const onlyCandidate = matchedCandidates.length === 1 ? matchedCandidates[0] : null
+  const uniqueProviderSourceIdAgreement = Boolean(
+    onlyCandidate?.signals.some(
+      (signal) => signal.kind === 'SOURCE_ID' && signal.status === 'AGREE',
+    ),
+  )
   const hasDurableConflict = matchedCandidates.some((candidate) =>
     candidate.signals.some((signal) => signal.status === 'DISAGREE'),
   )
-  const ambiguous = matchedCandidates.length > 1 || hasDurableConflict
+  const ambiguous =
+    matchedCandidates.length > 1 ||
+    (hasDurableConflict && !uniqueProviderSourceIdAgreement)
 
   if (ambiguous) {
     return {
@@ -292,14 +333,24 @@ export function resolveImporterV2Identity(
     }
   }
 
+  const candidate = matchedCandidates[0]
+  const automaticallyTrusted = candidate.confidence === 'HIGH'
+  const hasChangedIdentifiers = candidate.signals.some(
+    (signal) => signal.status === 'DISAGREE',
+  )
   return {
     kind: 'MATCH_SUGGESTED',
-    requiresConfirmation: true,
+    requiresConfirmation: !automaticallyTrusted,
     normalizedIdentifiers,
     candidates: matchedCandidates,
     options: ['CONFIRM_MATCH', 'CREATE_NEW', 'MANUAL_OVERRIDE'],
-    explanation:
-      'One canonical device is supported by durable identity evidence. The suggestion still requires confirmation.',
+    explanation: automaticallyTrusted
+      ? hasChangedIdentifiers && uniqueProviderSourceIdAgreement
+        ? 'One canonical device is uniquely supported by the provider Source ID. Other source identifiers changed but do not resolve to another canonical device, so the confirmed Source ID match is reused automatically.'
+        : candidate.crosswalkId
+          ? 'One canonical device is supported by a previously confirmed source-identity crosswalk. The same raw serial/MAC alias is reused automatically; final batch publication remains explicit.'
+          : 'One canonical device is supported by high-confidence durable identity evidence. The match can be reused automatically; final batch publication remains explicit.'
+      : 'One canonical device is supported by durable identity evidence, but the evidence is not strong enough for automatic reuse and still requires confirmation.',
   }
 }
 

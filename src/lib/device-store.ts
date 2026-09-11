@@ -281,9 +281,9 @@ async function assertReferences(input: ReturnType<typeof parseDeviceInput>) {
   }
 
   const compatibility = await evaluateModelFirmwareCompatibility(model.id, release.id)
-  if (compatibility.status !== 'COMPATIBLE') {
+  if (compatibility.status === 'INCOMPATIBLE') {
     throw new DeviceReferenceError(
-      `Current firmware cannot be canonically linked because compatibility is ${compatibility.status.toLowerCase()}: ${compatibility.provenance.explanation} Preserve the raw reported version without a release link, or add an audited compatibility override.`,
+      `Current firmware cannot be canonically linked because compatibility is incompatible: ${compatibility.provenance.explanation} Correct the model/release selection or add an audited compatibility override before linking it.`,
     )
   }
 }

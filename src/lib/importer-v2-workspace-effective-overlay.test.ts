@@ -98,6 +98,96 @@ describe('Importer v2 effective reconciliation overlay', () => {
     expect(result.resolvedIssues).toEqual([modelError])
   })
 
+  it('turns explicit observed firmware verification into a row-scoped publication compatibility override', () => {
+    const result = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: {
+        issues: [firmwareWarning],
+        proposedCanonicalValues: {
+          currentFirmware: { id: null, label: '15.2(7)E2' },
+          softwarePlatform: { id: null, label: 'IOS' },
+        },
+        firmware: {
+          runningVersion: '15.2(7)E2',
+          proposedSoftwarePlatform: 'IOS',
+          compatibility: {
+            status: 'UNKNOWN',
+            ruleId: null,
+            allowedPlatforms: [],
+            explanation: 'No model-platform rule exists.',
+          },
+          warnings: [],
+        },
+      },
+      inclusion: 'INCLUDED',
+      decisions: [
+        {
+          field: 'currentFirmware',
+          action: 'VERIFY_OBSERVED_FIRMWARE',
+          value: {
+            runningVersion: '15.2(7)E2',
+            softwarePlatform: 'IOS',
+            originalCompatibilityStatus: 'UNKNOWN',
+            verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+          },
+          explanation: 'Engineer verified observed current firmware.',
+        },
+      ],
+    })
+
+    expect(result.activeWarningCount).toBe(0)
+    expect(result.resolvedIssues).toEqual([firmwareWarning])
+    expect(result.evaluated.firmware).toMatchObject({
+      runningVersion: '15.2(7)E2',
+      proposedSoftwarePlatform: 'IOS',
+      observedVerification: {
+        status: 'VERIFIED',
+        scope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+        originalCompatibilityStatus: 'UNKNOWN',
+      },
+      compatibility: {
+        status: 'COMPATIBLE',
+        ruleId: 'engineer-observed-current-firmware-verification',
+      },
+    })
+  })
+
+  it('does not let a verification decision overwrite an incompatible firmware interpretation', () => {
+    const result = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: {
+        proposedCanonicalValues: {
+          currentFirmware: { id: null, label: '17.12.5' },
+          softwarePlatform: { id: null, label: 'IOS-XE' },
+        },
+        firmware: {
+          runningVersion: '17.12.5',
+          proposedSoftwarePlatform: 'IOS-XE',
+          compatibility: {
+            status: 'INCOMPATIBLE',
+            explanation: 'Explicit incompatible model/platform rule.',
+          },
+          warnings: [],
+        },
+      },
+      inclusion: 'INCLUDED',
+      decisions: [
+        {
+          field: 'currentFirmware',
+          action: 'VERIFY_OBSERVED_FIRMWARE',
+          value: {
+            runningVersion: '17.12.5',
+            softwarePlatform: 'IOS-XE',
+            originalCompatibilityStatus: 'INCOMPATIBLE',
+            verificationScope: 'OBSERVED_CURRENT_FIRMWARE_ONLY',
+          },
+        },
+      ],
+    })
+
+    expect(result.evaluated.firmware).toMatchObject({
+      compatibility: { status: 'INCOMPATIBLE' },
+    })
+  })
+
   it('puts the exact before-to-after change in the preview confirmation reasons', () => {
     const preview: ImporterV2WorkspaceActionPreview = {
       scopeToken: 'scope',

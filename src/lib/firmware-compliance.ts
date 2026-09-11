@@ -112,13 +112,18 @@ export function resolveFirmwareCompliance(
       'INCOMPATIBLE',
       input.currentCompatibility.provenance.explanation,
     )
-  if (!current)
+  if (!current) {
+    if (input.rawVersion) {
+      return finish(
+        'NOT_COMPARABLE',
+        `Observed current firmware “${input.rawVersion}” is recorded, but its canonical catalog association is unresolved. The running version is known; only catalog enrichment/comparison requires review.`,
+      )
+    }
     return finish(
       'UNKNOWN_FIRMWARE',
-      input.rawVersion
-        ? `Raw observation “${input.rawVersion}” has no reliable canonical release link.`
-        : 'No canonical current firmware is recorded.',
+      'No observed current firmware is recorded.',
     )
+  }
   if (!policy)
     return finish(
       'NO_POLICY',
