@@ -160,6 +160,24 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     expect(row.statuses).not.toContain('NEEDS_REVIEW')
   })
 
+  it('still requires review when source firmware is present but unparseable', () => {
+    const input = baseInput()
+    input.rows[0].rawValues.firmwareVersion = 'vendor-private-build-without-version'
+    input.rows[0].rawValues.softwareVersion = null
+    input.rows[0].rawValues.softwarePlatform = 'Meraki MR'
+    input.rows[0].rawValues.vendor = 'Cisco Meraki'
+    input.rows[0].rawValues.model = 'MR44'
+
+    const row = evaluateImporterV2WithFirmware(input).rows[0]
+
+    expect(row.firmware.runningVersion).toBeNull()
+    expect(row.firmware.warnings).toContainEqual(
+      expect.objectContaining({ code: 'UNPARSEABLE_VERSION' }),
+    )
+    expect(row.statuses).toContain('WARNING')
+    expect(row.statuses).toContain('NEEDS_REVIEW')
+  })
+
   it('uses the interpreted platform to satisfy a required software platform', () => {
     const input = baseInput()
     input.profile.requiredFields = ['softwarePlatform']
