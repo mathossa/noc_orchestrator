@@ -146,8 +146,8 @@ export function resolveFirmwareCompliance(
     return compareFirmwareVersions({
       vendorKey: current.vendorId,
       platform: current.platform,
-      leftVersion: current.version,
-      rightVersion: right.version,
+      leftVersion: current.logicalVersion,
+      rightVersion: right.logicalVersion,
     }).result
   }
   const preferredOrder = compare(preferred)
