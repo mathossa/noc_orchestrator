@@ -81,15 +81,16 @@ describe('central firmware compliance', () => {
       )
     },
   )
-  it('preserves raw observations without inventing canonical identity', () => {
+  it('preserves raw observations as known running firmware without inventing canonical identity', () => {
     expect(
       resolveFirmwareCompliance(
         input('', { currentFirmware: null, rawVersion: 'raw-opaque' }),
       ),
     ).toMatchObject({
-      compliance: 'UNKNOWN_FIRMWARE',
+      compliance: 'NOT_COMPARABLE',
       rawVersion: 'raw-opaque',
       recommendation: 'REVIEW_REQUIRED',
+      explanation: expect.stringContaining('running version is known'),
     })
   })
   it('exposes the policy resolver reason', () => {
