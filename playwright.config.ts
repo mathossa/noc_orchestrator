@@ -19,8 +19,9 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev -- --hostname 127.0.0.1 --port 3100',
-    url: baseURL,
+    url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 120_000,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
   },
 })
