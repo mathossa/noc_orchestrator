@@ -19,6 +19,10 @@ try {
     if (!value) throw new Error('Usage: jobs:demo -- inspect <job-id>')
     const job = await system.inspect('example.some-job', value)
     console.info(JSON.stringify(job, null, 2))
+  } else if (command === 'cancel') {
+    if (!value) throw new Error('Usage: jobs:demo -- cancel <job-id>')
+    await system.cancel('example.some-job', value)
+    console.info(JSON.stringify({ command, jobId: value }, null, 2))
   } else if (command === 'schedule') {
     const key = value?.trim() || 'demo-schedule'
     await system.scheduleRecurring(
@@ -34,7 +38,7 @@ try {
     console.info(JSON.stringify({ command, key }, null, 2))
   } else {
     throw new Error(
-      `Unknown command ${command}. Use enqueue, inspect, schedule, or unschedule.`,
+      `Unknown command ${command}. Use enqueue, inspect, cancel, schedule, or unschedule.`,
     )
   }
 } finally {
