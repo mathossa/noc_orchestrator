@@ -58,7 +58,12 @@ export interface WorkerOptions {
 
 export interface JobLogEvent {
   component: 'background-job'
-  event: 'started' | 'succeeded' | 'failed' | 'queue-error' | 'queue-warning'
+  event:
+    | 'started'
+    | 'succeeded'
+    | 'failed'
+    | 'queue-error'
+    | 'queue-warning'
   jobName?: JobName
   jobId?: string
   correlationKey?: string | null
@@ -106,14 +111,20 @@ export class JobSystem {
       logger({
         component: 'background-job',
         event: 'queue-warning',
-        error: JSON.stringify(warning),
+        error: warning instanceof Error ? warning.message : String(warning),
       })
     })
 
     await boss.start()
     const system = new JobSystem(boss, logger)
-    await system.ensureQueues()
-    return system
+
+    try {
+      await system.ensureQueues()
+      return system
+    } catch (error) {
+      await boss.stop({ graceful: false }).catch(() => undefined)
+      throw error
+    }
   }
 
   async enqueue<N extends JobName>(
@@ -160,8 +171,8 @@ export class JobSystem {
   }
 
   async cancel<N extends JobName>(name: N, jobId: string): Promise<void> {
-    // pg-boss cancellation is best-effort for active work. It changes queue state;
-    // it cannot make arbitrary handler side effects instantly cancellable.
+    // pg-boss can move queued/active jobs to cancelled state, but cancellation
+    // cannot undo arbitrary side effects an active handler already performed.
     await this.boss.cancel(name, jobId)
   }
 
@@ -198,8 +209,8 @@ export class JobSystem {
   }
 
   async stop(timeout = 30_000): Promise<void> {
-    // pg-boss stops polling first, then waits for active handlers before closing
-    // its own pool. This is the worker's graceful intake/shutdown boundary.
+    // pg-boss stops worker polling first, then waits for active handlers before
+    // closing its own pool. This is the graceful intake/shutdown boundary.
     await this.boss.stop({ graceful: true, timeout })
   }
 
@@ -299,6 +310,7 @@ export class JobSystem {
 }
 
 export function defaultJobLogger(event: JobLogEvent): void {
-  const method = event.event === 'failed' || event.event === 'queue-error' ? 'error' : 'info'
+  const method =
+    event.event === 'failed' || event.event === 'queue-error' ? 'error' : 'info'
   console[method](JSON.stringify(event))
 }
