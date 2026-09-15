@@ -23,6 +23,8 @@ next-env.d.ts
 
 # tests / coverage
 /coverage
+/playwright-report
+/test-results
 
 # logs
 *.log

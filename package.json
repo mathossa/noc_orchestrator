@@ -16,6 +16,8 @@
     "format:check": "prettier . --check",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "node scripts/run-playwright-tests.mjs",
     "benchmark:importer-v2": "vitest bench --run src/lib/importer-v2-baseline.bench.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
@@ -35,7 +37,9 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
+    "@testcontainers/postgresql": "12.1.0",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { configDefaults, defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -8,6 +8,8 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [...configDefaults.exclude, '**/*.integration.test.ts'],
+    include: ['**/*.integration.test.ts'],
+    hookTimeout: 120_000,
+    testTimeout: 120_000,
   },
 })
