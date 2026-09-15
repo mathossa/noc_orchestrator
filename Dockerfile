@@ -12,6 +12,7 @@ COPY . .
 ARG DATABASE_URL=postgresql://build:build@localhost:5432/build
 ENV DATABASE_URL=${DATABASE_URL}
 RUN npm run prisma:generate
+RUN npm run worker:build
 RUN npm run build
 
 FROM base AS migrator
@@ -37,3 +38,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
+
+FROM node:24-alpine AS worker
+WORKDIR /app
+ENV NODE_ENV=production
+
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 worker
+
+COPY --from=deps --chown=worker:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=worker:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=worker:nodejs /app/.worker-dist ./.worker-dist
+
+USER worker
+CMD ["node", ".worker-dist/scripts/background-worker.js"]
