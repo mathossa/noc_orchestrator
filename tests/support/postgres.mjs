@@ -2,12 +2,14 @@
 
 import { spawn } from 'node:child_process'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
 
 const POSTGRES_IMAGE = 'postgres:17-alpine'
 const TEST_DATABASE = 'noc_orchestrator_test'
 const TEST_USERNAME = 'noc_orchestrator_test'
 const TEST_PASSWORD = 'noc_orchestrator_test'
+const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -16,7 +18,7 @@ function npmCommand() {
 function runCommand(command, args, env) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: process.cwd(),
+      cwd: REPOSITORY_ROOT,
       env,
       stdio: 'inherit',
     })
