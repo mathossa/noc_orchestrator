@@ -42,8 +42,8 @@ export const JOB_DEFINITIONS: Record<JobName, JobDefinition> = {
       retryDelay: 1,
       retryBackoff: true,
       expireInSeconds: 60,
-      retentionSeconds: 60 * 60,
-      deleteAfterSeconds: 24 * 60 * 60,
+      retentionSeconds: 14 * 24 * 60 * 60,
+      deleteAfterSeconds: 7 * 24 * 60 * 60,
     },
   },
 }
@@ -58,7 +58,11 @@ export function parseJobPayload<N extends JobName>(
 ): JobPayloadMap[N] {
   switch (name) {
     case 'example.some-job': {
-      if (!isRecord(value) || value.version !== 1 || !isNonEmptyString(value.marker)) {
+      if (
+        !isRecord(value) ||
+        value.version !== 1 ||
+        !isNonEmptyString(value.marker)
+      ) {
         throw new Error('Invalid payload for example.some-job')
       }
 
