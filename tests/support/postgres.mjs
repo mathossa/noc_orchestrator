@@ -3,9 +3,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
-import pg from 'pg'
 
-const { Client } = pg
 const POSTGRES_IMAGE = 'postgres:17-alpine'
 const TEST_DATABASE = 'noc_orchestrator_test'
 const TEST_USERNAME = 'noc_orchestrator_test'
@@ -48,41 +46,10 @@ async function applyPrismaMigrations(databaseUrl) {
   })
 }
 
-async function withClient(databaseUrl, work) {
-  const client = new Client({ connectionString: databaseUrl })
-  await client.connect()
-  try {
-    return await work(client)
-  } finally {
-    await client.end()
-  }
-}
-
-async function resetDatabase(databaseUrl) {
-  await withClient(databaseUrl, async (client) => {
-    await client.query(`
-      DO $$
-      DECLARE
-        tables_to_truncate text;
-      BEGIN
-        SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
-          INTO tables_to_truncate
-          FROM pg_tables
-         WHERE schemaname = 'public'
-           AND tablename <> '_prisma_migrations';
-
-        IF tables_to_truncate IS NOT NULL THEN
-          EXECUTE 'TRUNCATE TABLE ' || tables_to_truncate || ' RESTART IDENTITY CASCADE';
-        END IF;
-      END $$;
-    `)
-  })
-}
-
 /**
  * Starts a disposable PostgreSQL matching local development, applies the real
- * Prisma migration history, and returns only the small lifecycle operations
- * integration/E2E tests need.
+ * Prisma migration history, then snapshots that migrated baseline so tests can
+ * reset without maintaining a second database-cleanup implementation.
  */
 export async function startPostgresTestDatabase() {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE)
@@ -96,6 +63,7 @@ export async function startPostgresTestDatabase() {
 
   try {
     await applyPrismaMigrations(databaseUrl)
+    await container.snapshot()
   } catch (error) {
     await container.stop()
     throw error
@@ -104,10 +72,10 @@ export async function startPostgresTestDatabase() {
   return {
     databaseUrl,
     async reset() {
-      await resetDatabase(databaseUrl)
+      await container.restoreSnapshot()
     },
     async seed(seed) {
-      return withClient(databaseUrl, seed)
+      return seed(databaseUrl)
     },
     async stop() {
       if (stopped) return
