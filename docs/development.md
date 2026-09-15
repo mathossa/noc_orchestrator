@@ -140,6 +140,23 @@ npm run build
 npm run format:check
 ```
 
+`npm test` remains the fast Vitest unit/domain suite and intentionally excludes `*.integration.test.ts` files.
+
+Real PostgreSQL integration tests use Testcontainers. They start a fresh `postgres:17-alpine` container, apply the committed Prisma migration history, and remove the container when the test run ends. A separately running `npm run db:up` database is not required, but the Docker daemon must be available.
+
+```bash
+npm run test:integration
+```
+
+Browser/E2E tests use Playwright with the same disposable PostgreSQL foundation. Install the Chromium browser once after installing dependencies, then run the smoke suite:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+The E2E runner starts a fresh migrated PostgreSQL container and lets Playwright start the Next.js development server on `127.0.0.1:3100`; it does not use the normal local development database.
+
 Issue #16 expands and hardens the final release validation process.
 
 ### Importer v2 baseline
