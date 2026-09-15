@@ -20,18 +20,22 @@ function runPlaywright(databaseUrl) {
       },
     )
 
-    const forwardSignal = (signal) => child.kill(signal)
-    process.once('SIGINT', forwardSignal)
-    process.once('SIGTERM', forwardSignal)
+    const forwardSigint = () => child.kill('SIGINT')
+    const forwardSigterm = () => child.kill('SIGTERM')
+    const removeSignalHandlers = () => {
+      process.off('SIGINT', forwardSigint)
+      process.off('SIGTERM', forwardSigterm)
+    }
+
+    process.once('SIGINT', forwardSigint)
+    process.once('SIGTERM', forwardSigterm)
 
     child.once('error', (error) => {
-      process.off('SIGINT', forwardSignal)
-      process.off('SIGTERM', forwardSignal)
+      removeSignalHandlers()
       reject(error)
     })
     child.once('exit', (code, signal) => {
-      process.off('SIGINT', forwardSignal)
-      process.off('SIGTERM', forwardSignal)
+      removeSignalHandlers()
       if (code === 0) resolve()
       else if (signal) reject(new Error(`Playwright exited on ${signal}`))
       else reject(new Error(`Playwright exited with code ${code ?? 'unknown'}`))
