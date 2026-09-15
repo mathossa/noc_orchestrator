@@ -29,7 +29,7 @@ async function waitFor<T>(
   return latest
 }
 
-describe.skipIf(!databaseUrl).sequential(
+describe.skipIf(!databaseUrl)(
   'pg-boss PostgreSQL background-job foundation',
   () => {
     const running = new Set<JobSystem>()
@@ -107,6 +107,20 @@ describe.skipIf(!databaseUrl).sequential(
       })
     })
 
+    it('cancels queued work without pretending active side effects are reversible', async () => {
+      const system = await start()
+      const submitted = await system.enqueue(
+        'example.some-job',
+        { version: 1, marker: `cancel-${randomUUID()}` },
+        { startAfter: 60 },
+      )
+
+      await system.cancel('example.some-job', submitted.jobId!)
+      const cancelled = await system.inspect('example.some-job', submitted.jobId!)
+
+      expect(cancelled?.state).toBe('cancelled')
+    })
+
     it('retries a failed handler and then completes', async () => {
       const system = await start()
       const marker = `retry-${randomUUID()}`
@@ -180,7 +194,9 @@ describe.skipIf(!databaseUrl).sequential(
         { key: scheduleKey, correlationKey: scheduleKey },
       )
 
-      expect(await system.getSchedule('example.some-job', scheduleKey)).toMatchObject({
+      expect(
+        await system.getSchedule('example.some-job', scheduleKey),
+      ).toMatchObject({
         name: 'example.some-job',
         key: scheduleKey,
       })
