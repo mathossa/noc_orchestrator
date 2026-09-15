@@ -66,6 +66,57 @@ npm run prisma:deploy
 
 Applied migration files are immutable. Make future database changes through new forward migrations. Production rollback should use a backup/restore plan or a deliberate compensating forward migration rather than editing or deleting an applied migration.
 
+## Background jobs
+
+Background jobs use `pg-boss` against the same PostgreSQL database configured by `DATABASE_URL`. pg-boss manages its own `pgboss` schema; Prisma migrations remain authoritative only for NOC Orchestrator domain tables.
+
+Run the normal application and worker in separate terminals:
+
+```bash
+npm run dev
+npm run worker
+```
+
+The worker registers only known typed handlers and shuts down gracefully on `SIGINT`/`SIGTERM`. Structured JSON logs include the job name, queue job ID, correlation key, attempt, duration, and success/failure classification without logging full payloads.
+
+The harmless demonstration job can prove durable enqueue/worker/output behavior:
+
+```bash
+npm run jobs:demo -- enqueue local-check
+# Copy the returned jobId after the worker handles it:
+npm run jobs:demo -- inspect <job-id>
+```
+
+A recurring demonstration schedule can be registered and removed without a custom cron table:
+
+```bash
+npm run jobs:demo -- schedule local-demo
+npm run jobs:demo -- unschedule local-demo
+```
+
+The demonstration queue performs no firmware/device action. Queue presence or delivery is never firmware execution authorization; future execution remains behind the explicit approval and safety model from Issue #82.
+
+### Background-job PostgreSQL tests
+
+Unit tests run normally through `npm test`. The meaningful pg-boss integration tests require a disposable PostgreSQL database and intentionally opt in through `JOB_TEST_DATABASE_URL` until Issue #98's shared Testcontainers foundation is available.
+
+For the existing local PostgreSQL container, create a disposable test database once:
+
+```bash
+docker exec noc-orchestrator-postgres \
+  psql -U noc_orchestrator -d postgres \
+  -c 'CREATE DATABASE noc_orchestrator_job_test;'
+```
+
+Then run:
+
+```bash
+JOB_TEST_DATABASE_URL='postgresql://noc_orchestrator:noc_orchestrator_dev@localhost:5433/noc_orchestrator_job_test' \
+  npm run test:jobs
+```
+
+The tests use an isolated random pg-boss schema and cover enqueue/execution across restart, idempotent duplicate submission, retry, terminal failure, recurring scheduling, and graceful worker shutdown. They do not need Prisma domain fixtures because #99 intentionally does not mutate domain state.
+
 ## Authentication bootstrap
 
 Public email/password registration is disabled. Local users are created administratively.
@@ -96,7 +147,7 @@ MFA must be enforced by the organization's Entra Conditional Access/authenticati
 
 Normal development intentionally runs Next.js natively and only PostgreSQL in Docker for the fastest feedback loop.
 
-Production uses separate application and PostgreSQL containers. The database is not published to a host port by `compose.production.yml`; it is only reachable on the internal Compose network.
+Production uses application and PostgreSQL containers from the same repository/codebase. The database is not published to a host port by `compose.production.yml`; it is only reachable on the internal Compose network.
 
 Create a production environment file from the example and replace every placeholder/secret:
 
@@ -116,11 +167,12 @@ Start the production stack with:
 docker compose --env-file .env.production -f compose.production.yml up -d --build
 ```
 
-The production stack contains three roles:
+The production image exposes these roles from the same codebase:
 
 - `postgres`: persistent PostgreSQL database
-- `migrate`: one-shot Prisma migration job that must succeed before the application starts
+- `migrate`: one-shot Prisma migration job that must succeed before application startup
 - `app`: small Next.js standalone runtime container
+- `worker` Docker target: the Node pg-boss worker process for deployments that enable background-job consumption
 
 Check status with:
 
@@ -133,10 +185,14 @@ docker compose --env-file .env.production -f compose.production.yml ps
 These commands exist to catch breakage, but early MVP work intentionally avoids a large mandatory validation pipeline:
 
 ```bash
+npm run prisma:generate
+npx prisma validate
 npm run typecheck
 npm run lint
 npm test
+npm run test:jobs
 npm run build
+npm run worker:build
 npm run format:check
 ```
 
