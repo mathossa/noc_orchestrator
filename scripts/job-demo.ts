@@ -3,6 +3,7 @@ import { JobSystem } from '../src/jobs/job-system.js'
 const [command = 'enqueue', value] = process.argv.slice(2)
 const system = await JobSystem.start({
   applicationName: 'noc-orchestrator-job-demo',
+  schedule: false,
 })
 
 try {
