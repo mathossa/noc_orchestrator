@@ -10,6 +10,8 @@ CURRENT STATE -> DESIRED STATE
 
 NOC Orchestrator is not a general-purpose network monitoring platform. It is focused on firmware state, policy, planning, lifecycle decisions, reporting, and later controlled firmware orchestration.
 
+See [docs/vision.md](docs/vision.md) for the product direction and reuse-first principle.
+
 ## v0.1.0 architecture
 
 The MVP intentionally uses a small single-application stack:
