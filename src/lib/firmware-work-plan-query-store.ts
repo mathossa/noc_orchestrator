@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { FirmwareWorkPlanTarget, Prisma } from '@/generated/prisma/client'
+import type {
+  DeviceWorkPlanReference,
+  DeviceWorkPlanningProjection,
+} from '@/lib/devices'
 import { prisma } from '@/lib/prisma'
 import { resolveFirmwareWorkPlanLiveTargets } from '@/lib/firmware-work-plan-live'
 import {
@@ -289,18 +293,7 @@ export async function resolveDeviceWorkPlanning(
         orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       })
     : []
-  type PlanReference = (typeof records)[number]['plan'] & {
-    targetId: string
-    state: FirmwareWorkPlanState
-  }
-  type Projection = {
-    deviceId: string
-    planned: boolean
-    state: FirmwareWorkPlanState | 'NOT_PLANNED'
-    activePlans: PlanReference[]
-    history: PlanReference[]
-  }
-  const result = new Map<string, Projection>(
+  const result = new Map<string, DeviceWorkPlanningProjection>(
     ids.map((deviceId) => [
       deviceId,
       {
@@ -315,7 +308,7 @@ export async function resolveDeviceWorkPlanning(
   for (const row of records) {
     const projection = result.get(row.deviceId)!
     const state = planState(row.plan.state)
-    const reference = {
+    const reference: DeviceWorkPlanReference = {
       ...row.plan,
       state,
       proposedFor: row.plan.proposedFor?.toISOString() ?? null,
