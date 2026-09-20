@@ -4,10 +4,7 @@ import {
   FirmwareWorkPlanTransitionError,
   type FirmwareWorkPlanState,
 } from '@/lib/firmware-work-planning'
-import {
-  FirmwareWorkPlanError,
-  type TransitionFirmwareWorkPlanInput,
-} from '@/lib/firmware-work-plan-store'
+import type { TransitionFirmwareWorkPlanInput } from '@/lib/firmware-work-plan-store'
 import type { FirmwareWorkPlanQuery } from '@/lib/firmware-work-plan-query-store'
 
 export class FirmwareWorkPlanApiValidationError extends Error {
@@ -259,7 +256,12 @@ export function firmwareWorkPlanApiError(error: unknown) {
       { status: 409 },
     )
 
-  if (error instanceof FirmwareWorkPlanError) {
+  if (
+    error instanceof Error &&
+    error.name === 'FirmwareWorkPlanError' &&
+    'status' in error &&
+    typeof error.status === 'number'
+  ) {
     const stalePreview = error.status === 409 && /preview/i.test(error.message)
     const staleWrite =
       error.status === 409 &&
