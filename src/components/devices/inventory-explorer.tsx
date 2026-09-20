@@ -34,7 +34,7 @@ const statusLabels: Record<InventoryPrimaryStatusCode, string> = {
   CURRENT: 'Current',
 }
 
-function InventoryStatusBadge({
+export function InventoryStatusBadge({
   status,
 }: {
   status: InventoryPrimaryStatus

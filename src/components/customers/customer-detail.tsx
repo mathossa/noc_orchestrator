@@ -56,7 +56,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
           <div className="flex flex-wrap gap-2"><Link href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`} className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
             <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage customers</Link>
             <Link href={`/customers/${customer.id}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage sites</Link>
-            <Link href={`/devices?customer=${encodeURIComponent(customer.id)}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer devices</Link>
+            <Link href={`/devices/customers/${customer.id}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer inventory</Link>
           </div>
         }
       />

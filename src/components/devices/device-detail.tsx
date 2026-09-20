@@ -2,6 +2,7 @@
 
 import { DeviceExceptions } from '@/components/firmware/device-exceptions'
 import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
+import { InventoryStatusBadge } from '@/components/devices/inventory-explorer'
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
 import { AuditHistory } from '@/components/ui/audit-history'
@@ -123,18 +124,37 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   return (
     <>
       <PageHeader
+        breadcrumbs={[
+          { label: 'Devices', href: '/devices' },
+          {
+            label: device.customer.name,
+            href: '/devices/customers/' + device.customerId,
+          },
+          ...(device.site
+            ? [{
+                label: device.site.name,
+                href:
+                  '/devices/customers/' +
+                  device.customerId +
+                  '/sites/' +
+                  device.site.id,
+              }]
+            : []),
+          { label: device.name },
+        ]}
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Current firmware, desired firmware, technical state, and operational lifecycle decisions are separate pieces of state."
+        description="Why this device is in its inventory state, with technical, exception, workflow, contract and source facts kept separate."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
-            <Link href={`/customers/${device.customerId}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer</Link>
+            <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Device inventory</Link>
+            <Link href={`/customers/${device.customerId}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer record</Link>
           </div>
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryStat label="Inventory status" value={<InventoryStatusBadge status={device.inventoryStatus} />} detail={device.inventoryStatus.reason} />
         <SummaryStat label="Current firmware" value={currentVersion ?? 'Unknown'} detail={currentVersion ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}${device.currentFirmwareRelease ? '' : ' · catalog link unresolved'}` : 'No observed current firmware.'} />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Effective policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No resolved preferred target.'} />
         <SummaryStat label="Technical state" value={<FirmwareComplianceStatus result={device.firmwareCompliance} />} detail={device.firmwareCompliance.explanation} />

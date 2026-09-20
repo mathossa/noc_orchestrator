@@ -4,6 +4,8 @@ import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { evaluateModelFirmwareCompatibility } from '@/lib/firmware-compatibility-store'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { resolveFirmwareComplianceForDevice } from '@/lib/firmware-compliance-store'
+import { resolveDeviceExceptionSummaries } from '@/lib/device-exception-summary-store'
+import { deriveInventoryPrimaryStatus } from '@/lib/inventory-status'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import {
   normalizedDeviceName,
@@ -317,6 +319,24 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   ])
   const desiredRelease = firmwareCompliance.preferredTarget
   const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
+  const exceptionSummary = (
+    await resolveDeviceExceptionSummaries(
+      [{
+        id: record.id,
+        customerId: record.customerId,
+        siteId: record.siteId,
+        deviceModelId: record.deviceModelId,
+      }],
+      new Map([[record.id, firmwareCompliance]]),
+    )
+  ).get(record.id) ?? {
+    state: 'NONE' as const,
+    effective: null,
+    activeCount: 0,
+    inheritedCount: 0,
+    historyCount: 0,
+    reviewDueAt: null,
+  }
 
   return {
     ...serializeDevice(record as IncludedDevice),
@@ -325,6 +345,11 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     desiredFirmware: { available: true, release: desiredRelease },
     technicalState: { available: true, state: technicalState },
     firmwareCompliance,
+    exceptionSummary,
+    inventoryStatus: deriveInventoryPrimaryStatus(
+      firmwareCompliance,
+      exceptionSummary,
+    ),
     auditHistory,
   }
 }

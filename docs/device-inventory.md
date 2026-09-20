@@ -88,17 +88,37 @@ The same device name may be used by a different customer.
 
 Routes:
 
-- `/devices` — list/create/edit/archive/reactivate/delete inventory
-- `/devices/[id]` — firmware-lifecycle-focused device detail including resolved model desired firmware
-- `/api/v1/devices`
-- `/api/v1/devices/[id]`
+- `/devices` — attention-driven estate overview grouped by customer
+- `/devices/customers/:customerId` — customer inventory grouped by site
+- `/devices/customers/:customerId/sites/:siteId` — site inventory grouped by canonical device type
+- `/devices/customers/:customerId/sites/:siteId/types/:deviceTypeId` — bounded individual-device list
+- `/devices/manage` — existing manual inventory create/edit/archive/delete workspace
+- `/devices/[id]` — device detail explaining firmware, exception, planning/lifecycle, contract, source, and history facts
+- `/api/v1/devices` and `/api/v1/devices/[id]` — existing CRUD/query contracts
+- `/api/v1/inventory/export` — scoped customer/site/device-type CSV export
 
-The device list understands the existing customer/site entry links:
+The explorer is server/query backed. It reads compact device identity and hierarchy facts, resolves firmware compliance with the existing batch resolver, applies the existing exception resolver, and rolls the presentation status upward. Individual display rows are fetched only after bounded pagination. The browser never receives the whole inventory in order to group it.
 
-- `/devices?customer=<customer-id>`
-- `/devices?customer=<customer-id>&site=<site-id>`
+### Primary inventory status
 
-Issue #13 later provides the reusable cross-dimensional filtering/grouping system; the Issue #8 filters are intentionally local inventory conveniences. Effective contract should become a reusable filter/grouping dimension there as well.
+Issue #107 adds one presentation-only status so overview users do not need to interpret technical compliance, exceptions, planning, contract, and source columns at once. It never overwrites those underlying states.
+
+Precedence is deterministic:
+
+1. blocked or incompatible technical state → **Critical attention**;
+2. due/expired exception on actionable technical work → **Review required**;
+3. active accepted exception on non-critical work → **Exception** (not immediate attention);
+4. required technical update → **Update required**;
+5. review-required technical state → **Review required**;
+6. recommended update or platform migration → **Update recommended**;
+7. unresolved firmware/policy/comparison context → **Unknown**;
+8. no technical action → **Current**.
+
+Attention therefore means every primary status except Current and an active accepted Exception. The same status is rolled Device → Device type → Site → Customer → estate overview, with higher-severity attention sorted first.
+
+The current schema has no canonical hardware lifecycle/EOL field. The explorer therefore does not invent an EOL/replacement KPI from exception reason text. A future lifecycle source can add that count without changing the primary-status boundary.
+
+Search is scoped by the route and is pushed into PostgreSQL for device name, hostname, serial number, management address, customer, site, model, vendor, and device type. Advanced filters are collapsed behind a Filters action. Customer/site navigation context is not repeated as a permanent dropdown.
 
 A useful contract-inheritance smoke test is:
 

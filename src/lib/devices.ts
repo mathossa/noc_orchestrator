@@ -1,6 +1,8 @@
 import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { AuditEventRecord } from '@/lib/audit-events'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+import type { DeviceExceptionSummary } from '@/lib/device-exception-summary-store'
+import type { InventoryPrimaryStatus } from '@/lib/inventory-status'
 
 export type DeviceSource = 'MANUAL' | 'API' | 'IMPORT'
 
@@ -98,6 +100,8 @@ export type DeviceRecord = {
 
 export type DeviceDetailRecord = DeviceRecord & {
   firmwareCompliance: FirmwareComplianceResult
+  exceptionSummary: DeviceExceptionSummary
+  inventoryStatus: InventoryPrimaryStatus
   createdAt: string
   updatedAt: string
   desiredFirmware: { available: true; release: DeviceFirmwareReference | null }
