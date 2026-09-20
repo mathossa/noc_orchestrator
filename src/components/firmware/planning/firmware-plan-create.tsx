@@ -17,6 +17,7 @@ import {
   type DeviceChoice,
   type DevicePayload,
   type DeviceReferences,
+  type PlanningCandidateDevice,
   type PlanPreview,
   commonSwitchAndAccessPointTypeIds,
   dateTimeLocalToIso,
@@ -57,7 +58,7 @@ export function FirmwarePlanCreate() {
   const [selectedDeviceTypeIds, setSelectedDeviceTypeIds] = useState<string[]>(
     [],
   )
-  const [resolvedDevices, setResolvedDevices] = useState<DeviceChoice[]>([])
+  const [resolvedDevices, setResolvedDevices] = useState<PlanningCandidateDevice[]>([])
   const [selectedDevices, setSelectedDevices] = useState<
     Record<string, DeviceChoice>
   >({})
@@ -891,7 +892,7 @@ export function FirmwarePlanCreate() {
 
       <PlanningSection
         title="3. Resolve and preview"
-        description="Scope resolution enumerates every page of the existing device API. The resulting explicit device IDs are then passed to the existing #60 preview, which remains authoritative for exceptions, recommendations, compatibility and exact firmware targets."
+        description="Scope resolution uses a narrow server-side candidate query with no client pagination. The resulting explicit device IDs are then passed to the existing #60 preview, which remains authoritative for exceptions, recommendations, compatibility and exact firmware targets."
       >
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
