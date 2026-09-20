@@ -310,13 +310,15 @@ describe('firmware work plan persistent transitions', () => {
     vi.resetAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(at)
-    plan = {
+    const initialPlan = {
       id: 'plan',
       state: 'PROPOSED',
       title: null,
       reason: 'Original reason',
       notes: null,
       externalReference: null,
+      proposedFor: null,
+      proposedMaintenanceWindowReference: null,
       scheduledFor: null,
       maintenanceWindowReference: null,
       upgradeCapability: 'UNKNOWN',
@@ -332,6 +334,7 @@ describe('firmware work plan persistent transitions', () => {
       createdAt: new Date('2026-09-19T00:00:00Z'),
       updatedAt: new Date('2026-09-19T00:00:00Z'),
     }
+    plan = initialPlan
     events = [{ fromState: null, toState: 'PROPOSED' }]
     audits = []
     mocks.findPlan.mockImplementation(async () => structuredClone(plan))
