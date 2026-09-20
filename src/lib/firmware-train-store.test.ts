@@ -34,6 +34,7 @@ import {
   deleteFirmwareTrain,
   FirmwareTrainConflictError,
   FirmwareTrainInUseError,
+  FirmwareTrainReferenceError,
   updateFirmwareTrain,
 } from '@/lib/firmware-train-store'
 
@@ -146,7 +147,7 @@ describe('firmware train persistence rules', () => {
     }])
 
     await expect(updateFirmwareTrain('train-1', { preferredFirmwareReleaseId: 'blocked' }))
-      .rejects.toBeInstanceOf(expect.any(Error).constructor)
+      .rejects.toBeInstanceOf(FirmwareTrainReferenceError)
     expect(mocks.trainUpdate).not.toHaveBeenCalled()
   })
 
