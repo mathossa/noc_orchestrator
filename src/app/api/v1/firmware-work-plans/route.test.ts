@@ -67,7 +67,7 @@ describe('firmware work plan routes', () => {
 
     const response = await listPlans(
       new Request(
-        'http://localhost/api/v1/firmware-work-plans?state=PROPOSED&customerId=customer-1&page=2&pageSize=25',
+        'http://localhost/api/v1/firmware-work-plans?state=PROPOSED&customerId=customer-1&siteId=site-1&vendorId=vendor-1&deviceModelFamilyId=family-1&deviceModelId=model-1&recommendation=UPDATE_REQUIRED&scheduledFrom=2026-09-20T06%3A00%3A00.000Z&scheduledUntil=2026-09-21T06%3A00%3A00.000Z&page=2&pageSize=25',
       ),
     )
 
@@ -75,6 +75,13 @@ describe('firmware work plan routes', () => {
     expect(mocks.listFirmwareWorkPlans).toHaveBeenCalledWith({
       states: ['PROPOSED'],
       customerId: 'customer-1',
+      siteId: 'site-1',
+      vendorId: 'vendor-1',
+      deviceModelFamilyId: 'family-1',
+      deviceModelId: 'model-1',
+      recommendation: 'UPDATE_REQUIRED',
+      scheduledFrom: new Date('2026-09-20T06:00:00.000Z'),
+      scheduledUntil: new Date('2026-09-21T06:00:00.000Z'),
       page: 2,
       pageSize: 25,
     })
