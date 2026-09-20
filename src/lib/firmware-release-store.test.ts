@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   releaseDelete: vi.fn(),
   modelFindMany: vi.fn(),
   deviceCount: vi.fn(),
+  trainCount: vi.fn(),
   policyCount: vi.fn(),
   lifecycleCount: vi.fn(),
   auditCount: vi.fn(),
@@ -20,7 +21,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     vendor: { findUnique: mocks.vendorFindUnique, findMany: mocks.vendorFindMany },
-    firmwareTrain: { findUnique: mocks.trainFindUnique, findMany: mocks.trainFindMany },
     firmwareRelease: {
       findMany: mocks.releaseFindMany,
       findUnique: mocks.releaseFindUnique,
@@ -30,6 +30,11 @@ vi.mock('@/lib/prisma', () => ({
     },
     deviceModel: { findMany: mocks.modelFindMany },
     device: { count: mocks.deviceCount },
+    firmwareTrain: {
+      findUnique: mocks.trainFindUnique,
+      findMany: mocks.trainFindMany,
+      count: mocks.trainCount,
+    },
     firmwarePolicy: { count: mocks.policyCount },
     firmwareLifecycleRecord: { count: mocks.lifecycleCount },
     auditEvent: { count: mocks.auditCount },
@@ -79,6 +84,7 @@ describe('firmware release persistence rules', () => {
     vi.clearAllMocks()
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1' })
     mocks.releaseFindMany.mockResolvedValue([])
+    mocks.trainCount.mockResolvedValue(0)
   })
 
   it('creates a verified catalog release without making it policy eligible', async () => {
@@ -213,7 +219,23 @@ describe('firmware release persistence rules', () => {
     }))
   })
 
-  it('blocks permanent deletion when policy/history/device references exist', async () => {
+  it('blocks permanent deletion while a train uses the release as a catalog default', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({
+      id: 'release-1',
+      source: 'MANUAL',
+      catalogState: 'VERIFIED',
+    })
+    mocks.deviceCount.mockResolvedValue(0)
+    mocks.policyCount.mockResolvedValue(0)
+    mocks.trainCount.mockResolvedValue(1)
+    mocks.lifecycleCount.mockResolvedValue(0)
+    mocks.auditCount.mockResolvedValue(0)
+
+    await expect(deleteFirmwareRelease('release-1')).rejects.toBeInstanceOf(FirmwareReleaseInUseError)
+    expect(mocks.releaseDelete).not.toHaveBeenCalled()
+  })
+
+    it('blocks permanent deletion when policy/history/device references exist', async () => {
     mocks.releaseFindUnique.mockResolvedValue({ id: 'release-1' })
     mocks.deviceCount.mockResolvedValue(0)
     mocks.policyCount.mockResolvedValue(1)
