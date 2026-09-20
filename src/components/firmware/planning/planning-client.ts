@@ -297,6 +297,61 @@ function commonTypeText(type: DeviceTypeReference) {
   return `${type.code} ${type.name}`.normalize('NFKC').toLowerCase()
 }
 
+export type PlanningDeviceTypeOption = {
+  key: string
+  label: string
+  typeIds: string[]
+  sourceLabels: string[]
+}
+
+function normalizedTypeTokens(type: DeviceTypeReference) {
+  return commonTypeText(type).replaceAll('_', ' ').replaceAll('-', ' ')
+}
+
+export function planningDeviceTypeOptions(
+  types: DeviceTypeReference[],
+): PlanningDeviceTypeOption[] {
+  const groups = new Map<string, PlanningDeviceTypeOption>()
+
+  for (const type of types.filter((candidate) => candidate.isActive)) {
+    const value = normalizedTypeTokens(type)
+    const stackLike = /(^|\W)stack(\W|$)/.test(value)
+    const accessPointLike =
+      /access\s*point/.test(value) ||
+      /wireless\s*access/.test(value) ||
+      /(^|\W)ap(\W|$)/.test(value)
+    const switchLike = /(^|\W)switch(?:es|ing)?(\W|$)/.test(value)
+
+    const key = stackLike
+      ? `type:${type.id}`
+      : accessPointLike
+        ? 'access-points'
+        : switchLike
+          ? 'switches'
+          : `type:${type.id}`
+    const label = accessPointLike
+      ? 'Access points'
+      : switchLike && !stackLike
+        ? 'Switches'
+        : type.name
+
+    const current = groups.get(key)
+    if (current) {
+      current.typeIds.push(type.id)
+      current.sourceLabels.push(type.name)
+    } else {
+      groups.set(key, {
+        key,
+        label,
+        typeIds: [type.id],
+        sourceLabels: [type.name],
+      })
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
+
 export function commonSwitchAndAccessPointTypeIds(
   types: DeviceTypeReference[],
 ) {
@@ -311,6 +366,45 @@ export function commonSwitchAndAccessPointTypeIds(
       return switchLike || accessPointLike
     })
     .map((type) => type.id)
+}
+
+export type PreviewExceptionGroup = {
+  key: string
+  reason: string
+  deviceIds: string[]
+  count: number
+}
+
+export function groupPreviewExceptions(
+  targets: PreviewTarget[],
+): PreviewExceptionGroup[] {
+  const groups = new Map<string, PreviewExceptionGroup>()
+
+  for (const target of targets) {
+    if (
+      !target.effectiveExceptionId ||
+      (target.disposition !== 'ACTIVE_EXCEPTION' && !target.exceptionOverride)
+    )
+      continue
+
+    const reason =
+      target.effectiveExceptionReason ?? target.effectiveExceptionId
+    const key = reason.trim().toLocaleLowerCase()
+    const current = groups.get(key)
+    if (current) {
+      current.deviceIds.push(target.deviceId)
+      current.count += 1
+    } else {
+      groups.set(key, {
+        key,
+        reason,
+        deviceIds: [target.deviceId],
+        count: 1,
+      })
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => a.reason.localeCompare(b.reason))
 }
 
 export async function resolveSiteScopeDevices(
