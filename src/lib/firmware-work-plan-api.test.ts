@@ -8,12 +8,14 @@ import {
 } from '@/lib/firmware-work-plan-api'
 
 describe('firmware work plan API boundary', () => {
-  it('parses supported server-side plan filters without inventing vendor filtering', () => {
+  it('parses the complete supported server-side plan filter set', () => {
     const query = parseFirmwareWorkPlanQuery(
       new URLSearchParams({
         state: 'PROPOSED,SCHEDULED',
         customerId: 'customer-1',
         siteId: 'site-1',
+        vendorId: 'vendor-1',
+        deviceModelFamilyId: 'family-1',
         deviceModelId: 'model-1',
         recommendation: 'update_required',
         scheduledFrom: '2026-09-20T08:00:00+02:00',
@@ -27,6 +29,8 @@ describe('firmware work plan API boundary', () => {
       states: ['PROPOSED', 'SCHEDULED'],
       customerId: 'customer-1',
       siteId: 'site-1',
+      vendorId: 'vendor-1',
+      deviceModelFamilyId: 'family-1',
       deviceModelId: 'model-1',
       recommendation: 'UPDATE_REQUIRED',
       page: 2,
@@ -38,7 +42,6 @@ describe('firmware work plan API boundary', () => {
     expect(query.scheduledUntil?.toISOString()).toBe(
       '2026-09-21T06:00:00.000Z',
     )
-    expect(query).not.toHaveProperty('vendorId')
   })
 
   it('rejects ambiguous timestamps without a timezone', () => {
