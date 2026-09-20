@@ -39,6 +39,9 @@ export function releaseDecisionFromCatalogSemantics(input: {
   if (input.catalogState === 'VERIFIED' && ['ALLOWED', 'PREFERRED'].includes(input.policyEligibility)) {
     return 'ALLOWED'
   }
+  if (input.catalogState === 'VERIFIED' && input.policyEligibility === 'DISALLOWED') {
+    return 'BLOCKED'
+  }
   return 'NEEDS_REVIEW'
 }
 
@@ -194,6 +197,14 @@ export function resolveCatalogTrainForModel(input: {
 
   const preferred = active.find((train) => train.state === 'PREFERRED') ?? null
   if (!preferred) return { status: 'REVIEW_REQUIRED', train: null, source: null, explanation: 'No platform preferred train is configured.' }
+  if (!preferred.preferredRelease || preferred.preferredRelease.decision !== 'ALLOWED' || preferred.preferredRelease.isActive === false) {
+    return {
+      status: 'REVIEW_REQUIRED',
+      train: null,
+      source: null,
+      explanation: `Preferred train ${preferred.name} has no active Allowed preferred release.`,
+    }
+  }
   if (preferred.compatibility === 'COMPATIBLE') {
     return { status: 'RESOLVED', train: preferred, source: 'PLATFORM_PREFERRED', explanation: 'The model inherits the platform preferred train.' }
   }
@@ -207,7 +218,11 @@ export function resolveCatalogTrainForModel(input: {
   }
 
   const accepted = active.filter(
-    (train) => train.state === 'ACCEPTED' && train.compatibility === 'COMPATIBLE' && train.preferredRelease,
+    (train) =>
+      train.state === 'ACCEPTED' &&
+      train.compatibility === 'COMPATIBLE' &&
+      train.preferredRelease?.decision === 'ALLOWED' &&
+      train.preferredRelease.isActive !== false,
   )
   if (accepted.length === 0) {
     return {
