@@ -64,7 +64,7 @@ ALTER TABLE "FirmwareTrain"
 CREATE OR REPLACE FUNCTION "FirmwareTrain_validate_release_defaults"()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $firmware_train_defaults$
 BEGIN
   IF NEW."preferredFirmwareReleaseId" IS NOT NULL AND NOT EXISTS (
     SELECT 1
@@ -94,7 +94,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$firmware_train_defaults$;
 
 CREATE TRIGGER "FirmwareTrain_validate_release_defaults_trigger"
   BEFORE INSERT OR UPDATE OF
@@ -109,7 +109,7 @@ CREATE TRIGGER "FirmwareTrain_validate_release_defaults_trigger"
 CREATE OR REPLACE FUNCTION "FirmwareRelease_preserve_train_default_membership"()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $firmware_release_defaults$
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -131,7 +131,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$firmware_release_defaults$;
 
 CREATE TRIGGER "FirmwareRelease_preserve_train_default_membership_trigger"
   BEFORE UPDATE OF "firmwareTrainId", "vendorId", "platform"
