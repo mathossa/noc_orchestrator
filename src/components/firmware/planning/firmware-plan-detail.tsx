@@ -9,10 +9,7 @@ import {
   TextInput,
 } from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
-import {
-  type FirmwareWorkPlanState,
-  isActiveFirmwareWorkPlanState,
-} from '@/lib/firmware-work-planning'
+import type { FirmwareWorkPlanState } from '@/lib/firmware-work-planning'
 import {
   type ClientError,
   type PlanDetail,
@@ -902,12 +899,6 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
         )}
       </PlanningSection>
 
-      {!isActiveFirmwareWorkPlanState(detail.state) ? null : (
-        <p className="text-xs text-[var(--muted)]">
-          Future documentation/security and IRA sections can be added to this
-          plan workspace without changing its route or persistent unit of work.
-        </p>
-      )}
     </div>
   )
 }
