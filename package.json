@@ -22,6 +22,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "node scripts/run-playwright-tests.mjs",
     "test:jobs": "vitest run src/jobs --passWithNoTests",
+    "test:jobs:integration": "vitest run --config vitest.integration.config.ts src/jobs/job-system.integration.test.ts",
     "benchmark:importer-v2": "vitest bench --run src/lib/importer-v2-baseline.bench.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
