@@ -8,6 +8,7 @@ export type PlanSummary = {
   title: string | null
   reason: string | null
   notes: string | null
+  externalReference: string | null
   upgradeCapability: string
   createdAt: string
   updatedAt: string
