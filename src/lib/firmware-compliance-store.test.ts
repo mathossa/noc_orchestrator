@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   releases: vi.fn(),
   rules: vi.fn(),
   overrides: vi.fn(),
+  trains: vi.fn(),
 }))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -15,6 +16,7 @@ vi.mock('@/lib/prisma', () => ({
     firmwareRelease: { findMany: mocks.releases },
     firmwareCompatibilityRule: { findMany: mocks.rules },
     firmwareCompatibilityOverride: { findMany: mocks.overrides },
+    firmwareTrain: { findMany: mocks.trains },
   },
 }))
 import {
@@ -34,6 +36,7 @@ function device(id = 'device') {
       id: 'model',
       vendorId: 'synthetic-vendor',
       familyId: 'family',
+      platform: 'IOS XE',
     },
   }
 }
@@ -64,6 +67,7 @@ beforeEach(() => {
   mocks.releases.mockResolvedValue([release('17.12.5'), release('17.15.5')])
   mocks.rules.mockResolvedValue([rule()])
   mocks.overrides.mockResolvedValue([])
+  mocks.trains.mockResolvedValue([])
 })
 describe('batch firmware compliance integration', () => {
   it.each([
@@ -81,7 +85,50 @@ describe('batch firmware compliance integration', () => {
       policySource: { scope: expected },
     })
   })
-  it('customer/site/device overrides beat family and model without using current platform', async () => {
+  it('uses catalog train defaults when no scoped policy exists', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'train',
+        vendorId: 'synthetic-vendor',
+        platform: 'IOS XE',
+        name: '17.15',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '17.15.5',
+        minimumAcceptableFirmwareReleaseId: '17.12.5',
+      },
+    ])
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'ACCEPTED',
+      recommendation: 'UPDATE_RECOMMENDED',
+      policySource: { scope: 'CATALOG', trackName: '17.15' },
+      preferredTarget: { id: '17.15.5' },
+      minimum: { id: '17.12.5' },
+    })
+  })
+
+  it('uses exact semantics for catalog trains without a minimum', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.devices.mockResolvedValue([{ ...device(), currentFirmwareReleaseId: '17.15.6' }])
+    mocks.releases.mockResolvedValue([release('17.15.5'), release('17.15.6')])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'train',
+        vendorId: 'synthetic-vendor',
+        platform: 'IOS XE',
+        name: '17.15',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '17.15.5',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+    ])
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'OUTSIDE_RANGE',
+      policySource: { scope: 'CATALOG' },
+    })
+  })
+
+    it('customer/site/device overrides beat family and model without using current platform', async () => {
     mocks.policies.mockResolvedValue([
       policy({
         id: 'family',
