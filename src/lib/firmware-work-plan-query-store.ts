@@ -149,7 +149,8 @@ export type FirmwareWorkPlanQuery = {
 }
 
 /** Customer/site/model/recommendation filters refer to saved planning context.
- * A matching target selects the entire plan, not a misleading partial target count.
+ * Vendor/family are resolved through the current model taxonomy to the snapshotted
+ * deviceModelId. A matching target selects the entire plan, not a partial target count.
  */
 export async function listFirmwareWorkPlans(query: FirmwareWorkPlanQuery = {}) {
   const page = Number.isSafeInteger(query.page) ? Math.max(1, query.page!) : 1
