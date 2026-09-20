@@ -133,18 +133,21 @@ export async function transitionFirmwareWorkPlan(
           requestedMaintenanceWindowReference ??
           plan.proposedMaintenanceWindowReference
 
-        if (plan.state === 'AWAITING_CUSTOMER') {
-          if (
-            !plan.proposedFor ||
-            plan.proposedFor.getTime() !== confirmedScheduledFor.getTime() ||
+        if (
+          plan.proposedFor &&
+          (plan.proposedFor.getTime() !== confirmedScheduledFor.getTime() ||
             plan.proposedMaintenanceWindowReference !==
-              confirmedMaintenanceWindowReference
+              confirmedMaintenanceWindowReference)
+        )
+          throw new FirmwareWorkPlanError(
+            'Scheduling must confirm the exact proposed maintenance window. Amend the proposal first if the window changed.',
+            409,
           )
-            throw new FirmwareWorkPlanError(
-              'Customer approval may schedule directly only for the exact proposed maintenance window. Amend the proposal first if the window changed.',
-              409,
-            )
-        }
+        if (plan.state === 'AWAITING_CUSTOMER' && !plan.proposedFor)
+          throw new FirmwareWorkPlanError(
+            'Customer approval may schedule directly only when a proposed maintenance date is already stored.',
+            409,
+          )
       }
 
       const at = new Date()

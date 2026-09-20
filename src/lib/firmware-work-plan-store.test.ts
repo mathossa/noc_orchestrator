@@ -525,6 +525,25 @@ describe('firmware work plan persistent transitions', () => {
     expect(mocks.audit).not.toHaveBeenCalled()
   })
 
+  it('does not let APPROVED scheduling silently bypass a stored proposal', async () => {
+    plan.state = 'APPROVED'
+    plan.proposedFor = scheduledFor
+    plan.proposedMaintenanceWindowReference = 'MW-PROPOSED'
+    const before = structuredClone(plan)
+
+    await expect(
+      scheduleFirmwareWorkPlan(plan.id, {
+        ...context(),
+        scheduledFor: new Date('2026-10-08T22:00:00Z'),
+        maintenanceWindowReference: 'MW-CHANGED',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(plan).toEqual(before)
+    expect(mocks.event).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
   it('supports customer wait, withdrawal and approval without inventing timestamps', async () => {
     await move('AWAITING_CUSTOMER')
     expect(plan).toMatchObject({

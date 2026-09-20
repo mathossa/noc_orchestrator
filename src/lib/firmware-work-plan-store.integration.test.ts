@@ -563,6 +563,14 @@ describe('firmware work plan PostgreSQL persistence', () => {
         reason: 'Should not reopen.',
       }),
     ).rejects.toThrow('cannot transition from DONE to PROPOSED')
+    await expect(
+      store.amendFirmwareWorkPlanProposal(created.id, {
+        expectedState: 'DONE',
+        expectedUpdatedAt: done.updatedAt,
+        proposedFor: new Date('2026-11-01T22:00:00.000Z'),
+        actorUserId: ids.actor,
+      }),
+    ).rejects.toThrow('only be amended before scheduling')
     expect(await capturePersistence(created.id)).toEqual(beforeReopen)
   })
 
@@ -946,6 +954,14 @@ describe('firmware work plan PostgreSQL persistence', () => {
         actorUserId: ids.actor,
       }),
     ).rejects.toThrow('cannot transition from CANCELLED to PROPOSED')
+    await expect(
+      store.amendFirmwareWorkPlanProposal(created.id, {
+        expectedState: 'CANCELLED',
+        expectedUpdatedAt: cancelled.updatedAt,
+        proposedFor: new Date('2026-11-01T22:00:00.000Z'),
+        actorUserId: ids.actor,
+      }),
+    ).rejects.toThrow('only be amended before scheduling')
     expect(await capturePersistence(created.id)).toEqual(beforeReopen)
   })
 
