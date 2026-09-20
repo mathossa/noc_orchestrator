@@ -1677,15 +1677,8 @@ export async function publishImporterV2Batch(input: {
           )
         }
         const rowNumbers = selectImporterV2PublicationRows(qa, input.mode)
-        const publicationSourceRows = importerV2PublicationRowsIncludingStackMembers(
-          qa,
-          rowNumbers,
-        )
         const approvals = new Set(input.approvedProposalKeys)
-        const requiredProposalKeys = qa.catalogProposals
-          .filter((proposal) =>
-            proposal.rowNumbers.some((rowNumber) => publicationSourceRows.has(rowNumber)),
-          )
+        const requiredProposalKeys = publicationProposalsRequiredForRows(qa, rowNumbers)
           .map((proposal) => proposal.key)
         const missingApprovals = requiredProposalKeys.filter((key) => !approvals.has(key))
         if (missingApprovals.length > 0) {
@@ -1962,12 +1955,27 @@ export async function publishImporterV2Batch(input: {
   }
 }
 
+function observedFirmwareProposalCanAutoCreate(
+  qa: ImporterV2PublicationQa,
+  proposal: ImporterV2PublicationQa['catalogProposals'][number],
+) {
+  if (proposal.field !== 'currentFirmware') return false
+  if (!proposal.context.vendor || !proposal.context.softwarePlatform) return false
+  const unsafeRows = new Set([
+    ...qa.firmware.unknownFirmwareRows,
+    ...qa.firmware.platformConflictRows,
+  ])
+  return proposal.rowNumbers.every((rowNumber) => !unsafeRows.has(rowNumber))
+}
+
 export function publicationProposalsRequiredForRows(
   qa: ImporterV2PublicationQa,
   rowNumbers: readonly number[],
 ) {
   const selected = importerV2PublicationRowsIncludingStackMembers(qa, rowNumbers)
-  return qa.catalogProposals.filter((proposal) =>
-    proposal.rowNumbers.some((rowNumber) => selected.has(rowNumber)),
-  )
+  return qa.catalogProposals
+    .filter((proposal) =>
+      proposal.rowNumbers.some((rowNumber) => selected.has(rowNumber)),
+    )
+    .filter((proposal) => !observedFirmwareProposalCanAutoCreate(qa, proposal))
 }
