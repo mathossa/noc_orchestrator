@@ -318,6 +318,10 @@ export async function resolveDeviceWorkPlanning(
     const reference = {
       ...row.plan,
       state,
+      proposedFor: row.plan.proposedFor?.toISOString() ?? null,
+      scheduledFor: row.plan.scheduledFor?.toISOString() ?? null,
+      completedAt: row.plan.completedAt?.toISOString() ?? null,
+      cancelledAt: row.plan.cancelledAt?.toISOString() ?? null,
       targetId: row.id,
       targetVersion: row.targetVersion,
       targetPlatform: row.targetPlatform,
