@@ -82,15 +82,6 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
   const [proposedReference, setProposedReference] = useState('')
   const [proposalReason, setProposalReason] = useState('')
   const [proposalNotes, setProposalNotes] = useState('')
-  const [timeZone, setTimeZone] = useState('browser local time')
-
-  useEffect(() => {
-    setTimeZone(
-      Intl.DateTimeFormat().resolvedOptions().timeZone ||
-        'browser local time',
-    )
-  }, [])
-
   const loadDetail = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -594,7 +585,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
             <FormField
               label="Proposed maintenance date/time"
               htmlFor="detail-proposed-for"
-              description={timeZone}
+              description="Browser local time; stored as an explicit instant."
             >
               <TextInput
                 id="detail-proposed-for"
@@ -718,7 +709,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                 <FormField
                   label="Schedule date/time"
                   htmlFor="manual-scheduled-for"
-                  description={timeZone}
+                  description="Browser local time; stored as an explicit instant."
                 >
                   <TextInput
                     id="manual-scheduled-for"
