@@ -6,7 +6,6 @@ import type {
 } from './planning-client'
 import {
   canConfirmProposedSchedule,
-  commonSwitchAndAccessPointTypeIds,
   groupPlanTargets,
   groupPreviewExceptions,
   groupPreviewTargets,
@@ -140,17 +139,7 @@ describe('plan-centric planning helpers', () => {
     ])
   })
 
-  it('uses canonical DeviceType IDs for the switch + access-point convenience', () => {
-    expect(
-      commonSwitchAndAccessPointTypeIds([
-        { id: 'sw', code: 'NETWORK_SWITCH', name: 'Switches', isActive: true },
-        { id: 'ap', code: 'WIRELESS_AP', name: 'Access points', isActive: true },
-        { id: 'fw', code: 'FIREWALL', name: 'Firewalls', isActive: true },
-      ]),
-    ).toEqual(['sw', 'ap'])
-  })
-
-  it('groups duplicate switch inventory types for planning but keeps stacks separate', () => {
+  it('keeps inventory device types distinct in planning', () => {
     expect(
       planningDeviceTypeOptions([
         { id: 'switch', code: 'SWITCH', name: 'Switch', isActive: true },
@@ -160,7 +149,7 @@ describe('plan-centric planning helpers', () => {
       ]),
     ).toEqual([
       {
-        key: 'access-points',
+        key: 'type:ap',
         label: 'Access points',
         typeIds: ['ap'],
         sourceLabels: ['Access points'],
@@ -172,10 +161,16 @@ describe('plan-centric planning helpers', () => {
         sourceLabels: ['Stack'],
       },
       {
-        key: 'switches',
+        key: 'type:switch',
+        label: 'Switch',
+        typeIds: ['switch'],
+        sourceLabels: ['Switch'],
+      },
+      {
+        key: 'type:switches',
         label: 'Switches',
-        typeIds: ['switch', 'switches'],
-        sourceLabels: ['Switch', 'Switches'],
+        typeIds: ['switches'],
+        sourceLabels: ['Switches'],
       },
     ])
   })
