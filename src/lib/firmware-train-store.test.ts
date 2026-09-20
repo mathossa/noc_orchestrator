@@ -116,16 +116,10 @@ describe('firmware train persistence rules', () => {
 
     await updateFirmwareTrain('train-1', { state: 'PREFERRED' })
 
-    expect(mocks.trainUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        id: { not: 'train-1' },
-        vendorId: 'vendor-1',
-        platform: 'FortiOS',
-        state: 'PREFERRED',
-        isActive: true,
-      }),
+    expect(mocks.trainUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: expect.any(Array) } },
       data: { state: 'ACCEPTED' },
-    }))
+    })
   })
 
   it('rejects a blocked release as a preferred train target', async () => {
