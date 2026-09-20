@@ -63,6 +63,11 @@ function eventTitle(event: PlanEvent) {
   return `${labelValue(event.fromState)} → ${labelValue(event.toState)}`
 }
 
+function snapshotExceptionReason(value: Record<string, unknown> | null) {
+  const reason = value?.reasonCode
+  return typeof reason === 'string' ? reason : null
+}
+
 export function FirmwarePlanDetail({ planId }: { planId: string }) {
   const [detail, setDetail] = useState<PlanDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -127,6 +132,17 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
 
   const groups = useMemo(
     () => (detail ? groupPlanTargets(detail.targets) : []),
+    [detail],
+  )
+  const attentionTargets = useMemo(
+    () =>
+      (detail?.targets ?? []).filter(
+        (target) =>
+          target.staleness.stale ||
+          Boolean(target.activeException) ||
+          target.snapshot.exceptionOverride ||
+          Boolean(target.snapshot.exceptionSnapshot),
+      ),
     [detail],
   )
 
@@ -505,6 +521,68 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
             </div>
           ))}
         </div>
+      </PlanningSection>
+
+      <PlanningSection
+        title="Exceptions & attention"
+        description="Review saved exception evidence and current stale/live-exception signals before execution. This section does not alter #59 decisions."
+      >
+        {!attentionTargets.length ? (
+          <p className="text-sm text-[var(--muted)]">
+            No exception evidence or stale target attention is currently visible
+            for this plan.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {attentionTargets.map((target) => (
+              <div
+                key={target.snapshot.id}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">
+                      {target.snapshot.deviceName}
+                    </div>
+                    <div className="mt-1 text-xs text-[var(--muted)]">
+                      {target.snapshot.customerName} /{' '}
+                      {target.snapshot.siteName ?? 'No site'} ·{' '}
+                      {target.snapshot.deviceModelName}
+                    </div>
+                  </div>
+                  {target.staleness.stale ? (
+                    <span className="rounded-full border border-[#9a6234] bg-[#342218] px-2 py-1 text-xs font-semibold text-[#ffd0a0]">
+                      Review required
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-2 grid gap-2 text-xs md:grid-cols-3">
+                  <div>
+                    <span className="font-semibold">Saved exception:</span>{' '}
+                    {snapshotExceptionReason(
+                      target.snapshot.exceptionSnapshot,
+                    ) ?? 'None'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Override:</span>{' '}
+                    {target.snapshot.exceptionOverride
+                      ? 'Explicitly recorded'
+                      : 'No'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Current:</span>{' '}
+                    {target.activeException?.reasonCode ??
+                      (target.staleness.stale
+                        ? target.staleness.reasons
+                            .map(labelValue)
+                            .join(', ')
+                        : 'No live attention')}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </PlanningSection>
 
       {proposalEditable ? (
