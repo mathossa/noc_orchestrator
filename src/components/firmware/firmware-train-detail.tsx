@@ -2,25 +2,55 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { SelectInput } from '@/components/ui/form-controls'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
+import {
+  evaluateReleaseAgainstTrain,
+  firmwareTrainStates,
+} from '@/lib/firmware-catalog-defaults'
 import type { FirmwareTrainDetailRecord } from '@/lib/firmware-trains'
 
 type ApiError = { error?: { message?: string } }
 
+function labelState(state: string) {
+  return state[0] + state.slice(1).toLowerCase()
+}
+
 export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
   const [train, setTrain] = useState<FirmwareTrainDetailRecord | null>(null)
+  const [state, setState] = useState('ACCEPTED')
+  const [preferredId, setPreferredId] = useState('')
+  const [minimumId, setMinimumId] = useState('')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  async function load() {
+    const response = await fetch(`/api/v1/firmware-trains/${trainId}`, { cache: 'no-store' })
+    const payload = (await response.json()) as { data?: FirmwareTrainDetailRecord } & ApiError
+    if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Firmware train could not be loaded.')
+    setTrain(payload.data)
+    setState(payload.data.state)
+    setPreferredId(payload.data.preferredFirmwareReleaseId ?? '')
+    setMinimumId(payload.data.minimumAcceptableFirmwareReleaseId ?? '')
+  }
 
   useEffect(() => {
     let cancelled = false
     void fetch(`/api/v1/firmware-trains/${trainId}`, { cache: 'no-store' })
       .then(async (response) => {
         const payload = (await response.json()) as { data?: FirmwareTrainDetailRecord } & ApiError
-        if (!response.ok) throw new Error(payload.error?.message ?? 'Firmware train could not be loaded.')
-        if (!cancelled) setTrain(payload.data ?? null)
+        if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Firmware train could not be loaded.')
+        if (!cancelled) {
+          setTrain(payload.data)
+          setState(payload.data.state)
+          setPreferredId(payload.data.preferredFirmwareReleaseId ?? '')
+          setMinimumId(payload.data.minimumAcceptableFirmwareReleaseId ?? '')
+        }
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Firmware train could not be loaded.')
@@ -28,88 +58,145 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [trainId])
 
-  if (loading) return <LoadingState title="Loading firmware train" />
-  if (error || !train) {
-    return <ErrorState title="Firmware train could not be loaded" description={error ?? 'The firmware train is unavailable.'} />
+  async function saveDefaults() {
+    setSaving(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const response = await fetch(`/api/v1/firmware-trains/${trainId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          state,
+          preferredFirmwareReleaseId: preferredId || null,
+          minimumAcceptableFirmwareReleaseId: minimumId || null,
+        }),
+      })
+      const payload = (await response.json()) as ApiError
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Train defaults could not be saved.')
+      await load()
+      setMessage('Train defaults updated.')
+    } catch (saveError: unknown) {
+      setError(saveError instanceof Error ? saveError.message : 'Train defaults could not be saved.')
+    } finally {
+      setSaving(false)
+    }
   }
+
+  if (loading) return <LoadingState title="Loading firmware train" />
+  if (error && !train) return <ErrorState title="Firmware train could not be loaded" description={error} />
+  if (!train) return <ErrorState title="Firmware train could not be loaded" description="The firmware train is unavailable." />
+
+  const allowedReleases = train.releases.filter((release) => release.isActive && release.decision === 'ALLOWED')
+  const preferredRelease = train.releases.find((release) => release.id === train.preferredFirmwareReleaseId) ?? null
+  const minimumRelease = train.releases.find((release) => release.id === train.minimumAcceptableFirmwareReleaseId) ?? null
 
   return (
     <>
       <PageHeader
         eyebrow={`${train.vendor.name} · ${train.platform}`}
         title={train.name}
-        description="An explicit release family containing exact firmware releases. Membership is managed directly and is never inferred from version strings."
+        description="Global train defaults. Scoped Customer, Site, Device, and deliberate model-family deviations remain firmware policy."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/firmware" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Firmware catalog</Link>
             <Link href="/firmware/trains" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage trains</Link>
-            <Link href="/firmware" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Firmware releases</Link>
           </div>
         }
       />
 
+      {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
+      {error ? <div className="mb-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">{error}</div> : null}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat label="Releases" value={train.releaseCount} detail="Exact catalog releases assigned to this train." />
-        <SummaryStat label="State" value={train.isActive ? 'Active' : 'Archived'} detail="Archival does not detach existing releases." />
-        <SummaryStat label="Platform" value={train.platform} detail="Platform/family scope for train membership." />
-        <SummaryStat label="Desired firmware" value="Exact release" detail="Issue #9 will target exact releases, not a moving train by default." />
+        <SummaryStat label="State" value={labelState(train.state)} detail={train.state === 'PREFERRED' ? 'Globally preferred train for this platform.' : 'Available as a catalog train without replacing scoped policy.'} />
+        <SummaryStat label="Preferred release" value={train.preferredRelease?.logicalVersion ?? train.preferredRelease?.version ?? '—'} detail="The normal install target inside this train." />
+        <SummaryStat label="Minimum acceptable" value={train.minimumAcceptableRelease?.logicalVersion ?? train.minimumAcceptableRelease?.version ?? '—'} detail={train.minimumAcceptableRelease ? 'Allowed releases at/above this boundary are acceptable.' : 'No minimum: only the preferred release is acceptable.'} />
+        <SummaryStat label="Running devices" value={train.deviceCount} detail={`Across ${train.releaseCount} exact catalog release${train.releaseCount === 1 ? '' : 's'} in this train.`} />
       </div>
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <h2 className="text-sm font-semibold">Releases in this train</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Individual versions remain opaque vendor strings and retain their own catalog status.</p>
+      <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Train defaults</h2>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Preferred/minimum choices must be active Allowed releases in this train. Unsupported ordering is rejected rather than guessed.</p>
           </div>
-          {train.releases.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-[var(--muted)]">No firmware releases are assigned to this train yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left text-sm">
-                <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
-                  <tr><th className="px-4 py-3">Version</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Released</th><th className="px-4 py-3">State</th></tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {train.releases.map((release) => (
+          <Button disabled={saving} onClick={() => void saveDefaults()}>{saving ? 'Saving…' : 'Save defaults'}</Button>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="text-sm">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Train state</span>
+            <SelectInput value={state} onChange={(event) => setState(event.target.value)}>
+              {firmwareTrainStates.map((value) => <option key={value} value={value}>{labelState(value)}</option>)}
+            </SelectInput>
+          </label>
+          <label className="text-sm">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Preferred release</span>
+            <SelectInput value={preferredId} onChange={(event) => {
+              const next = event.target.value
+              setPreferredId(next)
+              if (!next) setMinimumId('')
+            }}>
+              <option value="">Not configured</option>
+              {allowedReleases.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}{release.version !== release.logicalVersion ? ` · ${release.version}` : ''}</option>)}
+            </SelectInput>
+          </label>
+          <label className="text-sm">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Minimum acceptable</span>
+            <SelectInput value={minimumId} disabled={!preferredId} onChange={(event) => setMinimumId(event.target.value)}>
+              <option value="">None — preferred only</option>
+              {allowedReleases.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}{release.version !== release.logicalVersion ? ` · ${release.version}` : ''}</option>)}
+            </SelectInput>
+          </label>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] px-4 py-3">
+          <h2 className="text-sm font-semibold">Releases in this train</h2>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Release viability is evaluated before preferred/minimum policy. Exact images and variants remain available on release detail.</p>
+        </div>
+        {train.releases.length === 0 ? (
+          <div className="px-4 py-6 text-sm text-[var(--muted)]">No firmware releases are assigned to this train yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
+                <tr><th className="px-4 py-3">Release</th><th className="px-4 py-3">Decision</th><th className="px-4 py-3">Train position</th><th className="px-4 py-3 text-right">Devices</th><th className="px-4 py-3">Record</th></tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {train.releases.map((release) => {
+                  const evaluation = evaluateReleaseAgainstTrain({
+                    vendorKey: train.vendor.code,
+                    platform: train.platform,
+                    release,
+                    preferredRelease,
+                    minimumAcceptableRelease: minimumRelease,
+                  })
+                  return (
                     <tr key={release.id} className={release.isActive ? '' : 'opacity-60'}>
-                      <td className="px-4 py-3"><Link href={`/firmware/${release.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link></td>
-                      <td className="px-4 py-3">{release.status}</td>
-                      <td className="px-4 py-3 text-[var(--muted-strong)]">{release.releasedAt ? new Date(release.releasedAt).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/firmware/${release.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.logicalVersion}</Link>
+                        {release.version !== release.logicalVersion ? <div className="mt-1 font-mono text-xs text-[var(--muted)]">{release.version}</div> : null}
+                      </td>
+                      <td className="px-4 py-3">{release.decision === 'NEEDS_REVIEW' ? 'Needs review' : labelState(release.decision)}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{evaluation.position.replaceAll('_', ' ')}</div>
+                        <div className="mt-1 max-w-xl text-xs text-[var(--muted)]">{evaluation.reason}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">{release.deviceCount}</td>
                       <td className="px-4 py-3 text-xs">{release.isActive ? 'Active' : 'Archived'}</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Train information</h2>
-          <dl className="mt-4 space-y-3 text-sm">
-            <DetailRow label="Vendor" value={train.vendor.name} />
-            <DetailRow label="Platform" value={train.platform} />
-            <DetailRow label="Train" value={train.name} />
-            <DetailRow label="Source" value={train.source} />
-            <DetailRow label="External provider" value={train.externalProvider ?? '—'} />
-            <DetailRow label="External ID" value={train.externalId ?? '—'} />
-          </dl>
-          {train.notes ? <p className="mt-5 whitespace-pre-wrap border-t border-[var(--border)] pt-4 text-sm leading-6 text-[var(--muted-strong)]">{train.notes}</p> : null}
-        </section>
-      </div>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </>
-  )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0">
-      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt>
-      <dd className="min-w-0 break-words text-[var(--muted-strong)]">{value}</dd>
-    </div>
   )
 }
