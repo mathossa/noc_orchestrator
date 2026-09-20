@@ -66,7 +66,10 @@ export function parseJobPayload<N extends JobName>(
         throw new Error('Invalid payload for example.some-job')
       }
 
-      return value as JobPayloadMap[N]
+      return {
+        version: 1,
+        marker: value.marker,
+      } as JobPayloadMap[N]
     }
   }
 }
