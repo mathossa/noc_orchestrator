@@ -96,8 +96,12 @@ export class JobSystem {
         options.applicationName ?? 'noc-orchestrator-background-jobs',
       schedule: options.schedule ?? true,
       max: options.maxConnections ?? 5,
-      cronMonitorIntervalSeconds: options.cronMonitorIntervalSeconds,
-      cronWorkerIntervalSeconds: options.cronWorkerIntervalSeconds,
+      ...(options.cronMonitorIntervalSeconds === undefined
+        ? {}
+        : { cronMonitorIntervalSeconds: options.cronMonitorIntervalSeconds }),
+      ...(options.cronWorkerIntervalSeconds === undefined
+        ? {}
+        : { cronWorkerIntervalSeconds: options.cronWorkerIntervalSeconds }),
     })
 
     boss.on('error', (error) => {
