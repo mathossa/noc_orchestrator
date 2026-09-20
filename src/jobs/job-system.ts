@@ -266,7 +266,11 @@ export class JobSystem {
         if (!job) {
           throw new Error(`pg-boss delivered an empty batch for ${name}`)
         }
-        return this.execute(name, job, handler)
+        return this.execute(
+          name,
+          job as JobWithMetadata<JobPayloadMap[N]>,
+          handler,
+        )
       },
     )
   }
