@@ -252,7 +252,10 @@ export async function resolveDeviceWorkPlanning(
             select: {
               id: true,
               state: true,
+              proposedFor: true,
+              proposedMaintenanceWindowReference: true,
               scheduledFor: true,
+              maintenanceWindowReference: true,
               completedAt: true,
               cancelledAt: true,
             },

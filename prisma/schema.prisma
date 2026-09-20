@@ -635,9 +635,11 @@ model FirmwareWorkPlan {
   title                      String?
   reason                     String?
   notes                      String?
-  externalReference          String?
-  scheduledFor               DateTime?
-  maintenanceWindowReference String?
+  externalReference                    String?
+  proposedFor                          DateTime?
+  proposedMaintenanceWindowReference   String?
+  scheduledFor                         DateTime?
+  maintenanceWindowReference           String?
   upgradeCapability          String   @default("UNKNOWN")
   createdByUserId            String?
   approvedByUserId           String?
@@ -655,6 +657,7 @@ model FirmwareWorkPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
+  @@index([state, proposedFor])
   @@index([state, scheduledFor])
   @@index([createdByUserId])
   @@index([completedAt])

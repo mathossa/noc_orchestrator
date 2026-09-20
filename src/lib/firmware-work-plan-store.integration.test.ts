@@ -48,7 +48,7 @@ describe('firmware work plan PostgreSQL persistence', () => {
     futureRelease: `${prefix}-future`,
     policy: `${prefix}-policy`,
     compatibilityRule: `${prefix}-compatibility`,
-    devices: Array.from({ length: 7 }, (_, index) => `${prefix}-device-${index}`),
+    devices: Array.from({ length: 8 }, (_, index) => `${prefix}-device-${index}`),
   }
 
   const observedAt = new Date('2026-09-01T08:00:00.000Z')
@@ -226,13 +226,20 @@ describe('firmware work plan PostgreSQL persistence', () => {
     }
   }
 
-  async function createPlan(deviceIndex: number) {
+  async function createPlan(
+    deviceIndex: number,
+    proposal?: {
+      proposedFor: string
+      proposedMaintenanceWindowReference?: string
+    },
+  ) {
     const raw = {
       deviceIds: [ids.devices[deviceIndex]],
       title: `Plan for device ${deviceIndex}`,
       reason: 'Integration planning fixture',
       notes: 'Created through the real planning store.',
       upgradeCapability: 'MANUAL_REVIEW',
+      ...proposal,
     }
     const preview = await store.previewFirmwareWorkPlan(raw)
     expect(preview.counts).toMatchObject({
@@ -556,6 +563,14 @@ describe('firmware work plan PostgreSQL persistence', () => {
         reason: 'Should not reopen.',
       }),
     ).rejects.toThrow('cannot transition from DONE to PROPOSED')
+    await expect(
+      store.amendFirmwareWorkPlanProposal(created.id, {
+        expectedState: 'DONE',
+        expectedUpdatedAt: done.updatedAt,
+        proposedFor: new Date('2026-11-01T22:00:00.000Z'),
+        actorUserId: ids.actor,
+      }),
+    ).rejects.toThrow('only be amended before scheduling')
     expect(await capturePersistence(created.id)).toEqual(beforeReopen)
   })
 
@@ -750,6 +765,137 @@ describe('firmware work plan PostgreSQL persistence', () => {
     expect(await capturePersistence(created.id)).toEqual(beforeStaleIntent)
   })
 
+  it('persists, amends, audits and promotes the proposed customer window without mutating target snapshots', async () => {
+    const initialProposedFor = new Date('2026-10-11T22:00:00.000Z')
+    const amendedProposedFor = new Date('2026-10-18T22:00:00.000Z')
+    const created = await createPlan(7, {
+      proposedFor: initialProposedFor.toISOString(),
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-1',
+    })
+    expect(created).toMatchObject({
+      state: 'PROPOSED',
+      proposedFor: initialProposedFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-1',
+      scheduledFor: null,
+    })
+    const targetBefore = await db.firmwareWorkPlanTarget.findFirstOrThrow({
+      where: { planId: created.id },
+    })
+
+    let context = await transitionContext(created.id)
+    const awaiting = await expectAcceptedTransition(
+      created.id,
+      {
+        fromState: 'PROPOSED',
+        toState: 'AWAITING_CUSTOMER',
+        actorUserId: ids.actor,
+        reason: 'Proposal sent to customer.',
+        notes: null,
+      },
+      () =>
+        store.transitionFirmwareWorkPlan(created.id, {
+          ...context,
+          toState: 'AWAITING_CUSTOMER',
+          actorUserId: ids.actor,
+          reason: 'Proposal sent to customer.',
+        }),
+    )
+    expect(awaiting).toMatchObject({
+      state: 'AWAITING_CUSTOMER',
+      proposedFor: initialProposedFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-1',
+      scheduledFor: null,
+    })
+
+    const eventsBeforeAmendment = await readEvents(created.id)
+    const auditsBeforeAmendment = await readAudits(created.id)
+    context = await transitionContext(created.id)
+    const amended = await store.amendFirmwareWorkPlanProposal(created.id, {
+      ...context,
+      actorUserId: ids.actor,
+      proposedFor: amendedProposedFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-2',
+      reason: 'Customer requested another Sunday.',
+    })
+    expect(amended).toMatchObject({
+      state: 'AWAITING_CUSTOMER',
+      proposedFor: amendedProposedFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-2',
+      scheduledFor: null,
+    })
+
+    const eventsAfterAmendment = await readEvents(created.id)
+    const auditsAfterAmendment = await readAudits(created.id)
+    expect(eventsAfterAmendment).toHaveLength(eventsBeforeAmendment.length + 1)
+    expect(eventsAfterAmendment.at(-1)).toMatchObject({
+      fromState: 'AWAITING_CUSTOMER',
+      toState: 'AWAITING_CUSTOMER',
+      actorUserId: ids.actor,
+      reason: 'Customer requested another Sunday.',
+      metadata: {
+        kind: 'PROPOSED_MAINTENANCE_WINDOW_AMENDED',
+        before: {
+          proposedFor: initialProposedFor.toISOString(),
+          proposedMaintenanceWindowReference: 'MW-PROPOSED-1',
+        },
+        after: {
+          proposedFor: amendedProposedFor.toISOString(),
+          proposedMaintenanceWindowReference: 'MW-PROPOSED-2',
+        },
+      },
+    })
+    expect(auditsAfterAmendment).toHaveLength(auditsBeforeAmendment.length + 1)
+    expect(auditsAfterAmendment.at(-1)).toMatchObject({
+      action: 'FIRMWARE_WORK_PLAN_PROPOSED_WINDOW_AMENDED',
+      before: {
+        proposedFor: initialProposedFor.toISOString(),
+        proposedMaintenanceWindowReference: 'MW-PROPOSED-1',
+      },
+      after: {
+        proposedFor: amendedProposedFor.toISOString(),
+        proposedMaintenanceWindowReference: 'MW-PROPOSED-2',
+      },
+    })
+    expect(
+      await db.firmwareWorkPlanTarget.findFirstOrThrow({
+        where: { planId: created.id },
+      }),
+    ).toEqual(targetBefore)
+
+    context = await transitionContext(created.id)
+    const scheduled = await expectAcceptedTransition(
+      created.id,
+      {
+        fromState: 'AWAITING_CUSTOMER',
+        toState: 'SCHEDULED',
+        actorUserId: ids.actor,
+        reason: 'Customer approved the amended proposed window.',
+        notes: null,
+      },
+      () =>
+        store.scheduleFirmwareWorkPlan(created.id, {
+          ...context,
+          actorUserId: ids.actor,
+          reason: 'Customer approved the amended proposed window.',
+        }),
+    )
+    expect(scheduled).toMatchObject({
+      state: 'SCHEDULED',
+      proposedFor: amendedProposedFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED-2',
+      scheduledFor: amendedProposedFor,
+      maintenanceWindowReference: 'MW-PROPOSED-2',
+      approvedByUserId: ids.actor,
+    })
+    expect(scheduled.approvedAt).toBeInstanceOf(Date)
+    expect(scheduled.scheduledAt).toBeInstanceOf(Date)
+    expect(
+      await db.firmwareWorkPlanTarget.findFirstOrThrow({
+        where: { planId: created.id },
+      }),
+    ).toEqual(targetBefore)
+  })
+
   it('persists cancellation as terminal history and never reopens it', async () => {
     const created = await createPlan(2)
     let context = await transitionContext(created.id)
@@ -808,6 +954,14 @@ describe('firmware work plan PostgreSQL persistence', () => {
         actorUserId: ids.actor,
       }),
     ).rejects.toThrow('cannot transition from CANCELLED to PROPOSED')
+    await expect(
+      store.amendFirmwareWorkPlanProposal(created.id, {
+        expectedState: 'CANCELLED',
+        expectedUpdatedAt: cancelled.updatedAt,
+        proposedFor: new Date('2026-11-01T22:00:00.000Z'),
+        actorUserId: ids.actor,
+      }),
+    ).rejects.toThrow('only be amended before scheduling')
     expect(await capturePersistence(created.id)).toEqual(beforeReopen)
   })
 
@@ -850,6 +1004,15 @@ describe('firmware work plan PostgreSQL persistence', () => {
     )
 
     const before = await capturePersistence(created.id)
+    context = await transitionContext(created.id)
+    await expect(
+      store.scheduleFirmwareWorkPlan(created.id, {
+        ...context,
+        actorUserId: ids.actor,
+      }),
+    ).rejects.toThrow('stored proposedFor')
+    expect(await capturePersistence(created.id)).toEqual(before)
+
     context = await transitionContext(created.id)
     await expect(
       store.transitionFirmwareWorkPlan(created.id, {

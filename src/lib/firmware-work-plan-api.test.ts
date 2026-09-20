@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   firmwareWorkPlanApiError,
   FirmwareWorkPlanApiValidationError,
+  parseFirmwareWorkPlanProposalAmendment,
   parseFirmwareWorkPlanQuery,
   parseFirmwareWorkPlanTransition,
 } from '@/lib/firmware-work-plan-api'
@@ -67,10 +68,44 @@ describe('firmware work plan API boundary', () => {
     )
     if (transition.toState !== 'SCHEDULED')
       throw new Error('Expected scheduled transition.')
+    if (!transition.scheduledFor)
+      throw new Error('Expected explicit scheduled timestamp.')
     expect(transition.scheduledFor.toISOString()).toBe(
       '2026-09-21T20:00:00.000Z',
     )
     expect(transition.maintenanceWindowReference).toBe('MW-2026-09-21')
+  })
+
+  it('allows SCHEDULED to promote an already persisted proposal', () => {
+    const transition = parseFirmwareWorkPlanTransition({
+      expectedState: 'AWAITING_CUSTOMER',
+      toState: 'SCHEDULED',
+      expectedUpdatedAt: '2026-09-20T11:00:00Z',
+      reason: 'Customer approved the proposed window.',
+    })
+
+    expect(transition.toState).toBe('SCHEDULED')
+    if (transition.toState !== 'SCHEDULED')
+      throw new Error('Expected scheduled transition.')
+    expect(transition.scheduledFor).toBeUndefined()
+  })
+
+  it('parses an audited proposal amendment with an explicit timezone', () => {
+    const amendment = parseFirmwareWorkPlanProposalAmendment({
+      expectedState: 'AWAITING_CUSTOMER',
+      expectedUpdatedAt: '2026-09-20T11:00:00.123Z',
+      proposedFor: '2026-10-04T22:00:00+02:00',
+      proposedMaintenanceWindowReference: 'MW-CUSTOMER-1',
+      reason: 'Customer requested a different Sunday.',
+    })
+
+    expect(amendment).toMatchObject({
+      expectedState: 'AWAITING_CUSTOMER',
+      expectedUpdatedAt: new Date('2026-09-20T11:00:00.123Z'),
+      proposedFor: new Date('2026-10-04T20:00:00.000Z'),
+      proposedMaintenanceWindowReference: 'MW-CUSTOMER-1',
+      reason: 'Customer requested a different Sunday.',
+    })
   })
 
   it('does not accept scheduling fields on non-scheduling transitions', () => {

@@ -28,7 +28,7 @@ type TransitionContext = {
 }
 
 export type ScheduleFirmwareWorkPlanInput = TransitionContext & {
-  scheduledFor: Date
+  scheduledFor?: Date
   maintenanceWindowReference?: string | null
 }
 
@@ -41,10 +41,15 @@ export type TransitionFirmwareWorkPlanInput = TransitionContext &
       }
     | {
         toState: 'SCHEDULED'
-        scheduledFor: Date
+        scheduledFor?: Date
         maintenanceWindowReference?: string | null
       }
   )
+
+export type AmendFirmwareWorkPlanProposalInput = TransitionContext & {
+  proposedFor?: Date | null
+  proposedMaintenanceWindowReference?: string | null
+}
 
 /** Scheduling records domain intent only; it does not enqueue or execute work. */
 export function scheduleFirmwareWorkPlan(
@@ -70,8 +75,9 @@ export async function transitionFirmwareWorkPlan(
     throw new FirmwareWorkPlanError('A valid expectedUpdatedAt is required.')
   if (input.toState === 'SCHEDULED') {
     if (
-      !(input.scheduledFor instanceof Date) ||
-      !Number.isFinite(input.scheduledFor.getTime())
+      input.scheduledFor !== undefined &&
+      (!(input.scheduledFor instanceof Date) ||
+        !Number.isFinite(input.scheduledFor.getTime()))
     )
       throw new FirmwareWorkPlanError(
         'SCHEDULED work requires a valid scheduledFor date.',
@@ -87,7 +93,11 @@ export async function transitionFirmwareWorkPlan(
   const reason = text(input.reason, 500)
   const notes = text(input.notes, 5000)
   const actorUserId = input.actorUserId ?? null
-  const maintenanceWindowReference = text(input.maintenanceWindowReference, 500)
+  const requestedMaintenanceWindowReference =
+    input.toState === 'SCHEDULED' &&
+    input.maintenanceWindowReference !== undefined
+      ? text(input.maintenanceWindowReference, 500)
+      : undefined
 
   return prisma.$transaction(
     async (tx) => {
@@ -106,6 +116,39 @@ export async function transitionFirmwareWorkPlan(
           409,
         )
       assertFirmwareWorkPlanTransition(input.expectedState, input.toState)
+
+      let confirmedScheduledFor: Date | null = null
+      let confirmedMaintenanceWindowReference: string | null = null
+      if (input.toState === 'SCHEDULED') {
+        confirmedScheduledFor = input.scheduledFor ?? plan.proposedFor
+        if (
+          !(confirmedScheduledFor instanceof Date) ||
+          !Number.isFinite(confirmedScheduledFor.getTime())
+        )
+          throw new FirmwareWorkPlanError(
+            'SCHEDULED work requires a valid scheduledFor date or stored proposedFor date.',
+          )
+
+        confirmedMaintenanceWindowReference =
+          requestedMaintenanceWindowReference ??
+          plan.proposedMaintenanceWindowReference
+
+        if (
+          plan.proposedFor &&
+          (plan.proposedFor.getTime() !== confirmedScheduledFor.getTime() ||
+            plan.proposedMaintenanceWindowReference !==
+              confirmedMaintenanceWindowReference)
+        )
+          throw new FirmwareWorkPlanError(
+            'Scheduling must confirm the exact proposed maintenance window. Amend the proposal first if the window changed.',
+            409,
+          )
+        if (plan.state === 'AWAITING_CUSTOMER' && !plan.proposedFor)
+          throw new FirmwareWorkPlanError(
+            'Customer approval may schedule directly only when a proposed maintenance date is already stored.',
+            409,
+          )
+      }
 
       const at = new Date()
       const data: Prisma.FirmwareWorkPlanUpdateManyMutationInput = {
@@ -136,9 +179,12 @@ export async function transitionFirmwareWorkPlan(
           break
         case 'SCHEDULED':
           Object.assign(data, {
+            ...(plan.state === 'AWAITING_CUSTOMER'
+              ? { approvedAt: at, approvedByUserId: actorUserId }
+              : {}),
             scheduledAt: at,
-            scheduledFor: input.scheduledFor,
-            maintenanceWindowReference,
+            scheduledFor: confirmedScheduledFor,
+            maintenanceWindowReference: confirmedMaintenanceWindowReference,
           })
           break
         case 'IN_PROGRESS':
@@ -171,6 +217,9 @@ export async function transitionFirmwareWorkPlan(
       })
       const history = (row: typeof plan) => ({
         state: row.state,
+        proposedFor: row.proposedFor?.toISOString() ?? null,
+        proposedMaintenanceWindowReference:
+          row.proposedMaintenanceWindowReference,
         approvedAt: row.approvedAt?.toISOString() ?? null,
         approvedByUserId: row.approvedByUserId,
         scheduledAt: row.scheduledAt?.toISOString() ?? null,
@@ -198,6 +247,146 @@ export async function transitionFirmwareWorkPlan(
         data: {
           actorUserId,
           action: 'FIRMWARE_WORK_PLAN_TRANSITIONED',
+          entityType: 'FirmwareWorkPlan',
+          entityId: id,
+          before,
+          after,
+          metadata: { reason, notes },
+          createdAt: at,
+        },
+      })
+      return next
+    },
+    { isolationLevel: 'ReadCommitted' },
+  )
+}
+
+const AMENDABLE_PROPOSAL_STATES = new Set<FirmwareWorkPlanState>([
+  'PROPOSED',
+  'AWAITING_CUSTOMER',
+  'APPROVED',
+])
+
+export async function amendFirmwareWorkPlanProposal(
+  id: string,
+  input: AmendFirmwareWorkPlanProposalInput,
+) {
+  if (!FIRMWARE_WORK_PLAN_STATES.includes(input.expectedState))
+    throw new FirmwareWorkPlanError('Unknown firmware work plan state.')
+  if (
+    !(input.expectedUpdatedAt instanceof Date) ||
+    !Number.isFinite(input.expectedUpdatedAt.getTime())
+  )
+    throw new FirmwareWorkPlanError('A valid expectedUpdatedAt is required.')
+
+  const hasProposedFor = Object.prototype.hasOwnProperty.call(
+    input,
+    'proposedFor',
+  )
+  const hasWindowReference = Object.prototype.hasOwnProperty.call(
+    input,
+    'proposedMaintenanceWindowReference',
+  )
+  if (!hasProposedFor && !hasWindowReference)
+    throw new FirmwareWorkPlanError(
+      'Provide a proposed maintenance date/time or window reference to amend.',
+    )
+  if (
+    hasProposedFor &&
+    input.proposedFor !== null &&
+    (!(input.proposedFor instanceof Date) ||
+      !Number.isFinite(input.proposedFor.getTime()))
+  )
+    throw new FirmwareWorkPlanError('proposedFor must be a valid date or null.')
+
+  const proposedMaintenanceWindowReference = hasWindowReference
+    ? text(input.proposedMaintenanceWindowReference, 500)
+    : undefined
+  const reason = text(input.reason, 500)
+  const notes = text(input.notes, 5000)
+  const actorUserId = input.actorUserId ?? null
+
+  return prisma.$transaction(
+    async (tx) => {
+      const plan = await tx.firmwareWorkPlan.findUnique({ where: { id } })
+      if (!plan)
+        throw new FirmwareWorkPlanError(
+          'Firmware work plan was not found.',
+          404,
+        )
+      if (
+        plan.state !== input.expectedState ||
+        plan.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
+      )
+        throw new FirmwareWorkPlanError(
+          'Work plan changed. Reload before transitioning.',
+          409,
+        )
+      if (!AMENDABLE_PROPOSAL_STATES.has(input.expectedState))
+        throw new FirmwareWorkPlanError(
+          'The proposed maintenance window may only be amended before scheduling.',
+          409,
+        )
+
+      const at = new Date()
+      const data: Prisma.FirmwareWorkPlanUpdateManyMutationInput = {
+        ...(hasProposedFor
+          ? { proposedFor: input.proposedFor ?? null }
+          : {}),
+        ...(hasWindowReference
+          ? { proposedMaintenanceWindowReference }
+          : {}),
+        updatedAt: new Date(
+          Math.max(at.getTime(), plan.updatedAt.getTime() + 1),
+        ),
+      }
+      const changed = await tx.firmwareWorkPlan.updateMany({
+        where: {
+          id,
+          state: input.expectedState,
+          updatedAt: input.expectedUpdatedAt,
+        },
+        data,
+      })
+      if (changed.count !== 1)
+        throw new FirmwareWorkPlanError(
+          'Work plan changed. Reload before transitioning.',
+          409,
+        )
+
+      const next = await tx.firmwareWorkPlan.findUniqueOrThrow({
+        where: { id },
+      })
+      const history = (row: typeof plan) => ({
+        state: row.state,
+        proposedFor: row.proposedFor?.toISOString() ?? null,
+        proposedMaintenanceWindowReference:
+          row.proposedMaintenanceWindowReference,
+        scheduledFor: row.scheduledFor?.toISOString() ?? null,
+        maintenanceWindowReference: row.maintenanceWindowReference,
+      })
+      const before = history(plan)
+      const after = history(next)
+      await tx.firmwareWorkPlanEvent.create({
+        data: {
+          planId: id,
+          fromState: plan.state,
+          toState: next.state,
+          actorUserId,
+          reason,
+          notes,
+          createdAt: at,
+          metadata: {
+            kind: 'PROPOSED_MAINTENANCE_WINDOW_AMENDED',
+            before,
+            after,
+          },
+        },
+      })
+      await tx.auditEvent.create({
+        data: {
+          actorUserId,
+          action: 'FIRMWARE_WORK_PLAN_PROPOSED_WINDOW_AMENDED',
           entityType: 'FirmwareWorkPlan',
           entityId: id,
           before,
@@ -253,6 +442,8 @@ export type FirmwareWorkPlanInput = {
   title: string | null
   reason: string | null
   notes: string | null
+  proposedFor: Date | null
+  proposedMaintenanceWindowReference: string | null
   exceptionOverrideDeviceIds: string[]
   upgradeCapability: FirmwareUpgradeCapability
 }
@@ -320,6 +511,23 @@ function text(value: unknown, max: number) {
   return normalized
 }
 
+function optionalPlanningInstant(value: unknown, field: string) {
+  if (value == null || value === '') return null
+  if (typeof value !== 'string')
+    throw new FirmwareWorkPlanError(
+      `${field} must be an ISO 8601 timestamp.`,
+    )
+  const normalized = value.trim()
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized))
+    throw new FirmwareWorkPlanError(
+      `${field} must include an explicit timezone.`,
+    )
+  const parsed = new Date(normalized)
+  if (!Number.isFinite(parsed.getTime()))
+    throw new FirmwareWorkPlanError(`${field} must be a valid timestamp.`)
+  return parsed
+}
+
 export function parseFirmwareWorkPlanInput(raw: unknown): FirmwareWorkPlanInput {
   if (!raw || typeof raw !== 'object')
     throw new FirmwareWorkPlanError('Select devices to plan.')
@@ -369,6 +577,11 @@ export function parseFirmwareWorkPlanInput(raw: unknown): FirmwareWorkPlanInput 
     title: text(body.title, 200),
     reason: text(body.reason, 500),
     notes: text(body.notes, 5000),
+    proposedFor: optionalPlanningInstant(body.proposedFor, 'proposedFor'),
+    proposedMaintenanceWindowReference: text(
+      body.proposedMaintenanceWindowReference,
+      500,
+    ),
     exceptionOverrideDeviceIds,
     upgradeCapability,
   }
@@ -704,6 +917,9 @@ export async function createFirmwareWorkPlan(
           title: preview.input.title,
           reason: preview.input.reason,
           notes: preview.input.notes,
+          proposedFor: preview.input.proposedFor,
+          proposedMaintenanceWindowReference:
+            preview.input.proposedMaintenanceWindowReference,
           upgradeCapability: preview.input.upgradeCapability,
           createdByUserId: actorUserId,
           targets: {
@@ -770,6 +986,9 @@ export async function createFirmwareWorkPlan(
                 requestedCount: preview.counts.requested,
                 includedCount: preview.counts.included,
                 exceptionOverrideCount: preview.counts.exceptionOverrides,
+                proposedFor: preview.input.proposedFor?.toISOString() ?? null,
+                proposedMaintenanceWindowReference:
+                  preview.input.proposedMaintenanceWindowReference,
               },
             },
           },
@@ -790,6 +1009,9 @@ export async function createFirmwareWorkPlan(
             state: plan.state,
             targetCount: plan.targets.length,
             title: plan.title,
+            proposedFor: plan.proposedFor?.toISOString() ?? null,
+            proposedMaintenanceWindowReference:
+              plan.proposedMaintenanceWindowReference,
           },
           metadata: {
             requestedCount: preview.counts.requested,
