@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   FormField,
@@ -14,19 +14,18 @@ import { PageHeader } from '@/components/ui/page-header'
 import { FIRMWARE_UPGRADE_CAPABILITIES } from '@/lib/firmware-work-planning'
 import {
   type ClientError,
-  type DeviceChoice,
-  type DevicePayload,
   type DeviceReferences,
   type PlanningCandidateDevice,
   type PlanPreview,
   commonSwitchAndAccessPointTypeIds,
   dateTimeLocalToIso,
+  groupPreviewExceptions,
   groupPreviewTargets,
   groupScopeDevices,
   labelValue,
+  planningDeviceTypeOptions,
   requestJson,
   resolveSiteScopeDevices,
-  toggleDeviceRecord,
   toggleSelection,
 } from './planning-client'
 import {
@@ -34,8 +33,6 @@ import {
   PlanningSection,
   PlanningStatus,
 } from './planning-ui'
-
-type ScopeMode = 'sites' | 'devices'
 
 const dispositionLabel: Record<
   PlanPreview['targets'][number]['disposition'],
@@ -51,7 +48,6 @@ const dispositionLabel: Record<
 
 export function FirmwarePlanCreate() {
   const router = useRouter()
-  const [scopeMode, setScopeMode] = useState<ScopeMode>('sites')
   const [references, setReferences] = useState<DeviceReferences | null>(null)
   const [referenceLoading, setReferenceLoading] = useState(true)
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([])
@@ -60,18 +56,8 @@ export function FirmwarePlanCreate() {
     [],
   )
   const [resolvedDevices, setResolvedDevices] = useState<PlanningCandidateDevice[]>([])
-  const [selectedDevices, setSelectedDevices] = useState<
-    Record<string, DeviceChoice>
-  >({})
-  const [deviceRows, setDeviceRows] = useState<DevicePayload | null>(null)
-  const [deviceLoading, setDeviceLoading] = useState(false)
-  const [deviceFilters, setDeviceFilters] = useState({
-    q: '',
-    customer: '',
-    site: '',
-    deviceType: '',
-    model: '',
-  })
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [siteSearch, setSiteSearch] = useState('')
   const [creation, setCreation] = useState({
     title: '',
     reason: '',
@@ -136,16 +122,6 @@ export function FirmwarePlanCreate() {
     setOverrideIds([])
   }
 
-  function changeScopeMode(mode: ScopeMode) {
-    setScopeMode(mode)
-    setResolvedDevices([])
-    setPreview(null)
-    setPreviewDirty(false)
-    setOverrideIds([])
-    setError('')
-    setMessage('')
-  }
-
   function toggleCustomer(customerId: string) {
     const removing = selectedCustomerIds.includes(customerId)
     setSelectedCustomerIds((current) =>
@@ -169,10 +145,13 @@ export function FirmwarePlanCreate() {
     resetResolvedScope()
   }
 
-  function toggleDeviceType(deviceTypeId: string) {
-    setSelectedDeviceTypeIds((current) =>
-      toggleSelection(current, deviceTypeId),
-    )
+  function toggleDeviceTypeOption(typeIds: string[]) {
+    setSelectedDeviceTypeIds((current) => {
+      const selected = typeIds.every((id) => current.includes(id))
+      return selected
+        ? current.filter((id) => !typeIds.includes(id))
+        : [...new Set([...current, ...typeIds])]
+    })
     resetResolvedScope()
   }
 
@@ -184,23 +163,62 @@ export function FirmwarePlanCreate() {
     invalidatePreview()
   }
 
-  const selectedCustomers = useMemo(
+  const activeCustomers = useMemo(
     () =>
-      (references?.customers ?? []).filter((customer) =>
-        selectedCustomerIds.includes(customer.id),
-      ),
-    [references, selectedCustomerIds],
+      (references?.customers ?? [])
+        .filter((customer) => customer.isActive)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [references],
   )
 
-  const siteSelectionByCustomer = useMemo(
+  const visibleCustomers = useMemo(() => {
+    const query = customerSearch.trim().toLocaleLowerCase()
+    if (!query) return activeCustomers
+    return activeCustomers.filter((customer) =>
+      customer.name.toLocaleLowerCase().includes(query),
+    )
+  }, [activeCustomers, customerSearch])
+
+  const customerNameById = useMemo(
     () =>
-      selectedCustomers.map((customer) => ({
-        customer,
-        sites: (references?.sites ?? []).filter(
-          (site) => site.customerId === customer.id && site.isActive,
-        ),
-      })),
-    [references, selectedCustomers],
+      new Map(
+        (references?.customers ?? []).map((customer) => [
+          customer.id,
+          customer.name,
+        ]),
+      ),
+    [references],
+  )
+
+  const visibleSites = useMemo(() => {
+    const query = siteSearch.trim().toLocaleLowerCase()
+    return (references?.sites ?? [])
+      .filter(
+        (site) =>
+          site.isActive &&
+          selectedCustomerIds.includes(site.customerId) &&
+          (!query ||
+            site.name.toLocaleLowerCase().includes(query) ||
+            (customerNameById.get(site.customerId) ?? '')
+              .toLocaleLowerCase()
+              .includes(query)),
+      )
+      .sort(
+        (a, b) =>
+          (customerNameById.get(a.customerId) ?? '').localeCompare(
+            customerNameById.get(b.customerId) ?? '',
+          ) || a.name.localeCompare(b.name),
+      )
+  }, [
+    customerNameById,
+    references,
+    selectedCustomerIds,
+    siteSearch,
+  ])
+
+  const deviceTypeOptions = useMemo(
+    () => planningDeviceTypeOptions(references?.deviceTypes ?? []),
+    [references],
   )
 
   const commonAccessTypeIds = useMemo(
@@ -221,79 +239,13 @@ export function FirmwarePlanCreate() {
 
   const selectedTypeLabels = useMemo(
     () =>
-      (references?.deviceTypes ?? []).filter((type) =>
-        selectedDeviceTypeIds.includes(type.id),
-      ),
-    [references, selectedDeviceTypeIds],
-  )
-
-  const loadIndividualDevices = useCallback(
-    async (page: number) => {
-      if (scopeMode !== 'devices') return
-      setDeviceLoading(true)
-      setError('')
-      try {
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: '25',
-          sort: 'customer',
-          direction: 'asc',
-        })
-        for (const [key, value] of Object.entries(deviceFilters))
-          if (value) params.set(key, value)
-        const payload = await requestJson<DevicePayload>(
-          `/api/v1/devices?${params}`,
+      deviceTypeOptions
+        .filter((option) =>
+          option.typeIds.every((id) => selectedDeviceTypeIds.includes(id)),
         )
-        setDeviceRows(payload)
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : 'Could not load devices.',
-        )
-      } finally {
-        setDeviceLoading(false)
-      }
-    },
-    [deviceFilters, scopeMode],
+        .map((option) => option.label),
+    [deviceTypeOptions, selectedDeviceTypeIds],
   )
-
-  useEffect(() => {
-    if (scopeMode !== 'devices') return
-    const handle = window.setTimeout(
-      () => void loadIndividualDevices(1),
-      150,
-    )
-    return () => window.clearTimeout(handle)
-  }, [loadIndividualDevices, scopeMode])
-
-  const individualSites = useMemo(
-    () =>
-      (references?.sites ?? []).filter(
-        (site) =>
-          !deviceFilters.customer ||
-          site.customerId === deviceFilters.customer,
-      ),
-    [deviceFilters.customer, references],
-  )
-
-  const individualModels = useMemo(
-    () =>
-      (references?.models ?? []).filter(
-        (model) =>
-          !deviceFilters.deviceType ||
-          model.deviceType.id === deviceFilters.deviceType,
-      ),
-    [deviceFilters.deviceType, references],
-  )
-
-  function toggleIndividualDevice(device: DeviceChoice) {
-    const removing = Boolean(selectedDevices[device.id])
-    setSelectedDevices((current) => toggleDeviceRecord(current, device))
-    if (removing)
-      setOverrideIds((ids) => ids.filter((id) => id !== device.id))
-    invalidatePreview()
-  }
 
   function planningInput(deviceIds: string[]) {
     return {
@@ -312,20 +264,11 @@ export function FirmwarePlanCreate() {
   }
 
   async function resolveCurrentScope() {
-    if (scopeMode === 'sites') {
-      if (!selectedSiteIds.length)
-        throw new Error('Select at least one site.')
-      if (!selectedDeviceTypeIds.length)
-        throw new Error('Select at least one device type.')
-      return resolveSiteScopeDevices(
-        selectedSiteIds,
-        selectedDeviceTypeIds,
-      )
-    }
-
-    const devices = Object.values(selectedDevices)
-    if (!devices.length) throw new Error('Select at least one device.')
-    return devices
+    if (!selectedSiteIds.length)
+      throw new Error('Select at least one site.')
+    if (!selectedDeviceTypeIds.length)
+      throw new Error('Select at least one device type.')
+    return resolveSiteScopeDevices(selectedSiteIds, selectedDeviceTypeIds)
   }
 
   async function runPreview() {
@@ -412,13 +355,17 @@ export function FirmwarePlanCreate() {
     () => (preview ? groupPreviewTargets(preview.targets) : []),
     [preview],
   )
+  const exceptionGroups = useMemo(
+    () => (preview ? groupPreviewExceptions(preview.targets) : []),
+    [preview],
+  )
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Firmware planning"
         title="Create maintenance plan"
-        description="Choose a site-oriented scope or explicit individual devices, resolve it to exact device IDs, then review the authoritative firmware preview before saving."
+        description="Select customers and sites, choose the infrastructure types included in the maintenance, then review the authoritative firmware preview before saving."
         actions={
           <Link
             href="/planning"
@@ -434,365 +381,196 @@ export function FirmwarePlanCreate() {
 
       <PlanningSection
         title="1. Select scope"
-        description="Site scope is the normal path. Individual device selection remains available for exceptions and one-off work."
+        description="Planning is site-based. Search and select one or more customers, then choose the sites and infrastructure types for this maintenance."
       >
-        <div className="space-y-5">
-          <div className="inline-flex rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-1">
-            <button
-              type="button"
-              onClick={() => changeScopeMode('sites')}
-              aria-pressed={scopeMode === 'sites'}
-              className={`rounded px-3 py-2 text-sm font-semibold ${
-                scopeMode === 'sites'
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent-light)]'
-                  : 'text-[var(--muted-strong)]'
-              }`}
-            >
-              Sites
-            </button>
-            <button
-              type="button"
-              onClick={() => changeScopeMode('devices')}
-              aria-pressed={scopeMode === 'devices'}
-              className={`rounded px-3 py-2 text-sm font-semibold ${
-                scopeMode === 'devices'
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent-light)]'
-                  : 'text-[var(--muted-strong)]'
-              }`}
-            >
-              Individual devices
-            </button>
-          </div>
-
-          {scopeMode === 'sites' ? (
-            referenceLoading ? (
-              <p className="text-sm text-[var(--muted)]">
-                Loading customers, sites and device types…
-              </p>
-            ) : (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-semibold">Customers</h3>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Select one or more customers. Each selected customer exposes
-                    its sites below.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(references?.customers ?? [])
-                      .filter((customer) => customer.isActive)
-                      .map((customer) => (
-                        <label
-                          key={customer.id}
-                          className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedCustomerIds.includes(customer.id)}
-                            onChange={() => toggleCustomer(customer.id)}
-                          />
-                          {customer.name}
-                        </label>
-                      ))}
-                  </div>
+        {referenceLoading ? (
+          <p className="text-sm text-[var(--muted)]">
+            Loading customers, sites and device types…
+          </p>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="min-w-[260px] flex-1">
+                  <FormField
+                    label="Customers"
+                    htmlFor="planning-customer-search"
+                    description={`${selectedCustomerIds.length} selected · ${activeCustomers.length} active`}
+                  >
+                    <TextInput
+                      id="planning-customer-search"
+                      value={customerSearch}
+                      onChange={(event) => setCustomerSearch(event.target.value)}
+                      placeholder="Search customer…"
+                    />
+                  </FormField>
                 </div>
-
-                {selectedCustomerIds.length ? (
-                  <div>
-                    <h3 className="text-sm font-semibold">Sites</h3>
-                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                      {siteSelectionByCustomer.map(({ customer, sites }) => (
-                        <div
-                          key={customer.id}
-                          className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3"
-                        >
-                          <div className="font-semibold">{customer.name}</div>
-                          {!sites.length ? (
-                            <p className="mt-2 text-xs text-[var(--muted)]">
-                              No active sites.
-                            </p>
-                          ) : (
-                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                              {sites.map((site) => (
-                                <label
-                                  key={site.id}
-                                  className="flex items-center gap-2 text-sm"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedSiteIds.includes(site.id)}
-                                    onChange={() => toggleSite(site.id)}
-                                  />
-                                  {site.name}
-                                </label>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="rounded-md border border-dashed border-[var(--border-strong)] p-4 text-sm text-[var(--muted)]">
-                    Choose customer(s) to select one or more sites.
-                  </p>
-                )}
-
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-semibold">Device types</h3>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        Canonical device-type IDs determine which devices inside
-                        the selected sites are resolved.
-                      </p>
-                    </div>
-                    {commonAccessTypeIds.length ? (
-                      <Button
-                        onClick={() => {
-                          setSelectedDeviceTypeIds(commonAccessTypeIds)
-                          resetResolvedScope()
-                        }}
-                      >
-                        Select switches + access points
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(references?.deviceTypes ?? [])
-                      .filter((type) => type.isActive)
-                      .map((type) => (
-                        <label
-                          key={type.id}
-                          className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedDeviceTypeIds.includes(type.id)}
-                            onChange={() => toggleDeviceType(type.id)}
-                          />
-                          {type.name}
-                        </label>
-                      ))}
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-sm">
-                  <div className="font-semibold">Selected site scope</div>
-                  <div className="mt-1 text-[var(--muted)]">
-                    {selectedSiteLabels.length
-                      ? selectedSiteLabels
-                          .map((site) => site.name)
-                          .join(', ')
-                      : 'No sites selected'}
-                  </div>
-                  <div className="mt-1 text-xs text-[var(--muted)]">
-                    {selectedTypeLabels.length
-                      ? selectedTypeLabels
-                          .map((type) => type.name)
-                          .join(', ')
-                      : 'No device types selected'}
-                  </div>
-                </div>
+                <Button
+                  onClick={() => {
+                    const visibleIds = visibleCustomers.map(
+                      (customer) => customer.id,
+                    )
+                    setSelectedCustomerIds((current) => [
+                      ...new Set([...current, ...visibleIds]),
+                    ])
+                    resetResolvedScope()
+                  }}
+                  disabled={!visibleCustomers.length}
+                >
+                  Select all matching
+                </Button>
               </div>
-            )
-          ) : (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <FormField label="Search" htmlFor="individual-search">
-                  <TextInput
-                    id="individual-search"
-                    value={deviceFilters.q}
-                    onChange={(event) =>
-                      setDeviceFilters((current) => ({
-                        ...current,
-                        q: event.target.value,
-                      }))
-                    }
-                    placeholder="Device, customer, model…"
-                  />
-                </FormField>
-                <FormField label="Customer" htmlFor="individual-customer">
-                  <SelectInput
-                    id="individual-customer"
-                    value={deviceFilters.customer}
-                    onChange={(event) =>
-                      setDeviceFilters((current) => ({
-                        ...current,
-                        customer: event.target.value,
-                        site: '',
-                      }))
-                    }
-                  >
-                    <option value="">All customers</option>
-                    {(references?.customers ?? []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Site" htmlFor="individual-site">
-                  <SelectInput
-                    id="individual-site"
-                    value={deviceFilters.site}
-                    onChange={(event) =>
-                      setDeviceFilters((current) => ({
-                        ...current,
-                        site: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">All sites</option>
-                    {individualSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Device type" htmlFor="individual-type">
-                  <SelectInput
-                    id="individual-type"
-                    value={deviceFilters.deviceType}
-                    onChange={(event) =>
-                      setDeviceFilters((current) => ({
-                        ...current,
-                        deviceType: event.target.value,
-                        model: '',
-                      }))
-                    }
-                  >
-                    <option value="">All device types</option>
-                    {(references?.deviceTypes ?? []).map((type) => (
-                      <option key={type.id} value={type.id}>
-                        {type.name}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Model" htmlFor="individual-model">
-                  <SelectInput
-                    id="individual-model"
-                    value={deviceFilters.model}
-                    onChange={(event) =>
-                      setDeviceFilters((current) => ({
-                        ...current,
-                        model: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">All models</option>
-                    {individualModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.vendor.name} · {model.model}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-              </div>
-
-              <div className="overflow-x-auto rounded-md border border-[var(--border)]">
-                {deviceLoading ? (
-                  <p className="p-4 text-sm text-[var(--muted)]">
-                    Loading devices…
-                  </p>
-                ) : !deviceRows?.data.length ? (
-                  <p className="p-4 text-sm text-[var(--muted)]">
-                    No devices match these filters.
+              <div className="mt-3 max-h-64 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
+                {!visibleCustomers.length ? (
+                  <p className="p-3 text-sm text-[var(--muted)]">
+                    No customers match this search.
                   </p>
                 ) : (
-                  <table className="w-full min-w-[900px] text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
-                      <tr>
-                        <th className="px-3 py-2">Select</th>
-                        <th className="px-3 py-2">Device</th>
-                        <th className="px-3 py-2">Customer / site</th>
-                        <th className="px-3 py-2">Type / model</th>
-                        <th className="px-3 py-2">Current</th>
-                        <th className="px-3 py-2">Recommendation</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {deviceRows.data.map((device) => (
-                        <tr key={device.id}>
-                          <td className="px-3 py-2">
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${device.name}`}
-                              checked={Boolean(selectedDevices[device.id])}
-                              onChange={() => toggleIndividualDevice(device)}
-                            />
-                          </td>
-                          <td className="px-3 py-2 font-semibold">
-                            {device.name}
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {device.customer.name}
-                            <div className="text-[var(--muted)]">
-                              {device.site?.name ?? 'No site'}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {device.deviceModel.deviceType.name}
-                            <div className="text-[var(--muted)]">
-                              {device.deviceModel.model}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {device.currentFirmwareRelease?.version ??
-                              device.currentFirmwareNormalizedVersion ??
-                              device.currentFirmwareRawVersion ??
-                              'Unknown'}
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {labelValue(
-                              device.firmwareCompliance.recommendation,
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  visibleCustomers.map((customer) => (
+                    <label
+                      key={customer.id}
+                      className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-2 text-sm last:border-b-0"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomerIds.includes(customer.id)}
+                        onChange={() => toggleCustomer(customer.id)}
+                      />
+                      <span>{customer.name}</span>
+                    </label>
+                  ))
                 )}
               </div>
-
-              {deviceRows ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs text-[var(--muted)]">
-                    {Object.keys(selectedDevices).length} selected · page{' '}
-                    {deviceRows.meta.pagination.page} of{' '}
-                    {deviceRows.meta.pagination.totalPages}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      disabled={deviceRows.meta.pagination.page <= 1}
-                      onClick={() =>
-                        void loadIndividualDevices(
-                          deviceRows.meta.pagination.page - 1,
-                        )
-                      }
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      disabled={
-                        deviceRows.meta.pagination.page >=
-                        deviceRows.meta.pagination.totalPages
-                      }
-                      onClick={() =>
-                        void loadIndividualDevices(
-                          deviceRows.meta.pagination.page + 1,
-                        )
-                      }
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
             </div>
-          )}
-        </div>
+
+            {selectedCustomerIds.length ? (
+              <div>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-[260px] flex-1">
+                    <FormField
+                      label="Sites"
+                      htmlFor="planning-site-search"
+                      description={`${selectedSiteIds.length} selected across ${selectedCustomerIds.length} customer${selectedCustomerIds.length === 1 ? '' : 's'}`}
+                    >
+                      <TextInput
+                        id="planning-site-search"
+                        value={siteSearch}
+                        onChange={(event) => setSiteSearch(event.target.value)}
+                        placeholder="Search site or customer…"
+                      />
+                    </FormField>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      const visibleIds = visibleSites.map((site) => site.id)
+                      setSelectedSiteIds((current) => [
+                        ...new Set([...current, ...visibleIds]),
+                      ])
+                      resetResolvedScope()
+                    }}
+                    disabled={!visibleSites.length}
+                  >
+                    Select all matching
+                  </Button>
+                </div>
+                <div className="mt-3 max-h-72 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
+                  {!visibleSites.length ? (
+                    <p className="p-3 text-sm text-[var(--muted)]">
+                      No active sites match the selected customers and search.
+                    </p>
+                  ) : (
+                    visibleSites.map((site) => (
+                      <label
+                        key={site.id}
+                        className="grid grid-cols-[auto_1fr] gap-x-3 border-b border-[var(--border)] px-3 py-2 text-sm last:border-b-0"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={selectedSiteIds.includes(site.id)}
+                          onChange={() => toggleSite(site.id)}
+                        />
+                        <span>
+                          <span className="font-semibold">{site.name}</span>
+                          <span className="ml-2 text-xs text-[var(--muted)]">
+                            {customerNameById.get(site.customerId) ?? 'Unknown customer'}
+                          </span>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-[var(--border-strong)] p-4 text-sm text-[var(--muted)]">
+                Select at least one customer to search and select sites.
+              </p>
+            )}
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Device types</h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Equivalent Switch/Switches inventory types are grouped for planning.
+                    Stack remains separate because its maintenance procedure can differ.
+                  </p>
+                </div>
+                {commonAccessTypeIds.length ? (
+                  <Button
+                    onClick={() => {
+                      setSelectedDeviceTypeIds(commonAccessTypeIds)
+                      resetResolvedScope()
+                    }}
+                  >
+                    Select switches + access points
+                  </Button>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {deviceTypeOptions.map((option) => (
+                  <label
+                    key={option.key}
+                    className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                    title={
+                      option.sourceLabels.length > 1
+                        ? `Inventory types: ${option.sourceLabels.join(', ')}`
+                        : undefined
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={option.typeIds.every((id) =>
+                        selectedDeviceTypeIds.includes(id),
+                      )}
+                      onChange={() => toggleDeviceTypeOption(option.typeIds)}
+                    />
+                    {option.label}
+                    {option.sourceLabels.length > 1 ? (
+                      <span className="text-xs text-[var(--muted)]">
+                        ({option.sourceLabels.length} inventory types)
+                      </span>
+                    ) : null}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-sm">
+              <div className="font-semibold">Selected site scope</div>
+              <div className="mt-1 text-[var(--muted)]">
+                {selectedSiteLabels.length
+                  ? selectedSiteLabels.map((site) => site.name).join(', ')
+                  : 'No sites selected'}
+              </div>
+              <div className="mt-1 text-xs text-[var(--muted)]">
+                {selectedTypeLabels.length
+                  ? selectedTypeLabels.join(', ')
+                  : 'No device types selected'}
+              </div>
+            </div>
+          </div>
+        )}
       </PlanningSection>
 
       <PlanningSection
