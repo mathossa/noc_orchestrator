@@ -42,6 +42,7 @@ import {
 } from '@/app/api/v1/firmware-work-plans/route'
 import { GET as getPlan } from '@/app/api/v1/firmware-work-plans/[id]/route'
 import { POST as transitionPlan } from '@/app/api/v1/firmware-work-plans/[id]/transitions/route'
+import { FirmwareWorkPlanError } from '@/lib/firmware-work-plan-store'
 
 describe('firmware work plan routes', () => {
   beforeEach(() => {
@@ -123,6 +124,31 @@ describe('firmware work plan routes', () => {
     )
   })
 
+  it('requires a new preview when the confirmed preview becomes stale', async () => {
+    mocks.createFirmwareWorkPlan.mockRejectedValue(
+      new FirmwareWorkPlanError(
+        'Inventory, policy, exception, compatibility, or planning state changed. Preview the work again before saving.',
+        409,
+      ),
+    )
+
+    const response = await mutatePlans(
+      new Request('http://localhost/api/v1/firmware-work-plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          token: 'stale-preview-token',
+          input: { deviceIds: ['device-1'] },
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error.code).toBe('STALE_PREVIEW')
+    expect(mocks.createFirmwareWorkPlan).toHaveBeenCalledTimes(1)
+  })
+
   it('returns detail including the query-store read model', async () => {
     mocks.getFirmwareWorkPlan.mockResolvedValue({
       id: 'plan-1',
@@ -178,6 +204,35 @@ describe('firmware work plan routes', () => {
         actorUserId: 'session-user',
       }),
     )
+  })
+
+  it('does not retry a stale user transition', async () => {
+    mocks.transitionFirmwareWorkPlan.mockRejectedValue(
+      new FirmwareWorkPlanError(
+        'Work plan changed. Reload before transitioning.',
+        409,
+      ),
+    )
+
+    const response = await transitionPlan(
+      new Request(
+        'http://localhost/api/v1/firmware-work-plans/plan-1/transitions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            expectedState: 'SCHEDULED',
+            expectedUpdatedAt: '2026-09-20T11:00:00Z',
+            toState: 'IN_PROGRESS',
+          }),
+        },
+      ),
+      { params: Promise.resolve({ id: 'plan-1' }) },
+    )
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error.code).toBe('STALE_WRITE')
+    expect(mocks.transitionFirmwareWorkPlan).toHaveBeenCalledTimes(1)
   })
 
   it('rejects timezone-ambiguous scheduling input before calling the store', async () => {
