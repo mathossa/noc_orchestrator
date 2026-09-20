@@ -20,11 +20,13 @@ import {
   dateTime,
   dateTimeLocalToIso,
   requestJson,
+  safeBulkTransitionStates,
 } from './planning-client'
 import {
   PlanStatePill,
   PlanningError,
   PlanningSection,
+  PlanningStatus,
 } from './planning-ui'
 
 export type PlanningView = 'active' | 'history'
@@ -56,6 +58,12 @@ export function FirmwarePlanList({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
+  const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([])
+  const [bulkToState, setBulkToState] = useState<FirmwareWorkPlanState | ''>('')
+  const [bulkReason, setBulkReason] = useState('')
+  const [bulkNotes, setBulkNotes] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMessage, setBulkMessage] = useState('')
   const [filters, setFilters] = useState({
     customerId: '',
     siteId: '',
@@ -145,6 +153,8 @@ export function FirmwarePlanList({
         )
         setPlans(payload)
         setPage(payload.pagination.page)
+        setSelectedPlanIds([])
+        setBulkToState('')
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -191,6 +201,102 @@ export function FirmwarePlanList({
       ),
     [filters.deviceModelFamilyId, filters.vendorId, references],
   )
+
+  const selectedPlans = useMemo(
+    () =>
+      (plans?.data ?? []).filter((plan) =>
+        selectedPlanIds.includes(plan.id),
+      ),
+    [plans, selectedPlanIds],
+  )
+  const bulkStates = useMemo(
+    () => safeBulkTransitionStates(selectedPlans),
+    [selectedPlans],
+  )
+  const effectiveBulkToState = bulkStates.includes(
+    bulkToState as FirmwareWorkPlanState,
+  )
+    ? (bulkToState as FirmwareWorkPlanState)
+    : ''
+
+  function togglePlanSelection(planId: string) {
+    setSelectedPlanIds((current) =>
+      current.includes(planId)
+        ? current.filter((id) => id !== planId)
+        : [...current, planId],
+    )
+    setBulkMessage('')
+  }
+
+  async function runBulkTransition() {
+    if (!effectiveBulkToState || !selectedPlans.length) {
+      setError('Choose a transition that is safe for every selected plan.')
+      return
+    }
+    if (
+      effectiveBulkToState === 'CANCELLED' &&
+      !window.confirm(
+        `Cancel ${selectedPlans.length} selected work plan${selectedPlans.length === 1 ? '' : 's'}? Existing history remains auditable.`,
+      )
+    )
+      return
+    if (
+      effectiveBulkToState === 'DONE' &&
+      !window.confirm(
+        `Mark ${selectedPlans.length} selected work plan${selectedPlans.length === 1 ? '' : 's'} done? This records workflow completion only and does not verify observed firmware.`,
+      )
+    )
+      return
+    if (
+      effectiveBulkToState === 'SCHEDULED' &&
+      !window.confirm(
+        `Confirm each selected plan's stored proposed maintenance window and move ${selectedPlans.length} plan${selectedPlans.length === 1 ? '' : 's'} to Scheduled?`,
+      )
+    )
+      return
+
+    setBulkBusy(true)
+    setError('')
+    setBulkMessage('')
+    try {
+      await requestJson<{ data: unknown[] }>(
+        '/api/v1/firmware-work-plans/transitions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: selectedPlans.map((plan) => ({
+              id: plan.id,
+              expectedState: plan.state,
+              expectedUpdatedAt: plan.updatedAt,
+            })),
+            toState: effectiveBulkToState,
+            reason: bulkReason || undefined,
+            notes: bulkNotes || undefined,
+          }),
+        },
+      )
+      setSelectedPlanIds([])
+      setBulkToState('')
+      setBulkReason('')
+      setBulkNotes('')
+      setBulkMessage(
+        `${selectedPlans.length} work plan${selectedPlans.length === 1 ? '' : 's'} moved to ${effectiveBulkToState.toLowerCase().replaceAll('_', ' ')}. This changed planning state only; no device execution was started.`,
+      )
+      await loadPlans(page)
+    } catch (bulkError) {
+      const typed = bulkError as Error & { code?: string }
+      setError(
+        typed.code === 'STALE_WRITE'
+          ? 'At least one selected plan changed after this page was loaded. No bulk transition was applied; reload and review the selection.'
+          : bulkError instanceof Error
+            ? bulkError.message
+            : 'Bulk planning transition failed.',
+      )
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -467,6 +573,81 @@ export function FirmwarePlanList({
           </details>
 
           <PlanningError message={error} />
+          <PlanningStatus message={bulkMessage} />
+
+          {view === 'active' && selectedPlans.length ? (
+            <div className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Bulk workflow</h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {selectedPlans.length} selected. Stale plans cannot be selected. The operation is atomic: if any selected state/version changed, none are transitioned.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setSelectedPlanIds([])}
+                  disabled={bulkBusy}
+                >
+                  Clear selection
+                </Button>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <FormField label="Transition to" htmlFor="bulk-transition-state">
+                  <SelectInput
+                    id="bulk-transition-state"
+                    value={effectiveBulkToState}
+                    onChange={(event) =>
+                      setBulkToState(
+                        event.target.value as FirmwareWorkPlanState | '',
+                      )
+                    }
+                  >
+                    <option value="">Choose safe transition</option>
+                    {bulkStates.map((state) => (
+                      <option key={state} value={state}>
+                        {state
+                          .toLowerCase()
+                          .replaceAll('_', ' ')
+                          .replace(/^./, (value) => value.toUpperCase())}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Reason" htmlFor="bulk-transition-reason">
+                  <TextInput
+                    id="bulk-transition-reason"
+                    value={bulkReason}
+                    onChange={(event) => setBulkReason(event.target.value)}
+                    placeholder="Optional shared audit reason"
+                  />
+                </FormField>
+                <FormField label="Notes" htmlFor="bulk-transition-notes">
+                  <TextInput
+                    id="bulk-transition-notes"
+                    value={bulkNotes}
+                    onChange={(event) => setBulkNotes(event.target.value)}
+                    placeholder="Optional shared notes"
+                  />
+                </FormField>
+              </div>
+              {!bulkStates.length ? (
+                <p className="mt-3 text-xs text-[#f0b574]">
+                  These plans do not share a safe transition. Adjust the selection or open them individually.
+                </p>
+              ) : null}
+              <div className="mt-3">
+                <Button
+                  variant="primary"
+                  disabled={bulkBusy || !effectiveBulkToState}
+                  onClick={() => void runBulkTransition()}
+                >
+                  {bulkBusy
+                    ? 'Applying…'
+                    : `Apply to ${selectedPlans.length} plan${selectedPlans.length === 1 ? '' : 's'}`}
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {loading ? (
             <p className="py-4 text-sm text-[var(--muted)]">
@@ -496,12 +677,34 @@ export function FirmwarePlanList({
           ) : (
             <div className="space-y-3">
               {plans.data.map((plan) => (
-                <Link
+                <div
                   key={plan.id}
-                  href={`/planning/${plan.id}`}
-                  className="block rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)]"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-4 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)]"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {view === 'active' ? (
+                      <label
+                        className="mt-1 flex shrink-0 items-center"
+                        title={
+                          plan.stale
+                            ? 'Review this stale plan individually before transitioning it.'
+                            : 'Select plan for a bulk workflow transition.'
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${plan.title || 'untitled firmware maintenance'} for bulk workflow`}
+                          checked={selectedPlanIds.includes(plan.id)}
+                          disabled={plan.stale || bulkBusy}
+                          onChange={() => togglePlanSelection(plan.id)}
+                        />
+                      </label>
+                    ) : null}
+                    <Link
+                      href={`/planning/${plan.id}`}
+                      className="min-w-0 flex-1"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold">
@@ -579,7 +782,9 @@ export function FirmwarePlanList({
                       have not been rewritten.
                     </div>
                   ) : null}
-                </Link>
+                    </Link>
+                  </div>
+                </div>
               ))}
 
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
