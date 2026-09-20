@@ -252,6 +252,78 @@ export function parseFirmwareWorkPlanTransition(raw: unknown) {
   }
 }
 
+export function parseFirmwareWorkPlanBulkTransition(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    throw new FirmwareWorkPlanApiValidationError(
+      'Request body must be an object.',
+    )
+  const body = raw as Record<string, unknown>
+  if (!Array.isArray(body.items) || body.items.length === 0)
+    throw new FirmwareWorkPlanApiValidationError(
+      'Select at least one work plan.',
+      { items: 'Select one or more work plans.' },
+    )
+  if (body.items.length > 100)
+    throw new FirmwareWorkPlanApiValidationError(
+      'A single bulk transition may contain at most 100 work plans.',
+      { items: 'Select 100 work plans or fewer.' },
+    )
+
+  const toState = state(body.toState, 'toState')
+  if (
+    body.scheduledFor !== undefined ||
+    body.maintenanceWindowReference !== undefined
+  )
+    throw new FirmwareWorkPlanApiValidationError(
+      'Bulk scheduling confirms each plan\'s stored proposed window; per-request scheduling fields are not supported.',
+      {
+        scheduledFor:
+          'Amend each proposal first, then bulk-confirm the stored proposed windows.',
+      },
+    )
+
+  const seen = new Set<string>()
+  const items = body.items.map((rawItem, index) => {
+    if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem))
+      throw new FirmwareWorkPlanApiValidationError(
+        `items[${index}] must be an object.`,
+        { items: 'Each selected plan must include its displayed state and version.' },
+      )
+    const item = rawItem as Record<string, unknown>
+    const id = optionalText(item.id, `items[${index}].id`)
+    if (!id)
+      throw new FirmwareWorkPlanApiValidationError(
+        `items[${index}].id is required.`,
+        { items: 'Each selected plan must include an id.' },
+      )
+    if (seen.has(id))
+      throw new FirmwareWorkPlanApiValidationError(
+        'Bulk transition plan ids must be unique.',
+        { items: 'Remove duplicate plan selections.' },
+      )
+    seen.add(id)
+    return {
+      id,
+      expectedState: state(
+        item.expectedState,
+        `items[${index}].expectedState`,
+      ),
+      expectedUpdatedAt: parseInstant(
+        item.expectedUpdatedAt,
+        `items[${index}].expectedUpdatedAt`,
+        true,
+      )!,
+    }
+  })
+
+  return {
+    items,
+    toState,
+    reason: optionalText(body.reason, 'reason'),
+    notes: optionalText(body.notes, 'notes'),
+  }
+}
+
 export function parseFirmwareWorkPlanProposalAmendment(raw: unknown) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
     throw new FirmwareWorkPlanApiValidationError(
