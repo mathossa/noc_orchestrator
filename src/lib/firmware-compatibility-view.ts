@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { resolveCatalogTrainForModel } from '@/lib/firmware-catalog-defaults'
 import {
   evaluateFirmwareCompatibility,
   type FirmwareCompatibilityOverride,
@@ -97,9 +98,83 @@ export async function getModelFirmwareCompatibilityView(deviceModelId: string) {
   const pureOverrides = compatibility.overrides.map(asOverride)
   const pureModel = compatibility.model
 
+  const configuredPlatforms = supportedByModel.get(deviceModelId) ?? []
+  const inheritedPlatforms = (compatibility.model.platform ?? '')
+    .split(',')
+    .map((platform) => platform.normalize('NFKC').trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+  const catalogPlatforms = [...new Set([...configuredPlatforms, ...inheritedPlatforms])]
+  const [vendor, catalogTrains] = await Promise.all([
+    prisma.vendor.findUnique({ where: { id: compatibility.model.vendorId }, select: { code: true } }),
+    prisma.firmwareTrain.findMany({
+      where: {
+        vendorId: compatibility.model.vendorId,
+        isActive: true,
+        state: { in: ['PREFERRED', 'ACCEPTED'] },
+      },
+      select: {
+        id: true,
+        name: true,
+        platform: true,
+        state: true,
+        preferredRelease: {
+          select: {
+            id: true,
+            vendorId: true,
+            platform: true,
+            firmwareTrainId: true,
+            logicalVersion: true,
+            version: true,
+            imageCode: true,
+            variant: true,
+            isActive: true,
+          },
+        },
+      },
+    }),
+  ])
+  const catalogFallbacks = catalogPlatforms.map((platform) => {
+    const trains = catalogTrains
+      .filter((train) => train.platform.localeCompare(platform, 'en', { sensitivity: 'base' }) === 0)
+      .map((train) => {
+        const compatibilityResult = train.preferredRelease
+          ? evaluateFirmwareCompatibility({
+              model: pureModel,
+              release: asRelease(train.preferredRelease),
+              rules: pureRules,
+              overrides: pureOverrides,
+            })
+          : null
+        return {
+          id: train.id,
+          name: train.name,
+          state: train.state as 'PREFERRED' | 'ACCEPTED',
+          preferredRelease: train.preferredRelease
+            ? {
+                id: train.preferredRelease.id,
+                version: train.preferredRelease.version,
+                decision: 'ALLOWED' as const,
+                isActive: train.preferredRelease.isActive,
+              }
+            : null,
+          compatibility: compatibilityResult?.status ?? 'UNKNOWN',
+          compatibilityExplanation: compatibilityResult?.provenance.explanation ?? 'The train has no preferred release to prove compatibility.',
+        }
+      })
+    return {
+      platform,
+      resolution: resolveCatalogTrainForModel({
+        vendorKey: vendor?.code ?? compatibility.model.vendorId,
+        platform,
+        trains,
+      }),
+    }
+  })
+
   return {
     model: compatibility.model,
-    supportedPlatforms: supportedByModel.get(deviceModelId) ?? [],
+    supportedPlatforms: configuredPlatforms.length > 0 ? configuredPlatforms : inheritedPlatforms,
+    catalogFallbacks,
     rules: compatibility.rules.map((rule) => ({
       id: rule.id,
       inherited: rule.inherited,
@@ -150,7 +225,7 @@ export async function getReleaseModelCompatibilityView(firmwareReleaseId: string
   const models = await prisma.deviceModel.findMany({
     where: { vendorId: release.vendorId, isActive: true },
     orderBy: { model: 'asc' },
-    select: { id: true, vendorId: true, familyId: true, model: true },
+    select: { id: true, vendorId: true, familyId: true, model: true, platform: true },
   })
   const familyIds = [
     ...new Set(models.map((model) => model.familyId).filter((id): id is string => Boolean(id))),
