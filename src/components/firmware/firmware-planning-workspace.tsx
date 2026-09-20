@@ -344,6 +344,7 @@ export function FirmwarePlanningWorkspace({
   })
 
   const [references, setReferences] = useState<DeviceReferences | null>(null)
+  const [referenceError, setReferenceError] = useState('')
   const [deviceRows, setDeviceRows] = useState<DevicePayload | null>(null)
   const [deviceLoading, setDeviceLoading] = useState(true)
   const [devicePage, setDevicePage] = useState(1)
@@ -441,6 +442,36 @@ export function FirmwarePlanningWorkspace({
     void loadPlans(1)
   }, [loadPlans])
 
+  const loadReferences = useCallback(async () => {
+    setReferenceError('')
+    try {
+      const [customers, sites, models] = await Promise.all([
+        requestJson<{ data: DeviceReferences['customers'] }>('/api/v1/customers'),
+        requestJson<{ data: DeviceReferences['sites'] }>('/api/v1/sites'),
+        requestJson<{
+          data: DeviceReferences['models']
+          references: { vendors: DeviceReferences['vendors'] }
+        }>('/api/v1/models'),
+      ])
+      setReferences({
+        customers: customers.data,
+        sites: sites.data,
+        models: models.data,
+        vendors: models.references.vendors,
+      })
+    } catch (error) {
+      setReferenceError(
+        error instanceof Error
+          ? error.message
+          : 'Could not load planning filter references.',
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadReferences()
+  }, [loadReferences])
+
   const loadDevices = useCallback(
     async (page: number) => {
       setDeviceLoading(true)
@@ -457,12 +488,6 @@ export function FirmwarePlanningWorkspace({
           `/api/v1/devices?${params}`,
         )
         setDeviceRows(payload)
-        setReferences({
-          customers: payload.meta.customers,
-          sites: payload.meta.sites,
-          models: payload.meta.models,
-          vendors: payload.meta.vendors,
-        })
         setDevicePage(payload.meta.pagination.page)
       } catch (error) {
         setCreationError(
@@ -476,9 +501,10 @@ export function FirmwarePlanningWorkspace({
   )
 
   useEffect(() => {
+    if (view !== 'active') return
     const handle = window.setTimeout(() => void loadDevices(1), 200)
     return () => window.clearTimeout(handle)
-  }, [loadDevices])
+  }, [loadDevices, view])
 
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true)
@@ -967,6 +993,15 @@ export function FirmwarePlanningWorkspace({
             <MissingServerFiltersNotice />
           </div>
         </div>
+
+        {referenceError ? (
+          <div
+            role="alert"
+            className="m-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]"
+          >
+            Planning filter references could not be loaded: {referenceError}
+          </div>
+        ) : null}
 
         {planError ? (
           <div
