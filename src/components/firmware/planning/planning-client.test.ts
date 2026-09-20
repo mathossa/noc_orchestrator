@@ -10,6 +10,7 @@ import {
   groupPlanTargets,
   groupPreviewTargets,
   groupScopeDevices,
+  proposalDraftChanged,
   resolveSiteScopeDevices,
   toggleDeviceRecord,
   toggleSelection,
@@ -249,6 +250,25 @@ describe('plan-centric planning helpers', () => {
     expect(groups[0].count).toBe(2)
     expect(groups[0].observedVersion).toBe('17.12.5')
     expect(groups[0].targetVersion).toBe('17.15.5')
+  })
+
+  it('detects a changed proposed date/reference so scheduling must wait for the audited amendment', () => {
+    const stored = '2026-10-14T20:00:00.000Z'
+    const storedLocal = (() => {
+      const parsed = new Date(stored)
+      const pad = (value: number) => String(value).padStart(2, '0')
+      return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+    })()
+
+    expect(
+      proposalDraftChanged(stored, 'MW-100', storedLocal, 'MW-100'),
+    ).toBe(false)
+    expect(
+      proposalDraftChanged(stored, 'MW-100', '2026-10-15T22:00', 'MW-100'),
+    ).toBe(true)
+    expect(
+      proposalDraftChanged(stored, 'MW-100', storedLocal, 'MW-101'),
+    ).toBe(true)
   })
 
   it('offers the stored-proposal schedule path only where the workflow supports it', () => {
