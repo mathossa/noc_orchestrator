@@ -17,7 +17,6 @@ import {
   type DeviceReferences,
   type PlanningCandidateDevice,
   type PlanPreview,
-  commonSwitchAndAccessPointTypeIds,
   dateTimeLocalToIso,
   groupPreviewExceptions,
   groupPreviewTargets,
@@ -218,14 +217,6 @@ export function FirmwarePlanCreate() {
 
   const deviceTypeOptions = useMemo(
     () => planningDeviceTypeOptions(references?.deviceTypes ?? []),
-    [references],
-  )
-
-  const commonAccessTypeIds = useMemo(
-    () =>
-      commonSwitchAndAccessPointTypeIds(
-        (references?.deviceTypes ?? []).filter((type) => type.isActive),
-      ),
     [references],
   )
 
@@ -508,35 +499,17 @@ export function FirmwarePlanCreate() {
             )}
 
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold">Device types</h3>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Equivalent Switch/Switches inventory types are grouped for planning.
-                    Stack remains separate because its maintenance procedure can differ.
-                  </p>
-                </div>
-                {commonAccessTypeIds.length ? (
-                  <Button
-                    onClick={() => {
-                      setSelectedDeviceTypeIds(commonAccessTypeIds)
-                      resetResolvedScope()
-                    }}
-                  >
-                    Select switches + access points
-                  </Button>
-                ) : null}
+              <div>
+                <h3 className="text-sm font-semibold">Device types</h3>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Device types are shown exactly as defined in inventory.
+                </p>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {deviceTypeOptions.map((option) => (
                   <label
                     key={option.key}
                     className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-                    title={
-                      option.sourceLabels.length > 1
-                        ? `Inventory types: ${option.sourceLabels.join(', ')}`
-                        : undefined
-                    }
                   >
                     <input
                       type="checkbox"
@@ -546,11 +519,6 @@ export function FirmwarePlanCreate() {
                       onChange={() => toggleDeviceTypeOption(option.typeIds)}
                     />
                     {option.label}
-                    {option.sourceLabels.length > 1 ? (
-                      <span className="text-xs text-[var(--muted)]">
-                        ({option.sourceLabels.length} inventory types)
-                      </span>
-                    ) : null}
                   </label>
                 ))}
               </div>
