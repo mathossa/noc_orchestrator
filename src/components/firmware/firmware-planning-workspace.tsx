@@ -278,7 +278,7 @@ async function requestJson<T>(
   url: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(url, init)
+  const response = await fetch(url, { cache: 'no-store', ...init })
   const payload = await response.json()
   if (!response.ok) {
     const error = new Error(
