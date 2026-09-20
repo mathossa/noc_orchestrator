@@ -134,11 +134,18 @@ export type DeviceReferences = {
   models: Array<{
     id: string
     model: string
+    familyId?: string | null
     vendor: { id: string; name: string }
     deviceType: DeviceTypeReference
     isActive: boolean
   }>
   vendors: Array<{ id: string; name: string; isActive: boolean }>
+  families?: Array<{
+    id: string
+    vendorId: string
+    name: string
+    isActive: boolean
+  }>
   deviceTypes: DeviceTypeReference[]
 }
 
