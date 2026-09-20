@@ -88,18 +88,18 @@ function serializeTrain(record: {
   vendor: { id: string; code: string; name: string; isActive: boolean }
   platform: string
   name: string
-  state: string
-  preferredFirmwareReleaseId: string | null
-  minimumAcceptableFirmwareReleaseId: string | null
-  preferredRelease: CompactReleaseRow | null
-  minimumAcceptableRelease: CompactReleaseRow | null
+  state?: string
+  preferredFirmwareReleaseId?: string | null
+  minimumAcceptableFirmwareReleaseId?: string | null
+  preferredRelease?: CompactReleaseRow | null
+  minimumAcceptableRelease?: CompactReleaseRow | null
   notes: string | null
   isActive: boolean
   source: string
   externalProvider: string | null
   externalId: string | null
   lastSynchronizedAt: Date | null
-  releases: Array<{ id: string; _count: { currentOnDevices: number } }>
+  releases?: Array<{ id: string; _count: { currentOnDevices: number } }>
   _count: { releases: number }
 }): FirmwareTrainRecord {
   return {
@@ -108,9 +108,9 @@ function serializeTrain(record: {
     vendor: record.vendor,
     platform: record.platform,
     name: record.name,
-    state: record.state as FirmwareTrainRecord['state'],
-    preferredFirmwareReleaseId: record.preferredFirmwareReleaseId,
-    minimumAcceptableFirmwareReleaseId: record.minimumAcceptableFirmwareReleaseId,
+    state: (record.state ?? 'ACCEPTED') as FirmwareTrainRecord['state'],
+    preferredFirmwareReleaseId: record.preferredFirmwareReleaseId ?? null,
+    minimumAcceptableFirmwareReleaseId: record.minimumAcceptableFirmwareReleaseId ?? null,
     preferredRelease: serializeReleaseReference(record.preferredRelease),
     minimumAcceptableRelease: serializeReleaseReference(record.minimumAcceptableRelease),
     notes: record.notes,
@@ -120,7 +120,7 @@ function serializeTrain(record: {
     externalId: record.externalId,
     lastSynchronizedAt: record.lastSynchronizedAt?.toISOString() ?? null,
     releaseCount: record._count.releases,
-    deviceCount: record.releases.reduce((total, release) => total + release._count.currentOnDevices, 0),
+    deviceCount: (record.releases ?? []).reduce((total, release) => total + release._count.currentOnDevices, 0),
   }
 }
 
