@@ -440,6 +440,7 @@ export type FirmwareWorkPlanPreviewDisposition =
 export type FirmwareWorkPlanInput = {
   deviceIds: string[]
   title: string | null
+  externalReference: string | null
   reason: string | null
   notes: string | null
   proposedFor: Date | null
@@ -575,6 +576,7 @@ export function parseFirmwareWorkPlanInput(raw: unknown): FirmwareWorkPlanInput 
   return {
     deviceIds,
     title: text(body.title, 200),
+    externalReference: text(body.externalReference, 500),
     reason: text(body.reason, 500),
     notes: text(body.notes, 5000),
     proposedFor: optionalPlanningInstant(body.proposedFor, 'proposedFor'),
@@ -915,6 +917,7 @@ export async function createFirmwareWorkPlan(
         data: {
           state: 'PROPOSED',
           title: preview.input.title,
+          externalReference: preview.input.externalReference,
           reason: preview.input.reason,
           notes: preview.input.notes,
           proposedFor: preview.input.proposedFor,
@@ -983,6 +986,7 @@ export async function createFirmwareWorkPlan(
               notes: preview.input.notes,
               metadata: {
                 source: 'PLAN_PREVIEW',
+                externalReference: preview.input.externalReference,
                 requestedCount: preview.counts.requested,
                 includedCount: preview.counts.included,
                 exceptionOverrideCount: preview.counts.exceptionOverrides,
@@ -1009,6 +1013,7 @@ export async function createFirmwareWorkPlan(
             state: plan.state,
             targetCount: plan.targets.length,
             title: plan.title,
+            externalReference: plan.externalReference,
             proposedFor: plan.proposedFor?.toISOString() ?? null,
             proposedMaintenanceWindowReference:
               plan.proposedMaintenanceWindowReference,
