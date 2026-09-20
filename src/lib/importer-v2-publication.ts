@@ -278,6 +278,26 @@ export function importerV2CatalogProposalKey(input: {
   })
 }
 
+/**
+ * Deterministic observed firmware is evidence, not a catalog policy decision.
+ * When vendor + platform + exact running version are resolved safely, #106 lets
+ * publication canonicalize that release as OBSERVED/Needs review without a
+ * second catalog-creation approval. Unknown/platform-conflict evidence keeps the
+ * existing explicit approval boundary.
+ */
+export function importerV2CatalogProposalRequiresApproval(
+  qa: Pick<ImporterV2PublicationQa, 'firmware'>,
+  proposal: ImporterV2CatalogProposal,
+) {
+  if (proposal.field !== 'currentFirmware') return true
+  if (!proposal.context.vendor || !proposal.context.softwarePlatform) return true
+  const unsafeRows = new Set([
+    ...qa.firmware.unknownFirmwareRows,
+    ...qa.firmware.platformConflictRows,
+  ])
+  return proposal.rowNumbers.some((rowNumber) => unsafeRows.has(rowNumber))
+}
+
 function activeClassification(row: ImporterV2PublicationQaRowInput) {
   const statuses = new Set(row.statuses)
   if (row.repeatClassification) statuses.add(row.repeatClassification)
