@@ -175,7 +175,7 @@ export function catalogSemanticsFromLegacyStatus(status: FirmwareReleaseStatus):
     case 'APPROVED':
       return { catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' }
     case 'DEPRECATED':
-      return { catalogState: 'VERIFIED', policyEligibility: 'DISALLOWED' }
+      return { catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED' }
     case 'AVAILABLE':
     case 'TESTING':
     default:
