@@ -259,6 +259,16 @@ export function toggleSelection(values: string[], id: string) {
     : [...values, id]
 }
 
+export function toggleDeviceRecord<T extends { id: string }>(
+  current: Record<string, T>,
+  device: T,
+) {
+  const next = { ...current }
+  if (next[device.id]) delete next[device.id]
+  else next[device.id] = device
+  return next
+}
+
 export function canConfirmProposedSchedule(
   state: FirmwareWorkPlanState,
   proposedFor: string | null,
