@@ -339,7 +339,9 @@ export async function bulkTransitionFirmwareWorkPlans(
   return prisma.$transaction(
     async (tx) => {
       const at = new Date()
-      const results = []
+      const results: Awaited<
+        ReturnType<typeof transitionFirmwareWorkPlanInTransaction>
+      >[] = []
       for (const item of input.items) {
         results.push(
           await transitionFirmwareWorkPlanInTransaction(
