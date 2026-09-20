@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
   DeviceChoice,
-  DeviceReferences,
   PlanTarget,
   PreviewTarget,
 } from './planning-client'
@@ -15,14 +14,6 @@ import {
   toggleDeviceRecord,
   toggleSelection,
 } from './planning-client'
-
-const references: DeviceReferences = {
-  customers: [],
-  sites: [],
-  models: [],
-  vendors: [],
-  deviceTypes: [],
-}
 
 function device(
   id: string,
