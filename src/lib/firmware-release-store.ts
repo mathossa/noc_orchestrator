@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { releaseDecisionFromCatalogSemantics } from '@/lib/firmware-catalog-defaults'
 import {
   normalizedFirmwarePlatform,
   parseFirmwareReleaseInput,
@@ -78,6 +79,10 @@ function serializeRelease(record: {
     imageCode: record.imageCode,
     catalogState: record.catalogState as FirmwareReleaseRecord['catalogState'],
     policyEligibility: record.policyEligibility as FirmwareReleaseRecord['policyEligibility'],
+    decision: releaseDecisionFromCatalogSemantics({
+      catalogState: record.catalogState,
+      policyEligibility: record.policyEligibility,
+    }),
     variantEquivalence: record.variantEquivalence as FirmwareReleaseRecord['variantEquivalence'],
     filename: record.filename,
     sha256: record.sha256,
@@ -197,7 +202,8 @@ export async function createFirmwareRelease(rawInput: unknown) {
   await assertVendor(input.vendorId)
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version)
-  const created = await prisma.firmwareRelease.create({ data: input, include: releaseInclude })
+  const { decision: _decision, ...data } = input
+  const created = await prisma.firmwareRelease.create({ data, include: releaseInclude })
   return serializeRelease(created)
 }
 
@@ -238,13 +244,20 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
   await assertVendor(input.vendorId)
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version, id)
-  const updated = await prisma.firmwareRelease.update({ where: { id }, data: input, include: releaseInclude })
+  const { decision: _decision, ...data } = input
+  const updated = await prisma.firmwareRelease.update({ where: { id }, data, include: releaseInclude })
   return serializeRelease(updated)
 }
 
 export async function deleteFirmwareRelease(id: string) {
-  const current = await prisma.firmwareRelease.findUnique({ where: { id }, select: { id: true } })
+  const current = await prisma.firmwareRelease.findUnique({
+    where: { id },
+    select: { id: true, source: true, catalogState: true },
+  })
   if (!current) throw new FirmwareReleaseNotFoundError()
+  if (current.source === 'IMPORT' || current.catalogState === 'OBSERVED') {
+    throw new FirmwareReleaseInUseError('Observed/imported firmware is historical evidence and cannot be permanently deleted. Archive it instead.')
+  }
 
   const [devices, policies, lifecycle, audit] = await Promise.all([
     prisma.device.count({ where: { currentFirmwareReleaseId: id } }),
