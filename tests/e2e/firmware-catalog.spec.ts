@@ -169,7 +169,7 @@ test('uses the train-centric catalog workflow end to end', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Add release' }).first().click()
   const addForm = page.locator('form').filter({ hasText: 'Advanced details (optional)' })
-  await addForm.getByLabel('Train').selectOption({ label: '17.15 · PREFERRED' })
+  await addForm.getByLabel('Train', { exact: true }).selectOption({ label: '17.15 · PREFERRED' })
   await addForm.getByLabel('Version').fill('17.15.6')
   await addForm.getByLabel('Make preferred for this train').check()
   await addForm.getByRole('button', { name: 'Add release' }).click()
