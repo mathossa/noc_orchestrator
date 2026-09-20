@@ -15,14 +15,12 @@ describe('maintenance plan creation workspace', () => {
     push.mockReset()
   })
 
-  it('defaults to site-oriented scope selection while retaining individual-device mode', () => {
+  it('uses a site-only searchable scope workflow', () => {
     const markup = renderToStaticMarkup(createElement(FirmwarePlanCreate))
 
     expect(markup).toContain('Create maintenance plan')
-    expect(markup).toMatch(/aria-pressed="true"[^>]*>Sites<\/button>/)
-    expect(markup).toMatch(
-      /aria-pressed="false"[^>]*>Individual devices<\/button>/,
-    )
+    expect(markup).toContain('Planning is site-based')
+    expect(markup).not.toContain('Individual devices')
     expect(markup).toContain('Proposed maintenance date/time')
     expect(markup).toContain('Resolve scope and preview')
   })
@@ -31,7 +29,7 @@ describe('maintenance plan creation workspace', () => {
     const markup = renderToStaticMarkup(createElement(FirmwarePlanCreate))
 
     expect(markup).toContain('Back to plans')
-    expect(markup).toContain('Site scope is the normal path')
+    expect(markup).toContain('Planning is site-based')
     expect(markup).not.toContain('Customer approved proposed window')
     expect(push).not.toHaveBeenCalled()
   })
