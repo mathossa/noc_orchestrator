@@ -276,19 +276,22 @@ export function FirmwareReleaseManager() {
 
   async function reviewRelease(
     release: FirmwareReleaseRecord,
-    action: 'ALLOWED' | 'BLOCKED' | 'ARCHIVE' | 'PREFERRED',
+    action: 'ALLOWED' | 'BLOCKED' | 'ARCHIVE' | 'REACTIVATE' | 'PREFERRED',
   ) {
     setSaving(true)
     setError(null)
     setMessage(null)
     try {
       const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
-      const patch = action === 'ARCHIVE'
-        ? { isActive: false }
-        : {
-            decision: action === 'PREFERRED' ? 'ALLOWED' : action,
-            ...(chosenTrainId !== (release.firmwareTrainId ?? '') ? { firmwareTrainId: chosenTrainId || null } : {}),
-          }
+      const patch =
+        action === 'ARCHIVE'
+          ? { isActive: false }
+          : action === 'REACTIVATE'
+            ? { isActive: true }
+            : {
+                decision: action === 'PREFERRED' ? 'ALLOWED' : action,
+                ...(chosenTrainId !== (release.firmwareTrainId ?? '') ? { firmwareTrainId: chosenTrainId || null } : {}),
+              }
       const response = await fetch(`/api/v1/firmware-releases/${release.id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -311,9 +314,11 @@ export function FirmwareReleaseManager() {
       setMessage(
         action === 'ARCHIVE'
           ? `${release.version} archived.`
-          : action === 'PREFERRED'
-            ? `${release.version} allowed and made preferred.`
-            : `${release.version} marked ${action.toLowerCase()}.`,
+          : action === 'REACTIVATE'
+            ? `${release.version} reactivated.`
+            : action === 'PREFERRED'
+              ? `${release.version} allowed and made preferred.`
+              : `${release.version} marked ${action.toLowerCase()}.`,
       )
       await reload()
     } catch (reviewError: unknown) {
@@ -518,7 +523,15 @@ export function FirmwareReleaseManager() {
                                       <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
                                       <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
                                     </div>
-                                  ) : null}
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      disabled={saving}
+                                      onClick={() => void reviewRelease(release, release.isActive ? 'ARCHIVE' : 'REACTIVATE')}
+                                    >
+                                      {release.isActive ? 'Archive' : 'Reactivate'}
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
                             )
