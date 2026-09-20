@@ -1,6 +1,8 @@
 import { Suspense } from 'react'
 import { DeviceManager } from '@/components/devices/device-manager'
 
+export const dynamic = 'force-dynamic'
+
 type DevicesManagePageProps = {
   searchParams: Promise<{ customer?: string; site?: string; model?: string }>
 }

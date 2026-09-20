@@ -6,6 +6,8 @@ import {
 } from '@/lib/inventory-explorer'
 import { getDeviceTypeInventory } from '@/lib/inventory-explorer-store'
 
+export const dynamic = 'force-dynamic'
+
 type PageProps = {
   params: Promise<{
     customerId: string

@@ -304,7 +304,7 @@ export function DeviceManager({
     if (page <= 1) params.delete('page')
     else params.set('page', String(page))
     const serialized = params.toString()
-    return serialized ? `/devices?${serialized}` : '/devices'
+    return serialized ? `/devices/manage?${serialized}` : '/devices/manage'
   }
 
   return (

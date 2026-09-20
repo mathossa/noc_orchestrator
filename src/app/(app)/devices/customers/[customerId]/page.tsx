@@ -6,6 +6,8 @@ import {
 } from '@/lib/inventory-explorer'
 import { getCustomerInventory } from '@/lib/inventory-explorer-store'
 
+export const dynamic = 'force-dynamic'
+
 type PageProps = {
   params: Promise<{ customerId: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   vendorFindMany: vi.fn(),
   modelFindMany: vi.fn(),
   typeFindMany: vi.fn(),
+  typeFindFirst: vi.fn(),
   contractFindMany: vi.fn(),
   customerFindFirst: vi.fn(),
   siteFindFirst: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock('@/lib/prisma', () => ({
     deviceModel: { findMany: mocks.modelFindMany },
     deviceType: {
       findMany: mocks.typeFindMany,
-      findFirst: mocks.typeFindMany,
+      findFirst: mocks.typeFindFirst,
     },
     contractType: { findMany: mocks.contractFindMany },
     customer: { findFirst: mocks.customerFindFirst },
@@ -118,6 +119,7 @@ describe('inventory explorer read model', () => {
       { id: model.id, model: model.model, vendor: { name: vendor.name } },
     ])
     mocks.typeFindMany.mockResolvedValue([{ id: type.id, name: type.name }])
+    mocks.typeFindFirst.mockResolvedValue(type)
     mocks.contractFindMany.mockResolvedValue([])
     mocks.customerFindFirst.mockResolvedValue(acme)
     mocks.siteFindFirst.mockResolvedValue(hq)
@@ -245,10 +247,6 @@ describe('inventory explorer read model', () => {
       }
       return rows
     })
-    mocks.typeFindMany
-      .mockResolvedValueOnce([{ id: type.id, name: type.name }])
-      .mockResolvedValue([{ id: type.id, name: type.name }])
-
     const result = await getDeviceTypeInventory(
       acme.id,
       hq.id,

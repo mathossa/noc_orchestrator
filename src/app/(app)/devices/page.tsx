@@ -5,6 +5,8 @@ import {
 } from '@/lib/inventory-explorer'
 import { getInventoryOverview } from '@/lib/inventory-explorer-store'
 
+export const dynamic = 'force-dynamic'
+
 type DevicesPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
