@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
-import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { PlanStatePill } from '@/components/firmware/planning/planning-ui'
 import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
   DeviceFieldErrors,
@@ -480,7 +480,33 @@ export function DeviceManager({
                         <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
                         <td className="px-4 py-3"><FirmwareComplianceStatus result={record.firmwareCompliance} /></td>
                         <td className="px-4 py-3"><DeviceOperationalDecision deviceId={record.id} summary={record.exceptionSummary} /></td>
-                        <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No plan</span>}</td>
+                        <td className="px-4 py-3">
+                          {record.planning.activePlans.length ? (
+                            <div className="space-y-1">
+                              <Link
+                                href={`/planning/${record.planning.activePlans[0].id}`}
+                                className="inline-flex hover:opacity-80"
+                              >
+                                <PlanStatePill
+                                  state={record.planning.activePlans[0].state}
+                                />
+                              </Link>
+                              {record.planning.activePlans.length > 1 ? (
+                                <div className="text-xs text-[#f0b574]">
+                                  +{record.planning.activePlans.length - 1} overlapping active plan
+                                  {record.planning.activePlans.length === 2 ? '' : 's'}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-[var(--muted)]">
+                              No active plan
+                              {record.planning.history.length
+                                ? ` · ${record.planning.history.length} historical`
+                                : ''}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-3"><div>{record.effectiveContractType?.name ?? '—'}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.contractSource === 'SITE' ? 'Site override' : record.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'}</div></td>
                         <td className="px-4 py-3 text-xs">{record.source}<div className="mt-1 text-[var(--muted)]">{record.isActive ? 'Active' : 'Archived'}</div></td>
                         <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
