@@ -8,9 +8,8 @@ import { AuditHistory } from '@/components/ui/audit-history'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
-import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { PlanStatePill } from '@/components/firmware/planning/planning-ui'
 import type { DeviceDetailRecord } from '@/lib/devices'
-import type { FirmwareWorkflowState } from '@/lib/firmware-lifecycle'
 
 type ApiError = { error?: { message?: string; fields?: Record<string, string> } }
 
@@ -19,14 +18,6 @@ function firmwareAge(days: number | null) {
   if (days === 0) return 'Observed today'
   if (days === 1) return 'Observed 1 day ago'
   return `Observed ${days} days ago`
-}
-
-function localDateTime(value: string | null | undefined) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
 }
 
 function observedCurrentFirmwareVersion(device: DeviceDetailRecord) {
@@ -42,22 +33,9 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const [device, setDevice] = useState<DeviceDetailRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [workflowState, setWorkflowState] = useState<FirmwareWorkflowState>('PLANNED')
-  const [reason, setReason] = useState('')
-  const [lifecycleNotes, setLifecycleNotes] = useState('')
-  const [plannedFor, setPlannedFor] = useState('')
-  const [reviewAt, setReviewAt] = useState('')
-  const [savingLifecycle, setSavingLifecycle] = useState(false)
-  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
-  const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null)
 
   function applyDevice(loaded: DeviceDetailRecord) {
     setDevice(loaded)
-    setWorkflowState(loaded.lifecycle?.state ?? 'PLANNED')
-    setReason(loaded.lifecycle?.reason ?? '')
-    setLifecycleNotes(loaded.lifecycle?.notes ?? '')
-    setPlannedFor(localDateTime(loaded.lifecycle?.plannedFor))
-    setReviewAt(localDateTime(loaded.lifecycle?.reviewAt))
   }
 
   useEffect(() => {
@@ -79,44 +57,13 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     }
   }, [deviceId])
 
-  async function saveLifecycleDecision() {
-    setSavingLifecycle(true)
-    setLifecycleError(null)
-    setLifecycleMessage(null)
-    try {
-      const response = await fetch(`/api/v1/devices/${deviceId}/lifecycle`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          state: workflowState,
-          reason,
-          notes: lifecycleNotes,
-          plannedFor: plannedFor || null,
-          reviewAt: reviewAt || null,
-        }),
-      })
-      const payload = (await response.json()) as { data?: DeviceDetailRecord } & ApiError
-      if (!response.ok) {
-        const fieldMessage = payload.error?.fields ? Object.values(payload.error.fields)[0] : null
-        throw new Error(fieldMessage ?? payload.error?.message ?? 'Lifecycle decision could not be saved.')
-      }
-      if (!payload.data) throw new Error('Lifecycle decision was saved, but the refreshed device was unavailable.')
-      applyDevice(payload.data)
-      setLifecycleMessage('Lifecycle decision saved.')
-    } catch (saveError: unknown) {
-      setLifecycleError(saveError instanceof Error ? saveError.message : 'Lifecycle decision could not be saved.')
-    } finally {
-      setSavingLifecycle(false)
-    }
-  }
-
-  if (loading) return <LoadingState title="Loading device" description="Reading recorded inventory and firmware lifecycle context…" />
+  if (loading) return <LoadingState title="Loading device" description="Reading recorded inventory, firmware state, exceptions and work planning…" />
   if (error || !device) {
     return <ErrorState title="Device could not be loaded" description={error ?? 'The inventory record is unavailable.'} action={<Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to devices</Link>} />
   }
 
   const desired = device.desiredFirmware.release
-  const needsReason = workflowState === 'IGNORED' || workflowState === 'CUSTOMER_DECLINED'
+  const activePlan = device.planning.activePlans[0] ?? null
   const currentVersion = observedCurrentFirmwareVersion(device)
   const resolvedCurrent = device.currentFirmwareRelease ?? device.firmwareCompliance.currentFirmware
 
@@ -125,7 +72,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <PageHeader
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Current firmware, desired firmware, technical state, and operational lifecycle decisions are separate pieces of state."
+        description="Current firmware, desired firmware, technical state, accepted exceptions and work planning remain separate pieces of state."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
@@ -138,7 +85,17 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         <SummaryStat label="Current firmware" value={currentVersion ?? 'Unknown'} detail={currentVersion ? `${device.currentFirmwareSource} · ${firmwareAge(device.currentFirmwareAgeDays)}${device.currentFirmwareRelease ? '' : ' · catalog link unresolved'}` : 'No observed current firmware.'} />
         <SummaryStat label="Desired firmware" value={desired?.version ?? 'None'} detail={desired ? `Effective policy · ${desired.status}${desired.isActive ? '' : ' · archived target'}` : 'No resolved preferred target.'} />
         <SummaryStat label="Technical state" value={<FirmwareComplianceStatus result={device.firmwareCompliance} />} detail={device.firmwareCompliance.explanation} />
-        <SummaryStat label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No decision'} detail="Operational decision; it never changes technical compliance." />
+        <SummaryStat
+          label="Planning"
+          value={
+            activePlan ? <PlanStatePill state={activePlan.state} /> : 'No active plan'
+          }
+          detail={
+            activePlan
+              ? `${device.planning.activePlans.length} active plan${device.planning.activePlans.length === 1 ? '' : 's'} · ${device.planning.history.length} historical`
+              : `${device.planning.history.length} historical plan${device.planning.history.length === 1 ? '' : 's'}`
+          }
+        />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -164,91 +121,128 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               <DetailRow label="Target compatibility" value={device.firmwareCompliance.targetCompatibility?.status ?? 'Unknown'} />
               <DetailRow label="Resolved image" value={device.firmwareCompliance.resolvedTarget?.version ?? 'Unresolved'} />
               <DetailRow label="Explanation" value={device.firmwareCompliance.explanation} />
-              <DetailRow label="Workflow" value={device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : 'No lifecycle decision'} />
-              <DetailRow label="Workflow target" value={device.lifecycle ? `${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}` : '—'} />
+              <DetailRow
+                label="Planning"
+                value={
+                  activePlan ? (
+                    <Link href={`/planning/${activePlan.id}`} className="inline-flex hover:opacity-80">
+                      <PlanStatePill state={activePlan.state} />
+                    </Link>
+                  ) : (
+                    'No active plan'
+                  )
+                }
+              />
+              <DetailRow
+                label="Planning target"
+                value={
+                  activePlan
+                    ? `${activePlan.targetPlatform} ${activePlan.targetVersion}${activePlan.targetImageCode ? ` · ${activePlan.targetImageCode}` : ''}`
+                    : '—'
+                }
+              />
             </dl>
             {desired && !desired.isActive ? <div className="mt-4 rounded-md border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200">The effective preferred release is archived in the catalog and requires policy review.</div> : null}
           </section>
 
           <DeviceExceptions deviceId={deviceId} />
-          <section id="lifecycle-decision" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+          <section id="planning" className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold">Lifecycle decision</h2>
-                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Record what the NOC intends to do. Saving here does not modify current firmware, desired firmware, or technical state.</p>
+                <h2 className="text-sm font-semibold">Firmware planning</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                  Work plans are separate from technical compliance and accepted exceptions. Manage workflow in the Planning workspace.
+                </p>
               </div>
-              {device.lifecycle ? <WorkflowStatusBadge state={device.lifecycle.state} /> : null}
+              <Link
+                href="/planning/new"
+                className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]"
+              >
+                Create maintenance plan
+              </Link>
             </div>
 
-            {!desired ? (
-              <div className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">Set an exact desired firmware policy on the model before creating or changing a lifecycle decision. Any existing decision remains visible as historical operational context.</div>
+            {device.planning.activePlans.length ? (
+              <div className="mt-4 space-y-3">
+                {device.planning.activePlans.map((plan) => (
+                  <Link
+                    key={plan.id}
+                    href={`/planning/${plan.id}`}
+                    className="block rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 hover:border-[var(--border-strong)]"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <PlanStatePill state={plan.state} />
+                        <div className="mt-2 font-mono text-sm">
+                          {plan.targetPlatform} {plan.targetVersion}
+                          {plan.targetImageCode ? ` · ${plan.targetImageCode}` : ''}
+                        </div>
+                        <div className="mt-1 text-xs text-[var(--muted)]">
+                          Recommendation at planning: {plan.recommendation.replaceAll('_', ' ')}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-[var(--muted)]">
+                        <div>Proposed: {plan.proposedFor ? new Date(plan.proposedFor).toLocaleString() : '—'}</div>
+                        <div className="mt-1">Scheduled: {plan.scheduledFor ? new Date(plan.scheduledFor).toLocaleString() : '—'}</div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+                {device.planning.activePlans.length > 1 ? (
+                  <div className="rounded-md border border-[#9a6234] bg-[#342218] px-3 py-2 text-xs text-[#ffd0a0]">
+                    Multiple active plans overlap this device. Review them before execution.
+                  </div>
+                ) : null}
+              </div>
             ) : (
-              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted-strong)]">Saving snapshots target <strong className="font-mono text-[var(--foreground)]">{desired.version}</strong>. Later model-policy changes do not silently rewrite this decision.</div>
+              <div className="mt-4 rounded-md border border-dashed border-[var(--border-strong)] p-4 text-sm text-[var(--muted)]">
+                No active firmware work plan currently targets this device.
+              </div>
             )}
 
-            {device.lifecycle ? (
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                <DetailRow label="Stored target" value={`${device.lifecycle.targetFirmwareRelease.platform} ${device.lifecycle.targetFirmwareRelease.version}`} />
-                <DetailRow label="Decided" value={new Date(device.lifecycle.decidedAt).toLocaleString()} />
-                <DetailRow label="Decided by" value={device.lifecycle.decidedBy?.name ?? 'Actor unavailable'} />
-                <DetailRow label="Completed" value={device.lifecycle.completedAt ? new Date(device.lifecycle.completedAt).toLocaleString() : '—'} />
-              </dl>
+            {device.planning.history.length ? (
+              <div className="mt-5 border-t border-[var(--border)] pt-4">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-strong)]">
+                  Completed / cancelled history
+                </h3>
+                <div className="mt-3 space-y-2">
+                  {device.planning.history.map((plan) => (
+                    <Link
+                      key={plan.id}
+                      href={`/planning/${plan.id}`}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm hover:border-[var(--border-strong)]"
+                    >
+                      <span className="flex items-center gap-2">
+                        <PlanStatePill state={plan.state} />
+                        <span className="font-mono">{plan.targetVersion}</span>
+                      </span>
+                      <span className="text-xs text-[var(--muted)]">
+                        {plan.completedAt
+                          ? new Date(plan.completedAt).toLocaleString()
+                          : plan.cancelledAt
+                            ? new Date(plan.cancelledAt).toLocaleString()
+                            : 'Historical'}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             ) : null}
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-medium text-[var(--muted-strong)]">
-                Workflow state
-                <select value={workflowState} onChange={(event) => { setWorkflowState(event.target.value as FirmwareWorkflowState); setLifecycleError(null); setLifecycleMessage(null) }} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]">
-                  <option value="PLANNED">Planned</option>
-                  <option value="DONE">Done</option>
-                </select>
-              </label>
-
-              {workflowState === 'PLANNED' ? (
-                <label className="text-sm font-medium text-[var(--muted-strong)]">
-                  Planned for
-                  <input type="datetime-local" value={plannedFor} onChange={(event) => setPlannedFor(event.target.value)} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
-                </label>
-              ) : null}
-
-              {needsReason ? (
-                <label className="text-sm font-medium text-[var(--muted-strong)] sm:col-span-2">
-                  Reason <span className="text-[var(--warning)]">*</span>
-                  <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={workflowState === 'CUSTOMER_DECLINED' ? 'Why did the customer decline?' : 'Why is no action being taken now?'} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
-                </label>
-              ) : (
-                <label className="text-sm font-medium text-[var(--muted-strong)] sm:col-span-2">
-                  Reason <span className="font-normal text-[var(--muted)]">(optional)</span>
-                  <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Optional decision context" className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
-                </label>
-              )}
-
-              {needsReason ? (
-                <label className="text-sm font-medium text-[var(--muted-strong)]">
-                  Review at <span className="font-normal text-[var(--muted)]">(optional)</span>
-                  <input type="datetime-local" value={reviewAt} onChange={(event) => setReviewAt(event.target.value)} className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
-                </label>
-              ) : null}
-
-              <label className={`text-sm font-medium text-[var(--muted-strong)] ${needsReason ? '' : 'sm:col-span-2'}`}>
-                Notes <span className="font-normal text-[var(--muted)]">(optional)</span>
-                <textarea value={lifecycleNotes} onChange={(event) => setLifecycleNotes(event.target.value)} rows={3} placeholder="Operational context, maintenance details, customer communication…" className="mt-1.5 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--foreground)]" />
-              </label>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
-              <div className="min-h-5 text-sm">
-                {lifecycleError ? <span className="text-red-300">{lifecycleError}</span> : null}
-                {lifecycleMessage ? <span className="text-emerald-300">{lifecycleMessage}</span> : null}
-              </div>
-              <button type="button" disabled={savingLifecycle || !desired} onClick={() => void saveLifecycleDecision()} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">{savingLifecycle ? 'Saving…' : device.lifecycle ? 'Update decision' : 'Save decision'}</button>
-            </div>
+            {device.lifecycle ? (
+              <details className="mt-5 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
+                <summary className="cursor-pointer font-semibold">Legacy lifecycle migration evidence</summary>
+                <p className="mt-2">
+                  Legacy state {device.lifecycle.state} is retained for migration/audit compatibility but is no longer the source of Planning UI state.
+                </p>
+              </details>
+            ) : null}
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="border-b border-[var(--border)] px-4 py-3">
-              <h2 className="text-sm font-semibold">Firmware lifecycle history</h2>
-              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Append-oriented history of current-firmware recordings and operational lifecycle decisions for this device.</p>
+              <h2 className="text-sm font-semibold">Device firmware audit history</h2>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Append-oriented device audit history. Work-plan transitions are shown in the Planning workspace.</p>
             </div>
             <AuditHistory events={device.auditHistory} />
           </section>
@@ -256,7 +250,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Inventory notes</h2>
             {device.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{device.notes}</p> : <p className="mt-3 text-sm text-[var(--muted)]">No device notes recorded.</p>}
-            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Lifecycle-significant changes are retained in the audit history above; generic inventory CRUD noise is intentionally not logged.</div>
+            <div className="mt-4 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">Firmware-significant device changes are retained in audit history; generic inventory CRUD noise is intentionally not logged.</div>
           </section>
         </div>
 
