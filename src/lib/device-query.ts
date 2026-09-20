@@ -1,7 +1,17 @@
 import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { DeviceExceptionSummary } from '@/lib/device-exception-summary-store'
-import type { DeviceContractReference, DeviceFirmwareReference, DeviceRecord, DeviceReferenceData } from '@/lib/devices'
+import type {
+  DeviceContractReference,
+  DeviceFirmwareReference,
+  DeviceRecord,
+  DeviceReferenceData,
+  DeviceWorkPlanningProjection,
+} from '@/lib/devices'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+import {
+  FIRMWARE_WORK_PLAN_STATES,
+  type FirmwareWorkPlanState,
+} from '@/lib/firmware-work-planning'
 
 export const DEVICE_GROUP_BY = ['none', 'customer', 'organizationUnit', 'site', 'deviceType', 'model'] as const
 export type DeviceGroupBy = (typeof DEVICE_GROUP_BY)[number]
@@ -11,8 +21,13 @@ export type DeviceSortField = (typeof DEVICE_SORT_FIELDS)[number]
 
 export const DEVICE_QUERY_PAGE_SIZES = [25, 50, 100] as const
 export const DEVICE_TECHNICAL_STATES: TechnicalFirmwareState[] = ['CURRENT', 'ACTION_REQUIRED', 'UNKNOWN', 'NO_POLICY']
-export const DEVICE_WORKFLOW_STATES = ['PLANNED', 'IGNORED', 'CUSTOMER_DECLINED', 'DONE', 'UNDECIDED'] as const
-export type DeviceWorkflowFilter = (typeof DEVICE_WORKFLOW_STATES)[number]
+export const DEVICE_WORKFLOW_STATES = [
+  ...FIRMWARE_WORK_PLAN_STATES,
+  'NOT_PLANNED',
+] as const
+export type DeviceWorkflowFilter =
+  | FirmwareWorkPlanState
+  | 'NOT_PLANNED'
 export const DEVICE_EXCEPTION_STATES = ['NONE', 'ACTIVE', 'REVIEW_DUE', 'EXPIRED'] as const
 export type DeviceExceptionStateFilter = (typeof DEVICE_EXCEPTION_STATES)[number]
 export const DEVICE_EXCEPTION_SCOPES = ['DEVICE', 'SITE', 'CUSTOMER', 'MODEL', 'FAMILY'] as const
@@ -50,6 +65,7 @@ export type DeviceQueryRecord = DeviceRecord & {
   technicalState: TechnicalFirmwareState
   firmwareCompliance: FirmwareComplianceResult
   exceptionSummary: DeviceExceptionSummary
+  planning: DeviceWorkPlanningProjection
   groupKey: string | null
   groupLabel: string | null
 }
@@ -137,7 +153,11 @@ export function parseDeviceQuery(params: URLSearchParams): DeviceQuery {
   if (technicalState && !DEVICE_TECHNICAL_STATES.includes(technicalState as TechnicalFirmwareState)) errors.technicalState = 'Choose CURRENT, ACTION_REQUIRED, UNKNOWN, or NO_POLICY.'
   if (exceptionState && !DEVICE_EXCEPTION_STATES.includes(exceptionState as DeviceExceptionStateFilter)) errors.exceptionState = 'Choose NONE, ACTIVE, REVIEW_DUE, or EXPIRED.'
   if (exceptionScope && !DEVICE_EXCEPTION_SCOPES.includes(exceptionScope as DeviceExceptionScopeFilter)) errors.exceptionScope = 'Choose DEVICE, SITE, CUSTOMER, MODEL, or FAMILY.'
-  if (workflow && !DEVICE_WORKFLOW_STATES.includes(workflow as DeviceWorkflowFilter)) errors.workflow = 'Choose a supported workflow state.'
+  if (
+    workflow &&
+    !DEVICE_WORKFLOW_STATES.includes(workflow as DeviceWorkflowFilter)
+  )
+    errors.workflow = 'Choose a supported planning state.'
   if (source && !DEVICE_SOURCES.includes(source as (typeof DEVICE_SOURCES)[number])) errors.source = 'Choose MANUAL, API, or IMPORT.'
   if (!DEVICE_ARCHIVE_STATES.includes(archive as (typeof DEVICE_ARCHIVE_STATES)[number])) errors.archive = 'Choose active, archived, or all.'
   if (!DEVICE_GROUP_BY.includes(groupBy as DeviceGroupBy)) errors.groupBy = 'Choose customer, site, deviceType, model, or none.'
