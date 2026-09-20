@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getFirmwareWorkPlan: vi.fn(),
   previewFirmwareWorkPlan: vi.fn(),
   createFirmwareWorkPlan: vi.fn(),
+  scheduleFirmwareWorkPlan: vi.fn(),
   transitionFirmwareWorkPlan: vi.fn(),
 }))
 
@@ -32,6 +33,7 @@ vi.mock('@/lib/firmware-work-plan-store', () => {
     FirmwareWorkPlanError,
     previewFirmwareWorkPlan: mocks.previewFirmwareWorkPlan,
     createFirmwareWorkPlan: mocks.createFirmwareWorkPlan,
+    scheduleFirmwareWorkPlan: mocks.scheduleFirmwareWorkPlan,
     transitionFirmwareWorkPlan: mocks.transitionFirmwareWorkPlan,
   }
 })
@@ -168,7 +170,7 @@ describe('firmware work plan routes', () => {
   })
 
   it('carries displayed optimistic-write values and session actor into transitions', async () => {
-    mocks.transitionFirmwareWorkPlan.mockResolvedValue({
+    mocks.scheduleFirmwareWorkPlan.mockResolvedValue({
       id: 'plan-1',
       state: 'SCHEDULED',
     })
@@ -193,17 +195,17 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(mocks.transitionFirmwareWorkPlan).toHaveBeenCalledWith(
+    expect(mocks.scheduleFirmwareWorkPlan).toHaveBeenCalledWith(
       'plan-1',
       expect.objectContaining({
         expectedState: 'APPROVED',
         expectedUpdatedAt: new Date('2026-09-20T11:00:00.123Z'),
-        toState: 'SCHEDULED',
         scheduledFor: new Date('2026-09-21T20:00:00.000Z'),
         maintenanceWindowReference: 'MW-42',
         actorUserId: 'session-user',
       }),
     )
+    expect(mocks.transitionFirmwareWorkPlan).not.toHaveBeenCalled()
   })
 
   it('does not retry a stale user transition', async () => {
