@@ -11,7 +11,6 @@ import {
   type FirmwareWorkPlanState,
 } from '@/lib/firmware-work-planning'
 import {
-  type DevicePayload,
   type DeviceReferences,
   type PlanListResponse,
   dateTime,
@@ -52,17 +51,18 @@ export function FirmwarePlanList({
 
   useEffect(() => {
     let active = true
-    void requestJson<DevicePayload>(
-      '/api/v1/devices?page=1&pageSize=25&sort=customer&direction=asc',
-    )
-      .then((payload) => {
+    void Promise.all([
+      requestJson<{ data: DeviceReferences['customers'] }>('/api/v1/customers'),
+      requestJson<{ data: DeviceReferences['sites'] }>('/api/v1/sites'),
+    ])
+      .then(([customers, sites]) => {
         if (active)
           setReferences({
-            customers: payload.meta.customers,
-            sites: payload.meta.sites,
-            models: payload.meta.models,
-            vendors: payload.meta.vendors,
-            deviceTypes: payload.meta.deviceTypes,
+            customers: customers.data,
+            sites: sites.data,
+            models: [],
+            vendors: [],
+            deviceTypes: [],
           })
       })
       .catch(() => {
