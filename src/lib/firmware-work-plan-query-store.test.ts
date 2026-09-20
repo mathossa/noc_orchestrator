@@ -127,13 +127,15 @@ function plan(
   state = 'SCHEDULED',
   targets = [snapshot()],
 ): FirmwareWorkPlan & { targets: FirmwareWorkPlanTarget[] } {
-  return {
+  const record = {
     id: 'plan',
     state,
     title: 'Saved plan',
     reason: 'Upgrade',
     notes: 'Preserve me',
     externalReference: 'ticket-1',
+    proposedFor: null,
+    proposedMaintenanceWindowReference: null,
     scheduledFor: at,
     maintenanceWindowReference: 'MW-1',
     upgradeCapability: 'MANUAL_REVIEW',
@@ -150,6 +152,7 @@ function plan(
     updatedAt: observedAt,
     targets,
   }
+  return record
 }
 function exception(overrides: Record<string, unknown> = {}) {
   return {
