@@ -70,7 +70,7 @@ describe('Importer v2 PostgreSQL 12,000-row publication', () => {
         inclusion: 'INCLUDED' as const,
         statuses: ['VALID', 'NEW'],
         primaryStatus: 'VALID',
-        repeatClassification: 'NEW',
+        repeatClassification: 'NEW' as const,
         issueCount: 0,
         hasErrors: false,
         sourceName: name,
