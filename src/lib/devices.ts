@@ -43,12 +43,12 @@ export type DeviceWorkPlanReference = {
   id: string
   targetId: string
   state: FirmwareWorkPlanState
-  proposedFor: Date | null
+  proposedFor: string | null
   proposedMaintenanceWindowReference: string | null
-  scheduledFor: Date | null
+  scheduledFor: string | null
   maintenanceWindowReference: string | null
-  completedAt: Date | null
-  cancelledAt: Date | null
+  completedAt: string | null
+  cancelledAt: string | null
   targetVersion: string
   targetPlatform: string
   targetImageCode: string | null
