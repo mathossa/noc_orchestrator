@@ -36,6 +36,7 @@ describe('firmware release validation', () => {
     expect(catalogSemanticsFromLegacyStatus('APPROVED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
     expect(catalogSemanticsFromLegacyStatus('RECOMMENDED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
     expect(catalogSemanticsFromLegacyStatus('BLOCKED')).toEqual({ catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED' })
+    expect(catalogSemanticsFromLegacyStatus('DEPRECATED')).toEqual({ catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED' })
   })
 
   it('accepts the simplified release decision vocabulary without creating a preferred release status', () => {
