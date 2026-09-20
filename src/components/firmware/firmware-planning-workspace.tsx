@@ -854,7 +854,7 @@ export function FirmwarePlanningWorkspace({
             description="Requires server-side planning-query support."
           >
             <SelectInput id="plan-vendor-unavailable" value="" disabled>
-              <option>Not available yet</option>
+              <option value="">Not available yet</option>
             </SelectInput>
           </FormField>
           <FormField
@@ -863,7 +863,7 @@ export function FirmwarePlanningWorkspace({
             description="Requires server-side planning-query support."
           >
             <SelectInput id="plan-family-unavailable" value="" disabled>
-              <option>Not available yet</option>
+              <option value="">Not available yet</option>
             </SelectInput>
           </FormField>
           <FormField label="State" htmlFor="plan-state">
