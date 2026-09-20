@@ -66,6 +66,8 @@ const factSelect = {
   },
 } as const
 
+type InventoryFactRow = Prisma.DeviceGetPayload<{ select: typeof factSelect }>
+
 const compactDeviceSelect = {
   id: true,
   name: true,
@@ -176,29 +178,14 @@ function buildDeviceWhere(
 const INVENTORY_FACT_BATCH_SIZE = 1000
 
 async function resolveFactRows(
-  rows: Awaited<ReturnType<typeof prisma.device.findMany>>,
+  rows: InventoryFactRow[],
 ): Promise<InventoryFact[]> {
   if (rows.length === 0) return []
 
-  const typedRows = rows as Array<{
-    id: string
-    name: string
-    customerId: string
-    siteId: string | null
-    deviceModelId: string
-    customer: { id: string; name: string }
-    site: { id: string; name: string } | null
-    deviceModel: {
-      id: string
-      model: string
-      vendor: { id: string; name: string }
-      deviceType: { id: string; name: string }
-    }
-  }>
-  const ids = typedRows.map((row) => row.id)
+  const ids = rows.map((row) => row.id)
   const complianceByDevice = await resolveFirmwareComplianceBatch(ids)
   const exceptionByDevice = await resolveDeviceExceptionSummaries(
-    typedRows.map((row) => ({
+    rows.map((row) => ({
       id: row.id,
       customerId: row.customerId,
       siteId: row.siteId,
@@ -207,7 +194,7 @@ async function resolveFactRows(
     complianceByDevice,
   )
 
-  return typedRows.map((row) => {
+  return rows.map((row) => {
     const compliance = complianceByDevice.get(row.id)
     if (!compliance) {
       throw new Error('Firmware compliance result missing for device ' + row.id)
