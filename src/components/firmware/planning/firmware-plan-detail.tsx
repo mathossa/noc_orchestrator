@@ -204,6 +204,18 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
     scheduleMode?: 'proposal' | 'manual',
   ) {
     if (!detail) return
+    if (
+      proposalEditable &&
+      proposalDirty &&
+      (toState === 'AWAITING_CUSTOMER' ||
+        toState === 'APPROVED' ||
+        toState === 'SCHEDULED')
+    ) {
+      setError(
+        'Save the proposal amendment before changing customer approval or scheduling state.',
+      )
+      return
+    }
     if (toState === 'DONE') {
       if (
         !window.confirm(
@@ -835,7 +847,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                   ) : (
                     <Button
                       variant="primary"
-                      disabled={busy}
+                      disabled={busy || proposalDirty}
                       onClick={() =>
                         void transition('SCHEDULED', 'manual')
                       }
@@ -869,7 +881,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                     Start work
                   </Button>
                   <Button
-                    disabled={busy || proposalDirty}
+                    disabled={busy}
                     onClick={() => void transition('APPROVED')}
                   >
                     Return to approved
