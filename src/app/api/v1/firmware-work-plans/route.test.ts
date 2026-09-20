@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  mocks.getSession: vi.fn(),
-  mocks.listFirmwareWorkPlans: vi.fn(),
-  mocks.getFirmwareWorkPlan: vi.fn(),
-  mocks.previewFirmwareWorkPlan: vi.fn(),
-  mocks.createFirmwareWorkPlan: vi.fn(),
-  mocks.transitionFirmwareWorkPlan: vi.fn(),
+  getSession: vi.fn(),
+  listFirmwareWorkPlans: vi.fn(),
+  getFirmwareWorkPlan: vi.fn(),
+  previewFirmwareWorkPlan: vi.fn(),
+  createFirmwareWorkPlan: vi.fn(),
+  transitionFirmwareWorkPlan: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
-  auth: { api: { mocks.getSession } },
+  auth: { api: { getSession: mocks.getSession } },
 }))
 
 vi.mock('@/lib/firmware-work-plan-query-store', () => ({
-  mocks.listFirmwareWorkPlans,
-  mocks.getFirmwareWorkPlan,
+  listFirmwareWorkPlans: mocks.listFirmwareWorkPlans,
+  getFirmwareWorkPlan: mocks.getFirmwareWorkPlan,
 }))
 
 vi.mock('@/lib/firmware-work-plan-store', () => {
@@ -30,9 +30,9 @@ vi.mock('@/lib/firmware-work-plan-store', () => {
   }
   return {
     FirmwareWorkPlanError,
-    mocks.previewFirmwareWorkPlan,
-    mocks.createFirmwareWorkPlan,
-    mocks.transitionFirmwareWorkPlan,
+    previewFirmwareWorkPlan: mocks.previewFirmwareWorkPlan,
+    createFirmwareWorkPlan: mocks.createFirmwareWorkPlan,
+    transitionFirmwareWorkPlan: mocks.transitionFirmwareWorkPlan,
   }
 })
 
