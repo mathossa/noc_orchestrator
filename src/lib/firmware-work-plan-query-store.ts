@@ -138,6 +138,8 @@ export type FirmwareWorkPlanQuery = {
   customerId?: string
   siteId?: string
   deviceId?: string
+  vendorId?: string
+  deviceModelFamilyId?: string
   deviceModelId?: string
   recommendation?: string
   scheduledFrom?: Date
@@ -154,30 +156,50 @@ export async function listFirmwareWorkPlans(query: FirmwareWorkPlanQuery = {}) {
   const pageSize = Number.isSafeInteger(query.pageSize)
     ? Math.min(200, Math.max(1, query.pageSize!))
     : 50
-  const targetWhere: Prisma.FirmwareWorkPlanTargetWhereInput = {
+  const savedTargetWhere: Prisma.FirmwareWorkPlanTargetWhereInput = {
     ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.siteId ? { siteId: query.siteId } : {}),
     ...(query.deviceId ? { deviceId: query.deviceId } : {}),
-    ...(query.deviceModelId ? { deviceModelId: query.deviceModelId } : {}),
     ...(query.recommendation ? { recommendation: query.recommendation } : {}),
-  }
-  const where: Prisma.FirmwareWorkPlanWhereInput = {
-    ...(query.states ? { state: { in: query.states.map(planState) } } : {}),
-    ...(Object.keys(targetWhere).length
-      ? { targets: { some: targetWhere } }
-      : {}),
-    ...(query.scheduledFrom || query.scheduledUntil
-      ? {
-          scheduledFor: {
-            ...(query.scheduledFrom ? { gte: query.scheduledFrom } : {}),
-            ...(query.scheduledUntil ? { lt: query.scheduledUntil } : {}),
-          },
-        }
-      : {}),
   }
   return prisma.$transaction(
     async (db) => {
       const at = new Date()
+      let deviceModelId:
+        | string
+        | Prisma.StringFilter<'FirmwareWorkPlanTarget'>
+        | undefined = query.deviceModelId
+      if (query.vendorId || query.deviceModelFamilyId) {
+        const models = await db.deviceModel.findMany({
+          where: {
+            ...(query.deviceModelId ? { id: query.deviceModelId } : {}),
+            ...(query.vendorId ? { vendorId: query.vendorId } : {}),
+            ...(query.deviceModelFamilyId
+              ? { familyId: query.deviceModelFamilyId }
+              : {}),
+          },
+          select: { id: true },
+        })
+        deviceModelId = { in: models.map((model) => model.id) }
+      }
+      const targetWhere: Prisma.FirmwareWorkPlanTargetWhereInput = {
+        ...savedTargetWhere,
+        ...(deviceModelId ? { deviceModelId } : {}),
+      }
+      const where: Prisma.FirmwareWorkPlanWhereInput = {
+        ...(query.states ? { state: { in: query.states.map(planState) } } : {}),
+        ...(Object.keys(targetWhere).length
+          ? { targets: { some: targetWhere } }
+          : {}),
+        ...(query.scheduledFrom || query.scheduledUntil
+          ? {
+              scheduledFor: {
+                ...(query.scheduledFrom ? { gte: query.scheduledFrom } : {}),
+                ...(query.scheduledUntil ? { lt: query.scheduledUntil } : {}),
+              },
+            }
+          : {}),
+      }
       const [plans, total] = await Promise.all([
         db.firmwareWorkPlan.findMany({
           where,
