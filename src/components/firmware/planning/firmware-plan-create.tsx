@@ -26,6 +26,7 @@ import {
   labelValue,
   requestJson,
   resolveSiteScopeDevices,
+  toggleDeviceRecord,
   toggleSelection,
 } from './planning-client'
 import {
@@ -288,14 +289,10 @@ export function FirmwarePlanCreate() {
   )
 
   function toggleIndividualDevice(device: DeviceChoice) {
-    setSelectedDevices((current) => {
-      const next = { ...current }
-      if (next[device.id]) {
-        delete next[device.id]
-        setOverrideIds((ids) => ids.filter((id) => id !== device.id))
-      } else next[device.id] = device
-      return next
-    })
+    const removing = Boolean(selectedDevices[device.id])
+    setSelectedDevices((current) => toggleDeviceRecord(current, device))
+    if (removing)
+      setOverrideIds((ids) => ids.filter((id) => id !== device.id))
     invalidatePreview()
   }
 
