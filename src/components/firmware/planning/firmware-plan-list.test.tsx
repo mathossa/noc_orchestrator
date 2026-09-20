@@ -15,6 +15,12 @@ describe('plan-centric firmware planning overview', () => {
     expect(markup).toContain('+ Create maintenance plan')
     expect(markup).not.toContain('Create from selected devices')
     expect(markup).not.toContain('Plan detail')
+    expect(markup).toContain('Vendor')
+    expect(markup).toContain('Model family')
+    expect(markup).toContain('Model')
+    expect(markup).toContain('Recommendation')
+    expect(markup).toContain('Scheduled from')
+    expect(markup).toContain('Scheduled until')
   })
 
   it('marks stale active planning state prominently', () => {
