@@ -10,6 +10,7 @@ import {
 import {
   buildImporterV2PublicationQa,
   importerV2CatalogProposalKey,
+  importerV2CatalogProposalRequiresApproval,
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
@@ -1955,19 +1956,6 @@ export async function publishImporterV2Batch(input: {
   }
 }
 
-function observedFirmwareProposalCanAutoCreate(
-  qa: ImporterV2PublicationQa,
-  proposal: ImporterV2PublicationQa['catalogProposals'][number],
-) {
-  if (proposal.field !== 'currentFirmware') return false
-  if (!proposal.context.vendor || !proposal.context.softwarePlatform) return false
-  const unsafeRows = new Set([
-    ...qa.firmware.unknownFirmwareRows,
-    ...qa.firmware.platformConflictRows,
-  ])
-  return proposal.rowNumbers.every((rowNumber) => !unsafeRows.has(rowNumber))
-}
-
 export function publicationProposalsRequiredForRows(
   qa: ImporterV2PublicationQa,
   rowNumbers: readonly number[],
@@ -1977,5 +1965,5 @@ export function publicationProposalsRequiredForRows(
     .filter((proposal) =>
       proposal.rowNumbers.some((rowNumber) => selected.has(rowNumber)),
     )
-    .filter((proposal) => !observedFirmwareProposalCanAutoCreate(qa, proposal))
+    .filter((proposal) => importerV2CatalogProposalRequiresApproval(qa, proposal))
 }
