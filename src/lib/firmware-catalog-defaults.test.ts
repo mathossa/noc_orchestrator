@@ -16,6 +16,7 @@ describe('firmware catalog release decisions', () => {
     expect(releaseDecisionFromCatalogSemantics({ catalogState: 'OBSERVED', policyEligibility: 'NOT_EVALUATED' })).toBe('NEEDS_REVIEW')
     expect(releaseDecisionFromCatalogSemantics({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })).toBe('ALLOWED')
     expect(releaseDecisionFromCatalogSemantics({ catalogState: 'VERIFIED', policyEligibility: 'PREFERRED' })).toBe('ALLOWED')
+    expect(releaseDecisionFromCatalogSemantics({ catalogState: 'VERIFIED', policyEligibility: 'DISALLOWED' })).toBe('BLOCKED')
     expect(catalogSemanticsFromReleaseDecision('BLOCKED')).toEqual({ catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED' })
   })
 
@@ -90,7 +91,36 @@ describe('platform preferred-train fallback', () => {
     expect(result).toMatchObject({ status: 'RESOLVED', source: 'EXPLICIT_OVERRIDE', train: { id: '17.9' } })
   })
 
-  it('does not invent a fallback when preferred compatibility is unknown', () => {
+  it('does not inherit or fall back through a train whose preferred release is not Allowed', () => {
+    const result = resolveCatalogTrainForModel({
+      vendorKey: 'CISCO',
+      platform: 'IOS XE',
+      trains: [
+        {
+          id: '17.15',
+          name: '17.15',
+          state: 'PREFERRED',
+          preferredRelease: release('review', '17.15.6', 'NEEDS_REVIEW'),
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Compatible image.',
+        },
+        {
+          id: '17.12',
+          name: '17.12',
+          state: 'ACCEPTED',
+          preferredRelease: acceptedRelease,
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Allowed.',
+        },
+      ],
+    })
+    expect(result).toMatchObject({
+      status: 'REVIEW_REQUIRED',
+      train: null,
+    })
+  })
+
+    it('does not invent a fallback when preferred compatibility is unknown', () => {
     const result = resolveCatalogTrainForModel({
       vendorKey: 'CISCO',
       platform: 'IOS XE',
