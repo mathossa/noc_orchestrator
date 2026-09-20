@@ -14,6 +14,7 @@ import {
   type ClientError,
   type PlanDetail,
   type PlanEvent,
+  canConfirmProposedSchedule,
   dateTime,
   dateTimeLocalToIso,
   groupPlanTargets,
@@ -695,7 +696,10 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
 
               {detail.state === 'AWAITING_CUSTOMER' ? (
                 <>
-                  {detail.proposedFor ? (
+                  {canConfirmProposedSchedule(
+                    detail.state,
+                    detail.proposedFor,
+                  ) ? (
                     <Button
                       variant="primary"
                       disabled={busy}
@@ -730,7 +734,10 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
 
               {detail.state === 'APPROVED' ? (
                 <>
-                  {detail.proposedFor ? (
+                  {canConfirmProposedSchedule(
+                    detail.state,
+                    detail.proposedFor,
+                  ) ? (
                     <Button
                       variant="primary"
                       disabled={busy}
@@ -813,7 +820,10 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
             </div>
 
             {detail.state === 'AWAITING_CUSTOMER' &&
-            !detail.proposedFor ? (
+            !canConfirmProposedSchedule(
+              detail.state,
+              detail.proposedFor,
+            ) ? (
               <p className="text-xs text-[#f0b574]">
                 Direct customer-approved → scheduled is unavailable until a
                 proposed maintenance date is stored. Amend the proposal above
