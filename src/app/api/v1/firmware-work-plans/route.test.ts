@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getFirmwareWorkPlan: vi.fn(),
   previewFirmwareWorkPlan: vi.fn(),
   createFirmwareWorkPlan: vi.fn(),
+  amendFirmwareWorkPlanProposal: vi.fn(),
   scheduleFirmwareWorkPlan: vi.fn(),
   transitionFirmwareWorkPlan: vi.fn(),
 }))
@@ -33,6 +34,7 @@ vi.mock('@/lib/firmware-work-plan-store', () => {
     FirmwareWorkPlanError,
     previewFirmwareWorkPlan: mocks.previewFirmwareWorkPlan,
     createFirmwareWorkPlan: mocks.createFirmwareWorkPlan,
+    amendFirmwareWorkPlanProposal: mocks.amendFirmwareWorkPlanProposal,
     scheduleFirmwareWorkPlan: mocks.scheduleFirmwareWorkPlan,
     transitionFirmwareWorkPlan: mocks.transitionFirmwareWorkPlan,
   }
@@ -42,7 +44,10 @@ import {
   GET as listPlans,
   POST as mutatePlans,
 } from '@/app/api/v1/firmware-work-plans/route'
-import { GET as getPlan } from '@/app/api/v1/firmware-work-plans/[id]/route'
+import {
+  GET as getPlan,
+  PATCH as amendPlan,
+} from '@/app/api/v1/firmware-work-plans/[id]/route'
 import { POST as transitionPlan } from '@/app/api/v1/firmware-work-plans/[id]/transitions/route'
 import { FirmwareWorkPlanError } from '@/lib/firmware-work-plan-store'
 
@@ -167,6 +172,40 @@ describe('firmware work plan routes', () => {
     expect(response.status).toBe(200)
     expect(mocks.getFirmwareWorkPlan).toHaveBeenCalledWith('plan-1')
     expect((await response.json()).data.events).toHaveLength(1)
+  })
+
+  it('amends the proposed window with validated time and authenticated actor', async () => {
+    mocks.amendFirmwareWorkPlanProposal.mockResolvedValue({
+      id: 'plan-1',
+      state: 'AWAITING_CUSTOMER',
+    })
+
+    const response = await amendPlan(
+      new Request('http://localhost/api/v1/firmware-work-plans/plan-1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expectedState: 'AWAITING_CUSTOMER',
+          expectedUpdatedAt: '2026-09-20T11:00:00.123Z',
+          proposedFor: '2026-10-04T22:00:00+02:00',
+          proposedMaintenanceWindowReference: 'MW-NEW',
+          actorUserId: 'client-supplied-user',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'plan-1' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.amendFirmwareWorkPlanProposal).toHaveBeenCalledWith(
+      'plan-1',
+      expect.objectContaining({
+        expectedState: 'AWAITING_CUSTOMER',
+        expectedUpdatedAt: new Date('2026-09-20T11:00:00.123Z'),
+        proposedFor: new Date('2026-10-04T20:00:00.000Z'),
+        proposedMaintenanceWindowReference: 'MW-NEW',
+        actorUserId: 'session-user',
+      }),
+    )
   })
 
   it('carries displayed optimistic-write values and session actor into transitions', async () => {

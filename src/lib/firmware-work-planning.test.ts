@@ -31,6 +31,7 @@ describe('firmware work planning domain', () => {
   it('supports the expected proposal, approval, schedule and completion path', () => {
     expect(canTransitionFirmwareWorkPlan('PROPOSED', 'AWAITING_CUSTOMER')).toBe(true)
     expect(canTransitionFirmwareWorkPlan('AWAITING_CUSTOMER', 'APPROVED')).toBe(true)
+    expect(canTransitionFirmwareWorkPlan('AWAITING_CUSTOMER', 'SCHEDULED')).toBe(true)
     expect(canTransitionFirmwareWorkPlan('APPROVED', 'SCHEDULED')).toBe(true)
     expect(canTransitionFirmwareWorkPlan('SCHEDULED', 'IN_PROGRESS')).toBe(true)
     expect(canTransitionFirmwareWorkPlan('IN_PROGRESS', 'DONE')).toBe(true)

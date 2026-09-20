@@ -134,6 +134,8 @@ function plan(
     reason: 'Upgrade',
     notes: 'Preserve me',
     externalReference: 'ticket-1',
+    proposedFor: new Date('2026-09-25T22:00:00Z'),
+    proposedMaintenanceWindowReference: 'MW-PROPOSED',
     scheduledFor: at,
     maintenanceWindowReference: 'MW-1',
     upgradeCapability: 'MANUAL_REVIEW',

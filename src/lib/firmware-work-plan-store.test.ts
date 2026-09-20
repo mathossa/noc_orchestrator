@@ -39,6 +39,7 @@ vi.mock('@/lib/firmware-compliance-store', () => ({
 }))
 
 import {
+  amendFirmwareWorkPlanProposal,
   createFirmwareWorkPlan,
   parseFirmwareWorkPlanInput,
   previewFirmwareWorkPlan,
@@ -236,6 +237,8 @@ describe('firmware work plan preview and creation', () => {
       deviceIds: ['1'],
       title: 'HQ switches',
       reason: 'Quarterly firmware maintenance',
+      proposedFor: '2026-10-04T22:00:00+02:00',
+      proposedMaintenanceWindowReference: 'MW-HQ-1',
     }
     const preview = await previewFirmwareWorkPlan(raw)
     const created = await createFirmwareWorkPlan(raw, preview.token, 'actor')
@@ -246,6 +249,8 @@ describe('firmware work plan preview and creation', () => {
       state: 'PROPOSED',
       title: 'HQ switches',
       reason: 'Quarterly firmware maintenance',
+      proposedFor: new Date('2026-10-04T20:00:00.000Z'),
+      proposedMaintenanceWindowReference: 'MW-HQ-1',
       createdByUserId: 'actor',
     })
     expect(create.targets.create).toHaveLength(1)
@@ -264,6 +269,10 @@ describe('firmware work plan preview and creation', () => {
       fromState: null,
       toState: 'PROPOSED',
       actorUserId: 'actor',
+      metadata: {
+        proposedFor: '2026-10-04T20:00:00.000Z',
+        proposedMaintenanceWindowReference: 'MW-HQ-1',
+      },
     })
     expect(mocks.audit).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -317,6 +326,8 @@ describe('firmware work plan persistent transitions', () => {
       reason: 'Original reason',
       notes: null,
       externalReference: null,
+      proposedFor: null,
+      proposedMaintenanceWindowReference: null,
       scheduledFor: null,
       maintenanceWindowReference: null,
       upgradeCapability: 'UNKNOWN',
@@ -428,6 +439,90 @@ describe('firmware work plan persistent transitions', () => {
     expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'ReadCommitted',
     })
+  })
+
+  it('audits proposal amendments without touching target snapshots', async () => {
+    const originalTargets = structuredClone(targets)
+    plan.state = 'AWAITING_CUSTOMER'
+    plan.proposedFor = new Date('2026-09-27T22:00:00Z')
+    plan.proposedMaintenanceWindowReference = 'MW-OLD'
+
+    await amendFirmwareWorkPlanProposal(plan.id, {
+      ...context(),
+      proposedFor: scheduledFor,
+      proposedMaintenanceWindowReference: 'MW-NEW',
+      reason: 'Customer requested a different Sunday.',
+    })
+
+    expect(plan).toMatchObject({
+      state: 'AWAITING_CUSTOMER',
+      proposedFor: scheduledFor,
+      proposedMaintenanceWindowReference: 'MW-NEW',
+      scheduledFor: null,
+    })
+    expect(events[1]).toMatchObject({
+      fromState: 'AWAITING_CUSTOMER',
+      toState: 'AWAITING_CUSTOMER',
+      reason: 'Customer requested a different Sunday.',
+      metadata: {
+        kind: 'PROPOSED_MAINTENANCE_WINDOW_AMENDED',
+        before: {
+          proposedFor: '2026-09-27T22:00:00.000Z',
+          proposedMaintenanceWindowReference: 'MW-OLD',
+        },
+        after: {
+          proposedFor: scheduledFor.toISOString(),
+          proposedMaintenanceWindowReference: 'MW-NEW',
+        },
+      },
+    })
+    expect(audits[0]).toMatchObject({
+      action: 'FIRMWARE_WORK_PLAN_PROPOSED_WINDOW_AMENDED',
+      before: { proposedMaintenanceWindowReference: 'MW-OLD' },
+      after: { proposedMaintenanceWindowReference: 'MW-NEW' },
+    })
+    expect(targets).toEqual(originalTargets)
+  })
+
+  it('promotes the exact customer-approved proposal directly into SCHEDULED', async () => {
+    plan.state = 'AWAITING_CUSTOMER'
+    plan.proposedFor = scheduledFor
+    plan.proposedMaintenanceWindowReference = 'MW-PROPOSED'
+
+    await scheduleFirmwareWorkPlan(plan.id, {
+      ...context(),
+      reason: 'Customer approved the proposed window.',
+    })
+
+    expect(plan).toMatchObject({
+      state: 'SCHEDULED',
+      proposedFor: scheduledFor,
+      proposedMaintenanceWindowReference: 'MW-PROPOSED',
+      scheduledFor,
+      maintenanceWindowReference: 'MW-PROPOSED',
+      approvedAt: at,
+      approvedByUserId: 'engineer',
+      scheduledAt: at,
+    })
+  })
+
+  it('rejects a changed direct customer schedule until the proposal is amended', async () => {
+    plan.state = 'AWAITING_CUSTOMER'
+    plan.proposedFor = scheduledFor
+    plan.proposedMaintenanceWindowReference = 'MW-PROPOSED'
+    const before = structuredClone(plan)
+
+    await expect(
+      scheduleFirmwareWorkPlan(plan.id, {
+        ...context(),
+        scheduledFor: new Date('2026-10-08T22:00:00Z'),
+        maintenanceWindowReference: 'MW-CHANGED',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(plan).toEqual(before)
+    expect(mocks.event).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
   })
 
   it('supports customer wait, withdrawal and approval without inventing timestamps', async () => {
