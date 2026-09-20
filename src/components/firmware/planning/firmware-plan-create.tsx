@@ -137,6 +137,13 @@ export function FirmwarePlanCreate() {
     if (preview) setPreviewDirty(true)
   }
 
+  function resetResolvedScope() {
+    setResolvedDevices([])
+    setPreview(null)
+    setPreviewDirty(false)
+    setOverrideIds([])
+  }
+
   function changeScopeMode(mode: ScopeMode) {
     setScopeMode(mode)
     setResolvedDevices([])
@@ -162,19 +169,19 @@ export function FirmwarePlanCreate() {
         current.filter((siteId) => !customerSiteIds.has(siteId)),
       )
     }
-    invalidatePreview()
+    resetResolvedScope()
   }
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((current) => toggleSelection(current, siteId))
-    invalidatePreview()
+    resetResolvedScope()
   }
 
   function toggleDeviceType(deviceTypeId: string) {
     setSelectedDeviceTypeIds((current) =>
       toggleSelection(current, deviceTypeId),
     )
-    invalidatePreview()
+    resetResolvedScope()
   }
 
   function updateCreation<K extends keyof typeof creation>(
@@ -555,7 +562,7 @@ export function FirmwarePlanCreate() {
                       <Button
                         onClick={() => {
                           setSelectedDeviceTypeIds(commonAccessTypeIds)
-                          invalidatePreview()
+                          resetResolvedScope()
                         }}
                       >
                         Select switches + access points
