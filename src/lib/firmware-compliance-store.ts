@@ -1,6 +1,10 @@
 import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
+  releaseDecisionFromCatalogSemantics,
+  resolveCatalogTrainForModel,
+} from '@/lib/firmware-catalog-defaults'
+import {
   evaluateFirmwareCompatibility,
   resolveCompatibleFirmwareImage,
   type FirmwareCompatibilityRule,
@@ -10,6 +14,7 @@ import {
   resolveFirmwarePolicyAt,
   resolveLatestApprovedInTrain,
   type FirmwarePolicyCandidate,
+  type FirmwarePolicyResolution,
 } from '@/lib/firmware-policies'
 import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import {
@@ -88,7 +93,7 @@ export async function resolveFirmwareComplianceBatch(
     ),
   ]
   const vendorIds = [...new Set(devices.map((d) => d.deviceModel.vendorId))]
-  const [policyRows, releases, ruleRows, overrideRows] = await Promise.all([
+  const [policyRows, releases, ruleRows, overrideRows, catalogTrains] = await Promise.all([
     db.firmwarePolicy.findMany({
       where: {
         isActive: true,
@@ -134,6 +139,22 @@ export async function resolveFirmwareComplianceBatch(
     db.firmwareCompatibilityOverride.findMany({
       where: { isActive: true, deviceModelId: { in: modelIds } },
     }),
+    db.firmwareTrain.findMany({
+      where: {
+        vendorId: { in: vendorIds },
+        isActive: true,
+        state: { in: ['PREFERRED', 'ACCEPTED'] },
+      },
+      select: {
+        id: true,
+        vendorId: true,
+        platform: true,
+        name: true,
+        state: true,
+        preferredFirmwareReleaseId: true,
+        minimumAcceptableFirmwareReleaseId: true,
+      },
+    }),
   ])
   const releaseById = new Map<string, ComplianceRelease>(
     releases.map((r) => [r.id, r]),
@@ -144,6 +165,14 @@ export async function resolveFirmwareComplianceBatch(
     bucket(logicalReleases, logicalKey(release), release)
     bucket(trainReleases, release.firmwareTrainId, release)
   }
+  const catalogTrainsByPlatform = new Map<string, typeof catalogTrains>()
+  for (const train of catalogTrains) {
+    const key = JSON.stringify([train.vendorId, normalizedFirmwarePlatform(train.platform)])
+    const existing = catalogTrainsByPlatform.get(key)
+    if (existing) existing.push(train)
+    else catalogTrainsByPlatform.set(key, [train])
+  }
+
   const policies = new Map<string, FirmwarePolicyCandidate[]>()
   for (const row of policyRows) {
     // Index candidate retrieval only; #43 remains responsible for applicability/precedence.
@@ -187,6 +216,123 @@ export async function resolveFirmwareComplianceBatch(
     string,
     ReturnType<typeof resolveLatestApprovedInTrain<ComplianceRelease>>
   >()
+  function catalogDefaultPolicyForModel(
+    model: (typeof devices)[number]['deviceModel'],
+    rules: FirmwareCompatibilityRule[],
+    overrides: FirmwareCompatibilityOverride[],
+  ): FirmwarePolicyResolution {
+    const platforms = supportedFirmwarePlatforms(model.platform)
+    if (platforms.length !== 1) {
+      return {
+        status: 'UNRESOLVED',
+        policy: null,
+        source: null,
+        unresolvedReason: 'CATALOG_PLATFORM_UNRESOLVED',
+      }
+    }
+    const platform = platforms[0]
+    const rows = catalogTrainsByPlatform.get(
+      JSON.stringify([model.vendorId, normalizedFirmwarePlatform(platform)]),
+    ) ?? []
+    const resolution = resolveCatalogTrainForModel({
+      vendorKey: model.vendorId,
+      platform,
+      trains: rows.map((train) => {
+        const preferred = releaseById.get(train.preferredFirmwareReleaseId ?? '') ?? null
+        const compatibility = preferred
+          ? evaluateFirmwareCompatibility({ model, release: preferred, rules, overrides, at })
+          : null
+        return {
+          id: train.id,
+          name: train.name,
+          state: train.state as 'PREFERRED' | 'ACCEPTED',
+          preferredRelease: preferred
+            ? {
+                id: preferred.id,
+                version: preferred.logicalVersion,
+                decision: releaseDecisionFromCatalogSemantics(preferred),
+                isActive: preferred.isActive,
+              }
+            : null,
+          compatibility: compatibility?.status ?? 'UNKNOWN',
+          compatibilityExplanation:
+            compatibility?.provenance.explanation ??
+            'The train has no preferred release configured.',
+        }
+      }),
+    })
+    if (resolution.status !== 'RESOLVED') {
+      return {
+        status: 'UNRESOLVED',
+        policy: null,
+        source: null,
+        unresolvedReason:
+          resolution.status === 'NO_COMPATIBLE_TRAIN'
+            ? 'NO_COMPATIBLE_CATALOG_TRAIN'
+            : 'CATALOG_COMPATIBILITY_UNRESOLVED',
+      }
+    }
+
+    const selected = rows.find((train) => train.id === resolution.train.id)
+    const preferred = selected
+      ? releaseById.get(selected.preferredFirmwareReleaseId ?? '') ?? null
+      : null
+    if (!selected || !preferred) {
+      return {
+        status: 'UNRESOLVED',
+        policy: null,
+        source: null,
+        unresolvedReason: 'CATALOG_COMPATIBILITY_UNRESOLVED',
+      }
+    }
+    const minimum = releaseById.get(selected.minimumAcceptableFirmwareReleaseId ?? '') ?? null
+    const policyId = `catalog:${selected.id}`
+    const trackClass = resolution.source === 'ACCEPTED_FALLBACK' ? 'ACCEPTED' : 'PREFERRED'
+    const policy: FirmwarePolicyCandidate = {
+      id: policyId,
+      isActive: true,
+      policyMode: minimum ? 'MINIMUM' : 'EXACT',
+      trackKey: policyId,
+      trackName: selected.name,
+      trackClass,
+      isDefaultTrack: true,
+      desiredPlatform: selected.platform,
+      minimumFirmwareReleaseId: minimum?.id ?? null,
+      targetFirmwareReleaseId: preferred.id,
+      maximumFirmwareReleaseId: null,
+      firmwareTrainId: selected.id,
+      minimumInclusive: true,
+      maximumInclusive: true,
+      effectiveFrom: new Date(0),
+      policyVersion: 1,
+      deviceModelFamilyId: model.familyId,
+      deviceModelId: model.familyId ? null : model.id,
+      customerId: null,
+      siteId: null,
+      deviceId: null,
+      contractTypeId: null,
+      vendorId: null,
+      deviceTypeId: null,
+    }
+    return {
+      status: 'RESOLVED',
+      policy,
+      source: {
+        scope: 'CATALOG',
+        scopeId: `${model.vendorId}:${normalizedFirmwarePlatform(selected.platform)}`,
+        subject: 'CATALOG',
+        subjectId: null,
+        policyId,
+        policyVersion: 1,
+        trackKey: policy.trackKey,
+        trackName: policy.trackName,
+        trackClass: policy.trackClass,
+        effectiveFrom: new Date(0).toISOString(),
+      },
+      unresolvedReason: null,
+    }
+  }
+
   const results = new Map<string, FirmwareComplianceResult>()
   for (const device of devices) {
     const model = device.deviceModel
@@ -197,7 +343,7 @@ export async function resolveFirmwareComplianceBatch(
       `m:${model.id}`,
       `f:${model.familyId}`,
     ].flatMap((key) => policies.get(key) ?? [])
-    const effectivePolicy = resolveFirmwarePolicyAt(
+    const scopedPolicy = resolveFirmwarePolicyAt(
       candidates,
       {
         deviceId: device.id,
@@ -208,6 +354,16 @@ export async function resolveFirmwareComplianceBatch(
       },
       at,
     )
+
+    const rules = [
+      ...(rulesByModel.get(model.id) ?? []),
+      ...(rulesByFamily.get(model.familyId ?? '') ?? []),
+    ]
+    const overrides = overridesByModel.get(model.id) ?? []
+    const effectivePolicy =
+      scopedPolicy.status === 'UNRESOLVED' && scopedPolicy.unresolvedReason === 'NO_POLICY'
+        ? catalogDefaultPolicyForModel(model, rules, overrides)
+        : scopedPolicy
     const policy = effectivePolicy.policy
     let preferredTarget =
       releaseById.get(policy?.targetFirmwareReleaseId ?? '') ?? null
@@ -246,11 +402,6 @@ export async function resolveFirmwareComplianceBatch(
       }
     }
 
-    const rules = [
-      ...(rulesByModel.get(model.id) ?? []),
-      ...(rulesByFamily.get(model.familyId ?? '') ?? []),
-    ]
-    const overrides = overridesByModel.get(model.id) ?? []
     const observedKey = JSON.stringify([model.id, currentFirmware?.id])
     let currentCompatibility = observedCache.get(observedKey) ?? null
     if (currentFirmware && !currentCompatibility) {
