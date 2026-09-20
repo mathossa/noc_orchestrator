@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type {
   PlanningCandidateDevice,
+  PlanSummary,
   PlanTarget,
   PreviewTarget,
 } from './planning-client'
@@ -13,6 +14,7 @@ import {
   planningDeviceTypeOptions,
   proposalDraftChanged,
   resolveSiteScopeDevices,
+  safeBulkTransitionStates,
   toggleSelection,
 } from './planning-client'
 
@@ -295,6 +297,58 @@ describe('plan-centric planning helpers', () => {
     expect(groups[0].count).toBe(2)
     expect(groups[0].observedVersion).toBe('17.12.5')
     expect(groups[0].targetVersion).toBe('17.15.5')
+  })
+
+  it('offers only transitions safe for every selected non-stale plan', () => {
+    const plan = (
+      id: string,
+      state: PlanSummary['state'],
+      proposedFor: string | null,
+      stale = false,
+    ): PlanSummary => ({
+      id,
+      state,
+      title: null,
+      reason: null,
+      notes: null,
+      externalReference: null,
+      upgradeCapability: 'UNKNOWN',
+      createdAt: '2026-09-20T10:00:00.000Z',
+      updatedAt: '2026-09-20T10:00:00.000Z',
+      proposedFor,
+      proposedMaintenanceWindowReference: null,
+      scheduledFor: null,
+      maintenanceWindowReference: null,
+      startedAt: null,
+      completedAt: null,
+      cancelledAt: null,
+      targetCount: 1,
+      stale,
+      staleReasonCounts: {},
+      customers: [],
+      sites: [],
+      targetDistribution: [],
+    })
+
+    expect(
+      safeBulkTransitionStates([
+        plan('one', 'AWAITING_CUSTOMER', '2026-10-01T20:00:00.000Z'),
+        plan('two', 'APPROVED', '2026-10-02T20:00:00.000Z'),
+      ]),
+    ).toEqual(['SCHEDULED', 'CANCELLED'])
+
+    expect(
+      safeBulkTransitionStates([
+        plan('one', 'APPROVED', null),
+        plan('two', 'APPROVED', '2026-10-02T20:00:00.000Z'),
+      ]),
+    ).toEqual(['PROPOSED', 'CANCELLED'])
+
+    expect(
+      safeBulkTransitionStates([
+        plan('one', 'SCHEDULED', null, true),
+      ]),
+    ).toEqual([])
   })
 
   it('detects a changed proposed date/reference so scheduling must wait for the audited amendment', () => {
