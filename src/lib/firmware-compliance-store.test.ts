@@ -107,7 +107,51 @@ describe('batch firmware compliance integration', () => {
     })
   })
 
-  it('uses exact semantics for catalog trains without a minimum', async () => {
+  it('falls back from an incompatible preferred train to a known-compatible Accepted train', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.devices.mockResolvedValue([{ ...device(), currentFirmwareReleaseId: '17.12.5' }])
+    mocks.releases.mockResolvedValue([
+      release('17.12.5', { firmwareTrainId: 'train-accepted' }),
+      release('17.15.5', { firmwareTrainId: 'train-preferred' }),
+    ])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'train-preferred',
+        vendorId: 'synthetic-vendor',
+        platform: 'IOS XE',
+        name: '17.15',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '17.15.5',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+      {
+        id: 'train-accepted',
+        vendorId: 'synthetic-vendor',
+        platform: 'IOS XE',
+        name: '17.12',
+        state: 'ACCEPTED',
+        preferredFirmwareReleaseId: '17.12.5',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+    ])
+    mocks.rules.mockResolvedValue([
+      rule({ id: 'platform-allow' }),
+      rule({
+        id: 'preferred-train-deny',
+        firmwareTrainId: 'train-preferred',
+        decision: 'DENY',
+        explanation: 'This model cannot use the platform preferred train.',
+      }),
+    ])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'PREFERRED',
+      policySource: { scope: 'CATALOG', trackName: '17.12', trackClass: 'ACCEPTED' },
+      preferredTarget: { id: '17.12.5' },
+    })
+  })
+
+    it('uses exact semantics for catalog trains without a minimum', async () => {
     mocks.policies.mockResolvedValue([])
     mocks.devices.mockResolvedValue([{ ...device(), currentFirmwareReleaseId: '17.15.6' }])
     mocks.releases.mockResolvedValue([release('17.15.5'), release('17.15.6')])
