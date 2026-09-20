@@ -197,7 +197,7 @@ describe('plan-centric planning helpers', () => {
           : page === 2
             ? [device('device-2')]
             : [device('device-3')]
-      return payload(rows, page, 3) as T
+      return payload(rows, page, 3) as unknown as T
     }
 
     const result = await resolveSiteScopeDevices(
