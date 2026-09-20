@@ -419,7 +419,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
               Proposed window
@@ -438,6 +438,14 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
             <div className="mt-1 text-xs text-[var(--muted)]">
               {detail.maintenanceWindowReference ??
                 'Not confirmed / no reference'}
+            </div>
+          </div>
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+              External reference
+            </div>
+            <div className="mt-1 break-words text-sm">
+              {detail.externalReference ?? '—'}
             </div>
           </div>
           <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
