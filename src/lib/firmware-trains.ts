@@ -34,6 +34,8 @@ export type FirmwareTrainDetailRecord = FirmwareTrainRecord & {
   createdAt: string
   updatedAt: string
   releases: Array<FirmwareTrainReleaseReference & {
+    variant: string | null
+    imageCode: string | null
     catalogState: string
     policyEligibility: string
     releasedAt: string | null
