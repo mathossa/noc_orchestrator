@@ -98,24 +98,15 @@ The demonstration queue performs no firmware/device action. Queue presence or de
 
 ### Background-job PostgreSQL tests
 
-Unit tests run normally through `npm test`. The meaningful pg-boss integration tests require a disposable PostgreSQL database and intentionally opt in through `JOB_TEST_DATABASE_URL` until Issue #98's shared Testcontainers foundation is available.
+`npm run test:jobs` runs the fast job registry/unit tests only.
 
-For the existing local PostgreSQL container, create a disposable test database once:
-
-```bash
-docker exec noc-orchestrator-postgres \
-  psql -U noc_orchestrator -d postgres \
-  -c 'CREATE DATABASE noc_orchestrator_job_test;'
-```
-
-Then run:
+The meaningful pg-boss acceptance suite reuses Issue #98's shared Testcontainers PostgreSQL foundation. It starts a fresh PostgreSQL 17 container, applies the repository's real Prisma migrations, gives pg-boss an isolated random schema, and removes the container afterwards. No `JOB_TEST_DATABASE_URL`, manually created test database, or separately running `npm run db:up` instance is required.
 
 ```bash
-JOB_TEST_DATABASE_URL='postgresql://noc_orchestrator:noc_orchestrator_dev@localhost:5433/noc_orchestrator_job_test' \
-  npm run test:jobs
+npm run test:jobs:integration
 ```
 
-The tests use an isolated random pg-boss schema and cover enqueue/execution across restart, idempotent duplicate submission, retry, terminal failure, recurring scheduling, and graceful worker shutdown. They do not need Prisma domain fixtures because #99 intentionally does not mutate domain state.
+The integration suite covers durable enqueue/execution across producer restart, idempotent duplicate submission, cancellation, retry, terminal failure, recurring scheduling, persisted handler output, and graceful worker shutdown. #99 intentionally keeps the demonstration handler domain-neutral: queue state/output is infrastructure evidence, not authorization or domain state for firmware execution.
 
 ## Authentication bootstrap
 
@@ -191,6 +182,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run test:jobs
+npm run test:jobs:integration
 npm run build
 npm run worker:build
 npm run format:check
