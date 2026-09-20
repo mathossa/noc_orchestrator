@@ -354,7 +354,7 @@ export function FirmwareReleaseManager() {
           onClick={() => setReviewOnly((value) => !value)}
           className="mb-4 flex w-full items-center justify-between rounded-md border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-left text-sm text-amber-200"
         >
-          <span><strong>{reviewCount} firmware release{reviewCount === 1 ? '' : 's'} need review</strong> · imported observations never become allowed or preferred automatically.</span>
+          <span><strong>{reviewCount} firmware release{reviewCount === 1 ? '' : 's'} {reviewCount === 1 ? 'needs' : 'need'} review</strong> · imported observations never become allowed or preferred automatically.</span>
           <span className="font-semibold">{reviewOnly ? 'Show platform catalog' : 'Review now'}</span>
         </button>
       ) : null}
