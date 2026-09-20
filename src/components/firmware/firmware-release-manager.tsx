@@ -68,6 +68,21 @@ function decisionClass(decision: FirmwareReleaseRecord['decision']) {
   return 'text-red-300'
 }
 
+async function fetchCatalog() {
+  const [releaseResponse, trainResponse] = await Promise.all([
+    fetch('/api/v1/firmware-releases', { cache: 'no-store' }),
+    fetch('/api/v1/firmware-trains', { cache: 'no-store' }),
+  ])
+  const releases = (await releaseResponse.json()) as ReleasePayload
+  const trainData = (await trainResponse.json()) as TrainPayload
+  if (!releaseResponse.ok) throw new Error(releases.error?.message ?? 'Firmware catalog could not be loaded.')
+  if (!trainResponse.ok) throw new Error(trainData.error?.message ?? 'Firmware trains could not be loaded.')
+  return {
+    records: releases.data ?? [],
+    trains: trainData.data ?? [],
+  }
+}
+
 export function FirmwareReleaseManager() {
   const [records, setRecords] = useState<FirmwareReleaseRecord[]>([])
   const [trains, setTrains] = useState<FirmwareTrainRecord[]>([])
@@ -83,21 +98,6 @@ export function FirmwareReleaseManager() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  async function fetchCatalog() {
-    const [releaseResponse, trainResponse] = await Promise.all([
-      fetch('/api/v1/firmware-releases', { cache: 'no-store' }),
-      fetch('/api/v1/firmware-trains', { cache: 'no-store' }),
-    ])
-    const releases = (await releaseResponse.json()) as ReleasePayload
-    const trainData = (await trainResponse.json()) as TrainPayload
-    if (!releaseResponse.ok) throw new Error(releases.error?.message ?? 'Firmware catalog could not be loaded.')
-    if (!trainResponse.ok) throw new Error(trainData.error?.message ?? 'Firmware trains could not be loaded.')
-    return {
-      records: releases.data ?? [],
-      trains: trainData.data ?? [],
-    }
-  }
 
   function applyCatalog(payload: Awaited<ReturnType<typeof fetchCatalog>>) {
     setRecords(payload.records)
@@ -115,7 +115,16 @@ export function FirmwareReleaseManager() {
     let cancelled = false
     void fetchCatalog()
       .then((payload) => {
-        if (!cancelled) applyCatalog(payload)
+        if (cancelled) return
+        setRecords(payload.records)
+        setTrains(payload.trains)
+        setSelectedKey((current) => {
+          if (current) return current
+          const firstTrain = payload.trains.find((train) => train.isActive)
+          if (firstTrain) return platformKey(firstTrain.vendorId, firstTrain.platform)
+          const firstRelease = payload.records.find((release) => release.isActive)
+          return firstRelease ? platformKey(firstRelease.vendorId, firstRelease.platform) : null
+        })
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Firmware catalog could not be loaded.')
