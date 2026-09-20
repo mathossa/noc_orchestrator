@@ -218,6 +218,7 @@ export async function createFirmwareRelease(rawInput: unknown) {
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version)
   const { decision: _decision, ...data } = input
+  void _decision
   const created = await prisma.firmwareRelease.create({ data, include: releaseInclude })
   return serializeRelease(created)
 }
@@ -260,6 +261,7 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version, id)
   const { decision: _decision, ...data } = input
+  void _decision
   const updated = await prisma.firmwareRelease.update({ where: { id }, data, include: releaseInclude })
   return serializeRelease(updated)
 }
