@@ -389,7 +389,7 @@ export function FirmwarePlanningWorkspace({
   }, [])
 
   const loadPlans = useCallback(
-    async (page = planPage) => {
+    async (page: number) => {
       setPlanLoading(true)
       setPlanError('')
       try {
@@ -434,17 +434,15 @@ export function FirmwarePlanningWorkspace({
         setPlanLoading(false)
       }
     },
-    [filters, planPage, view],
+    [filters, view],
   )
 
   useEffect(() => {
     void loadPlans(1)
-    // Filters are deliberately applied explicitly with the Apply button.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view])
+  }, [loadPlans])
 
   const loadDevices = useCallback(
-    async (page = devicePage) => {
+    async (page: number) => {
       setDeviceLoading(true)
       try {
         const params = new URLSearchParams({
@@ -474,20 +472,13 @@ export function FirmwarePlanningWorkspace({
         setDeviceLoading(false)
       }
     },
-    [deviceFilters, devicePage],
+    [deviceFilters],
   )
 
   useEffect(() => {
-    void loadDevices(1)
-    // Filter changes should update the device chooser immediately.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    deviceFilters.q,
-    deviceFilters.customer,
-    deviceFilters.site,
-    deviceFilters.vendor,
-    deviceFilters.model,
-  ])
+    const handle = window.setTimeout(() => void loadDevices(1), 200)
+    return () => window.clearTimeout(handle)
+  }, [loadDevices])
 
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true)
@@ -953,7 +944,7 @@ export function FirmwarePlanningWorkspace({
               onClick={() => void loadPlans(1)}
               disabled={planLoading}
             >
-              Apply filters
+              Refresh
             </Button>
             <Button
               onClick={() =>
