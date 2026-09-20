@@ -182,6 +182,12 @@ export function parseFirmwareWorkPlanQuery(
     ...(cleaned(params.get('deviceId'))
       ? { deviceId: cleaned(params.get('deviceId')) }
       : {}),
+    ...(cleaned(params.get('vendorId'))
+      ? { vendorId: cleaned(params.get('vendorId')) }
+      : {}),
+    ...(cleaned(params.get('deviceModelFamilyId'))
+      ? { deviceModelFamilyId: cleaned(params.get('deviceModelFamilyId')) }
+      : {}),
     ...(cleaned(params.get('deviceModelId'))
       ? { deviceModelId: cleaned(params.get('deviceModelId')) }
       : {}),
