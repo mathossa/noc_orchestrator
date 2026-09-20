@@ -29,4 +29,6 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run test:integration -- src/lib/firmware-catalog-import.integration.test.ts src/lib/firmware-catalog-persistence.integration.test.ts
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- tests/e2e/firmware-catalog.spec.ts
       - run: npm run build
