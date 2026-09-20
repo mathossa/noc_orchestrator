@@ -269,6 +269,10 @@ export async function resolveDeviceWorkPlanning(
         select: {
           id: true,
           deviceId: true,
+          targetVersion: true,
+          targetPlatform: true,
+          targetImageCode: true,
+          recommendation: true,
           plan: {
             select: {
               id: true,
@@ -311,7 +315,15 @@ export async function resolveDeviceWorkPlanning(
   for (const row of records) {
     const projection = result.get(row.deviceId)!
     const state = planState(row.plan.state)
-    const reference = { ...row.plan, state, targetId: row.id }
+    const reference = {
+      ...row.plan,
+      state,
+      targetId: row.id,
+      targetVersion: row.targetVersion,
+      targetPlatform: row.targetPlatform,
+      targetImageCode: row.targetImageCode,
+      recommendation: row.recommendation,
+    }
     if (isActiveFirmwareWorkPlanState(state)) {
       projection.activePlans.push(reference)
       projection.planned = true
