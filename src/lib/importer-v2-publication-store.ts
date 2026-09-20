@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '../generated/prisma/client'
 import {
@@ -73,6 +74,402 @@ type PublishedSourceRow = {
 type PublishedLogicalRow = PublishedSourceRow & {
   created: boolean
   memberRows: PublishedSourceRow[]
+}
+
+export type ImporterV2PublicationResult = {
+  publicationAttemptId: string
+  snapshotId: string
+  batchId: string
+  mode: ImporterV2PublicationMode
+  publishedAt: string
+  publishedRows: Array<{
+    rowNumber: number
+    canonicalDeviceId: string
+    action: 'CREATE' | 'UPDATE'
+    stackMemberCount: number
+  }>
+  publishedLogicalDeviceCount: number
+  publishedStackMemberRowCount: number
+  publishedRowCount: number
+  remainingIncludedRows: number
+  batchStatus: 'PUBLISHED' | 'PARTIALLY_PUBLISHED'
+  approvedProposalKeys: string[]
+}
+
+const BULK_PUBLICATION_CHUNK_SIZE = 500
+const BULK_IDENTITY_LOOKUP_CHUNK_SIZE = 1000
+
+function chunks<T>(items: readonly T[], size: number) {
+  const result: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size))
+  }
+  return result
+}
+
+type BulkNewPublicationRow = {
+  row: ImporterV2PublicationQaRowInput
+  snapshot: EffectiveSnapshot
+  canonicalDeviceId: string
+  customerId: string
+  organizationUnitId: string | null
+  siteId: string
+  vendorId: string
+  deviceTypeId: string
+  familyId: string | null
+  deviceModelId: string
+  currentFirmwareReleaseId: string | null
+  currentFirmwareRawVersion: string | null
+  sourceIdentifiers: ReturnType<typeof identifiers>
+  normalizedIdentity: ReturnType<typeof normalizeImporterV2Identity>
+  name: string
+}
+
+async function assertBulkNewIdentitiesAreUnique(
+  tx: PublicationTx,
+  provider: string,
+  rows: readonly BulkNewPublicationRow[],
+) {
+  const seen = new Set<string>()
+  const values = {
+    normalizedSourceId: new Set<string>(),
+    normalizedSerialNumber: new Set<string>(),
+    normalizedMacAddress: new Set<string>(),
+  }
+
+  for (const row of rows) {
+    const identityFields = [
+      ['normalizedSourceId', row.normalizedIdentity.sourceId],
+      ['normalizedSerialNumber', row.normalizedIdentity.serialNumber],
+      ['normalizedMacAddress', row.normalizedIdentity.macAddress],
+    ] as const
+
+    let hasDurableIdentity = false
+    for (const [field, value] of identityFields) {
+      if (!value) continue
+      hasDurableIdentity = true
+      const key = `${field}:${value}`
+      if (seen.has(key)) {
+        throw new ImporterV2PublicationConflictError(
+          `Duplicate durable identity detected inside the publication batch (${field}).`,
+        )
+      }
+      seen.add(key)
+      values[field].add(value)
+    }
+
+    if (!hasDurableIdentity) {
+      throw new ImporterV2PublicationConflictError(
+        `Row ${row.row.rowNumber} has no durable source identity at publication time.`,
+      )
+    }
+  }
+
+  for (const [field, fieldValues] of Object.entries(values) as Array<
+    [keyof typeof values, Set<string>]
+  >) {
+    for (const part of chunks([...fieldValues], BULK_IDENTITY_LOOKUP_CHUNK_SIZE)) {
+      if (part.length === 0) continue
+      const match = await tx.importerV2DeviceCrosswalk.findFirst({
+        where: {
+          provider,
+          [field]: { in: part },
+        },
+        select: { id: true },
+      })
+      if (match) {
+        throw new ImporterV2PublicationConflictError(
+          'Durable source identity is now associated with another canonical device.',
+        )
+      }
+    }
+  }
+}
+
+async function tryPublishNewRowsBulk(input: {
+  tx: PublicationTx
+  batch: NonNullable<Awaited<ReturnType<typeof loadBatchForQa>>>
+  rows: readonly ImporterV2PublicationQaRowInput[]
+  publicationAttemptId: string
+  publishedAt: Date
+}): Promise<PublishedLogicalRow[] | null> {
+  const prepared: BulkNewPublicationRow[] = []
+
+  for (const row of input.rows) {
+    const topology = importerV2TopologyFromDecisions(row.decisions)
+    if (topology.role !== 'DEVICE') return null
+    if (identityDecision(row) !== null) return null
+
+    const snapshot = effectiveSnapshot(row)
+    const customerId = targetId(snapshot, 'customer')
+    const organizationUnitId = targetId(snapshot, 'businessUnit')
+    const siteId = targetId(snapshot, 'site')
+    const vendorId = targetId(snapshot, 'vendor')
+    const deviceTypeId = targetId(snapshot, 'deviceType')
+    const familyId = targetId(snapshot, 'productFamily')
+    const deviceModelId = targetId(snapshot, 'model')
+
+    if (!customerId || !siteId || !vendorId || !deviceTypeId || !deviceModelId) {
+      return null
+    }
+    if (targetLabel(snapshot, 'businessUnit') && !organizationUnitId) return null
+    if (targetLabel(snapshot, 'productFamily') && !familyId) return null
+    if (targetLabel(snapshot, 'currentFirmware') && !targetId(snapshot, 'currentFirmware')) {
+      return null
+    }
+
+    const sourceIdentifiers = publicationIdentifiers(row, snapshot)
+    const normalizedIdentity = normalizeImporterV2Identity(sourceIdentifiers)
+    const name = effectiveText(snapshot, 'deviceName') ?? effectiveText(snapshot, 'hostname')
+    if (!name) {
+      throw new ImporterV2PublicationValidationError(
+        `Row ${row.rowNumber} has no publishable device name.`,
+      )
+    }
+
+    const currentFirmwareRawVersion = targetLabel(snapshot, 'currentFirmware')
+    const releaseId = currentFirmwareRawVersion
+      ? targetId(snapshot, 'currentFirmware')
+      : null
+    const currentFirmwareReleaseId = importerV2CurrentFirmwareReleaseId({
+      releaseId,
+      runningVersion: currentFirmwareRawVersion,
+      softwarePlatform: targetLabel(snapshot, 'softwarePlatform'),
+      compatibilityStatus: snapshot.firmware?.compatibility?.status,
+      decisions: row.decisions,
+    })
+
+    prepared.push({
+      row,
+      snapshot,
+      canonicalDeviceId: randomUUID(),
+      customerId,
+      organizationUnitId,
+      siteId,
+      vendorId,
+      deviceTypeId,
+      familyId,
+      deviceModelId,
+      currentFirmwareReleaseId,
+      currentFirmwareRawVersion,
+      sourceIdentifiers,
+      normalizedIdentity,
+      name,
+    })
+  }
+
+  const customers = await input.tx.customer.findMany({
+    where: { id: { in: [...new Set(prepared.map((row) => row.customerId))] } },
+    select: { id: true, isActive: true },
+  })
+  const customerMap = new Map(customers.map((item) => [item.id, item]))
+  const organizationUnitIds = [
+    ...new Set(
+      prepared.flatMap((row) => (row.organizationUnitId ? [row.organizationUnitId] : [])),
+    ),
+  ]
+  const organizationUnits = organizationUnitIds.length
+    ? await input.tx.customerOrganizationUnit.findMany({
+        where: { id: { in: organizationUnitIds } },
+        select: { id: true, customerId: true, isActive: true },
+      })
+    : []
+  const organizationUnitMap = new Map(organizationUnits.map((item) => [item.id, item]))
+  const sites = await input.tx.site.findMany({
+    where: { id: { in: [...new Set(prepared.map((row) => row.siteId))] } },
+    select: {
+      id: true,
+      customerId: true,
+      organizationUnitId: true,
+      isActive: true,
+    },
+  })
+  const siteMap = new Map(sites.map((item) => [item.id, item]))
+  const vendors = await input.tx.vendor.findMany({
+    where: { id: { in: [...new Set(prepared.map((row) => row.vendorId))] } },
+    select: { id: true, isActive: true },
+  })
+  const vendorMap = new Map(vendors.map((item) => [item.id, item]))
+  const deviceTypes = await input.tx.deviceType.findMany({
+    where: { id: { in: [...new Set(prepared.map((row) => row.deviceTypeId))] } },
+    select: { id: true, isActive: true },
+  })
+  const deviceTypeMap = new Map(deviceTypes.map((item) => [item.id, item]))
+  const familyIds = [
+    ...new Set(prepared.flatMap((row) => (row.familyId ? [row.familyId] : []))),
+  ]
+  const families = familyIds.length
+    ? await input.tx.deviceModelFamily.findMany({
+        where: { id: { in: familyIds } },
+        select: { id: true, vendorId: true, isActive: true },
+      })
+    : []
+  const familyMap = new Map(families.map((item) => [item.id, item]))
+  const models = await input.tx.deviceModel.findMany({
+    where: { id: { in: [...new Set(prepared.map((row) => row.deviceModelId))] } },
+    select: { id: true, vendorId: true, isActive: true },
+  })
+  const modelMap = new Map(models.map((item) => [item.id, item]))
+  const releaseIds = [
+    ...new Set(
+      prepared.flatMap((row) =>
+        row.currentFirmwareReleaseId ? [row.currentFirmwareReleaseId] : [],
+      ),
+    ),
+  ]
+  const releases = releaseIds.length
+    ? await input.tx.firmwareRelease.findMany({
+        where: { id: { in: releaseIds } },
+        select: { id: true, vendorId: true, platform: true, isActive: true },
+      })
+    : []
+  const releaseMap = new Map(releases.map((item) => [item.id, item]))
+
+  for (const row of prepared) {
+    if (!customerMap.get(row.customerId)?.isActive) {
+      throw new ImporterV2PublicationConflictError(
+        'Selected customer is missing or inactive.',
+      )
+    }
+    if (row.organizationUnitId) {
+      const unit = organizationUnitMap.get(row.organizationUnitId)
+      if (!unit?.isActive || unit.customerId !== row.customerId) {
+        throw new ImporterV2PublicationConflictError(
+          'Selected organizational unit is outside the customer or inactive.',
+        )
+      }
+    }
+    const site = siteMap.get(row.siteId)
+    if (
+      !site?.isActive ||
+      site.customerId !== row.customerId ||
+      site.organizationUnitId !== row.organizationUnitId
+    ) {
+      throw new ImporterV2PublicationConflictError(
+        'Selected site is outside the Customer → organizational unit context or inactive.',
+      )
+    }
+    if (!vendorMap.get(row.vendorId)?.isActive) {
+      throw new ImporterV2PublicationConflictError(
+        'Selected vendor is missing or inactive.',
+      )
+    }
+    if (!deviceTypeMap.get(row.deviceTypeId)?.isActive) {
+      throw new ImporterV2PublicationConflictError(
+        'Selected device type is missing or inactive.',
+      )
+    }
+    if (row.familyId) {
+      const family = familyMap.get(row.familyId)
+      if (!family?.isActive || family.vendorId !== row.vendorId) {
+        throw new ImporterV2PublicationConflictError(
+          'Selected product family is outside the vendor or inactive.',
+        )
+      }
+    }
+    const model = modelMap.get(row.deviceModelId)
+    if (!model?.isActive || model.vendorId !== row.vendorId) {
+      throw new ImporterV2PublicationConflictError(
+        'Selected model is outside the vendor or inactive.',
+      )
+    }
+    if (row.currentFirmwareReleaseId) {
+      const release = releaseMap.get(row.currentFirmwareReleaseId)
+      const platform = targetLabel(row.snapshot, 'softwarePlatform')
+      if (!release?.isActive || release.vendorId !== row.vendorId) {
+        throw new ImporterV2PublicationConflictError(
+          'Selected firmware release is missing, inactive, or belongs to another vendor.',
+        )
+      }
+      if (
+        platform &&
+        release.platform.toLocaleLowerCase('en-US') !==
+          platform.toLocaleLowerCase('en-US')
+      ) {
+        throw new ImporterV2PublicationConflictError(
+          'Selected firmware release no longer matches the staged software platform.',
+        )
+      }
+    }
+  }
+
+  await assertBulkNewIdentitiesAreUnique(input.tx, input.batch.provider, prepared)
+
+  for (const part of chunks(prepared, BULK_PUBLICATION_CHUNK_SIZE)) {
+    await input.tx.device.createMany({
+      data: part.map((row) => ({
+        id: row.canonicalDeviceId,
+        customerId: row.customerId,
+        siteId: row.siteId,
+        deviceModelId: row.deviceModelId,
+        name: row.name,
+        hostname: effectiveText(row.snapshot, 'hostname'),
+        serialNumber: effectiveText(row.snapshot, 'serialNumber'),
+        managementAddress: effectiveText(row.snapshot, 'managementAddress'),
+        notes: effectiveText(row.snapshot, 'notes'),
+        currentFirmwareReleaseId: row.currentFirmwareReleaseId,
+        currentFirmwareObservedAt: row.currentFirmwareRawVersion
+          ? input.publishedAt
+          : null,
+        currentFirmwareSource: 'IMPORT',
+        currentFirmwareRawVersion: row.currentFirmwareRawVersion,
+        currentFirmwareNormalizedVersion: row.currentFirmwareRawVersion,
+        currentFirmwareEvidence: jsonValue({
+          rawFirmwareVersion: row.snapshot.rawValues?.firmwareVersion ?? null,
+          rawSoftwareVersion: row.snapshot.rawValues?.softwareVersion ?? null,
+          interpretation: row.snapshot.firmware ?? null,
+          topologyRole: 'DEVICE',
+        }),
+        currentFirmwareInterpreterId: text(row.snapshot.firmware?.interpreterId),
+        currentFirmwareInterpreterVersion: text(
+          row.snapshot.firmware?.interpreterVersion,
+        ),
+        source: 'IMPORT',
+        externalProvider: input.batch.provider,
+        externalId: row.sourceIdentifiers.sourceId,
+        lastSynchronizedAt: input.publishedAt,
+      })),
+    })
+  }
+
+  for (const part of chunks(prepared, BULK_PUBLICATION_CHUNK_SIZE)) {
+    await input.tx.importerV2DeviceCrosswalk.createMany({
+      data: part.map((row) => ({
+        provider: input.batch.provider,
+        sourceAdapterId: input.batch.sourceAdapterId,
+        canonicalDeviceId: row.canonicalDeviceId,
+        sourceId: row.sourceIdentifiers.sourceId,
+        normalizedSourceId: row.normalizedIdentity.sourceId,
+        serialNumber: row.sourceIdentifiers.serialNumber,
+        normalizedSerialNumber: row.normalizedIdentity.serialNumber,
+        macAddress: row.sourceIdentifiers.macAddress,
+        normalizedMacAddress: row.normalizedIdentity.macAddress,
+        confirmedAt: input.publishedAt,
+        lastSeenAt: input.publishedAt,
+      })),
+    })
+  }
+
+  for (const part of chunks(prepared, BULK_PUBLICATION_CHUNK_SIZE)) {
+    await input.tx.importerV2WorkspaceRow.updateMany({
+      where: { id: { in: part.map((row) => row.row.id) } },
+      data: {
+        publishedAt: input.publishedAt,
+        publicationAttemptId: input.publicationAttemptId,
+      },
+    })
+  }
+
+  return prepared.map((row) => ({
+    rowNumber: row.row.rowNumber,
+    canonicalDeviceId: row.canonicalDeviceId,
+    created: true,
+    sourceIdentifiers: row.sourceIdentifiers,
+    normalizedIdentity: row.normalizedIdentity,
+    values: snapshotValues(row.snapshot),
+    rowFingerprint: row.row.sourceFingerprint,
+    memberRows: [],
+  }))
 }
 
 const qaBatchSelect = {
@@ -1204,13 +1601,17 @@ async function publishRow(input: {
   }
 }
 
-function publishedResult(attempt: { id: string; result: unknown; status: string }) {
+function publishedResult(attempt: {
+  id: string
+  result: unknown
+  status: string
+}): ImporterV2PublicationResult {
   if (attempt.status !== 'SUCCEEDED' || !attempt.result) {
     throw new ImporterV2PublicationConflictError(
       'An idempotent publication record exists but is not a completed publication.',
     )
   }
-  return attempt.result
+  return attempt.result as ImporterV2PublicationResult
 }
 
 export async function publishImporterV2Batch(input: {
@@ -1220,7 +1621,7 @@ export async function publishImporterV2Batch(input: {
   idempotencyKey: string
   approvedProposalKeys: readonly string[]
   actorUserId?: string | null
-}) {
+}): Promise<ImporterV2PublicationResult> {
   const idempotencyKey = text(input.idempotencyKey)
   if (!idempotencyKey) {
     throw new ImporterV2PublicationValidationError('idempotencyKey is required.')
@@ -1312,25 +1713,38 @@ export async function publishImporterV2Batch(input: {
             row as unknown as ImporterV2PublicationQaRowInput,
           ]),
         )
-        const publishedRows: PublishedLogicalRow[] = []
-        for (const rowNumber of rowNumbers) {
+        const selectedRows = rowNumbers.map((rowNumber) => {
           const row = rowsByNumber.get(rowNumber)
           if (!row) {
             throw new ImporterV2PublicationConflictError(
               `QA-selected row ${rowNumber} disappeared before publication.`,
             )
           }
-          publishedRows.push(
-            await publishRow({
-              tx,
-              batch,
-              row,
-              publicationAttemptId: attempt.id,
-              publishedAt,
-              approvals,
-              actorUserId: input.actorUserId ?? null,
-            }),
-          )
+          return row
+        })
+
+        const bulkPublishedRows = await tryPublishNewRowsBulk({
+          tx,
+          batch,
+          rows: selectedRows,
+          publicationAttemptId: attempt.id,
+          publishedAt,
+        })
+        const publishedRows: PublishedLogicalRow[] = bulkPublishedRows ?? []
+        if (!bulkPublishedRows) {
+          for (const row of selectedRows) {
+            publishedRows.push(
+              await publishRow({
+                tx,
+                batch,
+                row,
+                publicationAttemptId: attempt.id,
+                publishedAt,
+                approvals,
+                actorUserId: input.actorUserId ?? null,
+              }),
+            )
+          }
         }
 
         const publishedMemberRows = publishedRows.flatMap((row) => row.memberRows)
@@ -1449,7 +1863,7 @@ export async function publishImporterV2Batch(input: {
           })
         }
 
-        const result = {
+        const result: ImporterV2PublicationResult = {
           publicationAttemptId: attempt.id,
           snapshotId: sourceSnapshot.id,
           batchId: batch.id,
