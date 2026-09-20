@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   compliance: vi.fn(),
+  exceptionSummaries: vi.fn(),
   customerFindUnique: vi.fn(),
   modelFindUnique: vi.fn(),
   firmwareFindUnique: vi.fn(),
@@ -23,6 +24,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
+
+vi.mock('@/lib/device-exception-summary-store', () => ({
+  resolveDeviceExceptionSummaries: mocks.exceptionSummaries,
+}))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -155,6 +160,16 @@ describe('device inventory persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'NO_POLICY', recommendation: 'REVIEW_REQUIRED', preferredTarget: null }))
+    mocks.exceptionSummaries.mockImplementation(async (devices: Array<{ id: string }>) =>
+      new Map(devices.map((device) => [device.id, {
+        state: 'NONE',
+        effective: null,
+        activeCount: 0,
+        inheritedCount: 0,
+        historyCount: 0,
+        reviewDueAt: null,
+      }])),
+    )
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
     mocks.modelFindUnique.mockResolvedValue(rawModel)
     mocks.deviceFindMany.mockResolvedValue([])
