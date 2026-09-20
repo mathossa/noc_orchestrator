@@ -134,7 +134,9 @@ test.afterAll(async () => {
 test('uses the train-centric catalog workflow end to end', async ({ page }) => {
   await page.goto('/firmware')
   await expect(page.getByRole('heading', { name: 'Firmware catalog', exact: true })).toBeVisible()
-  await expect(page.getByText('Playwright Firmware 106', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button').filter({ hasText: 'Playwright Firmware 106' }).filter({ hasText: 'IOS XE' }).first(),
+  ).toBeVisible()
 
   const preferredRow = page.getByRole('row').filter({ hasText: '17.15' })
   await expect(preferredRow).toContainText('Preferred')
