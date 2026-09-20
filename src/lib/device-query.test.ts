@@ -15,14 +15,14 @@ describe('device query parsing', () => {
       customer: 'customer-1', site: 'site-1', vendor: 'vendor-1', model: 'model-1',
       deviceType: 'type-1', contract: 'contract-1', currentFirmware: 'fw-old', desiredFirmware: 'fw-new',
       technicalState: 'action_required', exceptionState: 'active', exceptionReason: 'customer_declined', exceptionScope: 'customer',
-      workflow: 'customer_declined', source: 'api', archive: 'all',
+      workflow: 'scheduled', source: 'api', archive: 'all',
       groupBy: 'site', page: '3', pageSize: '25', sort: 'operationalDecision', direction: 'desc', q: ' branch ',
     })
     expect(parseDeviceQuery(params)).toMatchObject({
       customer: 'customer-1', site: 'site-1', vendor: 'vendor-1', model: 'model-1', deviceType: 'type-1',
       contract: 'contract-1', currentFirmware: 'fw-old', desiredFirmware: 'fw-new',
       technicalState: 'ACTION_REQUIRED', exceptionState: 'ACTIVE', exceptionReason: 'CUSTOMER_DECLINED', exceptionScope: 'CUSTOMER',
-      workflow: 'CUSTOMER_DECLINED', source: 'API', archive: 'all',
+      workflow: 'SCHEDULED', source: 'API', archive: 'all',
       groupBy: 'site', page: 3, pageSize: 25, sort: 'operationalDecision', direction: 'desc', q: 'branch',
     })
   })
