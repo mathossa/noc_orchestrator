@@ -91,7 +91,23 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
   if (!train) return <ErrorState title="Firmware train could not be loaded" description="The firmware train is unavailable." />
 
   const allowedReleases = train.releases.filter((release) => release.isActive && release.decision === 'ALLOWED')
-  const preferredRelease = train.releases.find((release) => release.id === train.preferredFirmwareReleaseId) ?? null
+  function logicalOptions(selectedId: string) {
+    const groups = new Map<string, typeof allowedReleases>()
+    for (const release of allowedReleases) {
+      const group = groups.get(release.logicalVersion)
+      if (group) group.push(release)
+      else groups.set(release.logicalVersion, [release])
+    }
+    return [...groups.values()]
+      .map((releases) =>
+        releases.find((release) => release.id === selectedId) ??
+        [...releases].sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true }))[0],
+      )
+      .sort((a, b) => a.logicalVersion.localeCompare(b.logicalVersion, 'en', { numeric: true }))
+  }
+  const preferredOptions = logicalOptions(preferredId)
+  const minimumOptions = logicalOptions(minimumId)
+    const preferredRelease = train.releases.find((release) => release.id === train.preferredFirmwareReleaseId) ?? null
   const minimumRelease = train.releases.find((release) => release.id === train.minimumAcceptableFirmwareReleaseId) ?? null
   const logicalReleaseGroups = [...train.releases.reduce((groups, release) => {
     const group = groups.get(release.logicalVersion)
@@ -161,14 +177,14 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
               if (!next) setMinimumId('')
             }}>
               <option value="">Not configured</option>
-              {allowedReleases.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}{release.version !== release.logicalVersion ? ` · ${release.version}` : ''}</option>)}
+              {preferredOptions.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}</option>)}
             </SelectInput>
           </label>
           <label className="text-sm">
             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Minimum acceptable</span>
             <SelectInput value={minimumId} disabled={!preferredId} onChange={(event) => setMinimumId(event.target.value)}>
               <option value="">None — preferred only</option>
-              {allowedReleases.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}{release.version !== release.logicalVersion ? ` · ${release.version}` : ''}</option>)}
+              {minimumOptions.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}</option>)}
             </SelectInput>
           </label>
         </div>
