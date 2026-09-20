@@ -165,7 +165,7 @@ export async function getFirmwareRelease(id: string) {
   const record = await prisma.firmwareRelease.findUnique({ where: { id }, include: releaseInclude })
   if (!record) throw new FirmwareReleaseNotFoundError()
 
-  const [matchingModels, currentDevices, targetPolicies, lifecycleTargets] = await Promise.all([
+  const [matchingModels, currentDevices, currentDeviceScopes, targetPolicies, lifecycleTargets] = await Promise.all([
     prisma.deviceModel.findMany({
       where: { vendorId: record.vendorId, platform: { equals: record.platform, mode: 'insensitive' } },
       orderBy: { model: 'asc' },
@@ -178,6 +178,14 @@ export async function getFirmwareRelease(id: string) {
       },
     }),
     prisma.device.count({ where: { currentFirmwareReleaseId: id } }),
+    prisma.device.findMany({
+      where: { currentFirmwareReleaseId: id },
+      select: {
+        customerId: true,
+        siteId: true,
+        deviceModel: { select: { familyId: true } },
+      },
+    }),
     prisma.firmwarePolicy.count({ where: { targetFirmwareReleaseId: id } }),
     prisma.firmwareLifecycleRecord.count({ where: { targetFirmwareReleaseId: id } }),
   ])
@@ -193,7 +201,14 @@ export async function getFirmwareRelease(id: string) {
       deviceType: model.deviceType,
       deviceCount: model._count.devices,
     })),
-    usage: { currentDevices, targetPolicies, lifecycleTargets },
+    usage: {
+      currentDevices,
+      modelFamilies: new Set(currentDeviceScopes.map((device) => device.deviceModel.familyId).filter(Boolean)).size,
+      customers: new Set(currentDeviceScopes.map((device) => device.customerId)).size,
+      sites: new Set(currentDeviceScopes.map((device) => device.siteId).filter(Boolean)).size,
+      targetPolicies,
+      lifecycleTargets,
+    },
   }
 }
 
