@@ -8,6 +8,12 @@ type ApiError = { error?: { message?: string } }
 type ModelCompatibilityView = {
   model: { id: string; model: string; familyId: string | null; vendorId: string }
   supportedPlatforms: string[]
+  catalogFallbacks: Array<{
+    platform: string
+    resolution:
+      | { status: 'RESOLVED'; source: 'EXPLICIT_OVERRIDE' | 'PLATFORM_PREFERRED' | 'ACCEPTED_FALLBACK'; explanation: string; train: { id: string; name: string } }
+      | { status: 'REVIEW_REQUIRED' | 'NO_COMPATIBLE_TRAIN'; source: null; explanation: string; train: null }
+  }>
   rules: Array<{
     id: string
     inherited: boolean
@@ -163,8 +169,23 @@ export function ModelFirmwareCompatibilityPanel({ modelId }: { modelId: string }
             <div className="space-y-5">
               <div>
                 <h3 className="text-sm font-semibold">Evidence and provenance</h3>
+                {data.catalogFallbacks.length > 0 ? (
+                  <div className="mb-4 grid gap-2">
+                    {data.catalogFallbacks.map(({ platform, resolution }) => (
+                      <div key={platform} className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold">{platform}</span>
+                          <span className={`text-xs font-semibold ${resolution.status === 'RESOLVED' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                            {resolution.status === 'RESOLVED' ? `Default train: ${resolution.train.name}` : 'Review required'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{resolution.explanation}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {data.rules.length === 0 ? (
-                  <p className="mt-2 text-sm text-[var(--muted)]">No explicit compatibility evidence is configured. Unmatched firmware remains UNKNOWN.</p>
+                  <p className="mt-2 text-sm text-[var(--muted)]">No explicit compatibility exception is configured. Matching model platforms inherit catalog compatibility; unmatched platforms remain UNKNOWN.</p>
                 ) : (
                   <div className="mt-2 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
                     {data.rules.map((rule) => (
@@ -245,7 +266,7 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
   return (
     <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
       <h2 className="text-lg font-semibold text-[var(--foreground)]">Model compatibility</h2>
-      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">Compatibility for this canonical release. COMPATIBLE and INCOMPATIBLE come from explicit evidence; UNKNOWN means support has not been established yet.</p>
+      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">Compatibility for this canonical release. Matching model platforms inherit compatibility by default; explicit family/model evidence and exact overrides can refine or deny it. UNKNOWN means support still cannot be established safely.</p>
       {error ? <div className="mt-4 text-sm text-red-300">{error}</div> : null}
       {data ? (
         <>
