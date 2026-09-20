@@ -5,6 +5,7 @@ import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type {
+  importerV2CatalogProposalRequiresApproval,
   ImporterV2CatalogProposal,
   ImporterV2CatalogProposalField,
   ImporterV2PublicationMode,
@@ -111,9 +112,13 @@ function requiredProposalsFor(
   mode: ImporterV2PublicationMode,
 ) {
   const rows = publicationSourceRowsFor(qa, mode)
-  return qa.catalogProposals.filter((proposal) =>
-    proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
-  )
+  return qa.catalogProposals
+    .filter((proposal) =>
+      proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
+    )
+    .filter((proposal) =>
+      importerV2CatalogProposalRequiresApproval(qa, proposal),
+    )
 }
 
 type RetryRequest = {
@@ -494,6 +499,12 @@ export function ImporterV2PublicationPanel({
                   </div>
                 ))}
               </div>
+            </div>
+          ) : null}
+
+          {qa.firmware.newObservedReleaseProposalRows.length ? (
+            <div className="rounded-md border border-blue-400/30 bg-blue-500/10 p-3 text-sm text-blue-100">
+              <strong>{qa.firmware.newObservedReleaseProposalRows.length.toLocaleString()} observed firmware row(s)</strong> can be canonicalized automatically as Needs review because vendor, platform, and exact running version are already resolved. This does not allow or prefer the release.
             </div>
           ) : null}
 
