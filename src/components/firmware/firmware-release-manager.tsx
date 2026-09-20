@@ -278,7 +278,7 @@ export function FirmwareReleaseManager() {
 
   async function reviewRelease(
     release: FirmwareReleaseRecord,
-    action: 'ALLOWED' | 'BLOCKED' | 'ARCHIVE' | 'REACTIVATE' | 'PREFERRED',
+    action: 'ALLOWED' | 'BLOCKED' | 'WITHDRAWN' | 'ARCHIVE' | 'REACTIVATE' | 'PREFERRED',
   ) {
     setSaving(true)
     setError(null)
@@ -525,14 +525,26 @@ export function FirmwareReleaseManager() {
                                       <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
                                       <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
                                     </div>
-                                  ) : (
+                                  ) : !release.isActive ? (
                                     <Button
                                       variant="ghost"
                                       disabled={saving}
-                                      onClick={() => void reviewRelease(release, release.isActive ? 'ARCHIVE' : 'REACTIVATE')}
+                                      onClick={() => void reviewRelease(release, 'REACTIVATE')}
                                     >
-                                      {release.isActive ? 'Archive' : 'Reactivate'}
+                                      Reactivate
                                     </Button>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      {release.decision === 'ALLOWED' ? (
+                                        <>
+                                          <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
+                                          <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'WITHDRAWN')}>Withdraw</Button>
+                                        </>
+                                      ) : (
+                                        <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ALLOWED')}>Allow</Button>
+                                      )}
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
+                                    </div>
                                   )}
                                 </div>
                               </div>
