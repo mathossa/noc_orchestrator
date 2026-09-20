@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listDevices: vi.fn(),
   listDeviceReferences: vi.fn(),
   policyFindMany: vi.fn(),
+  planning: vi.fn(),
 }))
 
 vi.mock('@/lib/device-store', () => ({
@@ -21,6 +22,10 @@ vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBat
 vi.mock('@/lib/device-exception-summary-store', () => ({
   resolveDeviceExceptionSummaries: mocks.exceptions,
   listDeviceExceptionReasonReferences: mocks.exceptionReasons,
+}))
+
+vi.mock('@/lib/firmware-work-plan-query-store', () => ({
+  resolveDeviceWorkPlanning: mocks.planning,
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -62,6 +67,43 @@ const references = {
   firmwareReleases: [oldRelease, desiredRelease],
 }
 
+function planning(
+  deviceId: string,
+  state:
+    | 'PROPOSED'
+    | 'AWAITING_CUSTOMER'
+    | 'APPROVED'
+    | 'SCHEDULED'
+    | 'IN_PROGRESS'
+    | 'DONE'
+    | 'CANCELLED'
+    | 'NOT_PLANNED' = 'PROPOSED',
+) {
+  const reference = {
+    id: `plan-${deviceId}`,
+    targetId: `target-${deviceId}`,
+    state: state === 'NOT_PLANNED' ? 'DONE' : state,
+    proposedFor: null,
+    proposedMaintenanceWindowReference: null,
+    scheduledFor: null,
+    maintenanceWindowReference: null,
+    completedAt: state === 'DONE' ? '2026-09-10T00:00:00.000Z' : null,
+    cancelledAt: state === 'CANCELLED' ? '2026-09-10T00:00:00.000Z' : null,
+    targetVersion: '17.15.5',
+    targetPlatform: 'IOS XE',
+    targetImageCode: null,
+    recommendation: 'UPDATE_RECOMMENDED',
+  }
+  const terminal = state === 'DONE' || state === 'CANCELLED'
+  return {
+    deviceId,
+    planned: !terminal && state !== 'NOT_PLANNED',
+    state: terminal || state === 'NOT_PLANNED' ? ('NOT_PLANNED' as const) : state,
+    activePlans: terminal || state === 'NOT_PLANNED' ? [] : [reference],
+    history: terminal ? [reference] : [],
+  }
+}
+
 function noException(): DeviceExceptionSummary {
   return {
     state: 'NONE',
@@ -84,6 +126,9 @@ describe('device cross-dimensional query service', () => {
     ])
     mocks.listDeviceReferences.mockResolvedValue(references)
     mocks.policyFindMany.mockResolvedValue([{ deviceModelId: 'model-1', targetFirmwareRelease: desiredRelease }])
+    mocks.planning.mockImplementation(async (ids: string[]) =>
+      new Map(ids.map((id) => [id, planning(id)])),
+    )
   })
 
   it('composes customer, site-override contract, technical, workflow and source filters', async () => {
@@ -113,6 +158,7 @@ describe('device cross-dimensional query service', () => {
     ])
     expect(result.meta.pagination).toMatchObject({ total: 1, inventoryTotal: 2 })
     expect(mocks.compliance).toHaveBeenCalledWith(['device-1', 'device-2'])
+    expect(mocks.planning).toHaveBeenCalledWith(['device-1', 'device-2'])
     expect(mocks.policyFindMany).not.toHaveBeenCalled()
   })
 
@@ -163,22 +209,50 @@ describe('device cross-dimensional query service', () => {
     expect(customerContractResult.data.map((item) => item.id)).toEqual(['device-2'])
   })
 
-  it('keeps ignored and customer-declined records queryable and groups filtered results by site', async () => {
+  it('filters current work-plan state and terminal history without consulting legacy lifecycle state', async () => {
     mocks.listDevices.mockResolvedValue([
-      record(),
-      record({ id: 'device-2', name: 'HQ-SW-02', lifecycle: { ...record().lifecycle, state: 'CUSTOMER_DECLINED', reason: 'Customer declined' } }),
+      record({ lifecycle: { ...record().lifecycle, state: 'DONE' } }),
+      record({ id: 'device-2', name: 'HQ-SW-02', lifecycle: { ...record().lifecycle, state: 'PLANNED' } }),
       record({ id: 'device-3', name: 'NO-SITE', siteId: null, site: null, effectiveContractType: contractCustomer, contractSource: 'CUSTOMER', lifecycle: null }),
     ])
+    mocks.planning.mockResolvedValue(
+      new Map([
+        ['device-1', planning('device-1', 'SCHEDULED')],
+        ['device-2', planning('device-2', 'DONE')],
+        ['device-3', planning('device-3', 'NOT_PLANNED')],
+      ]),
+    )
 
-    const declined = await queryDevices(parseDeviceQuery(new URLSearchParams({ workflow: 'CUSTOMER_DECLINED' })))
-    expect(declined.data.map((item) => item.id)).toEqual(['device-2'])
+    const scheduled = await queryDevices(
+      parseDeviceQuery(new URLSearchParams({ workflow: 'SCHEDULED' })),
+    )
+    expect(scheduled.data.map((item) => item.id)).toEqual(['device-1'])
 
-    const grouped = await queryDevices(parseDeviceQuery(new URLSearchParams({ groupBy: 'site', archive: 'all' })))
+    const done = await queryDevices(
+      parseDeviceQuery(new URLSearchParams({ workflow: 'DONE' })),
+    )
+    expect(done.data.map((item) => item.id)).toEqual(['device-2'])
+
+    const notPlanned = await queryDevices(
+      parseDeviceQuery(new URLSearchParams({ workflow: 'NOT_PLANNED' })),
+    )
+    expect(notPlanned.data.map((item) => item.id)).toEqual([
+      'device-2',
+      'device-3',
+    ])
+
+    const grouped = await queryDevices(
+      parseDeviceQuery(new URLSearchParams({ groupBy: 'site', archive: 'all' })),
+    )
     expect(grouped.meta.groups).toEqual([
       { key: 'site-1', label: 'Head office', count: 2 },
       { key: 'none', label: 'Unassigned site', count: 1 },
     ])
-    expect(grouped.data.map((item) => item.groupLabel)).toEqual(['Head office', 'Head office', 'Unassigned site'])
+    expect(grouped.data.map((item) => item.groupLabel)).toEqual([
+      'Head office',
+      'Head office',
+      'Unassigned site',
+    ])
   })
 
   it('paginates after derived-state filtering with deterministic ordering', async () => {
@@ -199,6 +273,9 @@ it('filters and groups by unit while keeping site-less devices separate from ung
   mocks.exceptionReasons.mockResolvedValue([])
   mocks.listDeviceReferences.mockResolvedValue(references)
   mocks.policyFindMany.mockResolvedValue([])
+  mocks.planning.mockImplementation(async (ids: string[]) =>
+    new Map(ids.map((id) => [id, planning(id)])),
+  )
   const unit = { id: 'east', customerId: customer.id, parentId: null, name: 'East', isActive: true }
   mocks.listDevices.mockResolvedValue([record({ site: { ...site, organizationUnit: unit } }), record({ id: 'ungrouped', site: { ...site, organizationUnit: null } }), record({ id: 'no-site', siteId: null, site: null })])
   const selected = await queryDevices(parseDeviceQuery(new URLSearchParams({ organizationUnit: 'east', groupBy: 'organizationUnit' })))
