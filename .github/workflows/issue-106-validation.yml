@@ -28,5 +28,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run test:integration -- src/lib/firmware-catalog-import.integration.test.ts
+      - run: npm run test:integration -- src/lib/firmware-catalog-import.integration.test.ts src/lib/firmware-catalog-persistence.integration.test.ts
       - run: npm run build
