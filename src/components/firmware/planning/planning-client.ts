@@ -256,6 +256,16 @@ export function toggleSelection(values: string[], id: string) {
     : [...values, id]
 }
 
+export function canConfirmProposedSchedule(
+  state: FirmwareWorkPlanState,
+  proposedFor: string | null,
+) {
+  return (
+    Boolean(proposedFor) &&
+    (state === 'AWAITING_CUSTOMER' || state === 'APPROVED')
+  )
+}
+
 function commonTypeText(type: DeviceTypeReference) {
   return `${type.code} ${type.name}`.normalize('NFKC').toLowerCase()
 }
