@@ -594,6 +594,30 @@ describe('planning list/detail/history and device projections', () => {
       timeout: 30_000,
     })
   })
+  it('keeps an unmatched vendor or family filter restrictive', async () => {
+    mocks.models.mockResolvedValue([])
+    mocks.plans.mockResolvedValue([])
+    mocks.count.mockResolvedValue(0)
+
+    const value = await listFirmwareWorkPlans({
+      vendorId: 'vendor-with-no-models',
+      deviceModelFamilyId: 'family-with-no-models',
+    })
+
+    expect(value.data).toEqual([])
+    expect(mocks.plans).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          targets: {
+            some: {
+              deviceModelId: { in: [] },
+            },
+          },
+        },
+      }),
+    )
+  })
+
   it('preserves historical targets and recommendation with no live lookup in detail', async () => {
     const saved = snapshot({
       recommendation: 'UNKNOWN_LEGACY',
