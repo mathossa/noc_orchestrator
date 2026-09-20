@@ -12,7 +12,7 @@ describe('planning routes', () => {
       searchParams: Promise.resolve({}),
     })
     expect(element.type).toBe(FirmwarePlanList)
-    expect(element.props.initialView).toBe('active')
+    expect((element.props as { initialView: string }).initialView).toBe('active')
   })
 
   it('/planning retains terminal history as a separate list view', async () => {
@@ -20,7 +20,7 @@ describe('planning routes', () => {
       searchParams: Promise.resolve({ view: 'history' }),
     })
     expect(element.type).toBe(FirmwarePlanList)
-    expect(element.props.initialView).toBe('history')
+    expect((element.props as { initialView: string }).initialView).toBe('history')
   })
 
   it('/planning/new is a dedicated creation workspace', () => {
@@ -33,6 +33,6 @@ describe('planning routes', () => {
       params: Promise.resolve({ id: 'plan-123' }),
     })
     expect(element.type).toBe(FirmwarePlanDetail)
-    expect(element.props.planId).toBe('plan-123')
+    expect((element.props as { planId: string }).planId).toBe('plan-123')
   })
 })
