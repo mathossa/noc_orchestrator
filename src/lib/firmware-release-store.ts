@@ -276,16 +276,32 @@ export async function deleteFirmwareRelease(id: string) {
     throw new FirmwareReleaseInUseError('Observed/imported firmware is historical evidence and cannot be permanently deleted. Archive it instead.')
   }
 
-  const [devices, policies, lifecycle, audit] = await Promise.all([
+  const [devices, policies, trainDefaults, lifecycle, audit] = await Promise.all([
     prisma.device.count({ where: { currentFirmwareReleaseId: id } }),
-    prisma.firmwarePolicy.count({ where: { targetFirmwareReleaseId: id } }),
+    prisma.firmwarePolicy.count({
+      where: {
+        OR: [
+          { targetFirmwareReleaseId: id },
+          { minimumFirmwareReleaseId: id },
+          { maximumFirmwareReleaseId: id },
+        ],
+      },
+    }),
+    prisma.firmwareTrain.count({
+      where: {
+        OR: [
+          { preferredFirmwareReleaseId: id },
+          { minimumAcceptableFirmwareReleaseId: id },
+        ],
+      },
+    }),
     prisma.firmwareLifecycleRecord.count({ where: { targetFirmwareReleaseId: id } }),
     prisma.auditEvent.count({ where: { entityType: 'FirmwareRelease', entityId: id } }),
   ])
-  const references = devices + policies + lifecycle + audit
+  const references = devices + policies + trainDefaults + lifecycle + audit
   if (references > 0) {
     throw new FirmwareReleaseInUseError(
-      `This firmware release is referenced by ${references} device, policy, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
+      `This firmware release is referenced by ${references} device, policy, train-default, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
     )
   }
 
