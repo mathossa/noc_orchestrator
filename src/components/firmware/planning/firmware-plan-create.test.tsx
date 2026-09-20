@@ -19,8 +19,10 @@ describe('maintenance plan creation workspace', () => {
     const markup = renderToStaticMarkup(createElement(FirmwarePlanCreate))
 
     expect(markup).toContain('Create maintenance plan')
-    expect(markup).toContain('aria-pressed="true">Sites')
-    expect(markup).toContain('aria-pressed="false">Individual devices')
+    expect(markup).toMatch(/aria-pressed="true"[^>]*>Sites<\/button>/)
+    expect(markup).toMatch(
+      /aria-pressed="false"[^>]*>Individual devices<\/button>/,
+    )
     expect(markup).toContain('Proposed maintenance date/time')
     expect(markup).toContain('Resolve scope and preview')
   })
