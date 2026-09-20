@@ -123,10 +123,6 @@ export type PlanningCandidateDevice = {
   currentFirmwareRawVersion: string | null
 }
 
-export type DeviceChoice = PlanningCandidateDevice & {
-  firmwareCompliance: { recommendation: string; explanation?: string }
-}
-
 export type DeviceReferences = {
   customers: Array<{ id: string; name: string; isActive: boolean }>
   sites: Array<{
@@ -146,17 +142,6 @@ export type DeviceReferences = {
   deviceTypes: DeviceTypeReference[]
 }
 
-export type DevicePayload = {
-  data: DeviceChoice[]
-  meta: DeviceReferences & {
-    pagination: {
-      page: number
-      pageSize: number
-      total: number
-      totalPages: number
-    }
-  }
-}
 
 export type PreviewTarget = {
   deviceId: string
@@ -271,16 +256,6 @@ export function proposalDraftChanged(
     draftProposedFor !== toLocalDateTimeValue(storedProposedFor) ||
     draftReference !== (storedReference ?? '')
   )
-}
-
-export function toggleDeviceRecord<T extends { id: string }>(
-  current: Record<string, T>,
-  device: T,
-) {
-  const next = { ...current }
-  if (next[device.id]) delete next[device.id]
-  else next[device.id] = device
-  return next
 }
 
 export function canConfirmProposedSchedule(
