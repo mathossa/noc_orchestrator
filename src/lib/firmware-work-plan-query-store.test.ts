@@ -646,12 +646,19 @@ describe('planning list/detail/history and device projections', () => {
     const reference = (id: string, state: string) => ({
       id: `target-${id}`,
       deviceId: 'device',
+      targetVersion: '17.15.5',
+      targetPlatform: 'IOS XE',
+      targetImageCode: 'saved-image.bin',
+      recommendation: 'UPDATE_RECOMMENDED',
       plan: {
         id,
         state,
+        proposedFor: observedAt,
+        proposedMaintenanceWindowReference: 'MW-PROPOSED',
         scheduledFor: at,
+        maintenanceWindowReference: 'MW-CONFIRMED',
         completedAt: state === 'DONE' ? observedAt : null,
-        cancelledAt: null,
+        cancelledAt: state === 'CANCELLED' ? observedAt : null,
       },
     })
     mocks.targets.mockResolvedValue([
@@ -665,6 +672,14 @@ describe('planning list/detail/history and device projections', () => {
     ).get('device')!
     expect(value.state).toBe('PROPOSED')
     expect(value.activePlans.map((p) => p.id)).toEqual(['active'])
+    expect(value.activePlans[0]).toMatchObject({
+      proposedFor: observedAt.toISOString(),
+      scheduledFor: at.toISOString(),
+      targetVersion: '17.15.5',
+      targetPlatform: 'IOS XE',
+      targetImageCode: 'saved-image.bin',
+      recommendation: 'UPDATE_RECOMMENDED',
+    })
     expect(value.history.map((p) => p.id)).toEqual([
       'done-1',
       'done-2',
@@ -676,10 +691,17 @@ describe('planning list/detail/history and device projections', () => {
       {
         id: 'target',
         deviceId: 'device',
+        targetVersion: '17.15.5',
+        targetPlatform: 'IOS XE',
+        targetImageCode: null,
+        recommendation: 'UPDATE_RECOMMENDED',
         plan: {
           id: 'done',
           state: 'DONE',
+          proposedFor: null,
+          proposedMaintenanceWindowReference: null,
           scheduledFor: null,
+          maintenanceWindowReference: null,
           completedAt: at,
           cancelledAt: null,
         },
