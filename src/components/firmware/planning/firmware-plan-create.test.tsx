@@ -29,7 +29,7 @@ describe('maintenance plan creation workspace', () => {
     const markup = renderToStaticMarkup(createElement(FirmwarePlanCreate))
 
     expect(markup).toContain('Back to plans')
-    expect(markup).toContain('Authoritative firmware preview')
+    expect(markup).toContain('Site scope is the normal path')
     expect(markup).not.toContain('Customer approved proposed window')
     expect(push).not.toHaveBeenCalled()
   })
