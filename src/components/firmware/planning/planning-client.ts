@@ -1,4 +1,8 @@
-import type { FirmwareWorkPlanState } from '@/lib/firmware-work-planning'
+import {
+  FIRMWARE_WORK_PLAN_STATES,
+  canTransitionFirmwareWorkPlan,
+  type FirmwareWorkPlanState,
+} from '@/lib/firmware-work-planning'
 
 export type ClientError = Error & { status?: number; code?: string }
 
@@ -273,6 +277,19 @@ export function canConfirmProposedSchedule(
   return (
     Boolean(proposedFor) &&
     (state === 'AWAITING_CUSTOMER' || state === 'APPROVED')
+  )
+}
+
+export function safeBulkTransitionStates(
+  plans: PlanSummary[],
+): FirmwareWorkPlanState[] {
+  if (!plans.length || plans.some((plan) => plan.stale)) return []
+  return FIRMWARE_WORK_PLAN_STATES.filter((toState) =>
+    plans.every(
+      (plan) =>
+        canTransitionFirmwareWorkPlan(plan.state, toState) &&
+        (toState !== 'SCHEDULED' || Boolean(plan.proposedFor)),
+    ),
   )
 }
 
