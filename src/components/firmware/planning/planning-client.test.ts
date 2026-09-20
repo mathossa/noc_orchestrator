@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
-  DeviceChoice,
+  PlanningCandidateDevice,
   PlanTarget,
   PreviewTarget,
 } from './planning-client'
@@ -38,7 +38,7 @@ function device(
     modelId: string
     modelName: string
   }> = {},
-): DeviceChoice {
+): PlanningCandidateDevice {
   return {
     id,
     name: id.toUpperCase(),
@@ -57,7 +57,6 @@ function device(
         isActive: true,
       },
     },
-    firmwareCompliance: { recommendation: 'UPDATE_REQUIRED' },
     currentFirmwareRelease: { id: 'release-current', version: '17.12.5' },
     currentFirmwareNormalizedVersion: '17.12.5',
     currentFirmwareRawVersion: '17.12.5',
