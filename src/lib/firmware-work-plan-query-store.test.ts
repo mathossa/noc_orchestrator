@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   count: vi.fn(),
   events: vi.fn(),
   targets: vi.fn(),
+  models: vi.fn(),
 }))
 const db = vi.hoisted(() => ({
   device: { findMany: mocks.devices },
@@ -33,6 +34,7 @@ const db = vi.hoisted(() => ({
   },
   firmwareWorkPlanEvent: { findMany: mocks.events },
   firmwareWorkPlanTarget: { findMany: mocks.targets },
+  deviceModel: { findMany: mocks.models },
 }))
 vi.mock('@/lib/prisma', () => ({
   prisma: { ...db, $transaction: mocks.transaction },
@@ -222,6 +224,7 @@ beforeEach(() => {
   mocks.count.mockResolvedValue(1)
   mocks.events.mockResolvedValue([])
   mocks.targets.mockResolvedValue([])
+  mocks.models.mockResolvedValue([{ id: 'model' }])
 })
 
 describe('live work-plan resolution from batched repository context', () => {
@@ -541,6 +544,12 @@ describe('planning list/detail/history and device projections', () => {
     ])
     const value = await listFirmwareWorkPlans({
       customerId: 'customer',
+      vendorId: 'synthetic-vendor',
+      deviceModelFamilyId: 'family',
+      deviceModelId: 'model',
+      recommendation: 'UPDATE_RECOMMENDED',
+      scheduledFrom: new Date('2026-09-20T00:00:00Z'),
+      scheduledUntil: new Date('2026-09-21T00:00:00Z'),
       states: ['SCHEDULED'],
       page: 2,
       pageSize: 10,
@@ -551,11 +560,29 @@ describe('planning list/detail/history and device projections', () => {
       staleReasonCounts: { TARGET_BLOCKED_OR_WITHDRAWN: 2 },
     })
     expect(value.data[0].targetDistribution[0].count).toBe(2)
+    expect(mocks.models).toHaveBeenCalledWith({
+      where: {
+        id: 'model',
+        vendorId: 'synthetic-vendor',
+        familyId: 'family',
+      },
+      select: { id: true },
+    })
     expect(mocks.plans).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           state: { in: ['SCHEDULED'] },
-          targets: { some: { customerId: 'customer' } },
+          targets: {
+            some: {
+              customerId: 'customer',
+              recommendation: 'UPDATE_RECOMMENDED',
+              deviceModelId: { in: ['model'] },
+            },
+          },
+          scheduledFor: {
+            gte: new Date('2026-09-20T00:00:00Z'),
+            lt: new Date('2026-09-21T00:00:00Z'),
+          },
         },
         skip: 10,
         take: 10,
