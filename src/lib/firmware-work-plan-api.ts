@@ -4,7 +4,6 @@ import {
   FirmwareWorkPlanTransitionError,
   type FirmwareWorkPlanState,
 } from '@/lib/firmware-work-planning'
-import type { TransitionFirmwareWorkPlanInput } from '@/lib/firmware-work-plan-store'
 import type { FirmwareWorkPlanQuery } from '@/lib/firmware-work-plan-query-store'
 
 export class FirmwareWorkPlanApiValidationError extends Error {
@@ -178,9 +177,7 @@ export function parseFirmwareWorkPlanQuery(
   }
 }
 
-export function parseFirmwareWorkPlanTransition(
-  raw: unknown,
-): Omit<TransitionFirmwareWorkPlanInput, 'actorUserId'> {
+export function parseFirmwareWorkPlanTransition(raw: unknown) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
     throw new FirmwareWorkPlanApiValidationError(
       'Request body must be an object.',
