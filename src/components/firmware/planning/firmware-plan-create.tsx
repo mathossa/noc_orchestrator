@@ -845,6 +845,82 @@ export function FirmwarePlanCreate() {
                 )}
               </div>
 
+              {exceptionGroups.length ? (
+                <div className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold">Active exceptions</h4>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Override an exception group once instead of selecting every
+                        device individually. Overrides remain explicit per device in
+                        the saved plan evidence.
+                      </p>
+                    </div>
+                    {overrideIds.length ? (
+                      <Button
+                        onClick={() => {
+                          setOverrideIds([])
+                          setPreviewDirty(true)
+                        }}
+                      >
+                        Clear overrides
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {exceptionGroups.map((group) => {
+                      const selectedCount = group.deviceIds.filter((id) =>
+                        overrideIds.includes(id),
+                      ).length
+                      const allSelected = selectedCount === group.count
+                      return (
+                        <div
+                          key={group.key}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-3"
+                        >
+                          <div>
+                            <div className="text-sm font-semibold">
+                              {group.reason}
+                            </div>
+                            <div className="text-xs text-[var(--muted)]">
+                              {group.count} device{group.count === 1 ? '' : 's'} ·{' '}
+                              {selectedCount} marked for override
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => {
+                              setOverrideIds((current) =>
+                                allSelected
+                                  ? current.filter(
+                                      (id) => !group.deviceIds.includes(id),
+                                    )
+                                  : [
+                                      ...new Set([
+                                        ...current,
+                                        ...group.deviceIds,
+                                      ]),
+                                    ],
+                              )
+                              setPreviewDirty(true)
+                            }}
+                          >
+                            {allSelected
+                              ? 'Remove group override'
+                              : `Override all ${group.count}`}
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {previewDirty ? (
+                    <p className="mt-3 text-xs font-semibold text-[#f0b574]">
+                      Exception overrides changed — run the preview again before
+                      creating the plan.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <details className="rounded-md border border-[var(--border)] bg-[var(--surface)]">
                 <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
                   Review devices, exclusions and exceptions (
