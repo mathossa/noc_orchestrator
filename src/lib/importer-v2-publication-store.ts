@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
+import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
 import type { Prisma } from '../generated/prisma/client'
 import {
   importerV2SourceIdentityForCrosswalk,
@@ -972,18 +974,28 @@ async function ensureObservedRelease(
     return { releaseId: release.id, rawVersion }
   }
   if (!platform) return { releaseId: null, rawVersion }
-  assertApprovedProposal({ field: 'currentFirmware', label: rawVersion, snapshot, approvals })
-  const existing = await tx.firmwareRelease.findUnique({
-    where: { vendorId_platform_version: { vendorId, platform, version: rawVersion } },
-    select: { id: true },
+  // A deterministic vendor/platform/version observation is inventory evidence,
+  // not a policy choice. Publication may canonicalize it automatically as
+  // Needs review without requiring a separate catalog proposal approval.
+  void approvals
+  const candidates = await tx.firmwareRelease.findMany({
+    where: { vendorId, version: rawVersion },
+    select: { id: true, platform: true },
   })
+  const existing = candidates.find(
+    (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(platform),
+  )
   if (existing) return { releaseId: existing.id, rawVersion }
+
+  const identity = deriveFirmwareReleaseIdentity({ platform, version: rawVersion })
   const created = await tx.firmwareRelease.create({
     data: {
       vendorId,
       platform,
       version: rawVersion,
-      logicalVersion: rawVersion,
+      logicalVersion: identity.logicalVersion,
+      variant: identity.variant,
+      imageCode: identity.imageCode,
       catalogState: 'OBSERVED',
       policyEligibility: 'NOT_EVALUATED',
       status: 'AVAILABLE',
