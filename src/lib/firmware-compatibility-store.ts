@@ -95,7 +95,7 @@ function normalized(value: string | null | undefined) {
   return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
 
-function asModel(row: { id: string; vendorId: string; familyId: string | null; model?: string }): FirmwareCompatibilityModel {
+function asModel(row: { id: string; vendorId: string; familyId: string | null; model?: string; platform?: string | null }): FirmwareCompatibilityModel {
   return row
 }
 
@@ -196,7 +196,7 @@ const overrideSelect = {
 async function loadModel(deviceModelId: string) {
   const model = await prisma.deviceModel.findUnique({
     where: { id: deviceModelId },
-    select: { id: true, vendorId: true, familyId: true, model: true, isActive: true },
+    select: { id: true, vendorId: true, familyId: true, model: true, platform: true, isActive: true },
   })
   if (!model) throw new FirmwareCompatibilityReferenceError('Device model was not found.')
   return model
