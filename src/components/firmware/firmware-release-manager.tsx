@@ -190,7 +190,25 @@ export function FirmwareReleaseManager() {
       .filter((release) => !reviewOnly || release.decision === 'NEEDS_REVIEW')
   }, [records, selected, showArchived, reviewOnly])
 
-  const reviewCount = records.filter((release) => release.isActive && release.decision === 'NEEDS_REVIEW').length
+  const releaseGroups = useMemo(() => {
+    const groups = new Map<string, FirmwareReleaseRecord[]>()
+    for (const release of selectedReleases) {
+      const key = `${release.firmwareTrainId ?? 'unassigned'}::${release.logicalVersion}`
+      const group = groups.get(key)
+      if (group) group.push(release)
+      else groups.set(key, [release])
+    }
+    return [...groups.entries()]
+      .map(([key, releases]) => ({
+        key,
+        logicalVersion: releases[0].logicalVersion,
+        trainName: releases[0].firmwareTrain?.name ?? 'Unassigned train',
+        releases: releases.sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true })),
+      }))
+      .sort((a, b) => a.logicalVersion.localeCompare(b.logicalVersion, 'en', { numeric: true }))
+  }, [selectedReleases])
+
+    const reviewCount = records.filter((release) => release.isActive && release.decision === 'NEEDS_REVIEW').length
 
   function openAddRelease() {
     if (!selected) return
@@ -459,35 +477,55 @@ export function FirmwareReleaseManager() {
                   </div>
                   {reviewOnly ? <button type="button" className="text-xs font-semibold text-[var(--accent-light)] hover:underline" onClick={() => setReviewOnly(false)}>Show all platform releases</button> : null}
                 </div>
-                {selectedReleases.length === 0 ? <div className="p-5 text-sm text-[var(--muted)]">No releases match this view.</div> : (
+                {releaseGroups.length === 0 ? <div className="p-5 text-sm text-[var(--muted)]">No releases match this view.</div> : (
                   <div className="divide-y divide-[var(--border)]">
-                    {selectedReleases.map((release) => {
-                      const matchingTrains = selectedTrains.filter((train) => train.isActive)
-                      const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
-                      return (
-                        <div key={release.id} className={`p-4 ${release.isActive ? '' : 'opacity-60'}`}>
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <Link href={`/firmware/${release.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.logicalVersion}</Link>
-                              {release.version !== release.logicalVersion ? <div className="mt-1 font-mono text-xs text-[var(--muted)]">{release.version}{release.imageCode ? ` · ${release.imageCode}` : ''}{release.variant ? ` · ${release.variant}` : ''}</div> : null}
-                              <div className="mt-1 text-xs text-[var(--muted)]">{release.firmwareTrain?.name ?? 'Unassigned train'} · <span className={decisionClass(release.decision)}>{decisionLabel(release.decision)}</span>{release.isActive ? '' : ' · Archived'}</div>
+                    {releaseGroups.map((group) => (
+                      <div key={group.key} className="p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <Link href={`/firmware/${group.releases[0].id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{group.logicalVersion}</Link>
+                            <div className="mt-1 text-xs text-[var(--muted)]">
+                              {group.trainName} · {group.releases.length} exact variant{group.releases.length === 1 ? '' : 's'}
                             </div>
-                            {release.decision === 'NEEDS_REVIEW' && release.isActive ? (
-                              <div className="flex flex-wrap items-center justify-end gap-2">
-                                <select aria-label={`Train for ${release.version}`} value={chosenTrainId} onChange={(event) => setReviewTrain({ ...reviewTrain, [release.id]: event.target.value })} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-1.5 text-xs">
-                                  <option value="">No train</option>
-                                  {matchingTrains.map((train) => <option key={train.id} value={train.id}>{train.name}</option>)}
-                                </select>
-                                <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ALLOWED')}>Allow</Button>
-                                <Button variant="ghost" disabled={saving || !chosenTrainId} onClick={() => void reviewRelease(release, 'PREFERRED')}>Allow + preferred</Button>
-                                <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
-                                <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
-                              </div>
-                            ) : null}
                           </div>
                         </div>
-                      )
-                    })}
+                        <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
+                          {group.releases.map((release) => {
+                            const matchingTrains = selectedTrains.filter((train) => train.isActive)
+                            const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
+                            return (
+                              <div key={release.id} className={`p-3 ${release.isActive ? '' : 'opacity-60'}`}>
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <Link href={`/firmware/${release.id}`} className="font-mono text-xs font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link>
+                                    <div className="mt-1 text-xs text-[var(--muted)]">
+                                      {[release.imageCode ? `image ${release.imageCode}` : null, release.variant ? `variant ${release.variant}` : null]
+                                        .filter(Boolean)
+                                        .join(' · ') || 'canonical exact release'}
+                                      {' · '}
+                                      <span className={decisionClass(release.decision)}>{decisionLabel(release.decision)}</span>
+                                      {release.isActive ? '' : ' · Archived'}
+                                    </div>
+                                  </div>
+                                  {release.decision === 'NEEDS_REVIEW' && release.isActive ? (
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <select aria-label={`Train for ${release.version}`} value={chosenTrainId} onChange={(event) => setReviewTrain({ ...reviewTrain, [release.id]: event.target.value })} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 text-xs">
+                                        <option value="">No train</option>
+                                        {matchingTrains.map((train) => <option key={train.id} value={train.id}>{train.name}</option>)}
+                                      </select>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ALLOWED')}>Allow</Button>
+                                      <Button variant="ghost" disabled={saving || !chosenTrainId} onClick={() => void reviewRelease(release, 'PREFERRED')}>Allow + preferred</Button>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </section>
