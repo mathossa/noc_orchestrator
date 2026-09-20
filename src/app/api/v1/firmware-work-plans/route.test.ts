@@ -1,19 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const getSession = vi.fn()
-const listFirmwareWorkPlans = vi.fn()
-const getFirmwareWorkPlan = vi.fn()
-const previewFirmwareWorkPlan = vi.fn()
-const createFirmwareWorkPlan = vi.fn()
-const transitionFirmwareWorkPlan = vi.fn()
+const mocks = vi.hoisted(() => ({
+  mocks.getSession: vi.fn(),
+  mocks.listFirmwareWorkPlans: vi.fn(),
+  mocks.getFirmwareWorkPlan: vi.fn(),
+  mocks.previewFirmwareWorkPlan: vi.fn(),
+  mocks.createFirmwareWorkPlan: vi.fn(),
+  mocks.transitionFirmwareWorkPlan: vi.fn(),
+}))
 
 vi.mock('@/lib/auth', () => ({
-  auth: { api: { getSession } },
+  auth: { api: { mocks.getSession } },
 }))
 
 vi.mock('@/lib/firmware-work-plan-query-store', () => ({
-  listFirmwareWorkPlans,
-  getFirmwareWorkPlan,
+  mocks.listFirmwareWorkPlans,
+  mocks.getFirmwareWorkPlan,
 }))
 
 vi.mock('@/lib/firmware-work-plan-store', () => {
@@ -28,9 +30,9 @@ vi.mock('@/lib/firmware-work-plan-store', () => {
   }
   return {
     FirmwareWorkPlanError,
-    previewFirmwareWorkPlan,
-    createFirmwareWorkPlan,
-    transitionFirmwareWorkPlan,
+    mocks.previewFirmwareWorkPlan,
+    mocks.createFirmwareWorkPlan,
+    mocks.transitionFirmwareWorkPlan,
   }
 })
 
@@ -44,13 +46,13 @@ import { POST as transitionPlan } from '@/app/api/v1/firmware-work-plans/[id]/tr
 describe('firmware work plan routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getSession.mockResolvedValue({
+    mocks.getSession.mockResolvedValue({
       user: { id: 'session-user', role: 'admin' },
     })
   })
 
   it('passes validated pagination and filters to the query store', async () => {
-    listFirmwareWorkPlans.mockResolvedValue({
+    mocks.listFirmwareWorkPlans.mockResolvedValue({
       data: [],
       pagination: { page: 2, pageSize: 25, total: 0, totalPages: 1 },
     })
@@ -62,7 +64,7 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(listFirmwareWorkPlans).toHaveBeenCalledWith({
+    expect(mocks.listFirmwareWorkPlans).toHaveBeenCalledWith({
       states: ['PROPOSED'],
       customerId: 'customer-1',
       page: 2,
@@ -71,7 +73,7 @@ describe('firmware work plan routes', () => {
   })
 
   it('previews selected devices without accepting client actor identity', async () => {
-    previewFirmwareWorkPlan.mockResolvedValue({
+    mocks.previewFirmwareWorkPlan.mockResolvedValue({
       token: 'preview-token',
       counts: { requested: 1, included: 1 },
       targets: [],
@@ -91,14 +93,14 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(previewFirmwareWorkPlan).toHaveBeenCalledWith({
+    expect(mocks.previewFirmwareWorkPlan).toHaveBeenCalledWith({
       deviceIds: ['device-1'],
     })
-    expect(getSession).not.toHaveBeenCalled()
+    expect(mocks.getSession).not.toHaveBeenCalled()
   })
 
   it('creates from the preview token with the authenticated session actor', async () => {
-    createFirmwareWorkPlan.mockResolvedValue({ id: 'plan-1' })
+    mocks.createFirmwareWorkPlan.mockResolvedValue({ id: 'plan-1' })
 
     const response = await mutatePlans(
       new Request('http://localhost/api/v1/firmware-work-plans', {
@@ -114,7 +116,7 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(createFirmwareWorkPlan).toHaveBeenCalledWith(
+    expect(mocks.createFirmwareWorkPlan).toHaveBeenCalledWith(
       { deviceIds: ['device-1'] },
       'preview-token',
       'session-user',
@@ -122,7 +124,7 @@ describe('firmware work plan routes', () => {
   })
 
   it('returns detail including the query-store read model', async () => {
-    getFirmwareWorkPlan.mockResolvedValue({
+    mocks.getFirmwareWorkPlan.mockResolvedValue({
       id: 'plan-1',
       state: 'SCHEDULED',
       events: [{ id: 'event-1' }],
@@ -135,12 +137,12 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(getFirmwareWorkPlan).toHaveBeenCalledWith('plan-1')
+    expect(mocks.getFirmwareWorkPlan).toHaveBeenCalledWith('plan-1')
     expect((await response.json()).data.events).toHaveLength(1)
   })
 
   it('carries displayed optimistic-write values and session actor into transitions', async () => {
-    transitionFirmwareWorkPlan.mockResolvedValue({
+    mocks.transitionFirmwareWorkPlan.mockResolvedValue({
       id: 'plan-1',
       state: 'SCHEDULED',
     })
@@ -165,7 +167,7 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(transitionFirmwareWorkPlan).toHaveBeenCalledWith(
+    expect(mocks.transitionFirmwareWorkPlan).toHaveBeenCalledWith(
       'plan-1',
       expect.objectContaining({
         expectedState: 'APPROVED',
@@ -197,7 +199,7 @@ describe('firmware work plan routes', () => {
     )
 
     expect(response.status).toBe(400)
-    expect(transitionFirmwareWorkPlan).not.toHaveBeenCalled()
+    expect(mocks.transitionFirmwareWorkPlan).not.toHaveBeenCalled()
     expect((await response.json()).error.code).toBe('VALIDATION_ERROR')
   })
 })
