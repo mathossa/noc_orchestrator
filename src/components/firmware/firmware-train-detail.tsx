@@ -177,6 +177,11 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
               if (!next) setMinimumId('')
             }}>
               <option value="">Not configured</option>
+              {preferredId && !preferredOptions.some((release) => release.id === preferredId) ? (
+                <option value={preferredId} disabled>
+                  {preferredRelease?.logicalVersion ?? preferredRelease?.version ?? preferredId} · unavailable
+                </option>
+              ) : null}
               {preferredOptions.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}</option>)}
             </SelectInput>
           </label>
@@ -184,6 +189,11 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
             <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Minimum acceptable</span>
             <SelectInput value={minimumId} disabled={!preferredId} onChange={(event) => setMinimumId(event.target.value)}>
               <option value="">None — preferred only</option>
+              {minimumId && !minimumOptions.some((release) => release.id === minimumId) ? (
+                <option value={minimumId} disabled>
+                  {minimumRelease?.logicalVersion ?? minimumRelease?.version ?? minimumId} · unavailable
+                </option>
+              ) : null}
               {minimumOptions.map((release) => <option key={release.id} value={release.id}>{release.logicalVersion}</option>)}
             </SelectInput>
           </label>
