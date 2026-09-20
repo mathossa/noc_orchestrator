@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FirmwareWorkPlan } from '@/generated/prisma/client'
+import type { FirmwareWorkPlanState } from './firmware-work-planning'
 
 import {
   result as complianceResult,
@@ -13,13 +15,18 @@ const mocks = vi.hoisted(() => ({
   compliance: vi.fn(),
   createPlan: vi.fn(),
   audit: vi.fn(),
+  findPlan: vi.fn(),
+  updatePlan: vi.fn(),
+  readPlan: vi.fn(),
+  event: vi.fn(),
 }))
 
 const tx = {
   device: { findMany: mocks.devices },
   firmwareException: { findMany: mocks.exceptions },
   firmwareWorkPlanTarget: { findMany: mocks.activeTargets },
-  firmwareWorkPlan: { create: mocks.createPlan },
+  firmwareWorkPlan: { create: mocks.createPlan, findUnique: mocks.findPlan, updateMany: mocks.updatePlan, findUniqueOrThrow: mocks.readPlan },
+  firmwareWorkPlanEvent: { create: mocks.event },
   auditEvent: { create: mocks.audit },
 }
 
@@ -35,6 +42,9 @@ import {
   createFirmwareWorkPlan,
   parseFirmwareWorkPlanInput,
   previewFirmwareWorkPlan,
+  transitionFirmwareWorkPlan,
+  scheduleFirmwareWorkPlan,
+  type TransitionFirmwareWorkPlanInput,
 } from './firmware-work-plan-store'
 
 function device(id: string) {
@@ -262,5 +272,329 @@ describe('firmware work plan preview and creation', () => {
         entityId: 'plan-1',
       }),
     })
+  })
+})
+
+// Stateful transaction double exercises append/rollback behavior using the same
+// Prisma mock infrastructure as preview/create. PostgreSQL locking is not exercised here.
+describe('firmware work plan persistent transitions', () => {
+  let plan: FirmwareWorkPlan
+  let events: unknown[]
+  let audits: unknown[]
+  const targets = Object.freeze([
+    {
+      deviceId: 'device',
+      targetFirmwareReleaseId: 'old-target',
+      policyFingerprint: 'old-policy',
+    },
+  ])
+  const at = new Date('2026-09-20T10:00:00Z')
+  const scheduledFor = new Date('2026-10-01T22:00:00Z')
+  const context = () => ({
+    expectedState: plan.state as FirmwareWorkPlanState,
+    expectedUpdatedAt: plan.updatedAt,
+    actorUserId: 'engineer',
+  })
+  const move = (toState: Exclude<FirmwareWorkPlanState, 'SCHEDULED'>) =>
+    transitionFirmwareWorkPlan(plan.id, { ...context(), toState })
+  const schedule = () =>
+    scheduleFirmwareWorkPlan(plan.id, {
+      ...context(),
+      scheduledFor,
+      maintenanceWindowReference: 'HQ Sunday window',
+      reason: 'Customer agreed',
+      notes: 'Outage approved',
+    })
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(at)
+    plan = {
+      id: 'plan',
+      state: 'PROPOSED',
+      title: null,
+      reason: 'Original reason',
+      notes: null,
+      externalReference: null,
+      scheduledFor: null,
+      maintenanceWindowReference: null,
+      upgradeCapability: 'UNKNOWN',
+      createdByUserId: null,
+      approvedByUserId: null,
+      approvedAt: null,
+      scheduledAt: null,
+      startedAt: null,
+      completedAt: null,
+      cancelledAt: null,
+      legacyLifecycleId: null,
+      legacyEvidence: null,
+      createdAt: new Date('2026-09-19T00:00:00Z'),
+      updatedAt: new Date('2026-09-19T00:00:00Z'),
+    }
+    events = [{ fromState: null, toState: 'PROPOSED' }]
+    audits = []
+    mocks.findPlan.mockImplementation(async () => structuredClone(plan))
+    mocks.readPlan.mockImplementation(async () => structuredClone(plan))
+    mocks.updatePlan.mockImplementation(async ({ where, data }) => {
+      if (
+        where.id !== plan.id ||
+        where.state !== plan.state ||
+        where.updatedAt.getTime() !== plan.updatedAt.getTime()
+      )
+        return { count: 0 }
+      plan = { ...plan, ...data }
+      return { count: 1 }
+    })
+    mocks.event.mockImplementation(async ({ data }) => {
+      events.push(data)
+      return data
+    })
+    mocks.audit.mockImplementation(async ({ data }) => {
+      audits.push(data)
+      return data
+    })
+    mocks.transaction.mockImplementation(async (callback) => {
+      const saved = structuredClone({ plan, events, audits })
+      try {
+        return await callback(tx)
+      } catch (error) {
+        ;({ plan, events, audits } = saved)
+        throw error
+      }
+    })
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('persists approval, schedule, start and completion with immutable target evidence', async () => {
+    const originalTargets = structuredClone(targets)
+    await move('APPROVED')
+    expect(plan).toMatchObject({
+      approvedAt: at,
+      approvedByUserId: 'engineer',
+      scheduledAt: null,
+      startedAt: null,
+      completedAt: null,
+    })
+    await schedule()
+    expect(plan).toMatchObject({
+      scheduledFor,
+      scheduledAt: at,
+      maintenanceWindowReference: 'HQ Sunday window',
+      startedAt: null,
+    })
+    await move('IN_PROGRESS')
+    expect(plan).toMatchObject({ startedAt: at, completedAt: null })
+    await move('DONE')
+    expect(plan).toMatchObject({
+      state: 'DONE',
+      completedAt: at,
+      cancelledAt: null,
+      reason: 'Original reason',
+    })
+    expect(events).toHaveLength(5)
+    expect(events.slice(1)).toMatchObject([
+      { fromState: 'PROPOSED', toState: 'APPROVED', actorUserId: 'engineer' },
+      {
+        fromState: 'APPROVED',
+        toState: 'SCHEDULED',
+        reason: 'Customer agreed',
+        notes: 'Outage approved',
+        metadata: {
+          after: {
+            scheduledFor: scheduledFor.toISOString(),
+            maintenanceWindowReference: 'HQ Sunday window',
+          },
+        },
+      },
+      { fromState: 'SCHEDULED', toState: 'IN_PROGRESS' },
+      { fromState: 'IN_PROGRESS', toState: 'DONE' },
+    ])
+    expect(audits).toHaveLength(4)
+    expect(audits[3]).toMatchObject({
+      action: 'FIRMWARE_WORK_PLAN_TRANSITIONED',
+      entityType: 'FirmwareWorkPlan',
+      entityId: 'plan',
+      actorUserId: 'engineer',
+      before: { state: 'IN_PROGRESS' },
+      after: { state: 'DONE' },
+    })
+    expect(
+      mocks.updatePlan.mock.calls.every(([args]) => !('targets' in args.data)),
+    ).toBe(true)
+    expect(mocks.activeTargets).not.toHaveBeenCalled()
+    expect(mocks.compliance).not.toHaveBeenCalled()
+    expect(targets).toEqual(originalTargets)
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'ReadCommitted',
+    })
+  })
+
+  it('supports customer wait, withdrawal and approval without inventing timestamps', async () => {
+    await move('AWAITING_CUSTOMER')
+    expect(plan).toMatchObject({
+      approvedAt: null,
+      scheduledAt: null,
+      startedAt: null,
+    })
+    await move('PROPOSED')
+    await move('AWAITING_CUSTOMER')
+    await move('APPROVED')
+    expect(plan.approvedAt).toEqual(at)
+    expect(events).toHaveLength(5)
+  })
+
+  it.each([
+    'PROPOSED',
+    'AWAITING_CUSTOMER',
+    'APPROVED',
+    'SCHEDULED',
+    'IN_PROGRESS',
+  ] as const)(
+    'cancels from %s without inventing completion history',
+    async (state) => {
+      plan.state = state
+      await move('CANCELLED')
+      expect(plan).toMatchObject({
+        state: 'CANCELLED',
+        cancelledAt: at,
+        completedAt: null,
+        approvedAt: null,
+        startedAt: null,
+      })
+      expect(events).toHaveLength(2)
+      expect(audits).toHaveLength(1)
+    },
+  )
+
+  it('clears withdrawn schedule/approval while retaining earlier event evidence', async () => {
+    await move('APPROVED')
+    await schedule()
+    const earlier = structuredClone(events)
+    vi.setSystemTime(new Date('2026-09-21T10:00:00Z'))
+    await move('APPROVED')
+    expect(plan).toMatchObject({
+      approvedAt: new Date(),
+      scheduledAt: null,
+      scheduledFor: null,
+      maintenanceWindowReference: null,
+    })
+    await move('PROPOSED')
+    expect(plan).toMatchObject({
+      approvedAt: null,
+      approvedByUserId: null,
+      scheduledAt: null,
+      startedAt: null,
+      completedAt: null,
+    })
+    expect(events.slice(0, 3)).toEqual(earlier)
+    await move('APPROVED')
+    await schedule()
+    expect(plan.scheduledFor).toEqual(scheduledFor)
+  })
+
+  it.each(['PROPOSED', 'DONE', 'CANCELLED'] as const)(
+    'rejects invalid/reopen transitions from %s without writes',
+    async (state) => {
+      plan.state = state
+      const before = structuredClone(plan)
+      await expect(
+        move(state === 'PROPOSED' ? 'DONE' : 'PROPOSED'),
+      ).rejects.toThrow('cannot transition')
+      expect(plan).toEqual(before)
+      expect(events).toHaveLength(1)
+      expect(mocks.updatePlan).not.toHaveBeenCalled()
+      expect(mocks.event).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([undefined, null, new Date('invalid')])(
+    'rejects scheduling with invalid date %s',
+    async (date) => {
+      plan.state = 'APPROVED'
+      await expect(
+        transitionFirmwareWorkPlan(plan.id, {
+          ...context(),
+          toState: 'SCHEDULED',
+          scheduledFor: date,
+        } as TransitionFirmwareWorkPlanInput),
+      ).rejects.toThrow('scheduledFor')
+      expect(mocks.updatePlan).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects scheduling fields on another transition', async () => {
+    await expect(
+      transitionFirmwareWorkPlan(plan.id, {
+        ...context(),
+        toState: 'APPROVED',
+        scheduledFor,
+      } as unknown as TransitionFirmwareWorkPlanInput),
+    ).rejects.toThrow('Scheduling fields')
+  })
+
+  it('rejects stale state and same-state stale version, including an approval rollback cycle', async () => {
+    const stale = context()
+    await move('APPROVED')
+    await expect(
+      transitionFirmwareWorkPlan(plan.id, { ...stale, toState: 'APPROVED' }),
+    ).rejects.toMatchObject({ status: 409 })
+    await move('PROPOSED')
+    await expect(
+      transitionFirmwareWorkPlan(plan.id, { ...stale, toState: 'APPROVED' }),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(events).toHaveLength(3)
+  })
+
+  it('rejects a competing write between read and compare-and-set without appending history', async () => {
+    mocks.updatePlan.mockResolvedValue({ count: 0 })
+    await expect(move('APPROVED')).rejects.toMatchObject({ status: 409 })
+    expect(mocks.updatePlan).toHaveBeenCalledWith({
+      where: { id: 'plan', state: 'PROPOSED', updatedAt: plan.updatedAt },
+      data: expect.objectContaining({ state: 'APPROVED' }),
+    })
+    expect(mocks.event).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
+  it('accepts only one of two callers holding the same state/version', async () => {
+    // Both reads resolve before either CAS; the rejected caller writes nothing.
+    mocks.transaction.mockImplementation(async (callback) => callback(tx))
+    const expected = context()
+    const results = await Promise.allSettled([
+      transitionFirmwareWorkPlan(plan.id, { ...expected, toState: 'APPROVED' }),
+      transitionFirmwareWorkPlan(plan.id, { ...expected, toState: 'CANCELLED' }),
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: { status: 409 },
+    })
+    expect(events).toHaveLength(2)
+    expect(audits).toHaveLength(1)
+  })
+
+  it.each(['event', 'audit'] as const)(
+    'rolls back the entire transition when %s persistence fails',
+    async (operation) => {
+      const before = structuredClone(plan)
+      mocks[operation].mockRejectedValue(new Error('database failure'))
+      await expect(move('APPROVED')).rejects.toThrow('database failure')
+      expect(plan).toEqual(before)
+      expect(events).toHaveLength(1)
+      expect(audits).toHaveLength(0)
+    },
+  )
+
+  it('allows an omitted actor and returns 404 for missing plans', async () => {
+    await transitionFirmwareWorkPlan(plan.id, {
+      ...context(),
+      actorUserId: undefined,
+      toState: 'APPROVED',
+    })
+    expect(plan.approvedByUserId).toBeNull()
+    expect(events[1]).toMatchObject({ actorUserId: null })
+    mocks.findPlan.mockResolvedValue(null)
+    await expect(move('CANCELLED')).rejects.toMatchObject({ status: 404 })
   })
 })
