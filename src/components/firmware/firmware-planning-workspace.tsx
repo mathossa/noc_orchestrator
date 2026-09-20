@@ -1533,33 +1533,41 @@ export function FirmwarePlanningWorkspace({
                                 {target.effectiveExceptionReason ??
                                   target.effectiveExceptionId}
                               </div>
-                              <label className="mt-1 flex items-start gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={overrideIds.includes(
-                                    target.deviceId,
-                                  )}
-                                  onChange={(event) => {
-                                    setOverrideIds((current) =>
-                                      event.target.checked
-                                        ? [
-                                            ...new Set([
-                                              ...current,
-                                              target.deviceId,
-                                            ]),
-                                          ]
-                                        : current.filter(
-                                            (id) => id !== target.deviceId,
-                                          ),
-                                    )
-                                    setPreviewDirty(true)
-                                  }}
-                                />
-                                <span>
-                                  Explicitly override this active exception for
-                                  this device in this plan
-                                </span>
-                              </label>
+                              {target.disposition === 'ACTIVE_EXCEPTION' ||
+                              target.exceptionOverride ? (
+                                <label className="mt-1 flex items-start gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={overrideIds.includes(
+                                      target.deviceId,
+                                    )}
+                                    onChange={(event) => {
+                                      setOverrideIds((current) =>
+                                        event.target.checked
+                                          ? [
+                                              ...new Set([
+                                                ...current,
+                                                target.deviceId,
+                                              ]),
+                                            ]
+                                          : current.filter(
+                                              (id) => id !== target.deviceId,
+                                            ),
+                                      )
+                                      setPreviewDirty(true)
+                                    }}
+                                  />
+                                  <span>
+                                    Explicitly override this active exception
+                                    for this device in this plan
+                                  </span>
+                                </label>
+                              ) : (
+                                <div className="mt-1 text-[var(--muted)]">
+                                  This device is excluded for another reason;
+                                  no exception override is requested here.
+                                </div>
+                              )}
                             </>
                           ) : (
                             'None'
