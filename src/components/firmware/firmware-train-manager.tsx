@@ -184,7 +184,7 @@ export function FirmwareTrainManager() {
             href="/firmware"
             className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
           >
-            Back to releases
+            Back to catalog
           </Link>
         }
       />
@@ -252,7 +252,7 @@ export function FirmwareTrainManager() {
                     <td className="px-4 py-3">{record.vendor.name}</td>
                     <td className="px-4 py-3 font-mono text-xs text-[var(--muted-strong)]">{record.platform}</td>
                     <td className="px-4 py-3 tabular-nums">{record.releaseCount}</td>
-                    <td className="px-4 py-3 text-xs">{record.isActive ? 'Active' : 'Archived'}</td>
+                    <td className="px-4 py-3 text-xs"><span className={record.state === 'PREFERRED' ? 'font-semibold text-emerald-300' : record.state === 'DEPRECATED' ? 'text-amber-300' : ''}>{record.state[0] + record.state.slice(1).toLowerCase()}</span>{record.isActive ? '' : ' · Archived'}</td>
                     <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
                   </tr>
                 ))}
