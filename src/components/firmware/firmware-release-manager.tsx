@@ -9,16 +9,12 @@ import { PageHeader } from '@/components/ui/page-header'
 import type {
   FirmwareReleaseFieldErrors,
   FirmwareReleaseRecord,
-  FirmwareReleaseReference,
 } from '@/lib/firmware-releases'
 import type { FirmwareTrainRecord } from '@/lib/firmware-trains'
 import { firmwareReleaseDecisions } from '@/lib/firmware-catalog-defaults'
 
 type ApiError = { error?: { message?: string; fields?: FirmwareReleaseFieldErrors } }
-type ReleasePayload = {
-  data?: FirmwareReleaseRecord[]
-  meta?: { vendors?: FirmwareReleaseReference[] }
-} & ApiError
+type ReleasePayload = { data?: FirmwareReleaseRecord[] } & ApiError
 type TrainPayload = { data?: FirmwareTrainRecord[] } & ApiError
 
 type PlatformKey = string
@@ -74,7 +70,6 @@ function decisionClass(decision: FirmwareReleaseRecord['decision']) {
 
 export function FirmwareReleaseManager() {
   const [records, setRecords] = useState<FirmwareReleaseRecord[]>([])
-  const [vendors, setVendors] = useState<FirmwareReleaseReference[]>([])
   const [trains, setTrains] = useState<FirmwareTrainRecord[]>([])
   const [selectedKey, setSelectedKey] = useState<PlatformKey | null>(null)
   const [showArchived, setShowArchived] = useState(false)
@@ -100,14 +95,12 @@ export function FirmwareReleaseManager() {
     if (!trainResponse.ok) throw new Error(trainData.error?.message ?? 'Firmware trains could not be loaded.')
     return {
       records: releases.data ?? [],
-      vendors: releases.meta?.vendors ?? [],
       trains: trainData.data ?? [],
     }
   }
 
   function applyCatalog(payload: Awaited<ReturnType<typeof fetchCatalog>>) {
     setRecords(payload.records)
-    setVendors(payload.vendors)
     setTrains(payload.trains)
     setSelectedKey((current) => {
       if (current) return current
@@ -208,7 +201,7 @@ export function FirmwareReleaseManager() {
       .sort((a, b) => a.logicalVersion.localeCompare(b.logicalVersion, 'en', { numeric: true }))
   }, [selectedReleases])
 
-    const reviewCount = records.filter((release) => release.isActive && release.decision === 'NEEDS_REVIEW').length
+  const reviewCount = records.filter((release) => release.isActive && release.decision === 'NEEDS_REVIEW').length
 
   function openAddRelease() {
     if (!selected) return
