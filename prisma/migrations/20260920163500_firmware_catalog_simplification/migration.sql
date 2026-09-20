@@ -41,6 +41,15 @@ WHERE train."vendorId" = source."vendorId"
   AND train."preferredFirmwareReleaseId" IS NOT NULL
   AND source.train_count = 1;
 
+-- Preferred is no longer a release status/eligibility decision in #106.
+-- Its unambiguous intent has been lifted to FirmwareTrain above, so normalize
+-- the exact releases back to ordinary Allowed while preserving their IDs and
+-- every historical reference.
+UPDATE "FirmwareRelease"
+SET "policyEligibility" = 'ALLOWED',
+    "status" = CASE WHEN "status" = 'RECOMMENDED' THEN 'APPROVED' ELSE "status" END
+WHERE "policyEligibility" = 'PREFERRED';
+
 ALTER TABLE "FirmwareTrain"
   ADD CONSTRAINT "FirmwareTrain_preferredFirmwareReleaseId_fkey"
     FOREIGN KEY ("preferredFirmwareReleaseId") REFERENCES "FirmwareRelease"("id")
