@@ -84,15 +84,6 @@ export function FirmwarePlanCreate() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [timeZone, setTimeZone] = useState('browser local time')
-
-  useEffect(() => {
-    setTimeZone(
-      Intl.DateTimeFormat().resolvedOptions().timeZone ||
-        'browser local time',
-    )
-  }, [])
-
   useEffect(() => {
     let active = true
     setReferenceLoading(true)
@@ -825,7 +816,7 @@ export function FirmwarePlanCreate() {
           <FormField
             label="Proposed maintenance date/time"
             htmlFor="plan-proposed-for"
-            description={timeZone}
+            description="Browser local time; stored as an explicit instant."
           >
             <TextInput
               id="plan-proposed-for"
