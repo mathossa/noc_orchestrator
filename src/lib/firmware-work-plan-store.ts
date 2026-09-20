@@ -59,10 +59,19 @@ export function scheduleFirmwareWorkPlan(
   return transitionFirmwareWorkPlan(id, { ...input, toState: 'SCHEDULED' })
 }
 
-export async function transitionFirmwareWorkPlan(
-  id: string,
-  input: TransitionFirmwareWorkPlanInput,
-) {
+export type BulkFirmwareWorkPlanTransitionInput = {
+  items: Array<{
+    id: string
+    expectedState: FirmwareWorkPlanState
+    expectedUpdatedAt: Date
+  }>
+  toState: FirmwareWorkPlanState
+  actorUserId?: string | null
+  reason?: string | null
+  notes?: string | null
+}
+
+function validateTransitionInput(input: TransitionFirmwareWorkPlanInput) {
   if (
     !FIRMWARE_WORK_PLAN_STATES.includes(input.expectedState) ||
     !FIRMWARE_WORK_PLAN_STATES.includes(input.toState)
@@ -90,172 +99,265 @@ export async function transitionFirmwareWorkPlan(
       'Scheduling fields may only be supplied when entering SCHEDULED.',
     )
   }
+
+  return {
+    reason: text(input.reason, 500),
+    notes: text(input.notes, 5000),
+    actorUserId: input.actorUserId ?? null,
+    requestedMaintenanceWindowReference:
+      input.toState === 'SCHEDULED' &&
+      input.maintenanceWindowReference !== undefined
+        ? text(input.maintenanceWindowReference, 500)
+        : undefined,
+  }
+}
+
+async function transitionFirmwareWorkPlanInTransaction(
+  tx: Db,
+  id: string,
+  input: TransitionFirmwareWorkPlanInput,
+  at: Date,
+) {
+  const {
+    reason,
+    notes,
+    actorUserId,
+    requestedMaintenanceWindowReference,
+  } = validateTransitionInput(input)
+
+  const plan = await tx.firmwareWorkPlan.findUnique({ where: { id } })
+  if (!plan)
+    throw new FirmwareWorkPlanError(
+      'Firmware work plan was not found.',
+      404,
+    )
+  if (
+    plan.state !== input.expectedState ||
+    plan.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
+  )
+    throw new FirmwareWorkPlanError(
+      'Work plan changed. Reload before transitioning.',
+      409,
+    )
+  assertFirmwareWorkPlanTransition(input.expectedState, input.toState)
+
+  let confirmedScheduledFor: Date | null = null
+  let confirmedMaintenanceWindowReference: string | null = null
+  if (input.toState === 'SCHEDULED') {
+    confirmedScheduledFor = input.scheduledFor ?? plan.proposedFor
+    if (
+      !(confirmedScheduledFor instanceof Date) ||
+      !Number.isFinite(confirmedScheduledFor.getTime())
+    )
+      throw new FirmwareWorkPlanError(
+        'SCHEDULED work requires a valid scheduledFor date or stored proposedFor date.',
+      )
+
+    confirmedMaintenanceWindowReference =
+      requestedMaintenanceWindowReference ??
+      plan.proposedMaintenanceWindowReference
+
+    if (
+      plan.proposedFor &&
+      (plan.proposedFor.getTime() !== confirmedScheduledFor.getTime() ||
+        plan.proposedMaintenanceWindowReference !==
+          confirmedMaintenanceWindowReference)
+    )
+      throw new FirmwareWorkPlanError(
+        'Scheduling must confirm the exact proposed maintenance window. Amend the proposal first if the window changed.',
+        409,
+      )
+    if (plan.state === 'AWAITING_CUSTOMER' && !plan.proposedFor)
+      throw new FirmwareWorkPlanError(
+        'Customer approval may schedule directly only when a proposed maintenance date is already stored.',
+        409,
+      )
+  }
+
+  const data: Prisma.FirmwareWorkPlanUpdateManyMutationInput = {
+    state: input.toState,
+    // PostgreSQL stores millisecond precision. Advance even for same-ms writes.
+    updatedAt: new Date(
+      Math.max(at.getTime(), plan.updatedAt.getTime() + 1),
+    ),
+  }
+  switch (input.toState) {
+    case 'PROPOSED':
+      Object.assign(data, {
+        approvedAt: null,
+        approvedByUserId: null,
+        scheduledAt: null,
+        scheduledFor: null,
+        maintenanceWindowReference: null,
+      })
+      break
+    case 'APPROVED':
+      Object.assign(data, {
+        approvedAt: at,
+        approvedByUserId: actorUserId,
+        scheduledAt: null,
+        scheduledFor: null,
+        maintenanceWindowReference: null,
+      })
+      break
+    case 'SCHEDULED':
+      Object.assign(data, {
+        ...(plan.state === 'AWAITING_CUSTOMER'
+          ? { approvedAt: at, approvedByUserId: actorUserId }
+          : {}),
+        scheduledAt: at,
+        scheduledFor: confirmedScheduledFor,
+        maintenanceWindowReference: confirmedMaintenanceWindowReference,
+      })
+      break
+    case 'IN_PROGRESS':
+      data.startedAt = at
+      break
+    case 'DONE':
+      data.completedAt = at
+      break
+    case 'CANCELLED':
+      data.cancelledAt = at
+      break
+  }
+
+  // ReadCommitted rechecks this predicate after any competing row writer commits.
+  // All writers must use this operation; no automatic retry of stale user intent.
+  const changed = await tx.firmwareWorkPlan.updateMany({
+    where: {
+      id,
+      state: input.expectedState,
+      updatedAt: input.expectedUpdatedAt,
+    },
+    data,
+  })
+  if (changed.count !== 1)
+    throw new FirmwareWorkPlanError(
+      'Work plan changed. Reload before transitioning.',
+      409,
+    )
+
+  const next = await tx.firmwareWorkPlan.findUniqueOrThrow({
+    where: { id },
+  })
+  const history = (row: typeof plan) => ({
+    state: row.state,
+    proposedFor: row.proposedFor?.toISOString() ?? null,
+    proposedMaintenanceWindowReference:
+      row.proposedMaintenanceWindowReference,
+    approvedAt: row.approvedAt?.toISOString() ?? null,
+    approvedByUserId: row.approvedByUserId,
+    scheduledAt: row.scheduledAt?.toISOString() ?? null,
+    scheduledFor: row.scheduledFor?.toISOString() ?? null,
+    maintenanceWindowReference: row.maintenanceWindowReference,
+    startedAt: row.startedAt?.toISOString() ?? null,
+    completedAt: row.completedAt?.toISOString() ?? null,
+    cancelledAt: row.cancelledAt?.toISOString() ?? null,
+  })
+  const before = history(plan)
+  const after = history(next)
+  await tx.firmwareWorkPlanEvent.create({
+    data: {
+      planId: id,
+      fromState: plan.state,
+      toState: next.state,
+      actorUserId,
+      reason,
+      notes,
+      createdAt: at,
+      metadata: { before, after },
+    },
+  })
+  await tx.auditEvent.create({
+    data: {
+      actorUserId,
+      action: 'FIRMWARE_WORK_PLAN_TRANSITIONED',
+      entityType: 'FirmwareWorkPlan',
+      entityId: id,
+      before,
+      after,
+      metadata: { reason, notes },
+      createdAt: at,
+    },
+  })
+  return next
+}
+
+export async function transitionFirmwareWorkPlan(
+  id: string,
+  input: TransitionFirmwareWorkPlanInput,
+) {
+  return prisma.$transaction(
+    (tx) =>
+      transitionFirmwareWorkPlanInTransaction(
+        tx,
+        id,
+        input,
+        new Date(),
+      ),
+    { isolationLevel: 'ReadCommitted' },
+  )
+}
+
+export async function bulkTransitionFirmwareWorkPlans(
+  input: BulkFirmwareWorkPlanTransitionInput,
+) {
+  if (!Array.isArray(input.items) || input.items.length === 0)
+    throw new FirmwareWorkPlanError('Select at least one work plan.')
+  if (input.items.length > 100)
+    throw new FirmwareWorkPlanError(
+      'A single bulk transition may contain at most 100 work plans.',
+    )
+  if (!FIRMWARE_WORK_PLAN_STATES.includes(input.toState))
+    throw new FirmwareWorkPlanError('Unknown firmware work plan state.')
+
+  const ids = input.items.map((item) => item.id)
+  if (
+    ids.some((id) => typeof id !== 'string' || !id.trim()) ||
+    new Set(ids).size !== ids.length
+  )
+    throw new FirmwareWorkPlanError(
+      'Bulk transition plan identifiers must be unique non-empty strings.',
+    )
+
+  for (const item of input.items) {
+    if (!FIRMWARE_WORK_PLAN_STATES.includes(item.expectedState))
+      throw new FirmwareWorkPlanError('Unknown firmware work plan state.')
+    if (
+      !(item.expectedUpdatedAt instanceof Date) ||
+      !Number.isFinite(item.expectedUpdatedAt.getTime())
+    )
+      throw new FirmwareWorkPlanError(
+        'A valid expectedUpdatedAt is required for every selected plan.',
+      )
+  }
+
   const reason = text(input.reason, 500)
   const notes = text(input.notes, 5000)
   const actorUserId = input.actorUserId ?? null
-  const requestedMaintenanceWindowReference =
-    input.toState === 'SCHEDULED' &&
-    input.maintenanceWindowReference !== undefined
-      ? text(input.maintenanceWindowReference, 500)
-      : undefined
 
   return prisma.$transaction(
     async (tx) => {
-      const plan = await tx.firmwareWorkPlan.findUnique({ where: { id } })
-      if (!plan)
-        throw new FirmwareWorkPlanError(
-          'Firmware work plan was not found.',
-          404,
-        )
-      if (
-        plan.state !== input.expectedState ||
-        plan.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
-      )
-        throw new FirmwareWorkPlanError(
-          'Work plan changed. Reload before transitioning.',
-          409,
-        )
-      assertFirmwareWorkPlanTransition(input.expectedState, input.toState)
-
-      let confirmedScheduledFor: Date | null = null
-      let confirmedMaintenanceWindowReference: string | null = null
-      if (input.toState === 'SCHEDULED') {
-        confirmedScheduledFor = input.scheduledFor ?? plan.proposedFor
-        if (
-          !(confirmedScheduledFor instanceof Date) ||
-          !Number.isFinite(confirmedScheduledFor.getTime())
-        )
-          throw new FirmwareWorkPlanError(
-            'SCHEDULED work requires a valid scheduledFor date or stored proposedFor date.',
-          )
-
-        confirmedMaintenanceWindowReference =
-          requestedMaintenanceWindowReference ??
-          plan.proposedMaintenanceWindowReference
-
-        if (
-          plan.proposedFor &&
-          (plan.proposedFor.getTime() !== confirmedScheduledFor.getTime() ||
-            plan.proposedMaintenanceWindowReference !==
-              confirmedMaintenanceWindowReference)
-        )
-          throw new FirmwareWorkPlanError(
-            'Scheduling must confirm the exact proposed maintenance window. Amend the proposal first if the window changed.',
-            409,
-          )
-        if (plan.state === 'AWAITING_CUSTOMER' && !plan.proposedFor)
-          throw new FirmwareWorkPlanError(
-            'Customer approval may schedule directly only when a proposed maintenance date is already stored.',
-            409,
-          )
-      }
-
       const at = new Date()
-      const data: Prisma.FirmwareWorkPlanUpdateManyMutationInput = {
-        state: input.toState,
-        // PostgreSQL stores millisecond precision. Advance even for same-ms writes.
-        updatedAt: new Date(
-          Math.max(at.getTime(), plan.updatedAt.getTime() + 1),
-        ),
-      }
-      switch (input.toState) {
-        case 'PROPOSED':
-          Object.assign(data, {
-            approvedAt: null,
-            approvedByUserId: null,
-            scheduledAt: null,
-            scheduledFor: null,
-            maintenanceWindowReference: null,
-          })
-          break
-        case 'APPROVED':
-          Object.assign(data, {
-            approvedAt: at,
-            approvedByUserId: actorUserId,
-            scheduledAt: null,
-            scheduledFor: null,
-            maintenanceWindowReference: null,
-          })
-          break
-        case 'SCHEDULED':
-          Object.assign(data, {
-            ...(plan.state === 'AWAITING_CUSTOMER'
-              ? { approvedAt: at, approvedByUserId: actorUserId }
-              : {}),
-            scheduledAt: at,
-            scheduledFor: confirmedScheduledFor,
-            maintenanceWindowReference: confirmedMaintenanceWindowReference,
-          })
-          break
-        case 'IN_PROGRESS':
-          data.startedAt = at
-          break
-        case 'DONE':
-          data.completedAt = at
-          break
-        case 'CANCELLED':
-          data.cancelledAt = at
-          break
-      }
-      // ReadCommitted rechecks this predicate after any competing row writer commits.
-      // All writers must use this operation; no automatic retry of stale user intent.
-      const changed = await tx.firmwareWorkPlan.updateMany({
-        where: {
-          id,
-          state: input.expectedState,
-          updatedAt: input.expectedUpdatedAt,
-        },
-        data,
-      })
-      if (changed.count !== 1)
-        throw new FirmwareWorkPlanError(
-          'Work plan changed. Reload before transitioning.',
-          409,
+      const results = []
+      for (const item of input.items) {
+        results.push(
+          await transitionFirmwareWorkPlanInTransaction(
+            tx,
+            item.id,
+            {
+              expectedState: item.expectedState,
+              expectedUpdatedAt: item.expectedUpdatedAt,
+              toState: input.toState,
+              actorUserId,
+              reason,
+              notes,
+            } as TransitionFirmwareWorkPlanInput,
+            at,
+          ),
         )
-      const next = await tx.firmwareWorkPlan.findUniqueOrThrow({
-        where: { id },
-      })
-      const history = (row: typeof plan) => ({
-        state: row.state,
-        proposedFor: row.proposedFor?.toISOString() ?? null,
-        proposedMaintenanceWindowReference:
-          row.proposedMaintenanceWindowReference,
-        approvedAt: row.approvedAt?.toISOString() ?? null,
-        approvedByUserId: row.approvedByUserId,
-        scheduledAt: row.scheduledAt?.toISOString() ?? null,
-        scheduledFor: row.scheduledFor?.toISOString() ?? null,
-        maintenanceWindowReference: row.maintenanceWindowReference,
-        startedAt: row.startedAt?.toISOString() ?? null,
-        completedAt: row.completedAt?.toISOString() ?? null,
-        cancelledAt: row.cancelledAt?.toISOString() ?? null,
-      })
-      const before = history(plan)
-      const after = history(next)
-      await tx.firmwareWorkPlanEvent.create({
-        data: {
-          planId: id,
-          fromState: plan.state,
-          toState: next.state,
-          actorUserId,
-          reason,
-          notes,
-          createdAt: at,
-          metadata: { before, after },
-        },
-      })
-      await tx.auditEvent.create({
-        data: {
-          actorUserId,
-          action: 'FIRMWARE_WORK_PLAN_TRANSITIONED',
-          entityType: 'FirmwareWorkPlan',
-          entityId: id,
-          before,
-          after,
-          metadata: { reason, notes },
-          createdAt: at,
-        },
-      })
-      return next
+      }
+      return results
     },
     { isolationLevel: 'ReadCommitted' },
   )
