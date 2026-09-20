@@ -210,11 +210,12 @@ export function parseFirmwareWorkPlanTransition(raw: unknown) {
   const notes = optionalText(body.notes, 'notes')
 
   if (toState === 'SCHEDULED') {
+    const scheduledFor = parseInstant(body.scheduledFor, 'scheduledFor', false)
     return {
       expectedState,
       expectedUpdatedAt,
       toState,
-      scheduledFor: parseInstant(body.scheduledFor, 'scheduledFor', true)!,
+      ...(scheduledFor ? { scheduledFor } : {}),
       maintenanceWindowReference: optionalText(
         body.maintenanceWindowReference,
         'maintenanceWindowReference',
@@ -242,6 +243,59 @@ export function parseFirmwareWorkPlanTransition(raw: unknown) {
     toState: toState as Exclude<FirmwareWorkPlanState, 'SCHEDULED'>,
     reason,
     notes,
+  }
+}
+
+export function parseFirmwareWorkPlanProposalAmendment(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    throw new FirmwareWorkPlanApiValidationError(
+      'Request body must be an object.',
+    )
+  const body = raw as Record<string, unknown>
+  const expectedState = state(body.expectedState, 'expectedState')
+  const expectedUpdatedAt = parseInstant(
+    body.expectedUpdatedAt,
+    'expectedUpdatedAt',
+    true,
+  )!
+  const hasProposedFor = Object.prototype.hasOwnProperty.call(
+    body,
+    'proposedFor',
+  )
+  const hasWindowReference = Object.prototype.hasOwnProperty.call(
+    body,
+    'proposedMaintenanceWindowReference',
+  )
+  if (!hasProposedFor && !hasWindowReference)
+    throw new FirmwareWorkPlanApiValidationError(
+      'Provide proposedFor or proposedMaintenanceWindowReference to amend.',
+      {
+        proposedFor: 'Provide a proposed maintenance date/time or window reference.',
+      },
+    )
+
+  const proposedFor = hasProposedFor
+    ? body.proposedFor == null
+      ? null
+      : parseInstant(body.proposedFor, 'proposedFor', true)!
+    : undefined
+  const proposedMaintenanceWindowReference = hasWindowReference
+    ? body.proposedMaintenanceWindowReference == null ||
+      body.proposedMaintenanceWindowReference === ''
+      ? null
+      : optionalText(
+          body.proposedMaintenanceWindowReference,
+          'proposedMaintenanceWindowReference',
+        )!
+    : undefined
+
+  return {
+    expectedState,
+    expectedUpdatedAt,
+    ...(hasProposedFor ? { proposedFor } : {}),
+    ...(hasWindowReference ? { proposedMaintenanceWindowReference } : {}),
+    reason: optionalText(body.reason, 'reason'),
+    notes: optionalText(body.notes, 'notes'),
   }
 }
 
