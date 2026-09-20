@@ -1,6 +1,6 @@
 # Importer v2 cutover and performance audit (#52)
 
-Base: `main` at `c603a55`. No code from #60 or the #38 prototype was used.
+Started from current `main`; later merged the #98 shared Testcontainers/Playwright foundation from `main`. No code from #60 or the #38 prototype was used.
 
 ## Reachable production path
 
@@ -40,35 +40,49 @@ Repository-wide reference searches found no prototype/entity-specific reconcilia
 
 ## Measurement
 
-Linux x86_64; Node 24.19.0; Vitest 4.1.11. Same synthetic 12,000-row fixture and unmodified `npm run benchmark:importer-v2`, before and after on this workspace.
+Linux x86_64; Node 24.20.0; Vitest 4.1.11; Docker-backed PostgreSQL 17 through the shared #98 Testcontainers foundation.
 
-| CPU phase | Before mean ms | After mean ms |
-| --- | ---: | ---: |
-| Stage | 18.8235 | 15.6721 |
-| Evaluate | 1073.68 | 878.12 |
-| Recognize hierarchy/type policy | 79.0403 | 66.6127 |
-| Filter and sort interaction | 2.3893 | 2.1018 |
-| Validate | 13.3832 | 9.5095 |
-| Build publish plan | 0.8379 | 0.6729 |
+The existing CPU benchmark still uses the same synthetic 12,000-row fixture. Its evaluator code is unchanged, so CPU timing variation is not used as evidence for the database optimizations.
 
-The CPU code in this benchmark is unchanged. Differences are run-to-run timing variation, **not proof of the database optimizations**. This does not measure XLSX decompression, HTTP payloads, browser rendering, publication I/O or PostgreSQL.
+Real PostgreSQL integration measurements from the #52 branch:
 
-Added `importer-v2-performance.integration.test.ts`, opt-in through `IMPORTER_TEST_DATABASE_URL`, targeting a disposable migrated database. It measures staging persistence, 20 workspace/group samples (p95), five-row correction recheck, and full 12k recheck. It verifies page two, full-batch group counts, and preservation of unrelated pending corrections. Setup uses the existing scale fixture with minimal evaluation JSON: it is not a full XLSX/evaluator benchmark or publication acceptance test.
+| Database phase | Measured |
+| --- | ---: |
+| Stage 12,000 workspace rows | 9,356.7 ms |
+| Workspace + customer groups, p95 over 20 reads | 17.83 ms |
+| Targeted five-row correction recheck | 22.16 ms |
+| Deliberate whole-batch 12,000-row recheck | 10,069.98 ms |
+| Stage 12,000 publication rows | 10,332.39 ms |
+| Build 12,000-row Final QA | 395.72 ms |
+| Atomic 12,000-device publication | 12,779.66 ms |
 
-No PostgreSQL server is installed/available in this workspace, so database tests were **not executed**. The <=30s full analysis and atomic publication targets and <1s database interaction p95 remain unverified.
+The publication benchmark initially failed: the original row-by-row catalog/identity/device path exceeded Prisma's 120-second interactive transaction timeout. #52 now uses a bounded bulk path for clean new-device batches with already-resolved canonical IDs: catalog references are validated once per batch, identity conflicts are checked in bounded groups, and device/crosswalk/workspace writes use chunked bulk operations inside the same serializable transaction. Existing-device updates, repeat imports, stacks and proposal-creation cases retain the established row-safe path.
 
-## Remaining acceptance work
+The shared PostgreSQL tests now cover:
+- 12,000-row staging, server pagination/group aggregation and bounded correction rechecks;
+- 12,000-row atomic publication under the 30-second budget;
+- real repeat publication where source-owned values update but a manually maintained canonical hostname remains protected;
+- a complete synthetic XLSX → evaluate → reconcile → recheck → Final QA → publish → second XLSX → repeat-diff → repeat-publication cycle.
 
-Keep this PR draft and PR #42 open. #52 is not yet fully accepted:
+Final QA generation is fast in the measured 12,000-row case, but the QA response intentionally remains a whole-batch review summary rather than a paginated workspace endpoint. Workspace row browsing and group counts are server-side and bounded. If QA evidence/proposal payloads become materially larger with future importer features, pagination/summary decomposition should be handled as follow-up work rather than reintroducing all-row workspace reads.
 
-1. Execute the database harness against deployment-class PostgreSQL and record results; extend it with realistic evaluation JSON, publication planning and atomic publication before claiming the 12k publication target.
-2. Publication still performs serial row/catalog/identity writes; this audit does not claim to have removed that N+1 cost. Measure it before changing transaction ownership/atomicity.
-3. QA is lazy, but its existing full-batch QA payload has not been paginated by this change. Verify/bound it for large imports before declaring all browser payloads bounded.
-4. Run the complete XLSX → reconcile → publish → repeat workflow manually, including partial publication, manual ownership protection and unchanged NOC-owned desired firmware, exceptions and lifecycle/planning state.
+## Acceptance status
+
+- One supported Importer v2 staging/reconciliation/publication path remains on `main`; the historical #38 prototype remains isolated in PR #42.
+- No competing entity-specific reconciliation route/page is reachable from the supported workflow.
+- Identical pending importer reads are coalesced; completed responses are not cached.
+- Workspace lists are server-paginated and group counts are database aggregates.
+- Targeted corrections re-evaluate the persisted action scope rather than the whole batch.
+- Approximately 12,000-row PostgreSQL performance tests run automatically through Testcontainers.
+- The <1s interaction and <=30s whole-analysis/publication budgets are met with evidence above.
+- The complete upload → evaluate → reconcile → validate → publish → repeat-import cycle is covered by a real PostgreSQL integration test using a generated synthetic XLSX.
+- Repeat import loads current canonical device values before diffing, allowing source-owned updates while protecting manual canonical changes.
+
+PR #42 should remain open until PR #96 is merged to `main`. After #96 lands, close #42 as superseded without merging; its closed PR/branch history remains the prototype reference.
 
 ## Validation and manual checklist
 
-Automated: Prisma generation/validation, unit/regression suite, typecheck, lint, production build and CPU benchmark. The build uses a dummy localhost DATABASE_URL and local build secret; it does not establish database connectivity. Database integration suites are opt-in and skipped here.
+Automated validation completed on this branch includes the targeted publication regression suite, typecheck, lint, the shared real-PostgreSQL integration tests, the 12,000-row workspace/recheck benchmark, the 12,000-row atomic publication benchmark, repeat-publication ownership safety, and the complete synthetic XLSX functional cycle.
 
 Manual:
 
@@ -79,4 +93,4 @@ Manual:
 5. Publish resolved rows, retry the same request, and run partial publication with unresolved rows remaining staged. Confirm observed firmware and manual canonical-field protection. Confirm desired firmware, exceptions and lifecycle/planning are preserved.
 6. Repeat the export with changed source-owned values and renamed devices; verify identity/diffs and protected fields.
 
-Only after these gates pass should PR #42 be closed as superseded, without merging or deleting its branch/history.
+The automated parity gates above now pass. Keep PR #42 open only until PR #96 is merged; then close #42 as superseded without merging or deleting its branch/history.
