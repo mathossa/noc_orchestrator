@@ -3,7 +3,11 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { FormField, SelectInput } from '@/components/ui/form-controls'
+import {
+  FormField,
+  SelectInput,
+  TextInput,
+} from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
 import {
   FIRMWARE_WORK_PLAN_STATES,
@@ -14,6 +18,7 @@ import {
   type DeviceReferences,
   type PlanListResponse,
   dateTime,
+  dateTimeLocalToIso,
   requestJson,
 } from './planning-client'
 import {
@@ -31,6 +36,14 @@ const HISTORY_STATES = FIRMWARE_WORK_PLAN_STATES.filter(
   (state) => !isActiveFirmwareWorkPlanState(state),
 )
 
+const RECOMMENDATION_FILTERS = [
+  'NO_ACTION',
+  'UPDATE_RECOMMENDED',
+  'UPDATE_REQUIRED',
+  'PLATFORM_MIGRATION',
+  'REVIEW_REQUIRED',
+] as const
+
 export function FirmwarePlanList({
   initialView = 'active',
 }: {
@@ -46,7 +59,13 @@ export function FirmwarePlanList({
   const [filters, setFilters] = useState({
     customerId: '',
     siteId: '',
+    vendorId: '',
+    deviceModelFamilyId: '',
+    deviceModelId: '',
     state: '',
+    recommendation: '',
+    scheduledFrom: '',
+    scheduledUntil: '',
   })
 
   useEffect(() => {
@@ -54,14 +73,22 @@ export function FirmwarePlanList({
     void Promise.all([
       requestJson<{ data: DeviceReferences['customers'] }>('/api/v1/customers'),
       requestJson<{ data: DeviceReferences['sites'] }>('/api/v1/sites'),
+      requestJson<{
+        data: DeviceReferences['models']
+        references: {
+          vendors: DeviceReferences['vendors']
+          families: NonNullable<DeviceReferences['families']>
+        }
+      }>('/api/v1/models'),
     ])
-      .then(([customers, sites]) => {
+      .then(([customers, sites, models]) => {
         if (active)
           setReferences({
             customers: customers.data,
             sites: sites.data,
-            models: [],
-            vendors: [],
+            models: models.data,
+            vendors: models.references.vendors,
+            families: models.references.families,
             deviceTypes: [],
           })
       })
@@ -94,6 +121,23 @@ export function FirmwarePlanList({
         if (filters.customerId)
           params.set('customerId', filters.customerId)
         if (filters.siteId) params.set('siteId', filters.siteId)
+        if (filters.vendorId) params.set('vendorId', filters.vendorId)
+        if (filters.deviceModelFamilyId)
+          params.set('deviceModelFamilyId', filters.deviceModelFamilyId)
+        if (filters.deviceModelId)
+          params.set('deviceModelId', filters.deviceModelId)
+        if (filters.recommendation)
+          params.set('recommendation', filters.recommendation)
+        if (filters.scheduledFrom)
+          params.set(
+            'scheduledFrom',
+            dateTimeLocalToIso(filters.scheduledFrom),
+          )
+        if (filters.scheduledUntil)
+          params.set(
+            'scheduledUntil',
+            dateTimeLocalToIso(filters.scheduledUntil),
+          )
         params.set('page', String(requestedPage))
         params.set('pageSize', '25')
         const payload = await requestJson<PlanListResponse>(
@@ -111,7 +155,7 @@ export function FirmwarePlanList({
         setLoading(false)
       }
     },
-    [allowedStates, filters.customerId, filters.siteId, filters.state],
+    [allowedStates, filters],
   )
 
   useEffect(() => {
@@ -126,6 +170,26 @@ export function FirmwarePlanList({
           !filters.customerId || site.customerId === filters.customerId,
       ),
     [filters.customerId, references],
+  )
+
+  const visibleFamilies = useMemo(
+    () =>
+      (references?.families ?? []).filter(
+        (family) =>
+          !filters.vendorId || family.vendorId === filters.vendorId,
+      ),
+    [filters.vendorId, references],
+  )
+
+  const visibleModels = useMemo(
+    () =>
+      (references?.models ?? []).filter(
+        (model) =>
+          (!filters.vendorId || model.vendor.id === filters.vendorId) &&
+          (!filters.deviceModelFamilyId ||
+            model.familyId === filters.deviceModelFamilyId),
+      ),
+    [filters.deviceModelFamilyId, filters.vendorId, references],
   )
 
   return (
@@ -252,6 +316,126 @@ export function FirmwarePlanList({
                   ))}
                 </SelectInput>
               </FormField>
+              <FormField label="Vendor" htmlFor="plan-filter-vendor">
+                <SelectInput
+                  id="plan-filter-vendor"
+                  value={filters.vendorId}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      vendorId: event.target.value,
+                      deviceModelFamilyId: '',
+                      deviceModelId: '',
+                    }))
+                  }
+                >
+                  <option value="">All vendors</option>
+                  {(references?.vendors ?? []).map((vendor) => (
+                    <option key={vendor.id} value={vendor.id}>
+                      {vendor.name}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField
+                label="Model family"
+                htmlFor="plan-filter-model-family"
+              >
+                <SelectInput
+                  id="plan-filter-model-family"
+                  value={filters.deviceModelFamilyId}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      deviceModelFamilyId: event.target.value,
+                      deviceModelId: '',
+                    }))
+                  }
+                >
+                  <option value="">All model families</option>
+                  {visibleFamilies.map((family) => (
+                    <option key={family.id} value={family.id}>
+                      {family.name}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField label="Model" htmlFor="plan-filter-model">
+                <SelectInput
+                  id="plan-filter-model"
+                  value={filters.deviceModelId}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      deviceModelId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">All models</option>
+                  {visibleModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.vendor.name} · {model.model}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField
+                label="Recommendation"
+                htmlFor="plan-filter-recommendation"
+              >
+                <SelectInput
+                  id="plan-filter-recommendation"
+                  value={filters.recommendation}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      recommendation: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">All recommendations</option>
+                  {RECOMMENDATION_FILTERS.map((recommendation) => (
+                    <option key={recommendation} value={recommendation}>
+                      {recommendation
+                        .toLowerCase()
+                        .replaceAll('_', ' ')
+                        .replace(/^./, (value) => value.toUpperCase())}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField
+                label="Scheduled from"
+                htmlFor="plan-filter-scheduled-from"
+              >
+                <TextInput
+                  id="plan-filter-scheduled-from"
+                  type="datetime-local"
+                  value={filters.scheduledFrom}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      scheduledFrom: event.target.value,
+                    }))
+                  }
+                />
+              </FormField>
+              <FormField
+                label="Scheduled until"
+                htmlFor="plan-filter-scheduled-until"
+              >
+                <TextInput
+                  id="plan-filter-scheduled-until"
+                  type="datetime-local"
+                  value={filters.scheduledUntil}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      scheduledUntil: event.target.value,
+                    }))
+                  }
+                />
+              </FormField>
               <div className="flex items-end gap-2 md:col-span-3">
                 <Button
                   variant="primary"
@@ -266,7 +450,13 @@ export function FirmwarePlanList({
                     setFilters({
                       customerId: '',
                       siteId: '',
+                      vendorId: '',
+                      deviceModelFamilyId: '',
+                      deviceModelId: '',
                       state: '',
+                      recommendation: '',
+                      scheduledFrom: '',
+                      scheduledUntil: '',
                     })
                   }
                 >
