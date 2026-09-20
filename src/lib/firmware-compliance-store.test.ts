@@ -272,7 +272,7 @@ describe('batch firmware compliance integration', () => {
       })
     },
   )
-  it('12,000 devices use five reads and preserve per-device policy identity', async () => {
+  it('12,000 devices use six bounded reads and preserve per-device policy identity', async () => {
     const devices = Array.from({ length: 12_000 }, (_, i) =>
       device(`device-${i}`),
     )
@@ -288,7 +288,7 @@ describe('batch firmware compliance integration', () => {
       expect(mock).toHaveBeenCalledTimes(1)
     expect(values.get('device-11999')?.compliance).toBe('ACCEPTED')
     console.info(
-      `12,000-device in-memory batch: ${Math.round(duration)}ms; five mocked reads`,
+      `12,000-device in-memory batch: ${Math.round(duration)}ms; six mocked reads`,
     )
   })
   it('empty batch performs no reads', async () => {
