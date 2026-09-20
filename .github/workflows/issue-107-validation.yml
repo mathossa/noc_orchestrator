@@ -1,6 +1,8 @@
 name: Issue 107 validation
 
 on:
+  push:
+    branches: [issue/107-attention-driven-inventory]
   pull_request:
     branches: [main]
 
