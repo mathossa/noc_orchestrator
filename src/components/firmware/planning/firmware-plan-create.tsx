@@ -88,7 +88,6 @@ export function FirmwarePlanCreate() {
   const [message, setMessage] = useState('')
   useEffect(() => {
     let active = true
-    setReferenceLoading(true)
     void Promise.all([
       requestJson<{ data: DeviceReferences['customers'] }>('/api/v1/customers'),
       requestJson<{ data: DeviceReferences['sites'] }>('/api/v1/sites'),
