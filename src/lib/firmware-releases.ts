@@ -88,6 +88,9 @@ export type FirmwareReleaseDetailRecord = FirmwareReleaseRecord & {
   }>
   usage: {
     currentDevices: number
+    modelFamilies: number
+    customers: number
+    sites: number
     targetPolicies: number
     lifecycleTargets: number
   }
