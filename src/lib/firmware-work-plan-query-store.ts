@@ -165,10 +165,8 @@ export async function listFirmwareWorkPlans(query: FirmwareWorkPlanQuery = {}) {
   return prisma.$transaction(
     async (db) => {
       const at = new Date()
-      let deviceModelId:
-        | string
-        | Prisma.StringFilter<'FirmwareWorkPlanTarget'>
-        | undefined = query.deviceModelId
+      let deviceModelId: Prisma.FirmwareWorkPlanTargetWhereInput['deviceModelId'] =
+        query.deviceModelId
       if (query.vendorId || query.deviceModelFamilyId) {
         const models = await db.deviceModel.findMany({
           where: {
