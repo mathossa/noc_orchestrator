@@ -6,6 +6,7 @@ import {
 } from '@/lib/device-exception-summary-store'
 import { listDeviceReferences, listDevices } from '@/lib/device-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
+import { resolveDeviceWorkPlanning } from '@/lib/firmware-work-plan-query-store'
 import type {
   DeviceGroupBy,
   DeviceQuery,
@@ -23,6 +24,27 @@ const NO_EXCEPTION: DeviceExceptionSummary = {
   inheritedCount: 0,
   historyCount: 0,
   reviewDueAt: null,
+}
+
+function noPlanning(deviceId: string) {
+  return {
+    deviceId,
+    planned: false,
+    state: 'NOT_PLANNED' as const,
+    activePlans: [],
+    history: [],
+  }
+}
+
+function matchesPlanningState(
+  record: DeviceQueryRecord,
+  state: DeviceQuery['workflow'],
+) {
+  if (!state) return true
+  if (state === 'NOT_PLANNED') return record.planning.activePlans.length === 0
+  return [...record.planning.activePlans, ...record.planning.history].some(
+    (plan) => plan.state === state,
+  )
 }
 
 function normalize(value: string | null | undefined) {
@@ -79,7 +101,7 @@ function matchesSearch(record: DeviceQueryRecord, q: string) {
     record.exceptionSummary.effective?.reasonLabel ?? '',
     record.exceptionSummary.effective?.scope ?? '',
     record.exceptionSummary.effective?.scopeLabel ?? '',
-    record.lifecycle?.state ?? 'UNDECIDED',
+    record.planning.state,
     record.source,
   ].join(' ')).includes(needle)
 }
@@ -105,8 +127,7 @@ function matchesQuery(record: DeviceQueryRecord, query: DeviceQuery) {
   if (query.exceptionState && record.exceptionSummary.state !== query.exceptionState) return false
   if (query.exceptionReason && record.exceptionSummary.effective?.reasonCode !== query.exceptionReason) return false
   if (query.exceptionScope && record.exceptionSummary.effective?.scope !== query.exceptionScope) return false
-  if (query.workflow === 'UNDECIDED' && record.lifecycle !== null) return false
-  if (query.workflow && query.workflow !== 'UNDECIDED' && record.lifecycle?.state !== query.workflow) return false
+  if (!matchesPlanningState(record, query.workflow)) return false
   if (query.source && record.source !== query.source) return false
   return matchesSearch(record, query.q)
 }
@@ -140,7 +161,7 @@ function sortValue(record: DeviceQueryRecord, field: DeviceSortField) {
     case 'desiredFirmware': return record.desiredFirmwareRelease?.version ?? ''
     case 'technicalState': return record.technicalState
     case 'operationalDecision': return record.exceptionSummary.effective?.reasonLabel ?? record.exceptionSummary.state
-    case 'workflow': return record.lifecycle?.state ?? 'UNDECIDED'
+    case 'workflow': return record.planning.state
     case 'source': return record.source
   }
 }
@@ -189,7 +210,10 @@ export async function queryDevices(query: DeviceQuery): Promise<DeviceQueryPaylo
     listDeviceReferences(),
     listDeviceExceptionReasonReferences(),
   ])
-  const complianceByDevice = await resolveFirmwareComplianceBatch(records.map((record) => record.id))
+  const [complianceByDevice, planningByDevice] = await Promise.all([
+    resolveFirmwareComplianceBatch(records.map((record) => record.id)),
+    resolveDeviceWorkPlanning(records.map((record) => record.id)),
+  ])
   const exceptionByDevice = await resolveDeviceExceptionSummaries(
     records.map((record) => ({
       id: record.id,
@@ -206,13 +230,27 @@ export async function queryDevices(query: DeviceQuery): Promise<DeviceQueryPaylo
     const desiredFirmwareRelease = firmwareCompliance.preferredTarget
     const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
     const exceptionSummary = exceptionByDevice.get(record.id) ?? NO_EXCEPTION
-    const group = groupFor({ ...record, firmwareCompliance, desiredFirmwareRelease, technicalState, exceptionSummary, groupKey: null, groupLabel: null }, query.groupBy)
+    const planning = planningByDevice.get(record.id) ?? noPlanning(record.id)
+    const group = groupFor(
+      {
+        ...record,
+        firmwareCompliance,
+        desiredFirmwareRelease,
+        technicalState,
+        exceptionSummary,
+        planning,
+        groupKey: null,
+        groupLabel: null,
+      },
+      query.groupBy,
+    )
     return {
       ...record,
       firmwareCompliance,
       desiredFirmwareRelease,
       technicalState,
       exceptionSummary,
+      planning,
       groupKey: group?.key ?? null,
       groupLabel: group?.label ?? null,
     }
