@@ -57,7 +57,7 @@ const logicalKey = (release: ComplianceRelease) =>
     release.logicalVersion,
   ])
 
-/** Five batch reads, independent of device count; no per-device database operations. */
+/** Bounded batch reads, independent of device count; no per-device database operations. */
 export async function resolveFirmwareComplianceBatch(
   deviceIds: string[],
   at: Date = new Date(),
