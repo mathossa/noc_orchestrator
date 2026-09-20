@@ -6,6 +6,14 @@ import {
 } from '@/lib/firmware-work-planning'
 import type { FirmwareWorkPlanQuery } from '@/lib/firmware-work-plan-query-store'
 
+const FIRMWARE_RECOMMENDATIONS = [
+  'NO_ACTION',
+  'UPDATE_RECOMMENDED',
+  'UPDATE_REQUIRED',
+  'PLATFORM_MIGRATION',
+  'REVIEW_REQUIRED',
+] as const
+
 export class FirmwareWorkPlanApiValidationError extends Error {
   constructor(
     message: string,
@@ -114,6 +122,16 @@ export function parseFirmwareWorkPlanQuery(
   })
   const page = positiveInteger(params.get('page'), 'page', errors)
   const pageSize = positiveInteger(params.get('pageSize'), 'pageSize', errors)
+  if (pageSize && pageSize > 200)
+    errors.pageSize = 'Choose a page size of 200 or less.'
+  const recommendation = cleaned(params.get('recommendation')).toUpperCase()
+  if (
+    recommendation &&
+    !FIRMWARE_RECOMMENDATIONS.includes(
+      recommendation as (typeof FIRMWARE_RECOMMENDATIONS)[number],
+    )
+  )
+    errors.recommendation = 'Choose a supported firmware recommendation.'
 
   let scheduledFrom: Date | undefined
   let scheduledUntil: Date | undefined
@@ -167,9 +185,7 @@ export function parseFirmwareWorkPlanQuery(
     ...(cleaned(params.get('deviceModelId'))
       ? { deviceModelId: cleaned(params.get('deviceModelId')) }
       : {}),
-    ...(cleaned(params.get('recommendation'))
-      ? { recommendation: cleaned(params.get('recommendation')).toUpperCase() }
-      : {}),
+    ...(recommendation ? { recommendation } : {}),
     ...(scheduledFrom ? { scheduledFrom } : {}),
     ...(scheduledUntil ? { scheduledUntil } : {}),
     ...(page ? { page } : {}),
