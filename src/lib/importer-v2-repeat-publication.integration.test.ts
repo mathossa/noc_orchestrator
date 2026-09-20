@@ -221,7 +221,8 @@ describe('Importer v2 PostgreSQL repeat publication', () => {
     })
 
     const repeatItem = repeat.items[0]
-    expect(repeatItem?.classification).toBe('CHANGED')
+    expect(repeatItem?.classification).toBe('RENAMED')
+    expect(repeatItem?.changeKinds).toEqual(['RENAMED', 'CHANGED'])
     expect(
       repeatItem?.proposals.find((proposal) => proposal.field === 'hostname'),
     ).toMatchObject({
@@ -257,9 +258,9 @@ describe('Importer v2 PostgreSQL repeat publication', () => {
           rowNumber: 2,
           sourceFingerprint: 'repeat-second-row',
           inclusion: 'INCLUDED',
-          statuses: ['VALID', 'CHANGED'],
+          statuses: ['VALID', repeatItem!.classification],
           primaryStatus: 'VALID',
-          repeatClassification: 'CHANGED',
+          repeatClassification: repeatItem!.classification,
           issueCount: 0,
           hasErrors: false,
           sourceName: 'repeat-device',
