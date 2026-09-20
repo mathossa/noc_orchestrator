@@ -40,6 +40,7 @@ vi.mock('@/lib/firmware-compliance-store', () => ({
 
 import {
   amendFirmwareWorkPlanProposal,
+  bulkTransitionFirmwareWorkPlans,
   createFirmwareWorkPlan,
   parseFirmwareWorkPlanInput,
   previewFirmwareWorkPlan,
@@ -236,6 +237,7 @@ describe('firmware work plan preview and creation', () => {
     const raw = {
       deviceIds: ['1'],
       title: 'HQ switches',
+      externalReference: 'CHG000123',
       reason: 'Quarterly firmware maintenance',
       proposedFor: '2026-10-04T22:00:00+02:00',
       proposedMaintenanceWindowReference: 'MW-HQ-1',
@@ -659,6 +661,125 @@ describe('firmware work plan persistent transitions', () => {
       transitionFirmwareWorkPlan(plan.id, { ...stale, toState: 'APPROVED' }),
     ).rejects.toMatchObject({ status: 409 })
     expect(events).toHaveLength(3)
+  })
+
+  it('bulk-transitions multiple plans atomically with one optimistic context per plan', async () => {
+    let secondPlan: FirmwareWorkPlan = {
+      ...structuredClone(plan),
+      id: 'plan-2',
+      updatedAt: new Date('2026-09-19T00:05:00Z'),
+    }
+    const firstExpected = {
+      id: plan.id,
+      expectedState: plan.state as FirmwareWorkPlanState,
+      expectedUpdatedAt: plan.updatedAt,
+    }
+    const secondExpected = {
+      id: secondPlan.id,
+      expectedState: secondPlan.state as FirmwareWorkPlanState,
+      expectedUpdatedAt: secondPlan.updatedAt,
+    }
+
+    mocks.findPlan.mockImplementation(async ({ where }) =>
+      structuredClone(where.id === plan.id ? plan : secondPlan),
+    )
+    mocks.readPlan.mockImplementation(async ({ where }) =>
+      structuredClone(where.id === plan.id ? plan : secondPlan),
+    )
+    mocks.updatePlan.mockImplementation(async ({ where, data }) => {
+      if (where.id === plan.id) {
+        if (
+          where.state !== plan.state ||
+          where.updatedAt.getTime() !== plan.updatedAt.getTime()
+        )
+          return { count: 0 }
+        plan = { ...plan, ...data }
+        return { count: 1 }
+      }
+      if (
+        where.id !== secondPlan.id ||
+        where.state !== secondPlan.state ||
+        where.updatedAt.getTime() !== secondPlan.updatedAt.getTime()
+      )
+        return { count: 0 }
+      secondPlan = { ...secondPlan, ...data }
+      return { count: 1 }
+    })
+
+    const result = await bulkTransitionFirmwareWorkPlans({
+      items: [firstExpected, secondExpected],
+      toState: 'APPROVED',
+      actorUserId: 'engineer',
+      reason: 'Batch approval',
+    })
+
+    expect(result.map((item) => item.state)).toEqual([
+      'APPROVED',
+      'APPROVED',
+    ])
+    expect(plan.state).toBe('APPROVED')
+    expect(secondPlan.state).toBe('APPROVED')
+    expect(events.slice(1)).toMatchObject([
+      { planId: 'plan', fromState: 'PROPOSED', toState: 'APPROVED' },
+      { planId: 'plan-2', fromState: 'PROPOSED', toState: 'APPROVED' },
+    ])
+    expect(audits).toHaveLength(2)
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'ReadCommitted',
+    })
+  })
+
+  it('rolls back the whole bulk transition when a later selection is stale', async () => {
+    let secondPlan: FirmwareWorkPlan = {
+      ...structuredClone(plan),
+      id: 'plan-2',
+      updatedAt: new Date('2026-09-19T00:05:00Z'),
+    }
+    const firstBefore = structuredClone(plan)
+    const staleSecondUpdatedAt = new Date('2026-09-19T00:04:00Z')
+
+    mocks.findPlan.mockImplementation(async ({ where }) =>
+      structuredClone(where.id === plan.id ? plan : secondPlan),
+    )
+    mocks.readPlan.mockImplementation(async ({ where }) =>
+      structuredClone(where.id === plan.id ? plan : secondPlan),
+    )
+    mocks.updatePlan.mockImplementation(async ({ where, data }) => {
+      if (where.id === plan.id) {
+        if (
+          where.state !== plan.state ||
+          where.updatedAt.getTime() !== plan.updatedAt.getTime()
+        )
+          return { count: 0 }
+        plan = { ...plan, ...data }
+        return { count: 1 }
+      }
+      return { count: 0 }
+    })
+
+    await expect(
+      bulkTransitionFirmwareWorkPlans({
+        items: [
+          {
+            id: plan.id,
+            expectedState: 'PROPOSED',
+            expectedUpdatedAt: plan.updatedAt,
+          },
+          {
+            id: secondPlan.id,
+            expectedState: 'PROPOSED',
+            expectedUpdatedAt: staleSecondUpdatedAt,
+          },
+        ],
+        toState: 'APPROVED',
+        actorUserId: 'engineer',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(plan).toEqual(firstBefore)
+    expect(secondPlan.state).toBe('PROPOSED')
+    expect(events).toEqual([{ fromState: null, toState: 'PROPOSED' }])
+    expect(audits).toEqual([])
   })
 
   it('rejects a competing write between read and compare-and-set without appending history', async () => {
