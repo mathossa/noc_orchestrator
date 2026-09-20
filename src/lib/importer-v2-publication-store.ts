@@ -76,6 +76,26 @@ type PublishedLogicalRow = PublishedSourceRow & {
   memberRows: PublishedSourceRow[]
 }
 
+export type ImporterV2PublicationResult = {
+  publicationAttemptId: string
+  snapshotId: string
+  batchId: string
+  mode: ImporterV2PublicationMode
+  publishedAt: string
+  publishedRows: Array<{
+    rowNumber: number
+    canonicalDeviceId: string
+    action: 'CREATE' | 'UPDATE'
+    stackMemberCount: number
+  }>
+  publishedLogicalDeviceCount: number
+  publishedStackMemberRowCount: number
+  publishedRowCount: number
+  remainingIncludedRows: number
+  batchStatus: 'PUBLISHED' | 'PARTIALLY_PUBLISHED'
+  approvedProposalKeys: string[]
+}
+
 const BULK_PUBLICATION_CHUNK_SIZE = 500
 const BULK_IDENTITY_LOOKUP_CHUNK_SIZE = 1000
 
@@ -1581,13 +1601,17 @@ async function publishRow(input: {
   }
 }
 
-function publishedResult(attempt: { id: string; result: unknown; status: string }) {
+function publishedResult(attempt: {
+  id: string
+  result: unknown
+  status: string
+}): ImporterV2PublicationResult {
   if (attempt.status !== 'SUCCEEDED' || !attempt.result) {
     throw new ImporterV2PublicationConflictError(
       'An idempotent publication record exists but is not a completed publication.',
     )
   }
-  return attempt.result
+  return attempt.result as ImporterV2PublicationResult
 }
 
 export async function publishImporterV2Batch(input: {
@@ -1597,7 +1621,7 @@ export async function publishImporterV2Batch(input: {
   idempotencyKey: string
   approvedProposalKeys: readonly string[]
   actorUserId?: string | null
-}) {
+}): Promise<ImporterV2PublicationResult> {
   const idempotencyKey = text(input.idempotencyKey)
   if (!idempotencyKey) {
     throw new ImporterV2PublicationValidationError('idempotencyKey is required.')
@@ -1839,7 +1863,7 @@ export async function publishImporterV2Batch(input: {
           })
         }
 
-        const result = {
+        const result: ImporterV2PublicationResult = {
           publicationAttemptId: attempt.id,
           snapshotId: sourceSnapshot.id,
           batchId: batch.id,
