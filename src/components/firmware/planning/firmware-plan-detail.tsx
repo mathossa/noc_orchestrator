@@ -119,8 +119,47 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
   }, [planId])
 
   useEffect(() => {
-    void loadDetail()
-  }, [loadDetail])
+    let active = true
+
+    void requestJson<{ data: PlanDetail }>(
+      `/api/v1/firmware-work-plans/${encodeURIComponent(planId)}`,
+    )
+      .then((payload) => {
+        if (!active) return
+        setDetail(payload.data)
+        setProposedFor(toLocalDateTimeValue(payload.data.proposedFor))
+        setProposedReference(
+          payload.data.proposedMaintenanceWindowReference ?? '',
+        )
+        setManualScheduledFor(
+          payload.data.proposedFor
+            ? toLocalDateTimeValue(payload.data.proposedFor)
+            : '',
+        )
+        setManualWindowReference(
+          payload.data.proposedMaintenanceWindowReference ?? '',
+        )
+        setTransitionReason('')
+        setTransitionNotes('')
+        setProposalReason('')
+        setProposalNotes('')
+      })
+      .catch((loadError) => {
+        if (!active) return
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Could not load maintenance plan.',
+        )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [planId])
 
   const groups = useMemo(
     () => (detail ? groupPlanTargets(detail.targets) : []),
