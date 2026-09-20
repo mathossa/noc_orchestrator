@@ -1,76 +1,105 @@
 # Architecture
 
-## v0.1.0 architecture
+## Current architecture
 
-NOC Orchestrator starts as one full-stack Next.js application backed by PostgreSQL.
+NOC Orchestrator is one full-stack Next.js application backed by PostgreSQL. Long-running background work uses a worker from the same Node/TypeScript codebase and the same PostgreSQL service.
 
 ```text
 Browser
-   |
-   v
+  ↓
 Next.js
-|- React UI
-|- Route Handlers / Server Actions
-|- Better Auth
-|- domain and query modules
-`- Prisma
-      |
-      v
- PostgreSQL
+  ├─ React UI
+  ├─ Route Handlers / Server Actions
+  ├─ Better Auth
+  ├─ domain/query modules
+  └─ Prisma ────────────────┐
+                            │
+Node background worker      │
+  └─ typed handlers         │
+       ↓                    │
+     pg-boss                │
+       └────────────────────┤
+                            ↓
+                       PostgreSQL
 ```
 
-This intentionally avoids a separate frontend/backend split during the MVP. The application is primarily forms, tables, filters, policy resolution, workflow state, and database aggregation. A second runtime would add deployment, authentication, API-contract, and development overhead without solving an MVP problem.
+Prisma remains authoritative for NOC Orchestrator domain state. pg-boss owns only its internal queue/schedule schema and job lifecycle; its tables are deliberately not modeled in Prisma.
 
-## Future service boundary
+This remains the default architecture while the product is primarily inventory, policy resolution, compliance, exceptions, planning, reporting, and database aggregation. Do not split frontend/backend merely for architectural symmetry.
 
-A separate worker or orchestration service may be introduced when the product needs long-running work such as firmware execution, scheduled synchronization, SSH/vendor SDK communication, controller jobs, retries, rollback, or distributed job processing.
+## Ownership boundary
 
-That future boundary should be introduced because the workload requires it, not pre-created for architectural symmetry.
+NOC Orchestrator owns the firmware-specific meaning and workflow:
+- desired firmware policy and inheritance;
+- compatibility/compliance/recommendation resolution;
+- exceptions and customer decisions;
+- work planning and historical snapshots;
+- firmware review/report semantics;
+- execution approvals and safety decisions.
 
-## Product ownership boundary
+External systems may supply observed inventory/current-state evidence. They must not silently overwrite NOC-owned policy or decisions.
 
-NOC Orchestrator owns:
+## Reuse-first architecture
 
-- desired firmware policy
-- firmware lifecycle decisions
-- planning state
-- ignore/customer-decline decisions
-- audit/lifecycle history
-- firmware-focused filtering and reporting
+Generic infrastructure should normally come from maintained open source or official vendor SDKs rather than custom implementations.
 
-External source-of-truth, inventory, monitoring, and management systems may later provide recorded inventory/current-state data through replaceable integrations. Synchronization must not overwrite NOC Orchestrator-owned lifecycle data accidentally.
+Preferred direction by capability:
 
-## Agentless boundary
+| Capability | Preferred foundation |
+|---|---|
+| Browser/E2E and PDF rendering | Playwright |
+| Real PostgreSQL integration tests | Testcontainers |
+| Durable PostgreSQL background jobs | pg-boss |
+| Large tabular/virtualized UI where needed | TanStack Table/Virtual |
+| Upgrade/dependency graph algorithms | Graphlib or equivalent maintained graph library |
+| Vendor API clients | official SDK first, generated OpenAPI client second |
+| Network SSH transport | Scrapli or another maintained network-focused SSH library |
+| CLI output parsing | NTC Templates/TextFSM where suitable |
+| Agent machine identity/PKI | step-ca or equivalent PKI service |
+| Secret backend | provider abstraction; OpenBao is a preferred deployable backend |
+| Firmware artifact transport/cache | evaluate OCI/ORAS before custom binary storage |
 
-v0.1.0 performs no live network-device discovery. Inventory/current firmware comes from manual entry initially and external synchronization later.
+These are preferred starting points, not unconditional dependencies. An issue may choose another maintained project when runtime, licensing, security, or functionality makes it a better fit. The PR must record why.
 
-Future execution may use APIs, SSH, controllers, management platforms, or other vendor-supported mechanisms while remaining agentless.
+Do not replace NOC-specific policy/planning logic with Nautobot, NetBox, OPA, or a generic rules engine merely because they overlap conceptually. They are references/integration targets unless an issue proves a narrower reusable component is beneficial.
 
-## Non-NMS boundary
+## Background-job foundation
 
-NOC Orchestrator is not intended to provide interface monitoring, CPU/memory graphs, bandwidth graphs, packet-loss monitoring, syslog collection, flow analytics, topology monitoring, or generic network-health dashboards.
+Issue #99 uses `pg-boss` 12.32.0 as a normal npm dependency rather than copying queue code. pg-boss is MIT licensed, supports the repository's Node.js 24 runtime, and requires PostgreSQL 13 or newer. The project already runs PostgreSQL 17, so no Redis, RabbitMQ, Kafka, Temporal, second database service, or custom cron/queue tables are introduced.
 
-## Authentication direction
+Application code registers a deliberately small set of known job names and versioned payloads. Payloads should contain identifiers or snapshot references such as `reviewCycleId`, not large domain snapshots. Future quarterly-review/reporting and Inventory Sync features may add their own typed handlers while keeping their authoritative records in Prisma-managed domain tables.
 
-Better Auth is used as the authentication foundation.
+There are three separate identifiers to keep distinct:
+- **queue job ID**: pg-boss-generated identity for one queued attemptable work item;
+- **domain/business ID**: the NOC Orchestrator object being processed, stored in normal domain tables;
+- **correlation/idempotency key**: application-supplied `singletonKey` used to suppress accidental duplicate queued/active work for the same logical operation.
 
-Authentication methods:
+Retries, backoff, expiry, retention, scheduling, cancellation, and queue uniqueness use pg-boss primitives directly. Cancellation is queue-state control, not a guarantee that arbitrary side effects already performed by an active handler can be undone.
 
-1. administrator-created local email/password accounts
-2. Microsoft Entra ID SSO
+## Worker and firmware-execution boundary
 
-Public local registration is disabled. The Better Auth admin plugin provides a bootstrap/admin-created-user path without exposing public sign-up.
+The background worker is generic infrastructure for safe non-request work such as future report generation or Inventory Sync orchestration. A pg-boss job is never authorization to change firmware or otherwise perform disruptive device work.
 
-Microsoft Entra authentication uses the built-in Microsoft provider and a concrete tenant ID. The organization's Entra Conditional Access policy is responsible for MFA. Enabling Microsoft login does not by itself guarantee MFA.
+Controlled firmware execution remains the separate post-0.1 boundary owned by Issue #82. An execution flow must still have its explicit NOC-owned execution job, approvals, maintenance-window validation, pre-checks, safety gates, state machine, and audit trail. Queue existence, queue state, successful delivery, or a schedule firing cannot substitute for any of those authorization checks.
 
-The architecture should later allow organizations to require SSO for normal users while retaining a controlled local break-glass administrator if desired.
+Conceptually:
 
-## Dashboard direction
+```text
+pg-boss delivery / trigger
+        ↓
+NOC-owned application service
+        ↓
+explicit execution authorization/state (#82)
+        ↓ HTTPS/jobs
+NOC Agent or vendor API executor
+        ↓
+device / controller / cloud API
+```
 
-The dashboard should remain easy to edit. Use a fixed-grid widget model rather than a free-form canvas.
+Customer-network agents should initiate outbound communication. The central web application should not require inbound SSH access to customer devices. Agent/API executors share the same NOC-owned execution-job and audit model while reusing vendor/network libraries underneath.
 
-A later implementation can represent a default layout as simple data containing widget type, grid position, and allowed size. This enables organization defaults and later user overrides without forcing a complex dashboard framework into the MVP foundation.
+## Product boundaries
 
-## Development policy
+NOC Orchestrator is not a general NMS. It does not own interface monitoring, bandwidth/flow analytics, generic syslog collection, topology monitoring, or unrelated device-health dashboards.
 
-During Issues #1-#15, prioritize working product behavior and targeted tests around important domain rules. Formatting, broad E2E coverage, edge-case expansion, and release hardening are concentrated in Issue #16.
+Better Auth remains the authentication foundation; Microsoft Entra ID is the intended SSO method and Entra Conditional Access provides MFA policy.

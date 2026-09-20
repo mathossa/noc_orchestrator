@@ -1,5 +1,7 @@
 'use client'
 
+import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type {
@@ -143,10 +145,10 @@ export function ImporterV2PublicationPanel({
   const [success, setSuccess] = useState<string | null>(null)
   const retryRequest = useRef<RetryRequest | null>(null)
 
-  const fetchQa = useCallback(async () => {
-    const response = await fetch(
+  const fetchQa = useCallback(async (refresh = false) => {
+    const response = await fetchImporterV2Read(
       `/api/v1/device-import-v2/batches/${batchId}/publication`,
-      { cache: 'no-store' },
+      refresh ? crypto.randomUUID() : '',
     )
     return responseData<ImporterV2PublicationQa>(response)
   }, [batchId])
@@ -155,7 +157,7 @@ export function ImporterV2PublicationPanel({
     setLoading(true)
     setError(null)
     try {
-      const next = await fetchQa()
+      const next = await fetchQa(true)
       setQa(next)
       setApproved((current) => {
         const allowed = new Set(requiredProposalsFor(next, mode).map((item) => item.key))
@@ -289,7 +291,7 @@ export function ImporterV2PublicationPanel({
           throw publishError
         }
 
-        const freshQa = await fetchQa()
+        const freshQa = await fetchQa(true)
         const freshRequired = requiredProposalsFor(freshQa, mode)
         const freshRequiredKeys = new Set(freshRequired.map((item) => item.key))
         const stillApproved = approvalKeys.filter((key) => freshRequiredKeys.has(key))

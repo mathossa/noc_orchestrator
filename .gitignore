@@ -11,6 +11,7 @@ next-env.d.ts
 
 # production
 /build
+/.worker-dist
 
 # local environment
 .env
@@ -23,6 +24,8 @@ next-env.d.ts
 
 # tests / coverage
 /coverage
+/playwright-report
+/test-results
 
 # logs
 *.log
