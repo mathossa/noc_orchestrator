@@ -48,7 +48,7 @@ describe('firmware work plan PostgreSQL persistence', () => {
     futureRelease: `${prefix}-future`,
     policy: `${prefix}-policy`,
     compatibilityRule: `${prefix}-compatibility`,
-    devices: Array.from({ length: 8 }, (_, index) => `${prefix}-device-${index}`),
+    devices: Array.from({ length: 10 }, (_, index) => `${prefix}-device-${index}`),
   }
 
   const observedAt = new Date('2026-09-01T08:00:00.000Z')
@@ -1045,6 +1045,69 @@ describe('firmware work plan PostgreSQL persistence', () => {
     ).rejects.toThrow()
 
     expect(await capturePersistence(created.id)).toEqual(before)
+  })
+
+  it('rolls back every selected plan when a real PostgreSQL bulk transition contains one stale item', async () => {
+    const first = await createPlan(8)
+    const second = await createPlan(9)
+    const firstBefore = await capturePersistence(first.id)
+    const secondBefore = await capturePersistence(second.id)
+
+    await expect(
+      store.bulkTransitionFirmwareWorkPlans({
+        items: [
+          {
+            id: first.id,
+            expectedState: 'PROPOSED',
+            expectedUpdatedAt: firstBefore.plan.updatedAt,
+          },
+          {
+            id: second.id,
+            expectedState: 'PROPOSED',
+            expectedUpdatedAt: new Date(
+              secondBefore.plan.updatedAt.getTime() - 1,
+            ),
+          },
+        ],
+        toState: 'APPROVED',
+        actorUserId: ids.actor,
+        reason: 'Bulk approval must be all-or-nothing.',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(await capturePersistence(first.id)).toEqual(firstBefore)
+    expect(await capturePersistence(second.id)).toEqual(secondBefore)
+
+    const approved = await store.bulkTransitionFirmwareWorkPlans({
+      items: [
+        {
+          id: first.id,
+          expectedState: 'PROPOSED',
+          expectedUpdatedAt: firstBefore.plan.updatedAt,
+        },
+        {
+          id: second.id,
+          expectedState: 'PROPOSED',
+          expectedUpdatedAt: secondBefore.plan.updatedAt,
+        },
+      ],
+      toState: 'APPROVED',
+      actorUserId: ids.actor,
+      reason: 'Bulk approval after refreshing both plans.',
+    })
+
+    expect(approved.map((plan) => plan.state)).toEqual([
+      'APPROVED',
+      'APPROVED',
+    ])
+    for (const planId of [first.id, second.id]) {
+      expect(await readPlan(planId)).toMatchObject({
+        state: 'APPROVED',
+        approvedByUserId: ids.actor,
+      })
+      expect(await readEvents(planId)).toHaveLength(2)
+      expect(await readAudits(planId)).toHaveLength(2)
+    }
   })
 
   it('allows exactly one real concurrent compare-and-set transition and rejects the competing stale intent', async () => {
