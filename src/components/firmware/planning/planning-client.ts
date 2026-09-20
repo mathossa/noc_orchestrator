@@ -211,6 +211,8 @@ export type PlanPreview = {
   targets: PreviewTarget[]
 }
 
+type JsonRequester = <T>(url: string, init?: RequestInit) => Promise<T>
+
 export async function requestJson<T>(
   url: string,
   init?: RequestInit,
