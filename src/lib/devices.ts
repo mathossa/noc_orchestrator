@@ -1,6 +1,7 @@
 import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { AuditEventRecord } from '@/lib/audit-events'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+import type { FirmwareWorkPlanState } from '@/lib/firmware-work-planning'
 
 export type DeviceSource = 'MANUAL' | 'API' | 'IMPORT'
 
@@ -36,6 +37,30 @@ export type DeviceFirmwareReference = {
   status: string
   isActive: boolean
   firmwareTrain: { id: string; name: string } | null
+}
+
+export type DeviceWorkPlanReference = {
+  id: string
+  targetId: string
+  state: FirmwareWorkPlanState
+  proposedFor: Date | null
+  proposedMaintenanceWindowReference: string | null
+  scheduledFor: Date | null
+  maintenanceWindowReference: string | null
+  completedAt: Date | null
+  cancelledAt: Date | null
+  targetVersion: string
+  targetPlatform: string
+  targetImageCode: string | null
+  recommendation: string
+}
+
+export type DeviceWorkPlanningProjection = {
+  deviceId: string
+  planned: boolean
+  state: FirmwareWorkPlanState | 'NOT_PLANNED'
+  activePlans: DeviceWorkPlanReference[]
+  history: DeviceWorkPlanReference[]
 }
 
 export type DeviceLifecycleRecord = {
@@ -97,6 +122,7 @@ export type DeviceRecord = {
 }
 
 export type DeviceDetailRecord = DeviceRecord & {
+  planning: DeviceWorkPlanningProjection
   firmwareCompliance: FirmwareComplianceResult
   createdAt: string
   updatedAt: string
