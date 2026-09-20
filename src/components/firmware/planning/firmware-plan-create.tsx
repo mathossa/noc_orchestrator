@@ -96,17 +96,25 @@ export function FirmwarePlanCreate() {
   useEffect(() => {
     let active = true
     setReferenceLoading(true)
-    void requestJson<DevicePayload>(
-      '/api/v1/devices?page=1&pageSize=25&sort=customer&direction=asc',
-    )
-      .then((payload) => {
+    void Promise.all([
+      requestJson<{ data: DeviceReferences['customers'] }>('/api/v1/customers'),
+      requestJson<{ data: DeviceReferences['sites'] }>('/api/v1/sites'),
+      requestJson<{
+        data: DeviceReferences['models']
+        references: {
+          vendors: DeviceReferences['vendors']
+          deviceTypes: DeviceReferences['deviceTypes']
+        }
+      }>('/api/v1/models'),
+    ])
+      .then(([customers, sites, models]) => {
         if (!active) return
         setReferences({
-          customers: payload.meta.customers,
-          sites: payload.meta.sites,
-          models: payload.meta.models,
-          vendors: payload.meta.vendors,
-          deviceTypes: payload.meta.deviceTypes,
+          customers: customers.data,
+          sites: sites.data,
+          models: models.data,
+          vendors: models.references.vendors,
+          deviceTypes: models.references.deviceTypes,
         })
       })
       .catch((loadError) => {
