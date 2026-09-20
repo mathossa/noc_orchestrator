@@ -31,7 +31,7 @@ WITH preferred_train_count AS (
   FROM "FirmwareTrain"
   WHERE "preferredFirmwareReleaseId" IS NOT NULL
     AND "isActive" = TRUE
-  GROUP BY "vendorId", LOWER("platform")
+  GROUP BY "vendorId", LOWER(regexp_replace(BTRIM("platform"), '[[:space:]]+', ' ', 'g'))
 )
 UPDATE "FirmwareTrain" AS train
 SET "state" = 'PREFERRED'
