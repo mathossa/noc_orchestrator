@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  firmwareWorkPlanApiError,
   FirmwareWorkPlanApiValidationError,
   parseFirmwareWorkPlanQuery,
   parseFirmwareWorkPlanTransition,
@@ -81,6 +82,23 @@ describe('firmware work plan API boundary', () => {
         scheduledFor: '2026-09-21T20:00:00Z',
       }),
     ).toThrow(/Scheduling fields are only valid/)
+  })
+
+  it('maps stale optimistic writes to an explicit refresh-and-review conflict', async () => {
+    const conflict = Object.assign(
+      new Error('Work plan changed. Reload before transitioning.'),
+      { name: 'FirmwareWorkPlanError', status: 409 },
+    )
+    const response = firmwareWorkPlanApiError(conflict)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'STALE_WRITE',
+        message:
+          'This plan changed after it was displayed. Refresh and review the latest state before applying the transition.',
+      },
+    })
   })
 
   it('rejects unsupported states and invalid pagination', () => {
