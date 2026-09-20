@@ -173,21 +173,32 @@ function buildDeviceWhere(
   return { AND: and }
 }
 
-async function loadFacts(
-  scope: InventoryScope,
-  query: InventoryQuery,
-): Promise<InventoryFact[]> {
-  const rows = await prisma.device.findMany({
-    where: buildDeviceWhere(scope, query),
-    select: factSelect,
-  })
+const INVENTORY_FACT_BATCH_SIZE = 1000
 
+async function resolveFactRows(
+  rows: Awaited<ReturnType<typeof prisma.device.findMany>>,
+): Promise<InventoryFact[]> {
   if (rows.length === 0) return []
 
-  const ids = rows.map((row) => row.id)
+  const typedRows = rows as Array<{
+    id: string
+    name: string
+    customerId: string
+    siteId: string | null
+    deviceModelId: string
+    customer: { id: string; name: string }
+    site: { id: string; name: string } | null
+    deviceModel: {
+      id: string
+      model: string
+      vendor: { id: string; name: string }
+      deviceType: { id: string; name: string }
+    }
+  }>
+  const ids = typedRows.map((row) => row.id)
   const complianceByDevice = await resolveFirmwareComplianceBatch(ids)
   const exceptionByDevice = await resolveDeviceExceptionSummaries(
-    rows.map((row) => ({
+    typedRows.map((row) => ({
       id: row.id,
       customerId: row.customerId,
       siteId: row.siteId,
@@ -196,7 +207,7 @@ async function loadFacts(
     complianceByDevice,
   )
 
-  return rows.map((row) => {
+  return typedRows.map((row) => {
     const compliance = complianceByDevice.get(row.id)
     if (!compliance) {
       throw new Error('Firmware compliance result missing for device ' + row.id)
@@ -218,6 +229,36 @@ async function loadFacts(
       exceptionReason: exception.effective?.reasonLabel ?? null,
     }
   })
+}
+
+async function loadFacts(
+  scope: InventoryScope,
+  query: InventoryQuery,
+): Promise<InventoryFact[]> {
+  const facts: InventoryFact[] = []
+  let cursor: string | undefined
+
+  while (true) {
+    const rows = await prisma.device.findMany({
+      where: buildDeviceWhere(scope, query),
+      select: factSelect,
+      orderBy: { id: 'asc' },
+      take: INVENTORY_FACT_BATCH_SIZE,
+      ...(cursor
+        ? {
+            cursor: { id: cursor },
+            skip: 1,
+          }
+        : {}),
+    })
+
+    if (rows.length === 0) break
+    facts.push(...(await resolveFactRows(rows)))
+    if (rows.length < INVENTORY_FACT_BATCH_SIZE) break
+    cursor = rows[rows.length - 1].id
+  }
+
+  return facts
 }
 
 function applyDerivedFilters(facts: InventoryFact[], query: InventoryQuery) {

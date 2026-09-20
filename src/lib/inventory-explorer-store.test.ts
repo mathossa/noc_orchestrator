@@ -176,6 +176,41 @@ describe('inventory explorer read model', () => {
     })
   })
 
+  it('scans large root inventory in deterministic bounded batches', async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) =>
+      fact('batch-' + String(index + 1).padStart(4, '0')),
+    )
+    mocks.deviceFindMany.mockImplementation(
+      async (args: { cursor?: { id: string }; take?: number }) =>
+        args.cursor ? rows.slice(1000) : rows.slice(0, 1000),
+    )
+    mocks.compliance.mockImplementation(async (ids: string[]) =>
+      new Map(
+        ids.map((id) => [
+          id,
+          complianceResult({
+            compliance: 'PREFERRED',
+            recommendation: 'NO_ACTION',
+          }),
+        ]),
+      ),
+    )
+
+    const result = await getInventoryOverview(query())
+
+    expect(result.counts.total).toBe(1001)
+    expect(mocks.deviceFindMany).toHaveBeenCalledTimes(2)
+    expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
+      take: 1000,
+      orderBy: { id: 'asc' },
+    })
+    expect(mocks.deviceFindMany.mock.calls[1][0]).toMatchObject({
+      take: 1000,
+      cursor: { id: 'batch-1000' },
+      skip: 1,
+    })
+  })
+
   it('rolls attention through customer sites and site device types', async () => {
     const rows = [
       fact('required-hq', acme, hq),
