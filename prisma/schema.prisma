@@ -296,6 +296,11 @@ model FirmwareTrain {
   notes    String?
   isActive Boolean @default(true)
 
+  // Global catalog defaults. Scoped deviations remain owned by FirmwarePolicy.
+  state                              String  @default("ACCEPTED")
+  preferredFirmwareReleaseId         String?
+  minimumAcceptableFirmwareReleaseId String?
+
   // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
@@ -303,15 +308,20 @@ model FirmwareTrain {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor        Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  releases      FirmwareRelease[]
-  policyTargets FirmwarePolicy[] @relation("PolicyFirmwareTrain")
+  vendor                   Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  releases                 FirmwareRelease[] @relation("FirmwareTrainReleases")
+  preferredRelease         FirmwareRelease?  @relation("TrainPreferredRelease", fields: [preferredFirmwareReleaseId], references: [id], onDelete: Restrict)
+  minimumAcceptableRelease FirmwareRelease?  @relation("TrainMinimumAcceptableRelease", fields: [minimumAcceptableFirmwareReleaseId], references: [id], onDelete: Restrict)
+  policyTargets            FirmwarePolicy[]  @relation("PolicyFirmwareTrain")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([vendorId])
   @@index([platform])
+  @@index([state])
+  @@index([preferredFirmwareReleaseId])
+  @@index([minimumAcceptableFirmwareReleaseId])
   @@index([source])
   @@index([isActive])
   @@index([externalProvider, externalId])
@@ -352,9 +362,11 @@ model FirmwareRelease {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor              Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  firmwareTrain       FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
-  currentOnDevices    Device[]                   @relation("DeviceCurrentFirmware")
+  vendor                    Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  firmwareTrain             FirmwareTrain?    @relation("FirmwareTrainReleases", fields: [firmwareTrainId], references: [id], onDelete: Restrict)
+  preferredForTrains        FirmwareTrain[]   @relation("TrainPreferredRelease")
+  minimumForTrains          FirmwareTrain[]   @relation("TrainMinimumAcceptableRelease")
+  currentOnDevices          Device[]          @relation("DeviceCurrentFirmware")
   targetedByPolicies  FirmwarePolicy[]           @relation("PolicyTargetFirmware")
   minimumForPolicies  FirmwarePolicy[]           @relation("PolicyMinimumFirmware")
   maximumForPolicies  FirmwarePolicy[]           @relation("PolicyMaximumFirmware")
