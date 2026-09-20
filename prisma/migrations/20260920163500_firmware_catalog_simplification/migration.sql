@@ -51,6 +51,15 @@ SET "policyEligibility" = 'ALLOWED',
     "status" = CASE WHEN "status" = 'RECOMMENDED' THEN 'APPROVED' ELSE "status" END
 WHERE "policyEligibility" = 'PREFERRED';
 
+-- Legacy deprecated meant "known but no longer selectable"; #106 calls this
+-- Withdrawn. Keep BLOCKED reserved for explicit must-not-use decisions.
+UPDATE "FirmwareRelease"
+SET "catalogState" = 'WITHDRAWN',
+    "policyEligibility" = 'DISALLOWED'
+WHERE "catalogState" = 'VERIFIED'
+  AND "policyEligibility" = 'DISALLOWED'
+  AND "status" = 'DEPRECATED';
+
 ALTER TABLE "FirmwareTrain"
   ADD CONSTRAINT "FirmwareTrain_state_check"
     CHECK ("state" IN ('PREFERRED', 'ACCEPTED', 'DEPRECATED')),
