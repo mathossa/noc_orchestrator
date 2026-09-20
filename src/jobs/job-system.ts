@@ -244,7 +244,8 @@ export class JobSystem {
         )
       }
 
-      const { policy: _policy, ...mutableOptions } = definition.queue
+      const { policy, ...mutableOptions } = definition.queue
+      void policy
       await this.boss.updateQueue(name, mutableOptions)
     }
   }
