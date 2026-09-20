@@ -241,8 +241,7 @@ export function DesiredFirmwareEditor({
       <div className="border-b border-[var(--border)] p-4">
         <h2 className="text-sm font-semibold">Desired firmware policy</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Configure this model’s baseline. Customer, site, and device overrides
-          retain their precedence.
+          Configure a deliberate model override only when catalog defaults are not sufficient. Customer, site, and device overrides retain their precedence.
         </p>
       </div>
       <div className="grid gap-5 p-4 lg:grid-cols-2">
@@ -324,7 +323,7 @@ export function DesiredFirmwareEditor({
             </dl>
           ) : (
             <p className="mt-3 text-sm text-[var(--muted)]">
-              No model baseline. Family or scoped policy may still apply.
+              No model override. Family/scoped policy may still apply; otherwise the global Firmware Catalog defaults drive compliance.
             </p>
           )}
         </div>
