@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import {
+  startPostgresTestDatabase,
+  type TestPostgresDatabase,
+} from '../../tests/support/postgres.mjs'
 import { createDefaultJobHandlers, type JobHandlers } from './handlers'
 import { JobSystem } from './job-system'
 
-const databaseUrl = process.env.JOB_TEST_DATABASE_URL
 const schema = `pgboss_test_${randomUUID().replaceAll('-', '')}`
 
 const sleep = (milliseconds: number) =>
@@ -29,34 +32,49 @@ async function waitFor<T>(
   return latest
 }
 
-describe.skipIf(!databaseUrl)(
-  'pg-boss PostgreSQL background-job foundation',
-  () => {
-    const running = new Set<JobSystem>()
+describe('pg-boss PostgreSQL background-job foundation', () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL
+  const running = new Set<JobSystem>()
+  let testDatabase: TestPostgresDatabase | undefined
+  let databaseUrl = ''
 
-    async function start(
-      overrides: Parameters<typeof JobSystem.start>[0] = {},
-    ): Promise<JobSystem> {
-      const system = await JobSystem.start({
-        databaseUrl,
-        schema,
-        schedule: false,
-        applicationName: 'noc-orchestrator-job-test',
-        ...overrides,
-      })
-      running.add(system)
-      return system
-    }
+  beforeAll(async () => {
+    testDatabase = await startPostgresTestDatabase()
+    databaseUrl = testDatabase.databaseUrl
+    process.env.DATABASE_URL = databaseUrl
+  }, 120000)
 
-    async function stop(system: JobSystem): Promise<void> {
-      if (!running.delete(system)) return
-      await system.stop()
-    }
-
-    afterEach(async () => {
-      await Promise.allSettled([...running].map((system) => system.stop()))
-      running.clear()
+  async function start(
+    overrides: Parameters<typeof JobSystem.start>[0] = {},
+  ): Promise<JobSystem> {
+    const system = await JobSystem.start({
+      databaseUrl,
+      schema,
+      schedule: false,
+      applicationName: 'noc-orchestrator-job-test',
+      ...overrides,
     })
+    running.add(system)
+    return system
+  }
+
+  async function stop(system: JobSystem): Promise<void> {
+    if (!running.delete(system)) return
+    await system.stop()
+  }
+
+  afterEach(async () => {
+    await Promise.allSettled([...running].map((system) => system.stop()))
+    running.clear()
+  })
+
+  afterAll(async () => {
+    await Promise.allSettled([...running].map((system) => system.stop()))
+    running.clear()
+    await testDatabase?.stop()
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previousDatabaseUrl
+  }, 120000)
 
     it('persists an enqueued job across producer restart and stores handler output', async () => {
       const producer = await start()
@@ -256,5 +274,4 @@ describe.skipIf(!databaseUrl)(
       await stopping
       expect(stopped).toBe(true)
     })
-  },
-)
+})
