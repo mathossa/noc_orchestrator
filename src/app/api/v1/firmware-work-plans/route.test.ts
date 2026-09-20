@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   amendFirmwareWorkPlanProposal: vi.fn(),
   scheduleFirmwareWorkPlan: vi.fn(),
   transitionFirmwareWorkPlan: vi.fn(),
+  bulkTransitionFirmwareWorkPlans: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -37,6 +38,7 @@ vi.mock('@/lib/firmware-work-plan-store', () => {
     amendFirmwareWorkPlanProposal: mocks.amendFirmwareWorkPlanProposal,
     scheduleFirmwareWorkPlan: mocks.scheduleFirmwareWorkPlan,
     transitionFirmwareWorkPlan: mocks.transitionFirmwareWorkPlan,
+    bulkTransitionFirmwareWorkPlans: mocks.bulkTransitionFirmwareWorkPlans,
   }
 })
 
@@ -49,6 +51,7 @@ import {
   PATCH as amendPlan,
 } from '@/app/api/v1/firmware-work-plans/[id]/route'
 import { POST as transitionPlan } from '@/app/api/v1/firmware-work-plans/[id]/transitions/route'
+import { POST as bulkTransitionPlans } from '@/app/api/v1/firmware-work-plans/transitions/route'
 import { FirmwareWorkPlanError } from '@/lib/firmware-work-plan-store'
 
 describe('firmware work plan routes', () => {
@@ -252,6 +255,57 @@ describe('firmware work plan routes', () => {
       }),
     )
     expect(mocks.transitionFirmwareWorkPlan).not.toHaveBeenCalled()
+  })
+
+  it('bulk-transitions displayed selections with the authenticated actor', async () => {
+    mocks.bulkTransitionFirmwareWorkPlans.mockResolvedValue([
+      { id: 'plan-1', state: 'APPROVED' },
+      { id: 'plan-2', state: 'APPROVED' },
+    ])
+
+    const response = await bulkTransitionPlans(
+      new Request('http://localhost/api/v1/firmware-work-plans/transitions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [
+            {
+              id: 'plan-1',
+              expectedState: 'PROPOSED',
+              expectedUpdatedAt: '2026-09-20T11:00:00.123Z',
+            },
+            {
+              id: 'plan-2',
+              expectedState: 'PROPOSED',
+              expectedUpdatedAt: '2026-09-20T11:01:00.456Z',
+            },
+          ],
+          toState: 'APPROVED',
+          actorUserId: 'client-supplied-user',
+          reason: 'Batch approval',
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.bulkTransitionFirmwareWorkPlans).toHaveBeenCalledWith({
+      items: [
+        {
+          id: 'plan-1',
+          expectedState: 'PROPOSED',
+          expectedUpdatedAt: new Date('2026-09-20T11:00:00.123Z'),
+        },
+        {
+          id: 'plan-2',
+          expectedState: 'PROPOSED',
+          expectedUpdatedAt: new Date('2026-09-20T11:01:00.456Z'),
+        },
+      ],
+      toState: 'APPROVED',
+      reason: 'Batch approval',
+      notes: undefined,
+      actorUserId: 'session-user',
+    })
   })
 
   it('does not retry a stale user transition', async () => {
