@@ -143,7 +143,7 @@ test('uses the train-centric catalog workflow end to end', async ({ page }) => {
 
   await expect(page.getByText('1 firmware release needs review')).toBeVisible()
   await page.getByRole('button', { name: 'Review now' }).click()
-  await expect(page.getByRole('link', { name: '17.15.7', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '17.15.7', exact: true }).last()).toBeVisible()
   await page.getByLabel('Train for 17.15.7').selectOption({ label: '17.15' })
   await page.getByRole('button', { name: 'Allow', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('17.15.7 marked allowed.')
@@ -151,14 +151,15 @@ test('uses the train-centric catalog workflow end to end', async ({ page }) => {
   await page.getByRole('button', { name: 'Show all platform releases' }).click()
   const observedRelease = page
     .getByRole('link', { name: '17.15.7', exact: true })
+    .last()
     .locator('xpath=ancestor::div[contains(@class,"p-3")][1]')
   await observedRelease.getByRole('button', { name: 'Archive' }).click()
   await expect(page.getByRole('status')).toContainText('17.15.7 archived.')
   await expect(page.getByRole('link', { name: '17.15.7', exact: true })).toHaveCount(0)
 
   await page.getByLabel('Show archived').check()
-  await expect(page.getByRole('link', { name: '17.15.7', exact: true })).toBeVisible()
-  await expect(page.getByText('Archived', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '17.15.7', exact: true }).last()).toBeVisible()
+  await expect(page.getByText('Archived', { exact: true }).last()).toBeVisible()
 
   await page.getByRole('button', { name: 'Add release' }).first().click()
   const addForm = page.locator('form').filter({ hasText: 'Advanced details (optional)' })
