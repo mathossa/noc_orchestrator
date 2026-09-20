@@ -1,7 +1,7 @@
+import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
 import { describe, expect, it } from 'vitest'
 import {
   buildImporterV2PublicationQa,
-  importerV2CatalogProposalRequiresApproval,
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
