@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   assertSiteBelongsToCustomer: vi.fn(),
   compatibilityCheck: vi.fn(),
+  planning: vi.fn(),
 }))
 
 vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBatch: mocks.compliance, resolveFirmwareComplianceForDevice: mocks.compliance }))
@@ -51,6 +52,10 @@ vi.mock('@/lib/site-store', () => ({
 
 vi.mock('@/lib/firmware-compatibility-store', () => ({
   evaluateModelFirmwareCompatibility: mocks.compatibilityCheck,
+}))
+
+vi.mock('@/lib/firmware-work-plan-query-store', () => ({
+  resolveDeviceWorkPlanning: mocks.planning,
 }))
 
 import {
@@ -168,6 +173,20 @@ describe('device inventory persistence rules', () => {
       provenance: { kind: 'MODEL_RULE', id: 'rule-1', sourceType: 'CATALOG', explanation: 'Supported.', inherited: false },
       matchedRuleIds: ['rule-1'],
     })
+    mocks.planning.mockImplementation(async (ids: string[]) =>
+      new Map(
+        ids.map((id) => [
+          id,
+          {
+            deviceId: id,
+            planned: false,
+            state: 'NOT_PLANNED',
+            activePlans: [],
+            history: [],
+          },
+        ]),
+      ),
+    )
     mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
       device: { create: mocks.deviceCreate, update: mocks.deviceUpdate },
       auditEvent: { create: mocks.auditCreate },
@@ -193,6 +212,13 @@ describe('device inventory persistence rules', () => {
     expect(result.effectiveContractType).toEqual(siteContract)
     expect(result.contractSource).toBe('SITE')
     expect(result.auditHistory).toEqual([])
+    expect(result.planning).toEqual({
+      deviceId: 'device-1',
+      planned: false,
+      state: 'NOT_PLANNED',
+      activePlans: [],
+      history: [],
+    })
   })
 
   it('rejects current firmware from a different vendor before compatibility evaluation', async () => {
