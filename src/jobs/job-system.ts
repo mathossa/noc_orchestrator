@@ -141,11 +141,21 @@ export class JobSystem {
 
     const jobId = await this.boss.send(name, payload, {
       singletonKey: correlationKey,
-      retryLimit: options.retryLimit,
-      retryDelay: options.retryDelay,
-      retryBackoff: options.retryBackoff,
-      expireInSeconds: options.expireInSeconds,
-      startAfter: options.startAfter,
+      ...(options.retryLimit === undefined
+        ? {}
+        : { retryLimit: options.retryLimit }),
+      ...(options.retryDelay === undefined
+        ? {}
+        : { retryDelay: options.retryDelay }),
+      ...(options.retryBackoff === undefined
+        ? {}
+        : { retryBackoff: options.retryBackoff }),
+      ...(options.expireInSeconds === undefined
+        ? {}
+        : { expireInSeconds: options.expireInSeconds }),
+      ...(options.startAfter === undefined
+        ? {}
+        : { startAfter: options.startAfter }),
     })
 
     return {
