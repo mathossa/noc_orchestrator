@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
   DeviceChoice,
-  DevicePayload,
   DeviceReferences,
   PlanTarget,
   PreviewTarget,
@@ -13,7 +12,6 @@ import {
   groupPreviewTargets,
   groupScopeDevices,
   resolveSiteScopeDevices,
-  siteScopeQueries,
   toggleSelection,
 } from './planning-client'
 
@@ -69,25 +67,6 @@ function device(
     currentFirmwareRelease: { id: 'release-current', version: '17.12.5' },
     currentFirmwareNormalizedVersion: '17.12.5',
     currentFirmwareRawVersion: '17.12.5',
-  }
-}
-
-function payload(
-  data: DeviceChoice[],
-  page: number,
-  totalPages: number,
-): DevicePayload {
-  return {
-    data,
-    meta: {
-      ...references,
-      pagination: {
-        page,
-        pageSize: 100,
-        total: totalPages,
-        totalPages,
-      },
-    },
   }
 }
 
@@ -178,42 +157,35 @@ describe('plan-centric planning helpers', () => {
     ).toEqual(['sw', 'ap'])
   })
 
-  it('creates one server-backed query for every selected site/device-type pair', () => {
-    const urls = siteScopeQueries(['site-b', 'site-a'], ['ap', 'switch'])
-    expect(urls).toHaveLength(4)
-    expect(urls.every((url) => url.includes('pageSize=100'))).toBe(true)
-    expect(urls.some((url) => url.includes('site=site-a') && url.includes('deviceType=ap'))).toBe(true)
-    expect(urls.some((url) => url.includes('site=site-b') && url.includes('deviceType=switch'))).toBe(true)
-  })
-
-  it('enumerates every device API page instead of silently using page one', async () => {
-    const requested: string[] = []
-    const requester = async <T>(url: string): Promise<T> => {
-      requested.push(url)
-      const page = Number(new URL(url, 'http://test.local').searchParams.get('page'))
-      const rows =
-        page === 1
-          ? [device('device-1')]
-          : page === 2
-            ? [device('device-2')]
-            : [device('device-3')]
-      return payload(rows, page, 3) as unknown as T
+  it('resolves selected sites/types through one unpaginated planning-candidate request', async () => {
+    const requested: Array<{ url: string; init?: RequestInit }> = []
+    const candidates = Array.from({ length: 125 }, (_, index) =>
+      device(`device-${String(index + 1).padStart(3, '0')}`),
+    )
+    const requester = async <T>(
+      url: string,
+      init?: RequestInit,
+    ): Promise<T> => {
+      requested.push({ url, init })
+      return { data: candidates } as unknown as T
     }
 
     const result = await resolveSiteScopeDevices(
-      ['site-a'],
-      ['type-switch'],
+      ['site-a', 'site-b'],
+      ['type-switch', 'type-ap'],
       requester,
     )
 
-    expect(requested).toHaveLength(3)
-    expect(requested.some((url) => url.includes('page=2'))).toBe(true)
-    expect(requested.some((url) => url.includes('page=3'))).toBe(true)
-    expect(result.map((row) => row.id)).toEqual([
-      'device-1',
-      'device-2',
-      'device-3',
-    ])
+    expect(requested).toHaveLength(1)
+    expect(requested[0].url).toBe('/api/v1/firmware-work-plans/candidates')
+    expect(requested[0].init?.method).toBe('POST')
+    expect(JSON.parse(String(requested[0].init?.body))).toEqual({
+      siteIds: ['site-a', 'site-b'],
+      deviceTypeIds: ['type-switch', 'type-ap'],
+    })
+    expect(result).toHaveLength(125)
+    expect(result[0].id).toBe('device-001')
+    expect(result[124].id).toBe('device-125')
   })
 
   it('groups resolved scope by customer, site, canonical type and model', () => {
