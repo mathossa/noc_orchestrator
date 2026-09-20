@@ -1,4 +1,4 @@
-import { FirmwarePlanningWorkspace } from '@/components/firmware/firmware-planning-workspace'
+import { FirmwarePlanList } from '@/components/firmware/planning/firmware-plan-list'
 
 type PlanningPageProps = {
   searchParams: Promise<{ view?: string }>
@@ -9,7 +9,7 @@ export default async function PlanningPage({
 }: PlanningPageProps) {
   const params = await searchParams
   return (
-    <FirmwarePlanningWorkspace
+    <FirmwarePlanList
       initialView={params.view === 'history' ? 'history' : 'active'}
     />
   )
