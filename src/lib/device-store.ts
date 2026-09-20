@@ -5,6 +5,7 @@ import { evaluateModelFirmwareCompatibility } from '@/lib/firmware-compatibility
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { resolveFirmwareComplianceForDevice } from '@/lib/firmware-compliance-store'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
+import { resolveDeviceWorkPlanning } from '@/lib/firmware-work-plan-query-store'
 import {
   normalizedDeviceName,
   parseDeviceInput,
@@ -311,15 +312,24 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
-  const [firmwareCompliance, auditHistory] = await Promise.all([
+  const [firmwareCompliance, auditHistory, planningByDevice] = await Promise.all([
     resolveFirmwareComplianceForDevice(id),
     listAuditEventsForEntity('Device', id),
+    resolveDeviceWorkPlanning([id]),
   ])
   const desiredRelease = firmwareCompliance.preferredTarget
   const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
 
   return {
     ...serializeDevice(record as IncludedDevice),
+    planning:
+      planningByDevice.get(id) ?? {
+        deviceId: id,
+        planned: false,
+        state: 'NOT_PLANNED',
+        activePlans: [],
+        history: [],
+      },
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     desiredFirmware: { available: true, release: desiredRelease },
