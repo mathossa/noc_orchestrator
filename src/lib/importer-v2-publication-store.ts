@@ -965,7 +965,7 @@ async function ensureObservedRelease(
     }
     if (
       platform &&
-      release.platform.toLocaleLowerCase('en-US') !== platform.toLocaleLowerCase('en-US')
+      normalizedFirmwarePlatform(release.platform) !== normalizedFirmwarePlatform(platform)
     ) {
       throw new ImporterV2PublicationConflictError(
         'Selected firmware release no longer matches the staged software platform.',
