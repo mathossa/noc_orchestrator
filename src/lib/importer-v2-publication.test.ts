@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildImporterV2PublicationQa,
+  importerV2CatalogProposalRequiresApproval,
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
@@ -154,7 +155,59 @@ describe('Importer v2 final QA and publication selection', () => {
     )
   })
 
-  it('keeps intentionally excluded rows separate from unresolved rows', () => {
+  it('does not require a second catalog approval for safely resolved observed firmware', () => {
+    const source = row(1)
+    const evaluated = structuredClone(source.evaluated) as {
+      proposedCanonicalValues: Record<
+        string,
+        { id: string | null; label: string }
+      >
+      firmware: { warnings: Array<{ code: string; message: string }> }
+    }
+    evaluated.proposedCanonicalValues.currentFirmware = {
+      id: null,
+      label: '17.15.6',
+    }
+    const result = qa([row(1, { evaluated })])
+    const proposal = result.catalogProposals.find(
+      (candidate) => candidate.field === 'currentFirmware',
+    )
+    expect(proposal).toBeDefined()
+    expect(
+      importerV2CatalogProposalRequiresApproval(result, proposal!),
+    ).toBe(false)
+  })
+
+  it('keeps observed firmware approval explicit when platform evidence conflicts', () => {
+    const source = row(1)
+    const evaluated = structuredClone(source.evaluated) as {
+      proposedCanonicalValues: Record<
+        string,
+        { id: string | null; label: string }
+      >
+      firmware: { warnings: Array<{ code: string; message: string }> }
+    }
+    evaluated.proposedCanonicalValues.currentFirmware = {
+      id: null,
+      label: '17.15.6',
+    }
+    evaluated.firmware.warnings = [
+      {
+        code: 'PLATFORM_EVIDENCE_CONFLICT',
+        message: 'Source and inferred platform disagree.',
+      },
+    ]
+    const result = qa([row(1, { evaluated })])
+    const proposal = result.catalogProposals.find(
+      (candidate) => candidate.field === 'currentFirmware',
+    )
+    expect(proposal).toBeDefined()
+    expect(
+      importerV2CatalogProposalRequiresApproval(result, proposal!),
+    ).toBe(true)
+  })
+
+    it('keeps intentionally excluded rows separate from unresolved rows', () => {
     const result = qa([
       row(1, {
         inclusion: 'EXCLUDED',
