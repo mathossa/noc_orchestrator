@@ -4,7 +4,7 @@ import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication'
+import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
 import type {
   ImporterV2CatalogProposal,
   ImporterV2CatalogProposalField,
