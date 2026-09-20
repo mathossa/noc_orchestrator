@@ -8,11 +8,12 @@ import {
   canConfirmProposedSchedule,
   commonSwitchAndAccessPointTypeIds,
   groupPlanTargets,
+  groupPreviewExceptions,
   groupPreviewTargets,
   groupScopeDevices,
+  planningDeviceTypeOptions,
   proposalDraftChanged,
   resolveSiteScopeDevices,
-  toggleDeviceRecord,
   toggleSelection,
 } from './planning-client'
 
@@ -140,22 +141,6 @@ describe('plan-centric planning helpers', () => {
     ])
   })
 
-  it('retains arbitrary individual-device selections independently of list pages', () => {
-    const first = device('device-one')
-    const second = device('device-two')
-    const selected = toggleDeviceRecord(
-      toggleDeviceRecord({}, first),
-      second,
-    )
-    expect(Object.keys(selected).sort()).toEqual([
-      'device-one',
-      'device-two',
-    ])
-    expect(toggleDeviceRecord(selected, first)).not.toHaveProperty(
-      'device-one',
-    )
-  })
-
   it('uses canonical DeviceType IDs for the switch + access-point convenience', () => {
     expect(
       commonSwitchAndAccessPointTypeIds([
@@ -164,6 +149,72 @@ describe('plan-centric planning helpers', () => {
         { id: 'fw', code: 'FIREWALL', name: 'Firewalls', isActive: true },
       ]),
     ).toEqual(['sw', 'ap'])
+  })
+
+  it('groups duplicate switch inventory types for planning but keeps stacks separate', () => {
+    expect(
+      planningDeviceTypeOptions([
+        { id: 'switch', code: 'SWITCH', name: 'Switch', isActive: true },
+        { id: 'switches', code: 'SWITCHES', name: 'Switches', isActive: true },
+        { id: 'stack', code: 'STACK', name: 'Stack', isActive: true },
+        { id: 'ap', code: 'WIRELESS_AP', name: 'Access points', isActive: true },
+      ]),
+    ).toEqual([
+      {
+        key: 'access-points',
+        label: 'Access points',
+        typeIds: ['ap'],
+        sourceLabels: ['Access points'],
+      },
+      {
+        key: 'type:stack',
+        label: 'Stack',
+        typeIds: ['stack'],
+        sourceLabels: ['Stack'],
+      },
+      {
+        key: 'switches',
+        label: 'Switches',
+        typeIds: ['switch', 'switches'],
+        sourceLabels: ['Switch', 'Switches'],
+      },
+    ])
+  })
+
+  it('groups active exception devices so one action can override an EOL exception set', () => {
+    const groups = groupPreviewExceptions([
+      previewTarget('one', {
+        disposition: 'ACTIVE_EXCEPTION',
+        effectiveExceptionId: 'exception-one',
+        effectiveExceptionReason: 'EOL',
+      }),
+      previewTarget('two', {
+        disposition: 'ACTIVE_EXCEPTION',
+        effectiveExceptionId: 'exception-two',
+        effectiveExceptionReason: 'EOL',
+      }),
+      previewTarget('three', {
+        disposition: 'ACTIVE_EXCEPTION',
+        effectiveExceptionId: 'exception-three',
+        effectiveExceptionReason: 'Customer says no',
+      }),
+      previewTarget('included'),
+    ])
+
+    expect(groups).toEqual([
+      {
+        key: 'customer says no',
+        reason: 'Customer says no',
+        deviceIds: ['three'],
+        count: 1,
+      },
+      {
+        key: 'eol',
+        reason: 'EOL',
+        deviceIds: ['one', 'two'],
+        count: 2,
+      },
+    ])
   })
 
   it('resolves selected sites/types through one unpaginated planning-candidate request', async () => {
