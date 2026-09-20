@@ -105,7 +105,7 @@ export type DeviceTypeReference = {
   isActive: boolean
 }
 
-export type DeviceChoice = {
+export type PlanningCandidateDevice = {
   id: string
   name: string
   customerId: string
@@ -118,10 +118,13 @@ export type DeviceChoice = {
     vendor: { id: string; name: string }
     deviceType: DeviceTypeReference
   }
-  firmwareCompliance: { recommendation: string; explanation?: string }
   currentFirmwareRelease: { id: string; version: string } | null
   currentFirmwareNormalizedVersion: string | null
   currentFirmwareRawVersion: string | null
+}
+
+export type DeviceChoice = PlanningCandidateDevice & {
+  firmwareCompliance: { recommendation: string; explanation?: string }
 }
 
 export type DeviceReferences = {
@@ -286,63 +289,20 @@ export function commonSwitchAndAccessPointTypeIds(
     .map((type) => type.id)
 }
 
-export function siteScopeQueries(
-  siteIds: string[],
-  deviceTypeIds: string[],
-) {
-  const queries: string[] = []
-  for (const siteId of [...new Set(siteIds)].sort())
-    for (const deviceTypeId of [...new Set(deviceTypeIds)].sort()) {
-      const params = new URLSearchParams({
-        site: siteId,
-        deviceType: deviceTypeId,
-        page: '1',
-        pageSize: '100',
-        sort: 'customer',
-        direction: 'asc',
-      })
-      queries.push(`/api/v1/devices?${params}`)
-    }
-  return queries
-}
-
-type JsonRequester = <T>(url: string, init?: RequestInit) => Promise<T>
-
-async function enumerateDeviceQuery(
-  firstUrl: string,
-  requester: JsonRequester,
-) {
-  const first = await requester<DevicePayload>(firstUrl)
-  if (first.meta.pagination.totalPages <= 1) return first.data
-
-  const parsed = new URL(firstUrl, 'http://planning.local')
-  const remaining = await Promise.all(
-    Array.from(
-      { length: first.meta.pagination.totalPages - 1 },
-      (_, index) => index + 2,
-    ).map((page) => {
-      parsed.searchParams.set('page', String(page))
-      return requester<DevicePayload>(
-        `${parsed.pathname}?${parsed.searchParams.toString()}`,
-      )
-    }),
-  )
-  return [first, ...remaining].flatMap((payload) => payload.data)
-}
-
 export async function resolveSiteScopeDevices(
   siteIds: string[],
   deviceTypeIds: string[],
   requester: JsonRequester = requestJson,
 ) {
-  const queryResults = await Promise.all(
-    siteScopeQueries(siteIds, deviceTypeIds).map((url) =>
-      enumerateDeviceQuery(url, requester),
-    ),
+  const payload = await requester<{ data: PlanningCandidateDevice[] }>(
+    '/api/v1/firmware-work-plans/candidates',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteIds, deviceTypeIds }),
+    },
   )
-  const byId = new Map<string, DeviceChoice>()
-  for (const device of queryResults.flat()) byId.set(device.id, device)
-  return [...byId.values()].sort(
+  return [...payload.data].sort(
     (a, b) =>
       a.customer.name.localeCompare(b.customer.name) ||
       (a.site?.name ?? '').localeCompare(b.site?.name ?? '') ||
@@ -365,13 +325,13 @@ export type ScopeDeviceGroup = {
       deviceTypeName: string
       count: number
       models: Array<{ modelId: string; modelName: string; count: number }>
-      devices: DeviceChoice[]
+      devices: PlanningCandidateDevice[]
     }>
   }>
 }
 
 export function groupScopeDevices(
-  devices: DeviceChoice[],
+  devices: PlanningCandidateDevice[],
 ): ScopeDeviceGroup[] {
   const customers = new Map<
     string,
@@ -388,7 +348,7 @@ export function groupScopeDevices(
             {
               deviceTypeId: string
               deviceTypeName: string
-              devices: DeviceChoice[]
+              devices: PlanningCandidateDevice[]
             }
           >
         }
