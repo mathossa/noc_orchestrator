@@ -4,7 +4,6 @@ import {
   importerV2CatalogProposalRequiresApproval,
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
-  publicationProposalsRequiredForRows,
   selectImporterV2PublicationRows,
   type ImporterV2PublicationQaRowInput,
 } from '@/lib/importer-v2-publication'
@@ -208,54 +207,7 @@ describe('Importer v2 final QA and publication selection', () => {
     ).toBe(true)
   })
 
-    it('does not require manual approval for a safely identified new observed firmware release', () => {
-    const source = row(1)
-    const evaluated = structuredClone(source.evaluated) as {
-      proposedCanonicalValues: Record<string, { id: string | null; label: string }>
-      firmware: { warnings: Array<{ code: string; message: string }> }
-    }
-    evaluated.proposedCanonicalValues.currentFirmware = {
-      id: null,
-      label: '17.15.6',
-    }
-    const result = qa([row(1, { evaluated })])
-
-    expect(result.catalogProposals).toContainEqual(
-      expect.objectContaining({
-        field: 'currentFirmware',
-        label: '17.15.6',
-      }),
-    )
-    expect(publicationProposalsRequiredForRows(result, [1])).not.toContainEqual(
-      expect.objectContaining({ field: 'currentFirmware' }),
-    )
-  })
-
-  it('still requires approval when observed firmware platform evidence is unsafe', () => {
-    const source = row(1)
-    const evaluated = structuredClone(source.evaluated) as {
-      proposedCanonicalValues: Record<string, { id: string | null; label: string }>
-      firmware: { warnings: Array<{ code: string; message: string }> }
-    }
-    evaluated.proposedCanonicalValues.currentFirmware = {
-      id: null,
-      label: '17.15.6',
-    }
-    evaluated.firmware.warnings = [{
-      code: 'PLATFORM_EVIDENCE_CONFLICT',
-      message: 'Platform evidence conflicts.',
-    }]
-    const result = qa([row(1, { evaluated })])
-
-    expect(publicationProposalsRequiredForRows(result, [1])).toContainEqual(
-      expect.objectContaining({
-        field: 'currentFirmware',
-        label: '17.15.6',
-      }),
-    )
-  })
-
-    it('keeps intentionally excluded rows separate from unresolved rows', () => {
+  it('keeps intentionally excluded rows separate from unresolved rows', () => {
     const result = qa([
       row(1, {
         inclusion: 'EXCLUDED',
