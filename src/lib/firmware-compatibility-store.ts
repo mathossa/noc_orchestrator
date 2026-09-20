@@ -522,7 +522,13 @@ export async function listFirmwareCompatibilityForModel(deviceModelId: string) {
     }),
   ])
   return {
-    model: { id: model.id, model: model.model, familyId: model.familyId, vendorId: model.vendorId },
+    model: {
+      id: model.id,
+      model: model.model,
+      familyId: model.familyId,
+      vendorId: model.vendorId,
+      platform: model.platform,
+    },
     rules: rules.map((rule) => ({ ...rule, inherited: rule.deviceModelId !== model.id })),
     overrides,
   }
