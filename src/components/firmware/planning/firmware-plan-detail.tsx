@@ -19,6 +19,7 @@ import {
   dateTimeLocalToIso,
   groupPlanTargets,
   labelValue,
+  proposalDraftChanged,
   requestJson,
   toLocalDateTimeValue,
 } from './planning-client'
@@ -141,6 +142,14 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
     detail?.state === 'PROPOSED' ||
     detail?.state === 'AWAITING_CUSTOMER' ||
     detail?.state === 'APPROVED'
+  const proposalDirty = detail
+    ? proposalDraftChanged(
+        detail.proposedFor,
+        detail.proposedMaintenanceWindowReference,
+        proposedFor,
+        proposedReference,
+      )
+    : false
 
   async function amendProposal() {
     if (!detail || !proposalEditable) return
@@ -632,7 +641,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
           <div className="mt-3">
             <Button
               onClick={() => void amendProposal()}
-              disabled={busy}
+              disabled={busy || !proposalDirty}
             >
               Save proposal amendment
             </Button>
@@ -735,12 +744,19 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
               </div>
             ) : null}
 
+            {proposalEditable && proposalDirty ? (
+              <p className="text-xs font-semibold text-[#f0b574]">
+                Save the proposal amendment above before requesting or
+                confirming customer approval/scheduling.
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
               {detail.state === 'PROPOSED' ? (
                 <>
                   <Button
                     variant="primary"
-                    disabled={busy}
+                    disabled={busy || proposalDirty}
                     onClick={() =>
                       void transition('AWAITING_CUSTOMER')
                     }
@@ -748,7 +764,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                     Request customer approval
                   </Button>
                   <Button
-                    disabled={busy}
+                    disabled={busy || proposalDirty}
                     onClick={() => void transition('APPROVED')}
                   >
                     Record approval without final schedule
@@ -771,7 +787,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                   ) ? (
                     <Button
                       variant="primary"
-                      disabled={busy}
+                      disabled={busy || proposalDirty}
                       onClick={() =>
                         void transition('SCHEDULED', 'proposal')
                       }
@@ -780,7 +796,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                     </Button>
                   ) : null}
                   <Button
-                    disabled={busy}
+                    disabled={busy || proposalDirty}
                     onClick={() => void transition('APPROVED')}
                   >
                     Approval only
@@ -809,7 +825,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                   ) ? (
                     <Button
                       variant="primary"
-                      disabled={busy}
+                      disabled={busy || proposalDirty}
                       onClick={() =>
                         void transition('SCHEDULED', 'proposal')
                       }
@@ -853,7 +869,7 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                     Start work
                   </Button>
                   <Button
-                    disabled={busy}
+                    disabled={busy || proposalDirty}
                     onClick={() => void transition('APPROVED')}
                   >
                     Return to approved
