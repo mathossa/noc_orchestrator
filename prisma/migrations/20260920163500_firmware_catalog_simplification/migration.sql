@@ -27,7 +27,7 @@ WHERE train.id = source."firmwareTrainId";
 -- A train becomes the platform preferred train only when the legacy data points
 -- to exactly one unambiguous preferred train for that vendor/platform.
 WITH preferred_train_count AS (
-  SELECT "vendorId", LOWER("platform") AS platform_key, COUNT(*) AS train_count
+  SELECT "vendorId", LOWER(regexp_replace(BTRIM("platform"), '\\s+', ' ', 'g')) AS platform_key, COUNT(*) AS train_count
   FROM "FirmwareTrain"
   WHERE "preferredFirmwareReleaseId" IS NOT NULL
     AND "isActive" = TRUE
@@ -37,7 +37,7 @@ UPDATE "FirmwareTrain" AS train
 SET "state" = 'PREFERRED'
 FROM preferred_train_count AS source
 WHERE train."vendorId" = source."vendorId"
-  AND LOWER(train."platform") = source.platform_key
+  AND LOWER(regexp_replace(BTRIM(train."platform"), '\\s+', ' ', 'g')) = source.platform_key
   AND train."preferredFirmwareReleaseId" IS NOT NULL
   AND source.train_count = 1;
 
@@ -66,5 +66,8 @@ CREATE INDEX "FirmwareTrain_minimum_release_idx" ON "FirmwareTrain"("minimumAcce
 -- globally preferred train per vendor/platform while allowing many Accepted or
 -- Deprecated trains.
 CREATE UNIQUE INDEX "FirmwareTrain_one_preferred_platform_idx"
-  ON "FirmwareTrain"("vendorId", LOWER("platform"))
+  ON "FirmwareTrain"(
+    "vendorId",
+    LOWER(regexp_replace(BTRIM("platform"), '\\s+', ' ', 'g'))
+  )
   WHERE "state" = 'PREFERRED' AND "isActive" = TRUE;
