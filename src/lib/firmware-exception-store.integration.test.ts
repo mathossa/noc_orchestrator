@@ -134,7 +134,7 @@ describe('firmware exceptions PostgreSQL transactions', () => {
     ).toEqual(saved)
     const view = await store.listFirmwareExceptions(ids.device)
     expect(view.resolutions[0].selectedId).toBe(saved.id)
-    expect(view.resolutions[0].compliance).toBe('UNKNOWN_FIRMWARE')
+    expect(view.resolutions[0].compliance).toBe('NOT_COMPARABLE')
   })
 
   it('ends a decision and restores the recommendation while retaining history', async () => {
