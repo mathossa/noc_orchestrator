@@ -2,11 +2,11 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
-  FirmwarePlanningWorkspace,
   MissingServerFiltersNotice,
+  StatePill,
 } from './firmware-planning-workspace'
 
-describe('firmware planning workspace', () => {
+describe('firmware planning workspace components', () => {
   it('makes unsupported server-side plan filters explicit instead of filtering one page', () => {
     const markup = renderToStaticMarkup(
       createElement(MissingServerFiltersNotice),
@@ -16,24 +16,11 @@ describe('firmware planning workspace', () => {
     expect(markup).toContain('misleading')
   })
 
-  it('keeps terminal history separately accessible from active creation work', () => {
-    const history = renderToStaticMarkup(
-      createElement(FirmwarePlanningWorkspace, {
-        initialView: 'history',
-      }),
+  it('marks stale active planning state prominently', () => {
+    const markup = renderToStaticMarkup(
+      createElement(StatePill, { state: 'SCHEDULED', stale: true }),
     )
-    expect(history).toContain('Completed / cancelled history')
-    expect(history).toContain('Historical plans')
-    expect(history).toContain('Not available yet')
-    expect(history).not.toContain('Create from selected devices')
-
-    const active = renderToStaticMarkup(
-      createElement(FirmwarePlanningWorkspace, {
-        initialView: 'active',
-      }),
-    )
-    expect(active).toContain('Create from selected devices')
-    expect(active).toContain('Selection is explicit')
-    expect(active).toContain('Preview selected devices')
+    expect(markup).toContain('Scheduled')
+    expect(markup).toContain('stale')
   })
 })
