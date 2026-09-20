@@ -160,8 +160,12 @@ test('uses the train-centric catalog workflow end to end', async ({ page }) => {
   await expect(page.getByRole('link', { name: '17.15.7', exact: true })).toHaveCount(0)
 
   await page.getByLabel('Show archived').check()
-  await expect(page.getByRole('link', { name: '17.15.7', exact: true }).last()).toBeVisible()
-  await expect(page.getByText('Archived', { exact: true }).last()).toBeVisible()
+  const archivedRelease = page
+    .getByRole('link', { name: '17.15.7', exact: true })
+    .last()
+    .locator('xpath=ancestor::div[contains(@class,"p-3")][1]')
+  await expect(archivedRelease).toBeVisible()
+  await expect(archivedRelease).toContainText('Archived')
 
   await page.getByRole('button', { name: 'Add release' }).first().click()
   const addForm = page.locator('form').filter({ hasText: 'Advanced details (optional)' })
