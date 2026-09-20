@@ -1,5 +1,7 @@
 'use client'
 
+import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
+
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImporterV2Inspector } from '@/components/devices/importer-v2-inspector'
@@ -217,7 +219,7 @@ function workspaceSearchParams(
   return params
 }
 
-export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
+export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: string; revision?: number }) {
   const [filters, setFilters] =
     useState<ImporterV2WorkspaceFilters>(EMPTY_FILTERS)
   const [groupBy, setGroupBy] =
@@ -243,9 +245,9 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
       setError(null)
       try {
         const params = workspaceSearchParams(page, groupBy, filters)
-        const response = await fetch(
+        const response = await fetchImporterV2Read(
           `/api/v1/device-import-v2/batches/${batchId}/workspace?${params}`,
-          { cache: 'no-store' },
+          `${refreshKey}:${revision}`,
         )
         const workspace = await responseData<WorkspaceData>(response)
         if (!cancelled) setData(workspace)
@@ -265,7 +267,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
     return () => {
       cancelled = true
     }
-  }, [batchId, page, groupBy, filters, refreshKey])
+  }, [batchId, page, groupBy, filters, refreshKey, revision])
 
   const explicitSelection = useMemo(
     () => [...selectedRows].sort((left, right) => left - right),
@@ -292,9 +294,9 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
   useEffect(() => {
     let cancelled = false
     if (inspectedRowNumber === null) return
-    void fetch(
+    void fetchImporterV2Read(
       `/api/v1/device-import-v2/batches/${batchId}/rows/${inspectedRowNumber}`,
-      { cache: 'no-store' },
+      `${refreshKey}:${revision}`,
     )
       .then((response) => responseData<RowDetail>(response))
       .then((row) => {
@@ -312,7 +314,7 @@ export function ImporterV2WorkspaceShell({ batchId }: { batchId: string }) {
     return () => {
       cancelled = true
     }
-  }, [batchId, inspectedRowNumber, refreshKey])
+  }, [batchId, inspectedRowNumber, refreshKey, revision])
 
   const updateFilters = (patch: Partial<ImporterV2WorkspaceFilters>) => {
     setFilters((current) => ({ ...current, ...patch }))

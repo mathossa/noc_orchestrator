@@ -345,6 +345,65 @@ async function identityResolvers(provider: string) {
   }
 }
 
+
+async function canonicalValuesForDevices(deviceIds: readonly string[]) {
+  const uniqueIds = [...new Set(deviceIds)]
+  if (uniqueIds.length === 0) {
+    return new Map<string, Partial<Record<ImporterV2Field, string | null>>>()
+  }
+
+  const devices = await prisma.device.findMany({
+    where: { id: { in: uniqueIds } },
+    select: {
+      id: true,
+      name: true,
+      hostname: true,
+      serialNumber: true,
+      managementAddress: true,
+      notes: true,
+      currentFirmwareRawVersion: true,
+      customer: { select: { name: true } },
+      site: {
+        select: {
+          name: true,
+          organizationUnit: { select: { name: true } },
+        },
+      },
+      deviceModel: {
+        select: {
+          model: true,
+          platform: true,
+          vendor: { select: { name: true } },
+          deviceType: { select: { name: true } },
+          family: { select: { name: true } },
+        },
+      },
+    },
+  })
+
+  return new Map(
+    devices.map((device) => [
+      device.id,
+      {
+        customer: device.customer.name,
+        businessUnit: device.site?.organizationUnit?.name ?? null,
+        site: device.site?.name ?? null,
+        vendor: device.deviceModel.vendor.name,
+        productFamily: device.deviceModel.family?.name ?? null,
+        deviceType: device.deviceModel.deviceType.name,
+        model: device.deviceModel.model,
+        softwarePlatform: device.deviceModel.platform,
+        deviceName: device.name,
+        hostname: device.hostname,
+        serialNumber: device.serialNumber,
+        managementAddress: device.managementAddress,
+        notes: device.notes,
+        currentFirmware: device.currentFirmwareRawVersion,
+      } satisfies Partial<Record<ImporterV2Field, string | null>>,
+    ]),
+  )
+}
+
 function effectiveValues(row: ReturnType<typeof evaluateImporterV2WithFirmware>['rows'][number]) {
   return Object.fromEntries(
     IMPORTER_V2_FIELDS.map((field) => [
@@ -463,27 +522,42 @@ export async function stageImporterV2Xlsx(input: {
   })
 
   const latest = await getLatestSuccessfulImporterV2SourceSnapshot({ provider, sourceAdapterId })
+  const matchedCanonicalDeviceIds = identities.flatMap((identity) =>
+    identity.kind === 'MATCH_SUGGESTED' && identity.candidates[0]?.canonicalDeviceId
+      ? [identity.candidates[0].canonicalDeviceId]
+      : [],
+  )
+  const canonicalValuesByDeviceId = await canonicalValuesForDevices(
+    matchedCanonicalDeviceIds,
+  )
   const repeat = diffImporterV2RepeatImport({
     previousRows: latest?.rows ?? [],
-    currentRows: evaluation.rows.map((row, index) => ({
-      rowNumber: row.rowNumber,
-      canonicalDeviceId:
+    currentRows: evaluation.rows.map((row, index) => {
+      const canonicalDeviceId =
         identities[index].kind === 'MATCH_SUGGESTED'
           ? identities[index].candidates[0]?.canonicalDeviceId ?? null
-          : null,
-      identityStatus:
-        identities[index].kind === 'MATCH_SUGGESTED'
-          ? 'MATCHED'
-          : identities[index].kind === 'NEW'
-            ? 'NEW'
-            : 'AMBIGUOUS',
-      identifiers: {
-        sourceId: row.rawValues.sourceId,
-        serialNumber: row.rawValues.serialNumber,
-        macAddress: row.rawValues.macAddress,
-      },
-      values: effectiveValues(row),
-    })),
+          : null
+
+      return {
+        rowNumber: row.rowNumber,
+        canonicalDeviceId,
+        identityStatus:
+          identities[index].kind === 'MATCH_SUGGESTED'
+            ? 'MATCHED'
+            : identities[index].kind === 'NEW'
+              ? 'NEW'
+              : 'AMBIGUOUS',
+        identifiers: {
+          sourceId: row.rawValues.sourceId,
+          serialNumber: row.rawValues.serialNumber,
+          macAddress: row.rawValues.macAddress,
+        },
+        values: effectiveValues(row),
+        canonicalValues: canonicalDeviceId
+          ? canonicalValuesByDeviceId.get(canonicalDeviceId)
+          : undefined,
+      }
+    }),
     isFullInventoryExport: false,
   })
   const repeatByRow = new Map(repeat.items.filter((item) => item.rowNumber !== null).map((item) => [item.rowNumber!, item]))

@@ -196,6 +196,39 @@ npm run worker:build
 npm run format:check
 ```
 
+`npm test` remains the fast Vitest unit/domain suite and intentionally excludes `*.integration.test.ts` files.
+
+Real PostgreSQL integration tests use Testcontainers. They start a fresh `postgres:17-alpine` container, apply the committed Prisma migration history, and remove the container when the test run ends. A separately running `npm run db:up` database is not required, but the Docker daemon must be available.
+
+```bash
+npm run test:integration
+```
+
+Browser/E2E tests use Playwright with the same disposable PostgreSQL foundation. Install the Chromium browser once after installing dependencies, then run the smoke suite:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+The E2E command starts a fresh migrated PostgreSQL container and lets Playwright start the Next.js development server on `127.0.0.1:3100`; it does not use the normal local development database.
+
+Test database reset uses Testcontainers' PostgreSQL snapshot/restore lifecycle. Database clients must be disconnected before calling the shared `reset()` helper; callers can reconnect immediately after the restore.
+
+### Test infrastructure provenance
+
+| Dependency | Version | License | Reuse decision |
+| --- | --- | --- | --- |
+| `@testcontainers/postgresql` | `12.1.0` | MIT | Reuse the maintained official Testcontainers for Node.js PostgreSQL module for disposable container lifecycle, connection details, and snapshot/restore instead of custom Docker orchestration. |
+| `@playwright/test` | `1.63.0` | Apache-2.0 | Reuse the maintained official Playwright test runner, Chromium integration, `baseURL`, and `webServer` lifecycle instead of custom browser automation. |
+
+Both projects are used as dependencies. No Testcontainers or Playwright framework source was copied or adapted into this repository. The custom code is limited to NOC Orchestrator-specific test glue: applying the repository's real Prisma migrations, exposing the disposable database URL/reset/seed lifecycle, and passing that controlled database to the Next.js/Playwright smoke path.
+
+Upstream references:
+
+- Testcontainers PostgreSQL module: https://node.testcontainers.org/modules/postgresql/
+- Playwright web server configuration: https://playwright.dev/docs/test-webserver
+
 Issue #16 expands and hardens the final release validation process.
 
 ### Importer v2 baseline

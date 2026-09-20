@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import type { ImporterV2Field, ImporterV2StagedRow } from '@/lib/importer-v2-evaluator'
+import { ensureImporterV2WorkspaceRuleBook } from '@/lib/importer-v2-workspace-rule-book'
+import type {
+  ImporterV2Field,
+  ImporterV2StagedRow,
+} from '@/lib/importer-v2-evaluator'
 import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
 import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
 import { getActiveImporterV2RuleSet } from '@/lib/importer-v2-rule-store'
@@ -143,40 +147,10 @@ function automaticCatalogProposalDecisions(row: {
   return decisions
 }
 
-async function ensureRuleBook(input: {
-  batchId: string
-  provider: string
-  profileId: string
-  currentRuleBookId: string | null
-}) {
-  if (input.currentRuleBookId) return input.currentRuleBookId
-
-  const name = `Importer v2 · ${input.provider} · ${input.profileId}`
-  let book = await prisma.importerV2RuleBook.findUnique({ where: { name } })
-  if (!book) {
-    book = await prisma.importerV2RuleBook.create({
-      data: {
-        name,
-        activeRevisionVersion: 1,
-        revisions: {
-          create: {
-            version: 1,
-            rules: [],
-            reason: 'Automatic rule book for this confirmed importer source profile.',
-          },
-        },
-      },
-    })
-  }
-
-  await prisma.importerV2WorkspaceBatch.update({
-    where: { id: input.batchId },
-    data: { ruleBookId: book.id },
-  })
-  return book.id
-}
-
-function stagedRuleRow(row: { rowNumber: number; evaluated: unknown }): ImporterV2StagedRow {
+function stagedRuleRow(row: {
+  rowNumber: number
+  evaluated: unknown
+}): ImporterV2StagedRow {
   const evaluated = row.evaluated as EvaluatedSnapshot
   return {
     rowNumber: row.rowNumber,
@@ -325,10 +299,7 @@ function decisionRequiresManualReview(evaluated: EvaluatedSnapshot) {
   )
 }
 
-function effectiveTarget(
-  evaluated: EvaluatedSnapshot,
-  field: ImporterV2Field,
-) {
+function effectiveTarget(evaluated: EvaluatedSnapshot, field: ImporterV2Field) {
   const target = evaluated.proposedCanonicalValues?.[field]
   return normalized(target?.label)
 }
@@ -336,17 +307,19 @@ function effectiveTarget(
 export async function recomputeImporterV2WorkspaceRows(input: {
   batchId: string
   onlyNeedsReevaluation?: boolean
+  scopeToken?: string
+  rowIds?: string[]
 }) {
-  const rows = await prisma.importerV2WorkspaceRow.findMany({
-    where: {
-      batchId: input.batchId,
-      ...(input.onlyNeedsReevaluation ? { needsReevaluation: true } : {}),
-    },
-    orderBy: { rowNumber: 'asc' },
-    include: {
-      decisions: { orderBy: { createdAt: 'asc' } },
-    },
-  })
+  const where = {
+    batchId: input.batchId,
+    ...(input.rowIds ? { id: { in: input.rowIds } } : {}),
+    ...(input.scopeToken
+      ? { decisions: { some: { scopeToken: input.scopeToken } } }
+      : {}),
+    ...(input.onlyNeedsReevaluation ? { needsReevaluation: true } : {}),
+  }
+  let checked = 0
+  let afterRowNumber = 0
 
   let valid = 0
   let warning = 0
@@ -355,109 +328,134 @@ export async function recomputeImporterV2WorkspaceRows(input: {
   let stackMembers = 0
   let stacks = 0
 
-  for (const row of rows) {
-    const effective = importerV2WorkspaceEffectiveEvaluated({
-      evaluated: row.evaluated,
-      inclusion: row.inclusion,
-      decisions: row.decisions,
+  // Keyset pages bound evaluation JSON and decision history in server memory.
+  // A revision guard leaves concurrent corrections pending for the next recheck.
+  while (true) {
+    const rows = await prisma.importerV2WorkspaceRow.findMany({
+      where: { ...where, rowNumber: { gt: afterRowNumber } },
+      orderBy: { rowNumber: 'asc' },
+      take: 200,
+      include: { decisions: { orderBy: { createdAt: 'asc' } } },
     })
-    const snapshot = effective.evaluated as EvaluatedSnapshot
-    const issueState = importerV2WorkspaceIssueState({
-      evaluated: row.evaluated,
-      inclusion: row.inclusion,
-      decisions: row.decisions,
-    })
-    const topology = importerV2TopologyFromDecisions(row.decisions)
-    const isStackMember = topology.role === 'STACK_MEMBER'
-    if (topology.role === 'STACK') stacks += 1
+    if (rows.length === 0) break
+    for (let offset = 0; offset < rows.length; offset += 10) {
+      await Promise.all(
+        rows.slice(offset, offset + 10).map(async (row) => {
+          const effective = importerV2WorkspaceEffectiveEvaluated({
+            evaluated: row.evaluated,
+            inclusion: row.inclusion,
+            decisions: row.decisions,
+          })
+          const snapshot = effective.evaluated as EvaluatedSnapshot
+          const issueState = importerV2WorkspaceIssueState({
+            evaluated: row.evaluated,
+            inclusion: row.inclusion,
+            decisions: row.decisions,
+          })
+          const topology = importerV2TopologyFromDecisions(row.decisions)
+          const isStackMember = topology.role === 'STACK_MEMBER'
 
-    const excludedByDecision = row.decisions.some(
-      (decision) => decision.action === 'EXCLUDE_ROW',
-    )
-    const isExcluded = row.inclusion === 'EXCLUDED' || excludedByDecision
-    const identityNeedsReview = isStackMember
-      ? false
-      : importerV2WorkspaceIdentityNeedsReview({
-          identityResolution: row.identityResolution,
-          decisions: row.decisions,
-        })
-    const suggestionNeedsReview = decisionRequiresManualReview(snapshot)
-    const repeatAmbiguous = !isStackMember && row.repeatClassification === 'AMBIGUOUS'
+          const excludedByDecision = row.decisions.some(
+            (decision) => decision.action === 'EXCLUDE_ROW',
+          )
+          const isExcluded = row.inclusion === 'EXCLUDED' || excludedByDecision
+          const identityNeedsReview = isStackMember
+            ? false
+            : importerV2WorkspaceIdentityNeedsReview({
+                identityResolution: row.identityResolution,
+                decisions: row.decisions,
+              })
+          const suggestionNeedsReview = decisionRequiresManualReview(snapshot)
+          const repeatAmbiguous =
+            !isStackMember && row.repeatClassification === 'AMBIGUOUS'
 
-    let primaryStatus: string
-    if (isExcluded) {
-      primaryStatus = 'EXCLUDED'
-      excluded += 1
-    } else if (
-      issueState.activeErrorCount > 0 ||
-      identityNeedsReview ||
-      suggestionNeedsReview ||
-      repeatAmbiguous
-    ) {
-      primaryStatus = 'NEEDS_REVIEW'
-      review += 1
-    } else if (isStackMember) {
-      primaryStatus = 'STACK_MEMBER'
-      stackMembers += 1
-    } else if (issueState.activeWarningCount > 0) {
-      primaryStatus = 'WARNING'
-      warning += 1
-    } else {
-      primaryStatus = 'VALID'
-      valid += 1
+          let primaryStatus: string
+          if (isExcluded) {
+            primaryStatus = 'EXCLUDED'
+          } else if (
+            issueState.activeErrorCount > 0 ||
+            identityNeedsReview ||
+            suggestionNeedsReview ||
+            repeatAmbiguous
+          ) {
+            primaryStatus = 'NEEDS_REVIEW'
+          } else if (isStackMember) {
+            primaryStatus = 'STACK_MEMBER'
+          } else if (issueState.activeWarningCount > 0) {
+            primaryStatus = 'WARNING'
+          } else {
+            primaryStatus = 'VALID'
+          }
+
+          const statuses = [primaryStatus]
+          if (topology.role === 'STACK' && !statuses.includes('STACK'))
+            statuses.push('STACK')
+          if (isStackMember && issueState.activeWarningCount > 0)
+            statuses.push('WARNING')
+          if (
+            row.repeatClassification &&
+            !isStackMember &&
+            row.repeatClassification !== primaryStatus &&
+            row.repeatClassification !== 'AMBIGUOUS'
+          ) {
+            statuses.push(row.repeatClassification)
+          }
+
+          const updated = await prisma.importerV2WorkspaceRow.updateMany({
+            where: { id: row.id, reviewRevision: row.reviewRevision },
+            data: {
+              inclusion: isExcluded ? 'EXCLUDED' : 'INCLUDED',
+              statuses,
+              primaryStatus,
+              issueCount: issueState.activeIssues.length,
+              hasErrors: issueState.activeErrorCount > 0,
+              needsReevaluation: false,
+              customer: effectiveTarget(snapshot, 'customer'),
+              businessUnit: effectiveTarget(snapshot, 'businessUnit'),
+              site: effectiveTarget(snapshot, 'site'),
+              sourceName:
+                effectiveTarget(snapshot, 'deviceName') ??
+                normalized(snapshot.rawValues?.deviceName),
+              hostname:
+                effectiveTarget(snapshot, 'hostname') ??
+                normalized(snapshot.rawValues?.hostname),
+              vendor: effectiveTarget(snapshot, 'vendor'),
+              deviceType: effectiveTarget(snapshot, 'deviceType'),
+              canonicalModel: effectiveTarget(snapshot, 'model'),
+              productFamily: effectiveTarget(snapshot, 'productFamily'),
+              softwarePlatform: effectiveTarget(snapshot, 'softwarePlatform'),
+              interpretedFirmware: effectiveTarget(snapshot, 'currentFirmware'),
+            },
+          })
+          checked += updated.count
+          if (updated.count) {
+            if (topology.role === 'STACK') stacks += 1
+            if (primaryStatus === 'EXCLUDED') excluded += 1
+            else if (primaryStatus === 'NEEDS_REVIEW') review += 1
+            else if (primaryStatus === 'STACK_MEMBER') stackMembers += 1
+            else if (primaryStatus === 'WARNING') warning += 1
+            else valid += 1
+          }
+        }),
+      )
     }
-
-    const statuses = [primaryStatus]
-    if (topology.role === 'STACK' && !statuses.includes('STACK')) statuses.push('STACK')
-    if (isStackMember && issueState.activeWarningCount > 0) statuses.push('WARNING')
-    if (
-      row.repeatClassification &&
-      !isStackMember &&
-      row.repeatClassification !== primaryStatus &&
-      row.repeatClassification !== 'AMBIGUOUS'
-    ) {
-      statuses.push(row.repeatClassification)
-    }
-
-    await prisma.importerV2WorkspaceRow.update({
-      where: { id: row.id },
-      data: {
-        inclusion: isExcluded ? 'EXCLUDED' : 'INCLUDED',
-        statuses,
-        primaryStatus,
-        issueCount: issueState.activeIssues.length,
-        hasErrors: issueState.activeErrorCount > 0,
-        needsReevaluation: false,
-        customer: effectiveTarget(snapshot, 'customer'),
-        businessUnit: effectiveTarget(snapshot, 'businessUnit'),
-        site: effectiveTarget(snapshot, 'site'),
-        sourceName:
-          effectiveTarget(snapshot, 'deviceName') ??
-          normalized(snapshot.rawValues?.deviceName),
-        hostname:
-          effectiveTarget(snapshot, 'hostname') ??
-          normalized(snapshot.rawValues?.hostname),
-        vendor: effectiveTarget(snapshot, 'vendor'),
-        deviceType: effectiveTarget(snapshot, 'deviceType'),
-        canonicalModel: effectiveTarget(snapshot, 'model'),
-        productFamily: effectiveTarget(snapshot, 'productFamily'),
-        softwarePlatform: effectiveTarget(snapshot, 'softwarePlatform'),
-        interpretedFirmware: effectiveTarget(snapshot, 'currentFirmware'),
-      },
-    })
+    afterRowNumber = rows[rows.length - 1].rowNumber
   }
 
-  if (rows.length > 0) {
+  if (checked > 0) {
     await prisma.importerV2WorkspaceBatch.update({
       where: { id: input.batchId },
       data: { updatedAt: new Date() },
     })
   }
 
-  return { checked: rows.length, valid, warning, review, excluded, stacks, stackMembers }
+  return { checked, valid, warning, review, excluded, stacks, stackMembers }
 }
 
-export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
+export async function initializeImporterV2WorkspaceAutomation(
+  batchId: string,
+  onlyChangedRows = false,
+) {
   const batch = await prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
     where: { id: batchId },
     select: {
@@ -483,7 +481,7 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
       evaluated: true,
     },
   })
-  const ruleBookId = await ensureRuleBook({
+  const ruleBookId = await ensureImporterV2WorkspaceRuleBook({
     batchId,
     provider: batch.provider,
     profileId: batch.profileId,
@@ -547,7 +545,12 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
     })
   }
 
-  const result = await recomputeImporterV2WorkspaceRows({ batchId })
+  const result = await recomputeImporterV2WorkspaceRows({
+    batchId,
+    ...(onlyChangedRows
+      ? { rowIds: [...new Set(fresh.map((decision) => decision.rowId))] }
+      : {}),
+  })
   return {
     ...result,
     automaticDecisionsApplied: fresh.length,
@@ -563,10 +566,14 @@ export async function initializeImporterV2WorkspaceAutomation(batchId: string) {
   }
 }
 
-export async function recheckImporterV2Workspace(batchId: string) {
+export async function recheckImporterV2Workspace(
+  batchId: string,
+  scopeToken?: string,
+) {
   return recomputeImporterV2WorkspaceRows({
     batchId,
     onlyNeedsReevaluation: true,
+    scopeToken,
   })
 }
 
@@ -594,6 +601,8 @@ export async function stageImporterV2XlsxWithAutomation(input: {
   config: ImporterV2XlsxStageConfig
 }) {
   const data = await stageImporterV2Xlsx(input)
-  const automation = await initializeImporterV2WorkspaceAutomation(data.batch.id)
+  const automation = await initializeImporterV2WorkspaceAutomation(
+    data.batch.id,
+  )
   return { ...data, automation }
 }
