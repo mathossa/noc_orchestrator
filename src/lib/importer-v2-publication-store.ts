@@ -7,10 +7,10 @@ import {
   importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
 } from '@/lib/importer-v2-identity'
+import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
 import {
   buildImporterV2PublicationQa,
   importerV2CatalogProposalKey,
-  importerV2CatalogProposalRequiresApproval,
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
