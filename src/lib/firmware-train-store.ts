@@ -146,6 +146,27 @@ async function assertUnique(vendorId: string, platform: string, name: string, ex
   if (conflict) throw new FirmwareTrainConflictError('This firmware train already exists for the selected vendor and platform.')
 }
 
+async function demotePreferredPeers(input: {
+  vendorId: string
+  platform: string
+  excludeId?: string
+}) {
+  const candidates = await prisma.firmwareTrain.findMany({
+    where: { vendorId: input.vendorId, state: 'PREFERRED', isActive: true },
+    select: { id: true, platform: true },
+  })
+  const platform = normalizedFirmwareTrainPlatform(input.platform)
+  const ids = candidates
+    .filter((candidate) => candidate.id !== input.excludeId)
+    .filter((candidate) => normalizedFirmwareTrainPlatform(candidate.platform) === platform)
+    .map((candidate) => candidate.id)
+  if (ids.length === 0) return
+  await prisma.firmwareTrain.updateMany({
+    where: { id: { in: ids } },
+    data: { state: 'ACCEPTED' },
+  })
+}
+
 async function assertReleaseDefaults(input: {
   trainId: string
   vendorKey: string
@@ -275,10 +296,7 @@ export async function createFirmwareTrain(rawInput: unknown) {
     throw new FirmwareTrainReferenceError('Create the train first, then assign its preferred and minimum releases.')
   }
   if (input.state === 'PREFERRED') {
-    await prisma.firmwareTrain.updateMany({
-      where: { vendorId: input.vendorId, platform: input.platform, state: 'PREFERRED', isActive: true },
-      data: { state: 'ACCEPTED' },
-    })
+    await demotePreferredPeers({ vendorId: input.vendorId, platform: input.platform })
   }
   const created = await prisma.firmwareTrain.create({ data: input, include: trainInclude })
   void vendor
@@ -314,15 +332,10 @@ export async function updateFirmwareTrain(id: string, rawInput: unknown) {
   })
 
   if (input.state === 'PREFERRED' && input.isActive) {
-    await prisma.firmwareTrain.updateMany({
-      where: {
-        id: { not: id },
-        vendorId: input.vendorId,
-        platform: input.platform,
-        state: 'PREFERRED',
-        isActive: true,
-      },
-      data: { state: 'ACCEPTED' },
+    await demotePreferredPeers({
+      vendorId: input.vendorId,
+      platform: input.platform,
+      excludeId: id,
     })
   }
   const updated = await prisma.firmwareTrain.update({ where: { id }, data: input, include: trainInclude })
