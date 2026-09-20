@@ -111,13 +111,16 @@ describe('firmware train persistence rules', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    mocks.trainFindMany.mockResolvedValue([{ id: 'train-1', platform: 'FortiOS', name: '8.13.x' }])
+    mocks.trainFindMany.mockResolvedValue([
+      { id: 'train-1', platform: 'FortiOS', name: '8.13.x', state: 'ACCEPTED', isActive: true },
+      { id: 'train-old', platform: ' fortios ', name: '8.12.x', state: 'PREFERRED', isActive: true },
+    ])
     mocks.trainUpdate.mockResolvedValue({ ...storedTrain, state: 'PREFERRED' })
 
     await updateFirmwareTrain('train-1', { state: 'PREFERRED' })
 
     expect(mocks.trainUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: expect.any(Array) } },
+      where: { id: { in: ['train-old'] } },
       data: { state: 'ACCEPTED' },
     })
   })
