@@ -236,6 +236,7 @@ describe('firmware work plan PostgreSQL persistence', () => {
     const raw = {
       deviceIds: [ids.devices[deviceIndex]],
       title: `Plan for device ${deviceIndex}`,
+      externalReference: `CHG-${deviceIndex}`,
       reason: 'Integration planning fixture',
       notes: 'Created through the real planning store.',
       upgradeCapability: 'MANUAL_REVIEW',
@@ -253,6 +254,7 @@ describe('firmware work plan PostgreSQL persistence', () => {
     const created = await store.createFirmwareWorkPlan(raw, preview.token, ids.actor)
     expect(created).toMatchObject({
       state: 'PROPOSED',
+      externalReference: `CHG-${deviceIndex}`,
       createdByUserId: ids.actor,
     })
     expect(created.targets).toHaveLength(1)
