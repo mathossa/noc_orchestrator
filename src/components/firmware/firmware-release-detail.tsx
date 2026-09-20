@@ -69,7 +69,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
       <PageHeader
         eyebrow="Firmware release"
         title={`${release.vendor.name} ${release.version}`}
-        description={`${release.platform} exact catalog entry. Logical grouping, catalog verification, policy eligibility, and model compatibility are deliberately separate.`}
+        description={`${release.platform} exact catalog entry. The catalog keeps the exact vendor identity underneath the train-oriented operational view.`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -113,19 +113,19 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
           detail="Devices whose recorded current firmware points to this exact release."
         />
         <SummaryStat
-          label="Policy targets"
-          value={release.usage.targetPolicies}
-          detail="Policies that explicitly target this exact release."
+          label="Model families"
+          value={release.usage.modelFamilies}
+          detail="Model families currently observed running this exact release."
         />
         <SummaryStat
-          label="Catalog state"
-          value={release.catalogState}
-          detail="Whether the release is observed, verified, blocked, or withdrawn."
+          label="Customers / sites"
+          value={`${release.usage.customers} / ${release.usage.sites}`}
+          detail="Operational spread of devices currently running this release."
         />
         <SummaryStat
-          label="Policy eligibility"
-          value={release.policyEligibility}
-          detail="Independent decision about whether policy may select this release."
+          label="Release decision"
+          value={release.decision === 'NEEDS_REVIEW' ? 'Needs review' : release.decision}
+          detail="Viability is separate from train preferred/minimum policy."
         />
       </div>
 
@@ -175,9 +175,11 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
           <DetailRow label="Variant" value={release.variant ?? '—'} mono />
           <DetailRow label="Image code" value={release.imageCode ?? '—'} mono />
           <DetailRow label="Variant rule" value={release.variantEquivalence} />
+          <DetailRow label="Release decision" value={release.decision === 'NEEDS_REVIEW' ? 'Needs review' : release.decision} />
           <DetailRow label="Catalog state" value={release.catalogState} />
           <DetailRow label="Policy eligibility" value={release.policyEligibility} />
-          <DetailRow label="Legacy status" value={release.status} />
+          <DetailRow label="Policy targets" value={String(release.usage.targetPolicies)} />
+          <DetailRow label="Historical lifecycle targets" value={String(release.usage.lifecycleTargets)} />
           <DetailRow label="Record state" value={release.isActive ? 'Active' : 'Archived'} />
           <DetailRow label="Release date" value={release.releasedAt ? new Date(release.releasedAt).toLocaleDateString() : '—'} />
           <DetailRow label="Filename" value={release.filename ?? '—'} />
@@ -206,6 +208,16 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
             {release.notes}
           </div>
         ) : null}
+        <div className="mt-5 grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Documentation</div>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Reserved for #103 runbooks, release notes, and platform documentation.</p>
+          </div>
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Security</div>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Reserved for #104 advisory and CVE posture without changing catalog identity.</p>
+          </div>
+        </div>
       </section>
     </>
   )
