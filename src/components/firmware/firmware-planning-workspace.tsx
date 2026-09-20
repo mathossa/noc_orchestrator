@@ -266,6 +266,14 @@ function dateTimeLocalToIso(value: string) {
   return parsed.toISOString()
 }
 
+function toLocalDateTimeValue(value: string | null | undefined) {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (!Number.isFinite(parsed.getTime())) return ''
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+}
+
 async function requestJson<T>(
   url: string,
   init?: RequestInit,
@@ -489,11 +497,7 @@ export function FirmwarePlanningWorkspace({
         `/api/v1/firmware-work-plans/${encodeURIComponent(id)}`,
       )
       setDetail(payload.data)
-      setScheduledFor(
-        payload.data.scheduledFor
-          ? new Date(payload.data.scheduledFor).toISOString().slice(0, 16)
-          : '',
-      )
+      setScheduledFor(toLocalDateTimeValue(payload.data.scheduledFor))
       setMaintenanceWindowReference(
         payload.data.maintenanceWindowReference ?? '',
       )
@@ -853,6 +857,24 @@ export function FirmwarePlanningWorkspace({
               ))}
             </SelectInput>
           </FormField>
+          <FormField
+            label="Vendor"
+            htmlFor="plan-vendor-unavailable"
+            description="Requires server-side planning-query support."
+          >
+            <SelectInput id="plan-vendor-unavailable" value="" disabled>
+              <option>Not available yet</option>
+            </SelectInput>
+          </FormField>
+          <FormField
+            label="Model family"
+            htmlFor="plan-family-unavailable"
+            description="Requires server-side planning-query support."
+          >
+            <SelectInput id="plan-family-unavailable" value="" disabled>
+              <option>Not available yet</option>
+            </SelectInput>
+          </FormField>
           <FormField label="State" htmlFor="plan-state">
             <SelectInput
               id="plan-state"
@@ -934,7 +956,7 @@ export function FirmwarePlanningWorkspace({
               Apply filters
             </Button>
             <Button
-              onClick={() => {
+              onClick={() =>
                 setFilters({
                   customerId: '',
                   siteId: '',
@@ -944,11 +966,10 @@ export function FirmwarePlanningWorkspace({
                   scheduledFrom: '',
                   scheduledUntil: '',
                 })
-                setTimeout(() => void loadPlans(1), 0)
-              }}
+              }
               disabled={planLoading}
             >
-              Clear
+              Reset fields
             </Button>
           </div>
           <div className="md:col-span-2 xl:col-span-4">
