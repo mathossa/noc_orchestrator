@@ -1,4 +1,13 @@
+import { firmwareTrainStates, type FirmwareReleaseDecision, type FirmwareTrainState } from '@/lib/firmware-catalog-defaults'
 import type { FirmwareReleaseReference } from '@/lib/firmware-releases'
+
+export type FirmwareTrainReleaseReference = {
+  id: string
+  version: string
+  logicalVersion: string
+  decision: FirmwareReleaseDecision
+  isActive: boolean
+}
 
 export type FirmwareTrainRecord = {
   id: string
@@ -6,6 +15,11 @@ export type FirmwareTrainRecord = {
   vendor: FirmwareReleaseReference
   platform: string
   name: string
+  state: FirmwareTrainState
+  preferredFirmwareReleaseId: string | null
+  minimumAcceptableFirmwareReleaseId: string | null
+  preferredRelease: FirmwareTrainReleaseReference | null
+  minimumAcceptableRelease: FirmwareTrainReleaseReference | null
   notes: string | null
   isActive: boolean
   source: string
@@ -13,17 +27,17 @@ export type FirmwareTrainRecord = {
   externalId: string | null
   lastSynchronizedAt: string | null
   releaseCount: number
+  deviceCount: number
 }
 
 export type FirmwareTrainDetailRecord = FirmwareTrainRecord & {
   createdAt: string
   updatedAt: string
-  releases: Array<{
-    id: string
-    version: string
-    status: string
-    isActive: boolean
+  releases: Array<FirmwareTrainReleaseReference & {
+    catalogState: string
+    policyEligibility: string
     releasedAt: string | null
+    deviceCount: number
   }>
 }
 
@@ -67,6 +81,9 @@ export function parseFirmwareTrainInput(input: unknown) {
   const vendorId = optionalText(body.vendorId) ?? ''
   const platform = cleanFirmwareTrainPlatform(body.platform)
   const name = cleanFirmwareTrainName(body.name)
+  const state = (optionalText(body.state)?.toUpperCase() ?? 'ACCEPTED') as FirmwareTrainState
+  const preferredFirmwareReleaseId = optionalText(body.preferredFirmwareReleaseId)
+  const minimumAcceptableFirmwareReleaseId = optionalText(body.minimumAcceptableFirmwareReleaseId)
   const notes = optionalText(body.notes, false)
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
   const externalProvider = optionalText(body.externalProvider)
@@ -81,6 +98,10 @@ export function parseFirmwareTrainInput(input: unknown) {
   if (!name) errors.name = 'Train name is required.'
   else if (name.length > 160) errors.name = 'Train name must be 160 characters or fewer.'
 
+  if (!firmwareTrainStates.includes(state)) errors.state = 'Choose Preferred, Accepted, or Deprecated.'
+  if (minimumAcceptableFirmwareReleaseId && !preferredFirmwareReleaseId) {
+    errors.minimumAcceptableFirmwareReleaseId = 'Choose a preferred release before setting a minimum acceptable release.'
+  }
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
   if (!['MANUAL', 'API', 'IMPORT'].includes(source)) errors.source = 'Choose MANUAL, API, or IMPORT.'
   if (externalProvider && externalProvider.length > 120) errors.externalProvider = 'External provider must be 120 characters or fewer.'
@@ -92,6 +113,9 @@ export function parseFirmwareTrainInput(input: unknown) {
     vendorId,
     platform,
     name,
+    state,
+    preferredFirmwareReleaseId,
+    minimumAcceptableFirmwareReleaseId,
     notes,
     isActive,
     source,
