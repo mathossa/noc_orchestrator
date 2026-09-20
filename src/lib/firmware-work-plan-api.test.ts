@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest'
+import {
+  FirmwareWorkPlanApiValidationError,
+  parseFirmwareWorkPlanQuery,
+  parseFirmwareWorkPlanTransition,
+} from '@/lib/firmware-work-plan-api'
+
+describe('firmware work plan API boundary', () => {
+  it('parses supported server-side plan filters without inventing vendor filtering', () => {
+    const query = parseFirmwareWorkPlanQuery(
+      new URLSearchParams({
+        state: 'PROPOSED,SCHEDULED',
+        customerId: 'customer-1',
+        siteId: 'site-1',
+        deviceModelId: 'model-1',
+        recommendation: 'update_required',
+        scheduledFrom: '2026-09-20T08:00:00+02:00',
+        scheduledUntil: '2026-09-21T08:00:00+02:00',
+        page: '2',
+        pageSize: '25',
+      }),
+    )
+
+    expect(query).toMatchObject({
+      states: ['PROPOSED', 'SCHEDULED'],
+      customerId: 'customer-1',
+      siteId: 'site-1',
+      deviceModelId: 'model-1',
+      recommendation: 'UPDATE_REQUIRED',
+      page: 2,
+      pageSize: 25,
+    })
+    expect(query.scheduledFrom?.toISOString()).toBe(
+      '2026-09-20T06:00:00.000Z',
+    )
+    expect(query.scheduledUntil?.toISOString()).toBe(
+      '2026-09-21T06:00:00.000Z',
+    )
+    expect(query).not.toHaveProperty('vendorId')
+  })
+
+  it('rejects ambiguous timestamps without a timezone', () => {
+    expect(() =>
+      parseFirmwareWorkPlanTransition({
+        expectedState: 'APPROVED',
+        toState: 'SCHEDULED',
+        expectedUpdatedAt: '2026-09-20T11:00:00Z',
+        scheduledFor: '2026-09-21T22:00:00',
+      }),
+    ).toThrow(FirmwareWorkPlanApiValidationError)
+  })
+
+  it('preserves the intended scheduled instant and optimistic-write context', () => {
+    const transition = parseFirmwareWorkPlanTransition({
+      expectedState: 'APPROVED',
+      toState: 'SCHEDULED',
+      expectedUpdatedAt: '2026-09-20T11:00:00.123Z',
+      scheduledFor: '2026-09-21T22:00:00+02:00',
+      maintenanceWindowReference: 'MW-2026-09-21',
+      reason: 'Approved maintenance',
+    })
+
+    expect(transition.expectedState).toBe('APPROVED')
+    expect(transition.expectedUpdatedAt.toISOString()).toBe(
+      '2026-09-20T11:00:00.123Z',
+    )
+    if (transition.toState !== 'SCHEDULED')
+      throw new Error('Expected scheduled transition.')
+    expect(transition.scheduledFor.toISOString()).toBe(
+      '2026-09-21T20:00:00.000Z',
+    )
+    expect(transition.maintenanceWindowReference).toBe('MW-2026-09-21')
+  })
+
+  it('does not accept scheduling fields on non-scheduling transitions', () => {
+    expect(() =>
+      parseFirmwareWorkPlanTransition({
+        expectedState: 'SCHEDULED',
+        toState: 'IN_PROGRESS',
+        expectedUpdatedAt: '2026-09-20T11:00:00Z',
+        scheduledFor: '2026-09-21T20:00:00Z',
+      }),
+    ).toThrow(/Scheduling fields are only valid/)
+  })
+
+  it('rejects unsupported states and invalid pagination', () => {
+    expect(() =>
+      parseFirmwareWorkPlanQuery(
+        new URLSearchParams({
+          state: 'NOT_A_STATE',
+          page: 'zero',
+        }),
+      ),
+    ).toThrow(FirmwareWorkPlanApiValidationError)
+  })
+})
