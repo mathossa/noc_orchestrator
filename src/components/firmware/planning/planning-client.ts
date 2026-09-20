@@ -259,6 +259,18 @@ export function toggleSelection(values: string[], id: string) {
     : [...values, id]
 }
 
+export function proposalDraftChanged(
+  storedProposedFor: string | null,
+  storedReference: string | null,
+  draftProposedFor: string,
+  draftReference: string,
+) {
+  return (
+    draftProposedFor !== toLocalDateTimeValue(storedProposedFor) ||
+    draftReference !== (storedReference ?? '')
+  )
+}
+
 export function toggleDeviceRecord<T extends { id: string }>(
   current: Record<string, T>,
   device: T,
