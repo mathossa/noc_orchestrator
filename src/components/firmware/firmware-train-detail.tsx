@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SelectInput } from '@/components/ui/form-controls'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
@@ -93,6 +93,26 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
   const allowedReleases = train.releases.filter((release) => release.isActive && release.decision === 'ALLOWED')
   const preferredRelease = train.releases.find((release) => release.id === train.preferredFirmwareReleaseId) ?? null
   const minimumRelease = train.releases.find((release) => release.id === train.minimumAcceptableFirmwareReleaseId) ?? null
+  const logicalReleaseGroups = [...train.releases.reduce((groups, release) => {
+    const group = groups.get(release.logicalVersion)
+    if (group) group.push(release)
+    else groups.set(release.logicalVersion, [release])
+    return groups
+  }, new Map<string, FirmwareTrainDetailRecord['releases']>()).entries()]
+    .map(([logicalVersion, releases]) => {
+      const exact = [...releases].sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true }))
+      const representative =
+        exact.find((release) => release.id === train.preferredFirmwareReleaseId) ??
+        exact.find((release) => release.id === train.minimumAcceptableFirmwareReleaseId) ??
+        exact[0]
+      return {
+        logicalVersion,
+        releases: exact,
+        representative,
+        deviceCount: exact.reduce((total, release) => total + release.deviceCount, 0),
+      }
+    })
+    .sort((a, b) => a.logicalVersion.localeCompare(b.logicalVersion, 'en', { numeric: true }))
 
   return (
     <>
@@ -168,28 +188,60 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
                 <tr><th className="px-4 py-3">Release</th><th className="px-4 py-3">Decision</th><th className="px-4 py-3">Train position</th><th className="px-4 py-3 text-right">Devices</th><th className="px-4 py-3">Record</th></tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {train.releases.map((release) => {
+                {logicalReleaseGroups.map((group) => {
                   const evaluation = evaluateReleaseAgainstTrain({
                     vendorKey: train.vendor.code,
                     platform: train.platform,
-                    release,
+                    release: group.representative,
                     preferredRelease,
                     minimumAcceptableRelease: minimumRelease,
                   })
+                  const decisions = [...new Set(group.releases.map((release) => release.decision))]
+                  const hasExactDetails =
+                    group.releases.length > 1 ||
+                    group.releases.some((release) =>
+                      release.version !== release.logicalVersion || release.imageCode || release.variant,
+                    )
                   return (
-                    <tr key={release.id} className={release.isActive ? '' : 'opacity-60'}>
-                      <td className="px-4 py-3">
-                        <Link href={`/firmware/${release.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{release.logicalVersion}</Link>
-                        {release.version !== release.logicalVersion ? <div className="mt-1 font-mono text-xs text-[var(--muted)]">{release.version}</div> : null}
-                      </td>
-                      <td className="px-4 py-3">{release.decision === 'NEEDS_REVIEW' ? 'Needs review' : labelState(release.decision)}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{evaluation.position.replaceAll('_', ' ')}</div>
-                        <div className="mt-1 max-w-xl text-xs text-[var(--muted)]">{evaluation.reason}</div>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">{release.deviceCount}</td>
-                      <td className="px-4 py-3 text-xs">{release.isActive ? 'Active' : 'Archived'}</td>
-                    </tr>
+                    <Fragment key={group.logicalVersion}>
+                      <tr>
+                        <td className="px-4 py-3">
+                          <Link href={`/firmware/${group.representative.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{group.logicalVersion}</Link>
+                          <div className="mt-1 text-xs text-[var(--muted)]">{group.releases.length} exact variant{group.releases.length === 1 ? '' : 's'}</div>
+                        </td>
+                        <td className="px-4 py-3">{decisions.map((decision) => decision === 'NEEDS_REVIEW' ? 'Needs review' : labelState(decision)).join(' / ')}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{evaluation.position.replaceAll('_', ' ')}</div>
+                          <div className="mt-1 max-w-xl text-xs text-[var(--muted)]">{evaluation.reason}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">{group.deviceCount}</td>
+                        <td className="px-4 py-3 text-xs">{group.releases.every((release) => release.isActive) ? 'Active' : 'Includes archived'}</td>
+                      </tr>
+                      {hasExactDetails ? (
+                        <tr>
+                          <td colSpan={5} className="bg-[var(--surface-raised)] px-4 py-2">
+                            <details>
+                              <summary className="cursor-pointer text-xs font-semibold text-[var(--muted-strong)]">Exact images / variants</summary>
+                              <div className="mt-2 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface)]">
+                                {group.releases.map((release) => (
+                                  <div key={release.id} className={`flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs ${release.isActive ? '' : 'opacity-60'}`}>
+                                    <div>
+                                      <Link href={`/firmware/${release.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link>
+                                      <span className="ml-2 text-[var(--muted)]">
+                                        {[release.imageCode ? `image ${release.imageCode}` : null, release.variant ? `variant ${release.variant}` : null].filter(Boolean).join(' · ') || 'exact identity'}
+                                      </span>
+                                    </div>
+                                    <div className="text-[var(--muted)]">
+                                      {release.decision === 'NEEDS_REVIEW' ? 'Needs review' : labelState(release.decision)} · {release.deviceCount} device{release.deviceCount === 1 ? '' : 's'}{release.isActive ? '' : ' · archived'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   )
                 })}
               </tbody>
