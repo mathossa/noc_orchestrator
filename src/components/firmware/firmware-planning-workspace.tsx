@@ -347,7 +347,6 @@ export function FirmwarePlanningWorkspace({
   const [referenceError, setReferenceError] = useState('')
   const [deviceRows, setDeviceRows] = useState<DevicePayload | null>(null)
   const [deviceLoading, setDeviceLoading] = useState(true)
-  const [devicePage, setDevicePage] = useState(1)
   const [deviceFilters, setDeviceFilters] = useState({
     q: '',
     customer: '',
@@ -383,10 +382,13 @@ export function FirmwarePlanningWorkspace({
   const [timeZone, setTimeZone] = useState('browser local time')
 
   useEffect(() => {
-    setTimeZone(
-      Intl.DateTimeFormat().resolvedOptions().timeZone ||
-        'browser local time',
-    )
+    const handle = window.setTimeout(() => {
+      setTimeZone(
+        Intl.DateTimeFormat().resolvedOptions().timeZone ||
+          'browser local time',
+      )
+    }, 0)
+    return () => window.clearTimeout(handle)
   }, [])
 
   const loadPlans = useCallback(
@@ -439,7 +441,8 @@ export function FirmwarePlanningWorkspace({
   )
 
   useEffect(() => {
-    void loadPlans(1)
+    const handle = window.setTimeout(() => void loadPlans(1), 0)
+    return () => window.clearTimeout(handle)
   }, [loadPlans])
 
   const loadReferences = useCallback(async () => {
@@ -469,7 +472,8 @@ export function FirmwarePlanningWorkspace({
   }, [])
 
   useEffect(() => {
-    void loadReferences()
+    const handle = window.setTimeout(() => void loadReferences(), 0)
+    return () => window.clearTimeout(handle)
   }, [loadReferences])
 
   const loadDevices = useCallback(
@@ -488,7 +492,6 @@ export function FirmwarePlanningWorkspace({
           `/api/v1/devices?${params}`,
         )
         setDeviceRows(payload)
-        setDevicePage(payload.meta.pagination.page)
       } catch (error) {
         setCreationError(
           error instanceof Error ? error.message : 'Could not load devices.',
