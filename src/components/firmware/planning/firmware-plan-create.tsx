@@ -59,6 +59,7 @@ export function FirmwarePlanCreate() {
   const [siteSearch, setSiteSearch] = useState('')
   const [creation, setCreation] = useState({
     title: '',
+    externalReference: '',
     reason: '',
     notes: '',
     proposedFor: '',
@@ -242,6 +243,7 @@ export function FirmwarePlanCreate() {
     return {
       deviceIds,
       title: creation.title || null,
+      externalReference: creation.externalReference || null,
       reason: creation.reason || null,
       notes: creation.notes || null,
       proposedFor: creation.proposedFor
@@ -545,7 +547,7 @@ export function FirmwarePlanCreate() {
         title="2. Proposal"
         description="The proposed maintenance date and reference are part of the customer proposal. A draft may still be created without a date."
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <FormField label="Plan title" htmlFor="plan-title">
             <TextInput
               id="plan-title"
@@ -554,6 +556,20 @@ export function FirmwarePlanCreate() {
                 updateCreation('title', event.target.value)
               }
               placeholder="Quarterly firmware maintenance"
+            />
+          </FormField>
+          <FormField
+            label="External reference"
+            htmlFor="plan-external-reference"
+            description="Optional ticket, change, or customer reference."
+          >
+            <TextInput
+              id="plan-external-reference"
+              value={creation.externalReference}
+              onChange={(event) =>
+                updateCreation('externalReference', event.target.value)
+              }
+              placeholder="CHG000123 / ticket / customer ref"
             />
           </FormField>
           <FormField
