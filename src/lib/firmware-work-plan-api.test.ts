@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   firmwareWorkPlanApiError,
   FirmwareWorkPlanApiValidationError,
+  parseFirmwareWorkPlanBulkTransition,
   parseFirmwareWorkPlanProposalAmendment,
   parseFirmwareWorkPlanQuery,
   parseFirmwareWorkPlanTransition,
@@ -91,6 +92,77 @@ describe('firmware work plan API boundary', () => {
     if (transition.toState !== 'SCHEDULED')
       throw new Error('Expected scheduled transition.')
     expect(transition.scheduledFor).toBeUndefined()
+  })
+
+  it('parses atomic bulk transitions with per-plan optimistic context', () => {
+    const transition = parseFirmwareWorkPlanBulkTransition({
+      items: [
+        {
+          id: 'plan-1',
+          expectedState: 'APPROVED',
+          expectedUpdatedAt: '2026-09-20T11:00:00.123Z',
+        },
+        {
+          id: 'plan-2',
+          expectedState: 'AWAITING_CUSTOMER',
+          expectedUpdatedAt: '2026-09-20T11:05:00.456Z',
+        },
+      ],
+      toState: 'SCHEDULED',
+      reason: 'Customer windows confirmed',
+    })
+
+    expect(transition).toEqual({
+      items: [
+        {
+          id: 'plan-1',
+          expectedState: 'APPROVED',
+          expectedUpdatedAt: new Date('2026-09-20T11:00:00.123Z'),
+        },
+        {
+          id: 'plan-2',
+          expectedState: 'AWAITING_CUSTOMER',
+          expectedUpdatedAt: new Date('2026-09-20T11:05:00.456Z'),
+        },
+      ],
+      toState: 'SCHEDULED',
+      reason: 'Customer windows confirmed',
+      notes: undefined,
+    })
+  })
+
+  it('rejects duplicate bulk selections and per-request scheduling overrides', () => {
+    expect(() =>
+      parseFirmwareWorkPlanBulkTransition({
+        items: [
+          {
+            id: 'plan-1',
+            expectedState: 'APPROVED',
+            expectedUpdatedAt: '2026-09-20T11:00:00Z',
+          },
+          {
+            id: 'plan-1',
+            expectedState: 'APPROVED',
+            expectedUpdatedAt: '2026-09-20T11:00:00Z',
+          },
+        ],
+        toState: 'SCHEDULED',
+      }),
+    ).toThrow(/unique/)
+
+    expect(() =>
+      parseFirmwareWorkPlanBulkTransition({
+        items: [
+          {
+            id: 'plan-1',
+            expectedState: 'APPROVED',
+            expectedUpdatedAt: '2026-09-20T11:00:00Z',
+          },
+        ],
+        toState: 'SCHEDULED',
+        scheduledFor: '2026-10-01T20:00:00Z',
+      }),
+    ).toThrow(/stored proposed window/)
   })
 
   it('parses an audited proposal amendment with an explicit timezone', () => {
