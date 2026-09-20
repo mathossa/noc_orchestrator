@@ -12,6 +12,7 @@ import {
   groupPreviewTargets,
   groupScopeDevices,
   resolveSiteScopeDevices,
+  toggleDeviceRecord,
   toggleSelection,
 } from './planning-client'
 
@@ -145,6 +146,22 @@ describe('plan-centric planning helpers', () => {
     expect(toggleSelection(['site-a', 'site-b'], 'site-a')).toEqual([
       'site-b',
     ])
+  })
+
+  it('retains arbitrary individual-device selections independently of list pages', () => {
+    const first = device('device-one')
+    const second = device('device-two')
+    const selected = toggleDeviceRecord(
+      toggleDeviceRecord({}, first),
+      second,
+    )
+    expect(Object.keys(selected).sort()).toEqual([
+      'device-one',
+      'device-two',
+    ])
+    expect(toggleDeviceRecord(selected, first)).not.toHaveProperty(
+      'device-one',
+    )
   })
 
   it('uses canonical DeviceType IDs for the switch + access-point convenience', () => {
