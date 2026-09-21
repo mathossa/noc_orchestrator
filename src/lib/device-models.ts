@@ -72,6 +72,13 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     unknown: number
     noPolicy: number
   }
+  effectiveCatalogDefaults: Array<{
+    releaseId: string
+    version: string
+    platform: string
+    trainName: string
+    deviceCount: number
+  }>
   desiredFirmware: {
     available: true
     policyId: string | null
