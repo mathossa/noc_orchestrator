@@ -264,7 +264,8 @@ function ReleaseCompatibilityModelRow({ item }: { item: ReleaseCompatibilityView
 export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: string }) {
   const [data, setData] = useState<ReleaseCompatibilityView | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showCompatible, setShowCompatible] = useState(false)
+  const [modelQuery, setModelQuery] = useState('')
+  const [showAllCompatible, setShowAllCompatible] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -280,65 +281,96 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
     return () => { cancelled = true }
   }, [releaseId])
 
-  const attentionModels = data?.models.filter(({ result }) => result.status !== 'COMPATIBLE') ?? []
   const compatibleModels = data?.models.filter(({ result }) => result.status === 'COMPATIBLE') ?? []
+  const visibleCompatibleModels = showAllCompatible ? compatibleModels : compatibleModels.slice(0, 8)
+  const normalizedQuery = modelQuery.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+  const searchedModels = normalizedQuery
+    ? (data?.models ?? []).filter(({ model }) =>
+        model.model.normalize('NFKC').toLocaleLowerCase('en-US').includes(normalizedQuery),
+      )
+    : []
 
   return (
     <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-      <h2 className="text-lg font-semibold text-[var(--foreground)]">Model compatibility</h2>
-      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-        Start with exceptions: incompatible and unknown models are shown immediately. Compatible models stay collapsed so a large imported model catalog does not dominate this page.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--foreground)]">Model compatibility</h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+            Models already compatible with this release are shown first. Use search only when you want to check another same-vendor model.
+          </p>
+        </div>
+        {data ? (
+          <div className="text-xs text-[var(--muted)]">
+            {data.counts.compatible} compatible · {data.models.length} same-vendor models checked
+          </div>
+        ) : null}
+      </div>
+
       {error ? <div className="mt-4 text-sm text-red-300">{error}</div> : null}
       {data ? (
         <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <CompatCount label="Compatible" value={data.counts.compatible} />
-            <CompatCount label="Incompatible" value={data.counts.incompatible} />
-            <CompatCount label="Unknown" value={data.counts.unknown} />
-          </div>
-
-          <div className="mt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-4 rounded-md border border-[var(--border)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2">
               <div>
-                <h3 className="text-sm font-semibold">Needs attention</h3>
-                <p className="mt-1 text-xs text-[var(--muted)]">Only incompatible or unresolved models are expanded by default.</p>
+                <h3 className="text-sm font-semibold">Compatible models</h3>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">Only models this release is known to support.</p>
               </div>
-              {compatibleModels.length > 0 ? (
+              {compatibleModels.length > 8 ? (
                 <button
                   type="button"
-                  onClick={() => setShowCompatible((value) => !value)}
+                  onClick={() => setShowAllCompatible((value) => !value)}
                   className="text-xs font-semibold text-[var(--accent-light)] hover:underline"
                 >
-                  {showCompatible ? 'Hide compatible models' : `Show ${compatibleModels.length} compatible model${compatibleModels.length === 1 ? '' : 's'}`}
+                  {showAllCompatible ? 'Show fewer' : `Show all ${compatibleModels.length}`}
                 </button>
               ) : null}
             </div>
-
-            <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
-              {attentionModels.length === 0 ? (
-                <div className="p-4 text-sm text-[var(--muted)]">
-                  No compatibility exceptions need attention for this release.
-                </div>
+            <div className="divide-y divide-[var(--border)]">
+              {visibleCompatibleModels.length === 0 ? (
+                <div className="p-3 text-sm text-[var(--muted)]">No compatible model is currently proven for this release.</div>
               ) : (
-                attentionModels.map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)
+                visibleCompatibleModels.map((item) => (
+                  <div key={item.model.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+                    <Link href={`/models/${item.model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">
+                      {item.model.model}
+                    </Link>
+                    <span className="text-xs font-semibold text-emerald-300">Compatible</span>
+                  </div>
+                ))
               )}
             </div>
+          </div>
 
-            {showCompatible && compatibleModels.length > 0 ? (
-              <div className="mt-4">
-                <h3 className="text-sm font-semibold">Compatible models</h3>
-                <div className="mt-2 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
-                  {compatibleModels.map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)}
-                </div>
+          <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <label htmlFor="release-model-compatibility-search" className="text-sm font-semibold">
+              Check another model
+            </label>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+              Search the vendor model catalog when you specifically need to know whether this release can run on another model. Unrelated models are not expanded by default.
+            </p>
+            <input
+              id="release-model-compatibility-search"
+              type="search"
+              value={modelQuery}
+              onChange={(event) => setModelQuery(event.target.value)}
+              placeholder="Search model…"
+              className="mt-3 w-full max-w-md rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm"
+            />
+
+            {normalizedQuery ? (
+              <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface)]">
+                {searchedModels.length === 0 ? (
+                  <div className="p-3 text-sm text-[var(--muted)]">No matching model.</div>
+                ) : (
+                  searchedModels.slice(0, 20).map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)
+                )}
               </div>
             ) : null}
           </div>
         </>
       ) : !error ? <div className="mt-4 text-sm text-[var(--muted)]">Loading compatibility…</div> : null}
     </section>
-  )
-}
+  )}
 
 function CompatCount({ label, value }: { label: string; value: number }) {
   return <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</div><div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div></div>
