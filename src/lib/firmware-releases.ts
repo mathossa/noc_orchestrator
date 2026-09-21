@@ -226,6 +226,7 @@ export function parseFirmwareReleaseInput(input: unknown) {
   if (!vendorId) errors.vendorId = 'Vendor is required.'
   if (!platform) errors.platform = 'Platform or firmware family is required.'
   else if (platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
+  else if (/[,;]/.test(platform)) errors.platform = 'A firmware release must belong to one platform. Use model compatibility for multi-platform support.'
 
   if (!version) errors.version = 'Version is required.'
   else if (version.length > 160) errors.version = 'Version must be 160 characters or fewer.'
