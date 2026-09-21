@@ -245,6 +245,22 @@ export function ModelFirmwareCompatibilityPanel({ modelId }: { modelId: string }
   )
 }
 
+function ReleaseCompatibilityModelRow({ item }: { item: ReleaseCompatibilityView['models'][number] }) {
+  const { model, result } = item
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 p-3">
+      <div>
+        <Link href={`/models/${model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{model.model}</Link>
+        <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{result.provenance.explanation}</p>
+      </div>
+      <div className="text-right">
+        <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
+        <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
+      </div>
+    </div>
+  )
+}
+
 export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: string }) {
   const [data, setData] = useState<ReleaseCompatibilityView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -266,22 +282,6 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
 
   const attentionModels = data?.models.filter(({ result }) => result.status !== 'COMPATIBLE') ?? []
   const compatibleModels = data?.models.filter(({ result }) => result.status === 'COMPATIBLE') ?? []
-
-  function ModelRow({ item }: { item: ReleaseCompatibilityView['models'][number] }) {
-    const { model, result } = item
-    return (
-      <div className="flex flex-wrap items-start justify-between gap-3 p-3">
-        <div>
-          <Link href={`/models/${model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{model.model}</Link>
-          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{result.provenance.explanation}</p>
-        </div>
-        <div className="text-right">
-          <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
-          <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
@@ -321,7 +321,7 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
                   No compatibility exceptions need attention for this release.
                 </div>
               ) : (
-                attentionModels.map((item) => <ModelRow key={item.model.id} item={item} />)
+                attentionModels.map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)
               )}
             </div>
 
@@ -329,7 +329,7 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
               <div className="mt-4">
                 <h3 className="text-sm font-semibold">Compatible models</h3>
                 <div className="mt-2 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
-                  {compatibleModels.map((item) => <ModelRow key={item.model.id} item={item} />)}
+                  {compatibleModels.map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)}
                 </div>
               </div>
             ) : null}
