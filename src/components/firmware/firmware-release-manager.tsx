@@ -479,8 +479,8 @@ export function FirmwareReleaseManager() {
                           <tr key={train.id} className={train.isActive ? '' : 'opacity-60'}>
                             <td className="px-4 py-3"><Link href={`/firmware/trains/${train.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{train.name}</Link></td>
                             <td className="px-4 py-3"><span className={train.state === 'PREFERRED' ? 'font-semibold text-emerald-300' : train.state === 'DEPRECATED' ? 'text-amber-300' : ''}>{train.state[0] + train.state.slice(1).toLowerCase()}</span></td>
-                            <td className="px-4 py-3 font-mono text-xs">{train.preferredRelease?.logicalVersion ?? train.preferredRelease?.version ?? '—'}</td>
-                            <td className="px-4 py-3 font-mono text-xs">{train.minimumAcceptableRelease?.logicalVersion ?? train.minimumAcceptableRelease?.version ?? '—'}</td>
+                            <td className="px-4 py-3 font-mono text-xs">{train.preferredRelease ? <Link href={`/firmware/${train.preferredRelease.id}`} className="text-[var(--accent-light)] hover:underline">{train.preferredRelease.logicalVersion ?? train.preferredRelease.version}</Link> : '—'}</td>
+                            <td className="px-4 py-3 font-mono text-xs">{train.minimumAcceptableRelease ? <Link href={`/firmware/${train.minimumAcceptableRelease.id}`} className="text-[var(--accent-light)] hover:underline">{train.minimumAcceptableRelease.logicalVersion ?? train.minimumAcceptableRelease.version}</Link> : '—'}</td>
                             <td className="px-4 py-3 text-right tabular-nums">{train.deviceCount}</td>
                           </tr>
                         ))}
