@@ -249,7 +249,7 @@ export function DesiredFirmwareEditor({
       <div className="grid gap-5 p-4 lg:grid-cols-2">
         <div>
           <h3 className="text-xs font-semibold uppercase text-[var(--muted)]">
-            Saved model baseline
+            Model override
           </h3>
           {p.policyId ? (
             <dl className="mt-3 space-y-2 text-sm">
@@ -482,14 +482,28 @@ export function DesiredFirmwareEditor({
             >
               {saving ? 'Saving…' : 'Save model override'}
             </button>
-            <button
-              type="button"
-              disabled={saving || !p.policyId}
-              onClick={() => void save(true)}
-              className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Remove model override
-            </button>
+            {p.policyId ? (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save(true)}
+                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Remove model override
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setOverrideOpen(false)
+                  setError(null)
+                }}
+                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            )}
           </div>
           {error ? (
             <p role="alert" className="text-sm text-red-300">
