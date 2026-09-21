@@ -96,6 +96,7 @@ export function parseFirmwareTrainInput(input: unknown) {
   if (!vendorId) errors.vendorId = 'Vendor is required.'
   if (!platform) errors.platform = 'Platform or firmware family is required.'
   else if (platform.length > 160) errors.platform = 'Platform must be 160 characters or fewer.'
+  else if (/[,;]/.test(platform)) errors.platform = 'A firmware train must belong to one platform. Models may support multiple platforms.'
 
   if (!name) errors.name = 'Train name is required.'
   else if (name.length > 160) errors.name = 'Train name must be 160 characters or fewer.'
