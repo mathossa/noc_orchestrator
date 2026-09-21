@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { releaseDecisionFromCatalogSemantics } from '@/lib/firmware-catalog-defaults'
 import {
+  FirmwareReleaseValidationError,
   normalizedFirmwarePlatform,
   parseFirmwareReleaseInput,
   type FirmwareReleaseRecord,
@@ -214,6 +215,12 @@ export async function getFirmwareRelease(id: string) {
 
 export async function createFirmwareRelease(rawInput: unknown) {
   const input = parseFirmwareReleaseInput(rawInput)
+  if (/[,;]/.test(input.platform)) {
+    throw new FirmwareReleaseValidationError(
+      'Please correct the highlighted fields.',
+      { platform: 'A firmware release must belong to one platform. Use model compatibility for multi-platform support.' },
+    )
+  }
   await assertVendor(input.vendorId)
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version)
