@@ -185,17 +185,21 @@ export function FirmwareReleaseManager() {
   }, [trains, selected, showArchived])
 
   const selectedReleases = useMemo(() => {
+    if (reviewOnly) {
+      return records.filter(
+        (release) => release.isActive && release.decision === 'NEEDS_REVIEW',
+      )
+    }
     if (!selected) return []
     return records
       .filter((release) => platformKey(release.vendorId, release.platform) === selected.key)
       .filter((release) => showArchived || release.isActive)
-      .filter((release) => !reviewOnly || release.decision === 'NEEDS_REVIEW')
   }, [records, selected, showArchived, reviewOnly])
 
   const releaseGroups = useMemo(() => {
     const groups = new Map<string, FirmwareReleaseRecord[]>()
     for (const release of selectedReleases) {
-      const key = `${release.firmwareTrainId ?? 'unassigned'}::${release.logicalVersion}`
+      const key = `${platformKey(release.vendorId, release.platform)}::${release.firmwareTrainId ?? 'unassigned'}::${release.logicalVersion}`
       const group = groups.get(key)
       if (group) group.push(release)
       else groups.set(key, [release])
@@ -203,6 +207,8 @@ export function FirmwareReleaseManager() {
     return [...groups.entries()]
       .map(([key, releases]) => ({
         key,
+        vendorName: releases[0].vendor.name,
+        platform: releases[0].platform,
         logicalVersion: releases[0].logicalVersion,
         trainName: releases[0].firmwareTrain?.name ?? 'Unassigned train',
         releases: releases.sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true })),
@@ -351,7 +357,15 @@ export function FirmwareReleaseManager() {
       {reviewCount > 0 ? (
         <button
           type="button"
-          onClick={() => setReviewOnly((value) => !value)}
+          onClick={() => {
+            setReviewOnly((value) => !value)
+            setAddOpen(false)
+            if (!reviewOnly) {
+              window.requestAnimationFrame(() => {
+                document.getElementById('firmware-release-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              })
+            }
+          }}
           className="mb-4 flex w-full items-center justify-between rounded-md border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-left text-sm text-amber-200"
         >
           <span><strong>{reviewCount} firmware release{reviewCount === 1 ? '' : 's'} {reviewCount === 1 ? 'needs' : 'need'} review</strong> · imported observations never become allowed or preferred automatically.</span>
@@ -476,11 +490,11 @@ export function FirmwareReleaseManager() {
                 )}
               </section>
 
-              <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <section id="firmware-release-list" className="scroll-mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
                   <div>
-                    <h2 className="text-sm font-semibold">{reviewOnly ? 'Releases needing review' : 'Releases'}</h2>
-                    <p className="mt-1 text-xs text-[var(--muted)]">Exact variants stay canonical underneath the engineer-facing logical release.</p>
+                    <h2 className="text-sm font-semibold">{reviewOnly ? 'Releases needing review · all platforms' : 'Releases'}</h2>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{reviewOnly ? 'Global review queue. Imported observations never become Allowed or Preferred automatically.' : 'Exact variants stay canonical underneath the engineer-facing logical release.'}</p>
                   </div>
                   {reviewOnly ? <button type="button" className="text-xs font-semibold text-[var(--accent-light)] hover:underline" onClick={() => setReviewOnly(false)}>Show all platform releases</button> : null}
                 </div>
@@ -492,13 +506,18 @@ export function FirmwareReleaseManager() {
                           <div>
                             <Link href={`/firmware/${group.releases[0].id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{group.logicalVersion}</Link>
                             <div className="mt-1 text-xs text-[var(--muted)]">
-                              {group.trainName} · {group.releases.length} exact variant{group.releases.length === 1 ? '' : 's'}
+                              {reviewOnly ? `${group.vendorName} · ${group.platform} · ` : ''}{group.trainName} · {group.releases.length} exact variant{group.releases.length === 1 ? '' : 's'}
                             </div>
                           </div>
                         </div>
                         <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
                           {group.releases.map((release) => {
-                            const matchingTrains = selectedTrains.filter((train) => train.isActive)
+                            const matchingTrains = trains.filter(
+                              (train) =>
+                                train.isActive &&
+                                platformKey(train.vendorId, train.platform) ===
+                                  platformKey(release.vendorId, release.platform),
+                            )
                             const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
                             return (
                               <div key={release.id} className={`p-3 ${release.isActive ? '' : 'opacity-60'}`}>
