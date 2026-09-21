@@ -373,6 +373,3 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
   )
 }
 
-function CompatCount({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</div><div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div></div>
-}
