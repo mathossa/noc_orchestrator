@@ -107,6 +107,37 @@ describe('batch firmware compliance integration', () => {
     })
   })
 
+  it('uses the observed firmware platform for catalog defaults on multi-platform models', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.devices.mockResolvedValue([
+      {
+        ...device(),
+        deviceModel: {
+          ...device().deviceModel,
+          platform: 'IOS XE, NX-OS',
+        },
+      },
+    ])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'train',
+        vendorId: 'synthetic-vendor',
+        platform: 'IOS XE',
+        name: '17.15',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '17.15.5',
+        minimumAcceptableFirmwareReleaseId: '17.12.5',
+      },
+    ])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'ACCEPTED',
+      policySource: { scope: 'CATALOG', trackName: '17.15' },
+      preferredTarget: { id: '17.15.5' },
+      minimum: { id: '17.12.5' },
+    })
+  })
+
   it('falls back from an incompatible preferred train to a known-compatible Accepted train', async () => {
     mocks.policies.mockResolvedValue([])
     mocks.devices.mockResolvedValue([{ ...device(), currentFirmwareReleaseId: '17.12.5' }])
