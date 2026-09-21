@@ -268,6 +268,13 @@ export async function getDeviceModel(id: string) {
   const workflowCounts = { planned: 0, ignored: 0, customerDeclined: 0, done: 0, undecided: 0 }
   const complianceByDevice = await resolveFirmwareComplianceBatch(record.devices.map((device) => device.id))
   const technicalStateCounts = emptyTechnicalFirmwareStateCounts()
+  const catalogDefaultMap = new Map<string, {
+    releaseId: string
+    version: string
+    platform: string
+    trainName: string
+    deviceCount: number
+  }>()
 
   for (const device of record.devices) {
     const customer = customerMap.get(device.customer.id)
@@ -286,10 +293,25 @@ export async function getDeviceModel(id: string) {
       })
     }
 
+    const compliance = complianceByDevice.get(device.id)!
     incrementTechnicalFirmwareStateCount(
       technicalStateCounts,
-      resolveTechnicalFirmwareState(complianceByDevice.get(device.id)!),
+      resolveTechnicalFirmwareState(compliance),
     )
+    if (compliance.policySource?.scope === 'CATALOG' && compliance.preferredTarget) {
+      const key = compliance.preferredTarget.id
+      const current = catalogDefaultMap.get(key)
+      if (current) current.deviceCount += 1
+      else {
+        catalogDefaultMap.set(key, {
+          releaseId: compliance.preferredTarget.id,
+          version: compliance.preferredTarget.version,
+          platform: compliance.preferredTarget.platform,
+          trainName: compliance.policySource.trackName,
+          deviceCount: 1,
+        })
+      }
+    }
 
     switch (device.lifecycle?.state) {
       case 'PLANNED': workflowCounts.planned += 1; break
@@ -313,6 +335,9 @@ export async function getDeviceModel(id: string) {
     firmwareDistribution: [...firmwareMap.values()].sort((a, b) => b.deviceCount - a.deviceCount),
     workflowCounts,
     technicalStateCounts,
+    effectiveCatalogDefaults: [...catalogDefaultMap.values()].sort(
+      (a, b) => b.deviceCount - a.deviceCount || a.version.localeCompare(b.version, 'en', { numeric: true }),
+    ),
     desiredFirmware: {
       available: true as const,
       policyId: desiredPolicy?.id ?? null,
