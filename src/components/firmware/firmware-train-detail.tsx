@@ -136,12 +136,11 @@ export function FirmwareTrainDetail({ trainId }: { trainId: string }) {
         eyebrow={`${train.vendor.name} · ${train.platform}`}
         title={train.name}
         description="Global train defaults. Scoped Customer, Site, Device, and deliberate model-family deviations remain firmware policy."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/firmware" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Firmware catalog</Link>
-            <Link href="/firmware/trains" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage trains</Link>
-          </div>
-        }
+        breadcrumbs={[
+          { label: 'Firmware catalog', href: '/firmware' },
+          { label: 'Trains', href: '/firmware/trains' },
+          { label: train.name },
+        ]}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
