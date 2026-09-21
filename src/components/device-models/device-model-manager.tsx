@@ -503,7 +503,10 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
         eyebrow="Firmware catalog"
         title="Device models"
         description="Manage concrete hardware variants, supported firmware platforms, vendor families / series, and optional model-level firmware overrides."
-        actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>}
+        breadcrumbs={[
+          { label: 'Firmware catalog', href: '/firmware' },
+          { label: 'Device models' },
+        ]}
       />
 
       {message ? (
