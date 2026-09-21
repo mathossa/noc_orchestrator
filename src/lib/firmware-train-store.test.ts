@@ -76,6 +76,16 @@ describe('firmware train persistence rules', () => {
     expect(result.releaseCount).toBe(0)
   })
 
+  it('rejects creating a train with a combined platform capability list', async () => {
+    await expect(createFirmwareTrain({
+      vendorId: 'vendor-1',
+      platform: 'AOS-8, AOS-10',
+      name: '8.10',
+    })).rejects.toThrow('A firmware train must belong to one platform.')
+
+    expect(mocks.trainCreate).not.toHaveBeenCalled()
+  })
+
   it('rejects normalized duplicate train names in the same vendor/platform', async () => {
     mocks.trainFindMany.mockResolvedValue([{ id: 'existing', platform: ' fortios ', name: '8.13.X' }])
     await expect(createFirmwareTrain({ vendorId: 'vendor-1', platform: 'FortiOS', name: '8.13.x' })).rejects.toBeInstanceOf(FirmwareTrainConflictError)
