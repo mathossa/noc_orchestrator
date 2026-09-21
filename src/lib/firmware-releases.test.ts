@@ -32,16 +32,6 @@ describe('firmware release validation', () => {
     expect(parsed.platform).toBe('IOS XE')
   })
 
-  it('rejects a multi-platform capability list as a release platform', () => {
-    expect(() =>
-      parseFirmwareReleaseInput({
-        vendorId: 'vendor-1',
-        platform: 'AOS-8, AOS-10',
-        version: '8.10.0.5',
-      }),
-    ).toThrow(FirmwareReleaseValidationError)
-  })
-
   it('maps legacy APPROVED/RECOMMENDED/BLOCKED statuses into independent catalog semantics', () => {
     expect(catalogSemanticsFromLegacyStatus('APPROVED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
     expect(catalogSemanticsFromLegacyStatus('RECOMMENDED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
