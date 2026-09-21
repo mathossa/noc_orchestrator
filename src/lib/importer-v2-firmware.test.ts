@@ -194,6 +194,24 @@ describe('Importer v2 deterministic firmware interpreter', () => {
     expect(result.compatibility.status).toBe('COMPATIBLE')
   })
 
+  it('does not publish a comma-separated capability list as one observed firmware platform', () => {
+    const result = interpretImporterV2Firmware(
+      {
+        vendor: 'Example Networks',
+        model: 'Example AP',
+        softwarePlatform: 'AOS-8, AOS-10',
+        softwareVersion: '8.10.0.5',
+      },
+      {
+        compatibilityVersion: 'compat-v1',
+        compatibilityRules: [],
+      },
+    )
+
+    expect(result.proposedSoftwarePlatform).toBeNull()
+    expect(result.compatibility.status).toBe('NOT_APPLICABLE')
+  })
+
   it('does not classify a multi-platform Aruba model from model name alone', () => {
     const result = interpretImporterV2Firmware(
       {
