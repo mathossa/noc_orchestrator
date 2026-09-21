@@ -154,11 +154,18 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         eyebrow="Firmware release"
         title={`${release.vendor.name} ${release.version}`}
         description={`${release.platform} exact catalog entry. Operational state first; exact vendor identity and provenance remain available below.`}
+        breadcrumbs={[
+          { label: 'Firmware catalog', href: '/firmware' },
+          ...(release.firmwareTrain
+            ? [{ label: release.firmwareTrain.name, href: `/firmware/trains/${release.firmwareTrain.id}` }]
+            : []),
+          { label: release.version },
+        ]}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 setEditing((value) => !value)
                 setEditError(null)
@@ -172,20 +179,6 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
               className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
             >
               Devices currently on release
-            </Link>
-            {release.firmwareTrain ? (
-              <Link
-                href={`/firmware/trains/${release.firmwareTrain.id}`}
-                className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
-              >
-                View {release.firmwareTrain.name}
-              </Link>
-            ) : null}
-            <Link
-              href="/firmware"
-              className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]"
-            >
-              Firmware catalog
             </Link>
           </div>
         }
