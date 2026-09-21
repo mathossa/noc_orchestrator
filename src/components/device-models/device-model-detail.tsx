@@ -65,6 +65,27 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
 
   const desired = model.desiredFirmware.release
   const devicesHref = `/devices?model=${encodeURIComponent(model.id)}`
+  const catalogDefaults = model.effectiveCatalogDefaults
+  const desiredValue = model.desiredFirmware.policyId
+    ? desired?.version ?? model.desiredFirmware.firmwareTrain?.name ?? 'Unresolved override'
+    : catalogDefaults.length === 1
+      ? (
+          <Link href={`/firmware/${catalogDefaults[0].releaseId}`} className="text-[var(--accent-light)] hover:underline">
+            {catalogDefaults[0].version}
+          </Link>
+        )
+      : catalogDefaults.length > 1
+        ? `${catalogDefaults.length} catalog defaults`
+        : 'Catalog default'
+  const desiredDetail = model.desiredFirmware.policyId
+    ? `${model.desiredFirmware.policyMode} model override`
+    : catalogDefaults.length === 1
+      ? `Inherited · ${catalogDefaults[0].platform} · ${catalogDefaults[0].trainName} · ${catalogDefaults[0].deviceCount} device${catalogDefaults[0].deviceCount === 1 ? '' : 's'}`
+      : catalogDefaults.length > 1
+        ? 'Inherited automatically per device from its observed supported platform.'
+        : model.deviceCount > 0
+          ? 'Catalog default is unresolved for the currently observed device state.'
+          : 'No model override; devices will inherit the Firmware Catalog default for their observed supported platform.'
 
   return (
     <>
@@ -72,14 +93,14 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
         eyebrow={`${model.vendor.name}${model.family ? ` · ${model.family.name}` : ''} · ${model.deviceType.name}`}
         title={model.model}
         description="Concrete model firmware lifecycle context. Supported platforms, desired policy, and current firmware remain separate but connected." 
-        actions={<div className="flex flex-wrap gap-2"><Link href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`} className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
+        actions={<div className="flex flex-wrap gap-2"><Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link><Link href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`} className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat label="Devices" value={<Link href={devicesHref} className="text-[var(--accent-light)] hover:underline">{model.deviceCount}</Link>} detail="Inventory records using this concrete model." />
         <SummaryStat label="No action recommended" value={model.technicalStateCounts.current} detail="Devices whose effective policy recommends no action." />
         <SummaryStat label="Action required" value={model.technicalStateCounts.actionRequired} detail="Devices with an update, migration, or review recommendation." />
-        <SummaryStat label="Desired firmware" value={desired?.version ?? model.desiredFirmware.firmwareTrain?.name ?? 'None'} detail={model.desiredFirmware.policyId ? `${model.desiredFirmware.policyMode} model baseline` : 'No model-level desired policy.'} />
+        <SummaryStat label="Effective firmware target" value={desiredValue} detail={desiredDetail} />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
