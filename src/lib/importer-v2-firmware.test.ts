@@ -165,6 +165,35 @@ describe('Importer v2 deterministic firmware interpreter', () => {
     },
   )
 
+  it('treats HPE Networking as Aruba and resolves a broad AOS-8/AOS-10 source to the observed major version', () => {
+    const hpeContext: ImporterV2FirmwareInterpretationContext = {
+      ...context,
+      compatibilityRules: [
+        ...context.compatibilityRules,
+        {
+          id: 'hpe-ap305',
+          vendor: 'HPE Networking',
+          model: 'Aruba AP-305',
+          platforms: ['AOS-8', 'AOS-10'],
+        },
+      ],
+    }
+    const result = interpretImporterV2Firmware(
+      {
+        vendor: 'HPE Networking',
+        model: 'Aruba AP-305',
+        sourceDeviceType: 'Access Point',
+        softwarePlatform: 'AOS-8, AOS-10',
+        softwareVersion: '8.10.0.5',
+      },
+      hpeContext,
+    )
+
+    expect(result.proposedSoftwarePlatform).toBe('AOS-8')
+    expect(result.platformEvidence).toBe('VERSION_EVIDENCE')
+    expect(result.compatibility.status).toBe('COMPATIBLE')
+  })
+
   it('does not classify a multi-platform Aruba model from model name alone', () => {
     const result = interpretImporterV2Firmware(
       {
