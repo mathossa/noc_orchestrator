@@ -111,6 +111,16 @@ describe('firmware release persistence rules', () => {
     expect(mocks.policyCount).not.toHaveBeenCalled()
   })
 
+  it('rejects creating a release with a combined platform capability list', async () => {
+    await expect(createFirmwareRelease({
+      vendorId: 'vendor-1',
+      platform: 'AOS-8, AOS-10',
+      version: '8.10.0.5',
+    })).rejects.toThrow('A firmware release must belong to one platform.')
+
+    expect(mocks.releaseCreate).not.toHaveBeenCalled()
+  })
+
   it('persists derived Aruba image identity without collapsing the exact version', async () => {
     mocks.releaseCreate.mockResolvedValue({
       ...storedRelease,
