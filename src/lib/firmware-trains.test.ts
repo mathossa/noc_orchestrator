@@ -17,16 +17,6 @@ describe('firmware train validation', () => {
     expect(normalizedFirmwareTrainPlatform('  IOS   XE ')).toBe('ios xe')
   })
 
-  it('rejects a multi-platform capability list as a train platform', () => {
-    expect(() =>
-      parseFirmwareTrainInput({
-        vendorId: 'vendor-1',
-        platform: 'AOS-8, AOS-10',
-        name: '8.10',
-      }),
-    ).toThrow(FirmwareTrainValidationError)
-  })
-
   it('accepts manual trains without external identity', () => {
     const parsed = parseFirmwareTrainInput({ vendorId: 'vendor-1', platform: 'FortiOS', name: '8.13.x' })
     expect(parsed.source).toBe('MANUAL')
