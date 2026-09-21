@@ -220,9 +220,23 @@ export async function resolveFirmwareComplianceBatch(
     model: (typeof devices)[number]['deviceModel'],
     rules: FirmwareCompatibilityRule[],
     overrides: FirmwareCompatibilityOverride[],
+    currentFirmware: ComplianceRelease | null,
   ): FirmwarePolicyResolution {
     const platforms = supportedFirmwarePlatforms(model.platform)
-    if (platforms.length !== 1) {
+    const currentPlatformKey =
+      currentFirmware?.vendorId === model.vendorId
+        ? normalizedFirmwarePlatform(currentFirmware.platform)
+        : ''
+    const currentSupportedPlatform = currentPlatformKey
+      ? platforms.find(
+          (platform) =>
+            normalizedFirmwarePlatform(platform) === currentPlatformKey,
+        ) ?? null
+      : null
+    const platform =
+      currentSupportedPlatform ?? (platforms.length === 1 ? platforms[0] : null)
+
+    if (!platform) {
       return {
         status: 'UNRESOLVED',
         policy: null,
@@ -230,7 +244,6 @@ export async function resolveFirmwareComplianceBatch(
         unresolvedReason: 'CATALOG_PLATFORM_UNRESOLVED',
       }
     }
-    const platform = platforms[0]
     const rows = catalogTrainsByPlatform.get(
       JSON.stringify([model.vendorId, normalizedFirmwarePlatform(platform)]),
     ) ?? []
@@ -360,9 +373,26 @@ export async function resolveFirmwareComplianceBatch(
       ...(rulesByFamily.get(model.familyId ?? '') ?? []),
     ]
     const overrides = overridesByModel.get(model.id) ?? []
+
+    let currentFirmware =
+      releaseById.get(device.currentFirmwareReleaseId ?? '') ?? null
+    if (!currentFirmware) {
+      const observedResolution = resolveObservedFirmwareRelease({
+        vendorId: model.vendorId,
+        observedVersion:
+          device.currentFirmwareNormalizedVersion ??
+          device.currentFirmwareRawVersion,
+        supportedPlatforms: supportedFirmwarePlatforms(model.platform),
+        releases,
+      })
+      if (observedResolution.status === 'MATCHED') {
+        currentFirmware = observedResolution.release
+      }
+    }
+
     const effectivePolicy =
       scopedPolicy.status === 'UNRESOLVED' && scopedPolicy.unresolvedReason === 'NO_POLICY'
-        ? catalogDefaultPolicyForModel(model, rules, overrides)
+        ? catalogDefaultPolicyForModel(model, rules, overrides, currentFirmware)
         : scopedPolicy
     const policy = effectivePolicy.policy
     let preferredTarget =
@@ -384,22 +414,6 @@ export async function resolveFirmwareComplianceBatch(
       }
       preferredTarget = moving.release
       targetReason = moving.reason
-    }
-
-    let currentFirmware =
-      releaseById.get(device.currentFirmwareReleaseId ?? '') ?? null
-    if (!currentFirmware) {
-      const observedResolution = resolveObservedFirmwareRelease({
-        vendorId: model.vendorId,
-        observedVersion:
-          device.currentFirmwareNormalizedVersion ??
-          device.currentFirmwareRawVersion,
-        supportedPlatforms: supportedFirmwarePlatforms(model.platform),
-        releases,
-      })
-      if (observedResolution.status === 'MATCHED') {
-        currentFirmware = observedResolution.release
-      }
     }
 
     const observedKey = JSON.stringify([model.id, currentFirmware?.id])
