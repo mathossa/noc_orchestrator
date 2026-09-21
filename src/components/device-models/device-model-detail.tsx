@@ -92,8 +92,13 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
       <PageHeader
         eyebrow={`${model.vendor.name}${model.family ? ` · ${model.family.name}` : ''} · ${model.deviceType.name}`}
         title={model.model}
-        description="Concrete model firmware lifecycle context. Supported platforms, desired policy, and current firmware remain separate but connected." 
-        actions={<div className="flex flex-wrap gap-2"><Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link><Link href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`} className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link><Link href="/models" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage models</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
+        description="Concrete model firmware lifecycle context. Supported platforms, desired policy, and current firmware remain separate but connected."
+        breadcrumbs={[
+          { label: 'Firmware catalog', href: '/firmware' },
+          { label: 'Device models', href: '/models' },
+          { label: model.model },
+        ]}
+        actions={<div className="flex flex-wrap gap-2"><Link href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Exceptions</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
