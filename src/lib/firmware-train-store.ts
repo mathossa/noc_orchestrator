@@ -4,6 +4,7 @@ import {
   type FirmwareReleaseDecision,
 } from '@/lib/firmware-catalog-defaults'
 import {
+  FirmwareTrainValidationError,
   normalizedFirmwareTrainName,
   normalizedFirmwareTrainPlatform,
   parseFirmwareTrainInput,
@@ -290,6 +291,12 @@ export async function getFirmwareTrain(id: string) {
 
 export async function createFirmwareTrain(rawInput: unknown) {
   const input = parseFirmwareTrainInput(rawInput)
+  if (/[,;]/.test(input.platform)) {
+    throw new FirmwareTrainValidationError(
+      'Please correct the highlighted fields.',
+      { platform: 'A firmware train must belong to one platform. Models may support multiple platforms.' },
+    )
+  }
   const vendor = await assertVendor(input.vendorId)
   await assertUnique(input.vendorId, input.platform, input.name)
   if (input.preferredFirmwareReleaseId || input.minimumAcceptableFirmwareReleaseId) {
