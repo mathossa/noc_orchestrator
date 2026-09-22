@@ -257,9 +257,10 @@ model DeviceModel {
   vendorId     String
   deviceTypeId String
   familyId     String?
-  model        String
-  platform     String?
-  notes        String?
+  model             String
+  platform          String?
+  preferredPlatform String?
+  notes             String?
   isActive     Boolean @default(true)
 
   // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
@@ -284,6 +285,7 @@ model DeviceModel {
   @@index([deviceTypeId])
   @@index([familyId])
   @@index([platform])
+  @@index([preferredPlatform])
   @@index([source])
   @@index([isActive])
 }
