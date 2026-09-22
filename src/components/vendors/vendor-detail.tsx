@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
+import { ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -45,8 +46,8 @@ export function VendorDetail({ vendorId }: { vendorId: string }) {
       <PageHeader
         eyebrow="Vendor"
         title={vendor.name}
-        description="Firmware-focused vendor context across concrete models, recorded devices, desired state, workflow decisions, and catalog releases."
-        actions={<div className="flex flex-wrap gap-2"><Link href="/vendors" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage vendors</Link><Link href={allDevicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Vendor devices</Link></div>}
+        breadcrumbs={[{ label: 'Vendors', href: '/vendors' }, { label: vendor.name }]}
+        actions={<ButtonLink href={allDevicesHref} variant="primary">Vendor devices</ButtonLink>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

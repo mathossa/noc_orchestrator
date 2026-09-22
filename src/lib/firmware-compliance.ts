@@ -170,11 +170,13 @@ export function resolveFirmwareCompliance(
 
   if (
     !isFirmwarePolicyEligible(preferred) ||
-    (input.resolvedTarget && !isFirmwarePolicyEligible(input.resolvedTarget))
+    (input.resolvedTarget && !isFirmwarePolicyEligible(input.resolvedTarget)) ||
+    (minimum && !isFirmwarePolicyEligible(minimum)) ||
+    (maximum && !isFirmwarePolicyEligible(maximum))
   ) {
     return finish(
       'TARGET_UNRESOLVED',
-      'The preferred or resolved exact target is archived, blocked, withdrawn, or no longer policy-eligible.',
+      'A preferred, boundary, or resolved exact target is archived, blocked, withdrawn, or no longer policy-eligible.',
       relation,
     )
   }

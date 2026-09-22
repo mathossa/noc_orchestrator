@@ -34,11 +34,36 @@ describe('firmware release validation', () => {
 
   it('maps legacy APPROVED/RECOMMENDED/BLOCKED statuses into independent catalog semantics', () => {
     expect(catalogSemanticsFromLegacyStatus('APPROVED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
-    expect(catalogSemanticsFromLegacyStatus('RECOMMENDED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'PREFERRED' })
+    expect(catalogSemanticsFromLegacyStatus('RECOMMENDED')).toEqual({ catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' })
     expect(catalogSemanticsFromLegacyStatus('BLOCKED')).toEqual({ catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED' })
+    expect(catalogSemanticsFromLegacyStatus('DEPRECATED')).toEqual({ catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED' })
   })
 
-  it('forces blocked or withdrawn releases to be policy-disallowed', () => {
+  it('accepts the simplified release decision vocabulary without creating a preferred release status', () => {
+    expect(parseFirmwareReleaseInput({
+      vendorId: 'vendor-1',
+      platform: 'IOS XE',
+      version: '17.15.5',
+      decision: 'ALLOWED',
+    })).toMatchObject({
+      catalogState: 'VERIFIED',
+      policyEligibility: 'ALLOWED',
+      decision: 'ALLOWED',
+      status: 'APPROVED',
+    })
+    expect(parseFirmwareReleaseInput({
+      vendorId: 'vendor-1',
+      platform: 'IOS XE',
+      version: '17.15.6',
+      decision: 'NEEDS_REVIEW',
+    })).toMatchObject({
+      catalogState: 'OBSERVED',
+      policyEligibility: 'NOT_EVALUATED',
+      decision: 'NEEDS_REVIEW',
+    })
+  })
+
+    it('forces blocked or withdrawn releases to be policy-disallowed', () => {
     const parsed = parseFirmwareReleaseInput({
       vendorId: 'vendor-1',
       platform: 'IOS XE',

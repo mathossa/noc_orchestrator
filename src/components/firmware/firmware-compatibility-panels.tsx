@@ -8,6 +8,12 @@ type ApiError = { error?: { message?: string } }
 type ModelCompatibilityView = {
   model: { id: string; model: string; familyId: string | null; vendorId: string }
   supportedPlatforms: string[]
+  catalogFallbacks: Array<{
+    platform: string
+    resolution:
+      | { status: 'RESOLVED'; source: 'EXPLICIT_OVERRIDE' | 'PLATFORM_PREFERRED' | 'ACCEPTED_FALLBACK'; explanation: string; train: { id: string; name: string } }
+      | { status: 'REVIEW_REQUIRED' | 'NO_COMPATIBLE_TRAIN'; source: null; explanation: string; train: null }
+  }>
   rules: Array<{
     id: string
     inherited: boolean
@@ -46,7 +52,7 @@ type ReleaseCompatibilityView = {
   release: { id: string; version: string; platform: string; imageCode: string | null }
   counts: { compatible: number; incompatible: number; unknown: number }
   models: Array<{
-    model: { id: string; model: string; platform: string | null }
+    model: { id: string; model: string; platform: string | null; supportedPlatforms: string[] }
     result: {
       status: 'COMPATIBLE' | 'INCOMPATIBLE' | 'UNKNOWN'
       provenance: { kind: string; sourceType: string; explanation: string; inherited: boolean }
@@ -163,8 +169,23 @@ export function ModelFirmwareCompatibilityPanel({ modelId }: { modelId: string }
             <div className="space-y-5">
               <div>
                 <h3 className="text-sm font-semibold">Evidence and provenance</h3>
+                {data.catalogFallbacks.length > 0 ? (
+                  <div className="mb-4 grid gap-2">
+                    {data.catalogFallbacks.map(({ platform, resolution }) => (
+                      <div key={platform} className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold">{platform}</span>
+                          <span className={`text-xs font-semibold ${resolution.status === 'RESOLVED' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                            {resolution.status === 'RESOLVED' ? `Default train: ${resolution.train.name}` : 'Review required'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{resolution.explanation}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {data.rules.length === 0 ? (
-                  <p className="mt-2 text-sm text-[var(--muted)]">No explicit compatibility evidence is configured. Unmatched firmware remains UNKNOWN.</p>
+                  <p className="mt-2 text-sm text-[var(--muted)]">No explicit compatibility exception is configured. Matching model platforms inherit catalog compatibility; unmatched platforms remain UNKNOWN.</p>
                 ) : (
                   <div className="mt-2 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
                     {data.rules.map((rule) => (
@@ -224,9 +245,56 @@ export function ModelFirmwareCompatibilityPanel({ modelId }: { modelId: string }
   )
 }
 
+function ReleaseCompatibilityModelRow({
+  item,
+  releasePlatform,
+  adding,
+  onAdd,
+}: {
+  item: ReleaseCompatibilityView['models'][number]
+  releasePlatform: string
+  adding: boolean
+  onAdd: () => void
+}) {
+  const { model, result } = item
+  const supportsReleasePlatform = model.supportedPlatforms.some(
+    (platform) =>
+      platform.normalize('NFKC').trim().toLocaleLowerCase('en-US') ===
+      releasePlatform.normalize('NFKC').trim().toLocaleLowerCase('en-US'),
+  )
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 p-3">
+      <div>
+        <Link href={`/models/${model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{model.model}</Link>
+        <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{result.provenance.explanation}</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
+          <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
+        </div>
+        {!supportsReleasePlatform ? (
+          <button
+            type="button"
+            disabled={adding}
+            onClick={onAdd}
+            className="inline-flex h-8 items-center rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2.5 text-xs font-semibold hover:bg-[var(--surface-muted)] disabled:opacity-50"
+          >
+            {adding ? 'Adding…' : 'Add model'}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: string }) {
   const [data, setData] = useState<ReleaseCompatibilityView | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [modelQuery, setModelQuery] = useState('')
+  const [showAllCompatible, setShowAllCompatible] = useState(false)
+  const [addingModelId, setAddingModelId] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -242,27 +310,133 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
     return () => { cancelled = true }
   }, [releaseId])
 
+  const compatibleModels = data?.models.filter(({ result }) => result.status === 'COMPATIBLE') ?? []
+  const visibleCompatibleModels = showAllCompatible ? compatibleModels : compatibleModels.slice(0, 8)
+  const normalizedQuery = modelQuery.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+  const searchedModels = normalizedQuery
+    ? (data?.models ?? []).filter(({ model }) =>
+        model.model.normalize('NFKC').toLocaleLowerCase('en-US').includes(normalizedQuery),
+      )
+    : []
+
+  async function addModelPlatform(item: ReleaseCompatibilityView['models'][number]) {
+    if (!data) return
+    setAddingModelId(item.model.id)
+    setError(null)
+    setActionMessage(null)
+    try {
+      const supportedPlatforms = [...item.model.supportedPlatforms]
+      if (!supportedPlatforms.some(
+        (platform) =>
+          platform.normalize('NFKC').trim().toLocaleLowerCase('en-US') ===
+          data.release.platform.normalize('NFKC').trim().toLocaleLowerCase('en-US'),
+      )) {
+        supportedPlatforms.push(data.release.platform)
+      }
+      const response = await fetch(`/api/v1/models/${item.model.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ supportedPlatforms }),
+      })
+      const payload = (await response.json()) as ApiError
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Model compatibility could not be updated.')
+      const refreshed = await fetch(`/api/v1/firmware-releases/${releaseId}/compatibility`, { cache: 'no-store' })
+      const refreshedPayload = (await refreshed.json()) as { data?: ReleaseCompatibilityView } & ApiError
+      if (!refreshed.ok || !refreshedPayload.data) throw new Error(refreshedPayload.error?.message ?? 'Compatibility could not be reloaded.')
+      setData(refreshedPayload.data)
+      setActionMessage(`${item.model.model} now supports ${data.release.platform}.`)
+    } catch (actionError: unknown) {
+      setError(actionError instanceof Error ? actionError.message : 'Model compatibility could not be updated.')
+    } finally {
+      setAddingModelId(null)
+    }
+  }
+
   return (
     <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-      <h2 className="text-lg font-semibold text-[var(--foreground)]">Model compatibility</h2>
-      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">Compatibility for this canonical release. COMPATIBLE and INCOMPATIBLE come from explicit evidence; UNKNOWN means support has not been established yet.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--foreground)]">Model compatibility</h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+            Models already compatible with this release are shown first. Use search only when you want to check another same-vendor model.
+          </p>
+        </div>
+        {data ? (
+          <div className="text-xs text-[var(--muted)]">
+            {data.counts.compatible} compatible · {data.models.length} same-vendor models checked
+          </div>
+        ) : null}
+      </div>
+
       {error ? <div className="mt-4 text-sm text-red-300">{error}</div> : null}
+      {actionMessage ? <div className="mt-4 text-sm text-emerald-300">{actionMessage}</div> : null}
       {data ? (
         <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3"><CompatCount label="Compatible" value={data.counts.compatible} /><CompatCount label="Incompatible" value={data.counts.incompatible} /><CompatCount label="Unknown" value={data.counts.unknown} /></div>
-          <div className="mt-4 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
-            {data.models.length === 0 ? <div className="p-4 text-sm text-[var(--muted)]">No active models exist for this vendor.</div> : data.models.map(({ model, result }) => (
-              <div key={model.id} className="flex flex-wrap items-start justify-between gap-3 p-3">
-                <div>
-                  <Link href={`/models/${model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{model.model}</Link>
-                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{result.provenance.explanation}</p>
-                </div>
-                <div className="text-right">
-                  <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
-                  <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
-                </div>
+          <div className="mt-4 rounded-md border border-[var(--border)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2">
+              <div>
+                <h3 className="text-sm font-semibold">Compatible models</h3>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">Only models this release is known to support.</p>
               </div>
-            ))}
+              {compatibleModels.length > 8 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCompatible((value) => !value)}
+                  className="text-xs font-semibold text-[var(--accent-light)] hover:underline"
+                >
+                  {showAllCompatible ? 'Show fewer' : `Show all ${compatibleModels.length}`}
+                </button>
+              ) : null}
+            </div>
+            <div className="divide-y divide-[var(--border)]">
+              {visibleCompatibleModels.length === 0 ? (
+                <div className="p-3 text-sm text-[var(--muted)]">No compatible model is currently proven for this release.</div>
+              ) : (
+                visibleCompatibleModels.map((item) => (
+                  <div key={item.model.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+                    <Link href={`/models/${item.model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">
+                      {item.model.model}
+                    </Link>
+                    <span className="text-xs font-semibold text-emerald-300">Compatible</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <label htmlFor="release-model-compatibility-search" className="text-sm font-semibold">
+              Check another model
+            </label>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+              Search the vendor model catalog when you specifically need to know whether this release can run on another model. Unrelated models are not expanded by default.
+            </p>
+            <input
+              id="release-model-compatibility-search"
+              type="search"
+              value={modelQuery}
+              onChange={(event) => setModelQuery(event.target.value)}
+              placeholder="Search model…"
+              className="mt-3 w-full max-w-md rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm"
+            />
+
+            {normalizedQuery ? (
+              <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface)]">
+                {searchedModels.length === 0 ? (
+                  <div className="p-3 text-sm text-[var(--muted)]">No matching model.</div>
+                ) : (
+                  searchedModels.slice(0, 20).map((item) => (
+                    <ReleaseCompatibilityModelRow
+                      key={item.model.id}
+                      item={item}
+                      releasePlatform={data.release.platform}
+                      adding={addingModelId === item.model.id}
+                      onAdd={() => void addModelPlatform(item)}
+                    />
+                  ))
+                )}
+              </div>
+            ) : null}
           </div>
         </>
       ) : !error ? <div className="mt-4 text-sm text-[var(--muted)]">Loading compatibility…</div> : null}
@@ -270,6 +444,3 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
   )
 }
 
-function CompatCount({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</div><div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div></div>
-}

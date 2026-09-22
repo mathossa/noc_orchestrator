@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DeviceFilterBar } from '@/components/devices/device-filter-bar'
-import { Button } from '@/components/ui/button'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -89,6 +89,14 @@ function observedCurrentFirmwareVersion(record: DeviceRecord) {
     record.currentFirmwareRawVersion ??
     null
   )
+}
+
+function firmwareTargetSource(record: DeviceQueryRecord) {
+  const source = record.firmwareCompliance.policySource
+  if (!source) return null
+  if (source.scope === 'CATALOG') return `Catalog default · ${source.trackName}`
+  const label = source.scope.charAt(0) + source.scope.slice(1).toLowerCase()
+  return `${label} policy · ${source.trackName}`
 }
 
 export function DeviceManager({
@@ -312,14 +320,7 @@ export function DeviceManager({
       <PageHeader
         eyebrow="Recorded inventory"
         title="Devices"
-        description="Filter and group recorded inventory across technical firmware state, accepted operational exceptions, planning, contract, and provenance."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/firmware/exceptions" className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
-            <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>
-            <Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button>
-          </div>
-        }
+        actions={<><ButtonLink href="/firmware/exceptions">Exceptions</ButtonLink><ButtonLink href="/firmware">Firmware catalog</ButtonLink><Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button></>}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
@@ -475,9 +476,9 @@ export function DeviceManager({
                       <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
                         <td className="px-4 py-3"><Link href={`/devices/${record.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.hostname ?? record.managementAddress ?? 'No hostname/address'}</div></td>
                         <td className="px-4 py-3"><Link href={`/customers/${record.customer.id}`} className="font-medium hover:text-[var(--accent-light)]">{record.customer.name}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.site ? `${record.site.organizationUnit?.name ?? 'Ungrouped'} / ${record.site.name}` : 'No site'}</div></td>
-                        <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · {record.deviceModel.model}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name} · {record.deviceModel.supportedPlatforms.length ? record.deviceModel.supportedPlatforms.join(', ') : 'platform support unknown'}</div></td>
+                        <td className="px-4 py-3"><div>{record.deviceModel.vendor.name} · <Link href={`/models/${record.deviceModel.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{record.deviceModel.model}</Link></div><div className="mt-1 text-xs text-[var(--muted)]">{record.deviceModel.deviceType.name} · {record.deviceModel.supportedPlatforms.length ? record.deviceModel.supportedPlatforms.join(', ') : 'platform support unknown'}</div></td>
                         <td className="px-4 py-3">{record.currentFirmwareRelease ? <><Link href={`/firmware/${record.currentFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.currentFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'}</div></> : observedCurrentFirmwareVersion(record) ? <><span className="font-mono font-semibold text-[var(--foreground)]">{observedCurrentFirmwareVersion(record)}</span><div className="mt-1 text-xs text-[var(--muted)]">{record.currentFirmwareSource}{record.currentFirmwareObservedAt ? ` · ${new Date(record.currentFirmwareObservedAt).toLocaleDateString()}` : ' · age unknown'} · catalog link unresolved</div></> : <span className="text-[var(--muted)]">Unknown</span>}</td>
-                        <td className="px-4 py-3">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link> : <span className="text-[var(--muted)]">No policy</span>}</td>
+                        <td className="px-4 py-3">{record.desiredFirmwareRelease ? <><Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{firmwareTargetSource(record) ?? 'Resolved target'}</div></> : record.firmwareCompliance.policySource ? <><span className="text-[var(--muted-strong)]">Target unresolved</span><div className="mt-1 text-xs text-[var(--muted)]">{firmwareTargetSource(record)}</div></> : <span className="text-[var(--muted)]">No policy</span>}</td>
                         <td className="px-4 py-3"><FirmwareComplianceStatus result={record.firmwareCompliance} /></td>
                         <td className="px-4 py-3"><DeviceOperationalDecision deviceId={record.id} summary={record.exceptionSummary} /></td>
                         <td className="px-4 py-3">{record.lifecycle ? <WorkflowStatusBadge state={record.lifecycle.state} /> : <span className="text-xs text-[var(--muted)]">No plan</span>}</td>

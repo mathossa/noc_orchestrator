@@ -1,114 +1,114 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Button } from '@/components/ui/button'
+import { useMemo, useState, useEffect, type FormEvent } from 'react'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
-import {
-  firmwareCatalogStates,
-  firmwarePolicyEligibilities,
-  firmwareVariantEquivalenceModes,
-  type FirmwareReleaseFieldErrors,
-  type FirmwareReleaseRecord,
-  type FirmwareReleaseReference,
-  type FirmwareReleaseTrainReference,
+import type {
+  FirmwareReleaseFieldErrors,
+  FirmwareReleaseRecord,
 } from '@/lib/firmware-releases'
+import type { FirmwareTrainRecord } from '@/lib/firmware-trains'
+import { firmwareReleaseDecisions } from '@/lib/firmware-catalog-defaults'
 
 type ApiError = { error?: { message?: string; fields?: FirmwareReleaseFieldErrors } }
-type CatalogPayload = {
-  data?: FirmwareReleaseRecord[]
-  meta?: { vendors?: FirmwareReleaseReference[]; trains?: FirmwareReleaseTrainReference[] }
-} & ApiError
+type ReleasePayload = { data?: FirmwareReleaseRecord[] } & ApiError
+type TrainPayload = { data?: FirmwareTrainRecord[] } & ApiError
 
-type FormState = {
+type PlatformKey = string
+
+type AddForm = {
   vendorId: string
-  firmwareTrainId: string
   platform: string
+  firmwareTrainId: string
   version: string
+  decision: string
+  makePreferred: boolean
   logicalVersion: string
   variant: string
   imageCode: string
-  catalogState: string
-  policyEligibility: string
-  variantEquivalence: string
-  filename: string
-  sha256: string
-  fileSizeBytes: string
   releaseNotesUrl: string
-  releasedAt: string
   notes: string
-  source: string
-  externalProvider: string
-  externalId: string
-  isActive: boolean
 }
 
-const initialForm: FormState = {
+const emptyAddForm: AddForm = {
   vendorId: '',
-  firmwareTrainId: '',
   platform: '',
+  firmwareTrainId: '',
   version: '',
+  decision: 'ALLOWED',
+  makePreferred: false,
   logicalVersion: '',
   variant: '',
   imageCode: '',
-  catalogState: 'VERIFIED',
-  policyEligibility: 'NOT_EVALUATED',
-  variantEquivalence: 'EXACT_ONLY',
-  filename: '',
-  sha256: '',
-  fileSizeBytes: '',
   releaseNotesUrl: '',
-  releasedAt: '',
   notes: '',
-  source: 'MANUAL',
-  externalProvider: '',
-  externalId: '',
-  isActive: true,
-}
-
-function formatBytes(value: string | null) {
-  if (!value) return '—'
-  const bytes = Number(value)
-  if (!Number.isFinite(bytes)) return `${value} bytes`
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
-  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`
-}
-
-function dateInputValue(value: string | null) {
-  return value ? value.slice(0, 10) : ''
 }
 
 function normalized(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+}
+
+function platformKey(vendorId: string, platform: string): PlatformKey {
+  return `${vendorId}::${normalized(platform)}`
+}
+
+function decisionLabel(decision: FirmwareReleaseRecord['decision']) {
+  if (decision === 'NEEDS_REVIEW') return 'Needs review'
+  if (decision === 'ALLOWED') return 'Allowed'
+  if (decision === 'BLOCKED') return 'Blocked'
+  return 'Withdrawn'
+}
+
+function decisionClass(decision: FirmwareReleaseRecord['decision']) {
+  if (decision === 'ALLOWED') return 'text-emerald-300'
+  if (decision === 'NEEDS_REVIEW') return 'text-amber-300'
+  return 'text-red-300'
+}
+
+async function fetchCatalog() {
+  const [releaseResponse, trainResponse] = await Promise.all([
+    fetch('/api/v1/firmware-releases', { cache: 'no-store' }),
+    fetch('/api/v1/firmware-trains', { cache: 'no-store' }),
+  ])
+  const releases = (await releaseResponse.json()) as ReleasePayload
+  const trainData = (await trainResponse.json()) as TrainPayload
+  if (!releaseResponse.ok) throw new Error(releases.error?.message ?? 'Firmware catalog could not be loaded.')
+  if (!trainResponse.ok) throw new Error(trainData.error?.message ?? 'Firmware trains could not be loaded.')
+  return {
+    records: releases.data ?? [],
+    trains: trainData.data ?? [],
+  }
 }
 
 export function FirmwareReleaseManager() {
   const [records, setRecords] = useState<FirmwareReleaseRecord[]>([])
-  const [vendors, setVendors] = useState<FirmwareReleaseReference[]>([])
-  const [trains, setTrains] = useState<FirmwareReleaseTrainReference[]>([])
-  const [form, setForm] = useState<FormState>(initialForm)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [trains, setTrains] = useState<FirmwareTrainRecord[]>([])
+  const [selectedKey, setSelectedKey] = useState<PlatformKey | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [reviewOnly, setReviewOnly] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [form, setForm] = useState<AddForm>(emptyAddForm)
+  const [reviewTrain, setReviewTrain] = useState<Record<string, string>>({})
+  const [fieldErrors, setFieldErrors] = useState<FirmwareReleaseFieldErrors>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<FirmwareReleaseFieldErrors>({})
-  const [search, setSearch] = useState('')
-  const [vendorFilter, setVendorFilter] = useState('')
-  const [trainFilter, setTrainFilter] = useState('')
-  const [catalogStateFilter, setCatalogStateFilter] = useState('')
-  const [eligibilityFilter, setEligibilityFilter] = useState('')
-  const [archiveFilter, setArchiveFilter] = useState('active')
 
-  async function fetchCatalog() {
-    const response = await fetch('/api/v1/firmware-releases', { cache: 'no-store' })
-    const payload = (await response.json()) as CatalogPayload
-    if (!response.ok) throw new Error(payload.error?.message ?? 'Firmware catalog could not be loaded.')
-    return { records: payload.data ?? [], vendors: payload.meta?.vendors ?? [], trains: payload.meta?.trains ?? [] }
+  function applyCatalog(payload: Awaited<ReturnType<typeof fetchCatalog>>) {
+    setRecords(payload.records)
+    setTrains(payload.trains)
+    setSelectedKey((current) => {
+      if (current) return current
+      const firstTrain = payload.trains.find((train) => train.isActive)
+      if (firstTrain) return platformKey(firstTrain.vendorId, firstTrain.platform)
+      const firstRelease = payload.records.find((release) => release.isActive)
+      return firstRelease ? platformKey(firstRelease.vendorId, firstRelease.platform) : null
+    })
   }
 
   useEffect(() => {
@@ -117,8 +117,14 @@ export function FirmwareReleaseManager() {
       .then((payload) => {
         if (cancelled) return
         setRecords(payload.records)
-        setVendors(payload.vendors)
         setTrains(payload.trains)
+        setSelectedKey((current) => {
+          if (current) return current
+          const firstTrain = payload.trains.find((train) => train.isActive)
+          if (firstTrain) return platformKey(firstTrain.vendorId, firstTrain.platform)
+          const firstRelease = payload.records.find((release) => release.isActive)
+          return firstRelease ? platformKey(firstRelease.vendorId, firstRelease.platform) : null
+        })
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Firmware catalog could not be loaded.')
@@ -126,299 +132,482 @@ export function FirmwareReleaseManager() {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
   async function reload() {
-    const payload = await fetchCatalog()
-    setRecords(payload.records)
-    setVendors(payload.vendors)
-    setTrains(payload.trains)
+    applyCatalog(await fetchCatalog())
   }
 
-  function resetForm() {
-    setForm(initialForm)
-    setEditingId(null)
-    setFieldErrors({})
-  }
+  const platforms = useMemo(() => {
+    const map = new Map<PlatformKey, { key: PlatformKey; vendorId: string; vendorName: string; platform: string; trainCount: number; releaseCount: number }>()
+    for (const train of trains) {
+      if (!showArchived && !train.isActive) continue
+      const key = platformKey(train.vendorId, train.platform)
+      const current = map.get(key) ?? {
+        key,
+        vendorId: train.vendorId,
+        vendorName: train.vendor.name,
+        platform: train.platform,
+        trainCount: 0,
+        releaseCount: 0,
+      }
+      current.trainCount += 1
+      map.set(key, current)
+    }
+    for (const release of records) {
+      if (!showArchived && !release.isActive) continue
+      const key = platformKey(release.vendorId, release.platform)
+      const current = map.get(key) ?? {
+        key,
+        vendorId: release.vendorId,
+        vendorName: release.vendor.name,
+        platform: release.platform,
+        trainCount: 0,
+        releaseCount: 0,
+      }
+      current.releaseCount += 1
+      map.set(key, current)
+    }
+    return [...map.values()]
+      .map((platform) => {
+        const preferredTrain = trains.find(
+          (train) =>
+            train.isActive &&
+            train.state === 'PREFERRED' &&
+            platformKey(train.vendorId, train.platform) === platform.key,
+        )
+        return {
+          ...platform,
+          defaultIssue: !preferredTrain
+            ? 'No preferred train'
+            : !preferredTrain.preferredRelease
+              ? 'No preferred release'
+              : null,
+        }
+      })
+      .sort((a, b) => a.vendorName.localeCompare(b.vendorName) || a.platform.localeCompare(b.platform, 'en', { numeric: true }))
+  }, [trains, records, showArchived])
 
-  function beginEdit(record: FirmwareReleaseRecord) {
-    setEditingId(record.id)
+  const selected = platforms.find((platform) => platform.key === selectedKey) ?? platforms[0] ?? null
+  const selectedTrains = useMemo(() => {
+    if (!selected) return []
+    return trains
+      .filter((train) => platformKey(train.vendorId, train.platform) === selected.key)
+      .filter((train) => showArchived || train.isActive)
+      .sort((a, b) => {
+        const stateOrder = { PREFERRED: 0, ACCEPTED: 1, DEPRECATED: 2 }
+        return stateOrder[a.state] - stateOrder[b.state] || a.name.localeCompare(b.name, 'en', { numeric: true })
+      })
+  }, [trains, selected, showArchived])
+
+  const selectedPreferredTrain =
+    selectedTrains.find((train) => train.isActive && train.state === 'PREFERRED') ?? null
+
+  const selectedReleases = useMemo(() => {
+    if (reviewOnly) {
+      return records.filter(
+        (release) => release.isActive && release.decision === 'NEEDS_REVIEW',
+      )
+    }
+    if (!selected) return []
+    return records
+      .filter((release) => platformKey(release.vendorId, release.platform) === selected.key)
+      .filter((release) => showArchived || release.isActive)
+  }, [records, selected, showArchived, reviewOnly])
+
+  const releaseGroups = useMemo(() => {
+    const groups = new Map<string, FirmwareReleaseRecord[]>()
+    for (const release of selectedReleases) {
+      const key = `${platformKey(release.vendorId, release.platform)}::${release.firmwareTrainId ?? 'unassigned'}::${release.logicalVersion}`
+      const group = groups.get(key)
+      if (group) group.push(release)
+      else groups.set(key, [release])
+    }
+    return [...groups.entries()]
+      .map(([key, releases]) => ({
+        key,
+        vendorName: releases[0].vendor.name,
+        platform: releases[0].platform,
+        logicalVersion: releases[0].logicalVersion,
+        trainName: releases[0].firmwareTrain?.name ?? 'Unassigned train',
+        releases: releases.sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true })),
+      }))
+      .sort((a, b) => a.logicalVersion.localeCompare(b.logicalVersion, 'en', { numeric: true }))
+  }, [selectedReleases])
+
+  const reviewCount = records.filter((release) => release.isActive && release.decision === 'NEEDS_REVIEW').length
+
+  function openAddRelease() {
+    if (!selected) return
+    const defaultTrain = selectedTrains.find((train) => train.state === 'PREFERRED') ?? selectedTrains[0] ?? null
     setForm({
-      vendorId: record.vendorId,
-      firmwareTrainId: record.firmwareTrainId ?? '',
-      platform: record.platform,
-      version: record.version,
-      logicalVersion: record.logicalVersion,
-      variant: record.variant ?? '',
-      imageCode: record.imageCode ?? '',
-      catalogState: record.catalogState,
-      policyEligibility: record.policyEligibility,
-      variantEquivalence: record.variantEquivalence,
-      filename: record.filename ?? '',
-      sha256: record.sha256 ?? '',
-      fileSizeBytes: record.fileSizeBytes ?? '',
-      releaseNotesUrl: record.releaseNotesUrl ?? '',
-      releasedAt: dateInputValue(record.releasedAt),
-      notes: record.notes ?? '',
-      source: record.source,
-      externalProvider: record.externalProvider ?? '',
-      externalId: record.externalId ?? '',
-      isActive: record.isActive,
+      ...emptyAddForm,
+      vendorId: selected.vendorId,
+      platform: selected.platform,
+      firmwareTrainId: defaultTrain?.id ?? '',
     })
     setFieldErrors({})
+    setAdvancedOpen(false)
+    setAddOpen(true)
     setError(null)
     setMessage(null)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function save(event: FormEvent<HTMLFormElement>) {
+  async function createRelease(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
+    setFieldErrors({})
     setError(null)
     setMessage(null)
-    setFieldErrors({})
     try {
-      const response = await fetch(editingId ? `/api/v1/firmware-releases/${editingId}` : '/api/v1/firmware-releases', {
-        method: editingId ? 'PATCH' : 'POST',
+      const response = await fetch('/api/v1/firmware-releases', {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          vendorId: form.vendorId,
+          platform: form.platform,
+          firmwareTrainId: form.firmwareTrainId || null,
+          version: form.version,
+          decision: form.decision,
+          logicalVersion: form.logicalVersion || null,
+          variant: form.variant || null,
+          imageCode: form.imageCode || null,
+          releaseNotesUrl: form.releaseNotesUrl || null,
+          notes: form.notes || null,
+        }),
       })
-      const payload = (await response.json()) as ApiError
-      if (!response.ok) {
+      const payload = (await response.json()) as { data?: FirmwareReleaseRecord } & ApiError
+      if (!response.ok || !payload.data) {
         setFieldErrors(payload.error?.fields ?? {})
         throw new Error(payload.error?.message ?? 'Firmware release could not be saved.')
       }
-      setMessage(editingId ? 'Firmware release updated.' : 'Firmware release added to the catalog.')
-      resetForm()
+      if (form.makePreferred) {
+        if (!form.firmwareTrainId) throw new Error('Choose a train before making the release preferred.')
+        const trainResponse = await fetch(`/api/v1/firmware-trains/${form.firmwareTrainId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ preferredFirmwareReleaseId: payload.data.id }),
+        })
+        const trainPayload = (await trainResponse.json()) as ApiError
+        if (!trainResponse.ok) throw new Error(trainPayload.error?.message ?? 'Release was added, but could not be made preferred.')
+      }
+      setMessage(`${payload.data.version} added to the catalog.`)
+      setAddOpen(false)
       await reload()
-    } catch (saveError) {
+    } catch (saveError: unknown) {
       setError(saveError instanceof Error ? saveError.message : 'Firmware release could not be saved.')
     } finally {
       setSaving(false)
     }
   }
 
-  async function toggleArchive(record: FirmwareReleaseRecord) {
+  async function reviewRelease(
+    release: FirmwareReleaseRecord,
+    action: 'ALLOWED' | 'BLOCKED' | 'WITHDRAWN' | 'ARCHIVE' | 'REACTIVATE' | 'PREFERRED',
+  ) {
+    setSaving(true)
     setError(null)
     setMessage(null)
-    const response = await fetch(`/api/v1/firmware-releases/${record.id}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ isActive: !record.isActive }),
-    })
-    const payload = (await response.json()) as ApiError
-    if (!response.ok) {
-      setError(payload.error?.message ?? 'Firmware release could not be updated.')
-      return
-    }
-    setMessage(record.isActive ? 'Firmware release archived.' : 'Firmware release reactivated.')
-    await reload()
-  }
-
-  async function remove(record: FirmwareReleaseRecord) {
-    if (!window.confirm(`Permanently delete ${record.vendor.name} ${record.platform} ${record.version}? Referenced releases cannot be deleted.`)) return
-    const response = await fetch(`/api/v1/firmware-releases/${record.id}`, { method: 'DELETE' })
-    if (!response.ok) {
+    try {
+      const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
+      const patch =
+        action === 'ARCHIVE'
+          ? { isActive: false }
+          : action === 'REACTIVATE'
+            ? { isActive: true }
+            : {
+                decision: action === 'PREFERRED' ? 'ALLOWED' : action,
+                ...(chosenTrainId !== (release.firmwareTrainId ?? '') ? { firmwareTrainId: chosenTrainId || null } : {}),
+              }
+      const response = await fetch(`/api/v1/firmware-releases/${release.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
       const payload = (await response.json()) as ApiError
-      setError(payload.error?.message ?? 'Firmware release could not be deleted.')
-      return
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Firmware release could not be reviewed.')
+
+      if (action === 'PREFERRED') {
+        if (!chosenTrainId) throw new Error('Choose a train before making this release preferred.')
+        const trainResponse = await fetch(`/api/v1/firmware-trains/${chosenTrainId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ preferredFirmwareReleaseId: release.id }),
+        })
+        const trainPayload = (await trainResponse.json()) as ApiError
+        if (!trainResponse.ok) throw new Error(trainPayload.error?.message ?? 'Release was allowed, but could not be made preferred.')
+      }
+
+      setMessage(
+        action === 'ARCHIVE'
+          ? `${release.version} archived.`
+          : action === 'REACTIVATE'
+            ? `${release.version} reactivated.`
+            : action === 'PREFERRED'
+              ? `${release.version} allowed and made preferred.`
+              : `${release.version} marked ${action.toLowerCase()}.`,
+      )
+      await reload()
+    } catch (reviewError: unknown) {
+      setError(reviewError instanceof Error ? reviewError.message : 'Firmware review could not be saved.')
+    } finally {
+      setSaving(false)
     }
-    setMessage('Firmware release deleted.')
-    if (editingId === record.id) resetForm()
-    await reload()
   }
 
-  const trainOptions = useMemo(
-    () => trains.filter((train) => train.vendorId === form.vendorId && normalized(train.platform) === normalized(form.platform)),
-    [trains, form.vendorId, form.platform],
-  )
-
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase('en-US')
-    return records.filter((record) => {
-      if (vendorFilter && record.vendorId !== vendorFilter) return false
-      if (trainFilter === 'none' && record.firmwareTrainId) return false
-      if (trainFilter && trainFilter !== 'none' && record.firmwareTrainId !== trainFilter) return false
-      if (catalogStateFilter && record.catalogState !== catalogStateFilter) return false
-      if (eligibilityFilter && record.policyEligibility !== eligibilityFilter) return false
-      if (archiveFilter === 'active' && !record.isActive) return false
-      if (archiveFilter === 'archived' && record.isActive) return false
-      if (!needle) return true
-      return [
-        record.vendor.name,
-        record.platform,
-        record.firmwareTrain?.name ?? '',
-        record.version,
-        record.logicalVersion,
-        record.variant ?? '',
-        record.imageCode ?? '',
-        record.filename ?? '',
-      ].join(' ').toLocaleLowerCase('en-US').includes(needle)
-    })
-  }, [records, search, vendorFilter, trainFilter, catalogStateFilter, eligibilityFilter, archiveFilter])
+  if (loading) return <LoadingState title="Loading firmware catalog" description="Loading platforms, trains, releases, and review state…" />
 
   return (
     <>
       <PageHeader
         eyebrow="Firmware catalog"
-        title="Firmware releases"
-        description="Keep exact vendor builds intact while grouping equivalent release identities. Catalog verification and policy eligibility are independent decisions."
+        title="Firmware catalog"
         actions={
-          <Link href="/firmware/trains" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">
-            Manage release trains
-          </Link>
+          <>
+            <ButtonLink href="/firmware/trains">Manage trains</ButtonLink>
+            <Button onClick={openAddRelease} disabled={!selected}>Add release</Button>
+          </>
         }
       />
 
-      <div className="mb-4 rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-light)]">
-        Observed or verified firmware does not become desired automatically. Set policy eligibility explicitly to Allowed or Preferred before policy can select it.
-      </div>
+      {reviewCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            setReviewOnly((value) => !value)
+            setAddOpen(false)
+            if (!reviewOnly) {
+              window.requestAnimationFrame(() => {
+                document.getElementById('firmware-release-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              })
+            }
+          }}
+          className="mb-4 flex w-full items-center justify-between rounded-md border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-left text-sm text-amber-200"
+        >
+          <span><strong>{reviewCount} firmware release{reviewCount === 1 ? '' : 's'} {reviewCount === 1 ? 'needs' : 'need'} review</strong> · imported observations never become allowed or preferred automatically.</span>
+          <span className="font-semibold">{reviewOnly ? 'Show platform catalog' : 'Review now'}</span>
+        </button>
+      ) : null}
+
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
       {error ? <div className="mb-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">{error}</div> : null}
 
-      <form onSubmit={save} className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">{editingId ? 'Edit firmware release' : 'Add firmware release'}</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Exact version is immutable evidence. Leave logical release, variant, or image code empty to use the deterministic parser where supported.</p>
+      {addOpen ? (
+        <form onSubmit={createRelease} className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Add release</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">Only train, version, and release decision are needed for the normal case. Train assignment stays explicit.</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
           </div>
-          {editingId ? <Button type="button" variant="ghost" onClick={resetForm}>Cancel edit</Button> : null}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <FormField label="Vendor" htmlFor="firmware-vendor" error={fieldErrors.vendorId}>
-            <SelectInput id="firmware-vendor" value={form.vendorId} onChange={(e) => setForm({ ...form, vendorId: e.target.value, firmwareTrainId: '' })} required>
-              <option value="">Select vendor</option>
-              {vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.isActive ? '' : ' (archived)'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Platform / family" htmlFor="firmware-platform" error={fieldErrors.platform}>
-            <TextInput id="firmware-platform" value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value, firmwareTrainId: '' })} placeholder="AOS-S" required />
-          </FormField>
-          <FormField label="Release train" htmlFor="firmware-train" error={fieldErrors.firmwareTrainId} description="Explicit membership only; never inferred from version.">
-            <SelectInput id="firmware-train" value={form.firmwareTrainId} onChange={(e) => setForm({ ...form, firmwareTrainId: e.target.value })}>
-              <option value="">No train</option>
-              {trainOptions.map((train) => <option key={train.id} value={train.id}>{train.name}{train.isActive ? '' : ' (archived)'}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Exact vendor version" htmlFor="firmware-version" error={fieldErrors.version}>
-            <TextInput id="firmware-version" value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} placeholder="WC.16.11.0002" required />
-          </FormField>
-
-          <FormField label="Logical / base release" htmlFor="firmware-logical" error={fieldErrors.logicalVersion} description="Optional override; exact version is never changed.">
-            <TextInput id="firmware-logical" value={form.logicalVersion} onChange={(e) => setForm({ ...form, logicalVersion: e.target.value })} placeholder="16.11.0002" />
-          </FormField>
-          <FormField label="Variant / rebuild" htmlFor="firmware-variant" error={fieldErrors.variant}>
-            <TextInput id="firmware-variant" value={form.variant} onChange={(e) => setForm({ ...form, variant: e.target.value })} placeholder="a" />
-          </FormField>
-          <FormField label="Image code" htmlFor="firmware-image" error={fieldErrors.imageCode} description="For example WC, YA, YB.">
-            <TextInput id="firmware-image" value={form.imageCode} onChange={(e) => setForm({ ...form, imageCode: e.target.value })} placeholder="WC" />
-          </FormField>
-          <FormField label="Variant equivalence" htmlFor="firmware-equivalence" error={fieldErrors.variantEquivalence}>
-            <SelectInput id="firmware-equivalence" value={form.variantEquivalence} onChange={(e) => setForm({ ...form, variantEquivalence: e.target.value })}>
-              {firmwareVariantEquivalenceModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </SelectInput>
-          </FormField>
-
-          <FormField label="Catalog state" htmlFor="firmware-catalog-state" error={fieldErrors.catalogState}>
-            <SelectInput
-              id="firmware-catalog-state"
-              value={form.catalogState}
-              onChange={(e) => {
-                const catalogState = e.target.value
-                setForm({
-                  ...form,
-                  catalogState,
-                  policyEligibility: catalogState === 'BLOCKED' || catalogState === 'WITHDRAWN' ? 'DISALLOWED' : form.policyEligibility,
-                })
-              }}
-            >
-              {firmwareCatalogStates.map((state) => <option key={state} value={state}>{state}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Policy eligibility" htmlFor="firmware-policy-eligibility" error={fieldErrors.policyEligibility} description="Observed/verified does not imply allowed.">
-            <SelectInput
-              id="firmware-policy-eligibility"
-              value={form.policyEligibility}
-              disabled={form.catalogState === 'BLOCKED' || form.catalogState === 'WITHDRAWN'}
-              onChange={(e) => setForm({ ...form, policyEligibility: e.target.value })}
-            >
-              {firmwarePolicyEligibilities.map((state) => <option key={state} value={state}>{state}</option>)}
-            </SelectInput>
-          </FormField>
-          <FormField label="Filename" htmlFor="firmware-filename" error={fieldErrors.filename}>
-            <TextInput id="firmware-filename" value={form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
-          </FormField>
-          <FormField label="Release date" htmlFor="firmware-date" error={fieldErrors.releasedAt}>
-            <TextInput id="firmware-date" type="date" value={form.releasedAt} onChange={(e) => setForm({ ...form, releasedAt: e.target.value })} />
-          </FormField>
-
-          <FormField label="File size (bytes)" htmlFor="firmware-size" error={fieldErrors.fileSizeBytes}>
-            <TextInput id="firmware-size" inputMode="numeric" value={form.fileSizeBytes} onChange={(e) => setForm({ ...form, fileSizeBytes: e.target.value })} />
-          </FormField>
-          <FormField label="Release notes URL" htmlFor="firmware-release-notes" error={fieldErrors.releaseNotesUrl}>
-            <TextInput id="firmware-release-notes" type="url" value={form.releaseNotesUrl} onChange={(e) => setForm({ ...form, releaseNotesUrl: e.target.value })} />
-          </FormField>
-          <FormField label="SHA256" htmlFor="firmware-sha" error={fieldErrors.sha256}>
-            <TextInput id="firmware-sha" className="font-mono text-xs" value={form.sha256} onChange={(e) => setForm({ ...form, sha256: e.target.value })} />
-          </FormField>
-          <FormField label="Source" htmlFor="firmware-source" error={fieldErrors.source}>
-            <SelectInput id="firmware-source" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
-              <option value="MANUAL">MANUAL</option><option value="API">API</option><option value="IMPORT">IMPORT</option>
-            </SelectInput>
-          </FormField>
-          <FormField label="External provider" htmlFor="firmware-provider" error={fieldErrors.externalProvider}>
-            <TextInput id="firmware-provider" value={form.externalProvider} onChange={(e) => setForm({ ...form, externalProvider: e.target.value })} placeholder="Optional" />
-          </FormField>
-          <FormField label="External ID" htmlFor="firmware-external-id" error={fieldErrors.externalId}>
-            <TextInput id="firmware-external-id" value={form.externalId} onChange={(e) => setForm({ ...form, externalId: e.target.value })} placeholder="Optional" />
-          </FormField>
-          <div className="md:col-span-2 xl:col-span-4">
-            <FormField label="Notes" htmlFor="firmware-notes" error={fieldErrors.notes}>
-              <TextArea id="firmware-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <FormField label="Platform" htmlFor="catalog-add-platform">
+              <TextInput id="catalog-add-platform" value={form.platform} readOnly />
+            </FormField>
+            <FormField label="Train" htmlFor="catalog-add-train" error={fieldErrors.firmwareTrainId}>
+              <SelectInput id="catalog-add-train" value={form.firmwareTrainId} onChange={(event) => setForm({ ...form, firmwareTrainId: event.target.value })} required>
+                <option value="">Choose train…</option>
+                {selectedTrains.filter((train) => train.isActive).map((train) => <option key={train.id} value={train.id}>{train.name} · {train.state}</option>)}
+              </SelectInput>
+            </FormField>
+            <FormField label="Version" htmlFor="catalog-add-version" error={fieldErrors.version}>
+              <TextInput id="catalog-add-version" value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} placeholder="17.15.6" required />
+            </FormField>
+            <FormField label="Release decision" htmlFor="catalog-add-decision" error={fieldErrors.decision}>
+              <SelectInput id="catalog-add-decision" value={form.decision} onChange={(event) => setForm({ ...form, decision: event.target.value })}>
+                {firmwareReleaseDecisions.map((decision) => <option key={decision} value={decision}>{decision === 'NEEDS_REVIEW' ? 'Needs review' : decision[0] + decision.slice(1).toLowerCase()}</option>)}
+              </SelectInput>
             </FormField>
           </div>
-        </div>
-        <div className="mt-4 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Save release' : 'Add release'}</Button></div>
-      </form>
+          <label className="mt-4 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.makePreferred} onChange={(event) => setForm({ ...form, makePreferred: event.target.checked })} />
+            Make preferred for this train
+          </label>
 
-      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-        <div className="grid gap-3 border-b border-[var(--border)] p-4 md:grid-cols-2 xl:grid-cols-6">
-          <TextInput aria-label="Search firmware releases" type="search" placeholder="Search exact/base release, image, vendor…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <SelectInput aria-label="Filter by vendor" value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)}><option value="">All vendors</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter by train" value={trainFilter} onChange={(e) => setTrainFilter(e.target.value)}><option value="">All trains</option><option value="none">No train</option>{trains.map((train) => <option key={train.id} value={train.id}>{train.name} · {train.platform}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter by catalog state" value={catalogStateFilter} onChange={(e) => setCatalogStateFilter(e.target.value)}><option value="">All catalog states</option>{firmwareCatalogStates.map((state) => <option key={state}>{state}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter by policy eligibility" value={eligibilityFilter} onChange={(e) => setEligibilityFilter(e.target.value)}><option value="">All policy eligibility</option>{firmwarePolicyEligibilities.map((state) => <option key={state}>{state}</option>)}</SelectInput>
-          <SelectInput aria-label="Filter by archive state" value={archiveFilter} onChange={(e) => setArchiveFilter(e.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></SelectInput>
-        </div>
+          <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="mt-4 text-sm font-semibold text-[var(--accent-light)] hover:underline">
+            {advancedOpen ? 'Hide advanced details' : 'Advanced details (optional)'}
+          </button>
+          {advancedOpen ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <FormField label="Logical/base release" htmlFor="catalog-add-logical"><TextInput id="catalog-add-logical" value={form.logicalVersion} onChange={(event) => setForm({ ...form, logicalVersion: event.target.value })} placeholder="Derived when supported" /></FormField>
+              <FormField label="Variant/rebuild" htmlFor="catalog-add-variant"><TextInput id="catalog-add-variant" value={form.variant} onChange={(event) => setForm({ ...form, variant: event.target.value })} /></FormField>
+              <FormField label="Image code" htmlFor="catalog-add-image"><TextInput id="catalog-add-image" value={form.imageCode} onChange={(event) => setForm({ ...form, imageCode: event.target.value })} placeholder="WC / YA / YC" /></FormField>
+              <FormField label="Release notes URL" htmlFor="catalog-add-notes-url"><TextInput id="catalog-add-notes-url" type="url" value={form.releaseNotesUrl} onChange={(event) => setForm({ ...form, releaseNotesUrl: event.target.value })} /></FormField>
+              <div className="md:col-span-2"><FormField label="Notes" htmlFor="catalog-add-notes"><TextArea id="catalog-add-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></FormField></div>
+            </div>
+          ) : null}
+          <div className="mt-4 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Add release'}</Button></div>
+        </form>
+      ) : null}
 
-        {loading ? <LoadingState title="Loading firmware catalog" /> : filtered.length === 0 ? <EmptyState title="No firmware releases match" description="Adjust filters or add a release to the catalog." /> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1280px] text-left text-sm">
-              <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
-                <tr><th className="px-4 py-3">Exact release</th><th className="px-4 py-3">Logical group</th><th className="px-4 py-3">Vendor / platform</th><th className="px-4 py-3">Train</th><th className="px-4 py-3">Catalog</th><th className="px-4 py-3">Policy</th><th className="px-4 py-3">File</th><th className="px-4 py-3 text-right">Actions</th></tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {filtered.map((record) => (
-                  <tr key={record.id} className={record.isActive ? '' : 'opacity-60'}>
-                    <td className="px-4 py-3"><Link className="font-semibold text-[var(--accent-light)] hover:underline" href={`/firmware/${record.id}`}>{record.version}</Link><div className="mt-1 text-xs text-[var(--muted)]">{record.imageCode ? `Image ${record.imageCode}` : record.variant ? `Variant ${record.variant}` : 'Exact release'}</div></td>
-                    <td className="px-4 py-3"><div className="font-mono text-xs">{record.logicalVersion}</div><div className="mt-1 text-xs text-[var(--muted)]">{record.variantEquivalence}</div></td>
-                    <td className="px-4 py-3"><div>{record.vendor.name}</div><div className="mt-1 font-mono text-xs text-[var(--muted-strong)]">{record.platform}</div></td>
-                    <td className="px-4 py-3">{record.firmwareTrain ? <Link href={`/firmware/trains/${record.firmwareTrain.id}`} className="text-[var(--accent-light)] hover:underline">{record.firmwareTrain.name}</Link> : <span className="text-[var(--muted)]">—</span>}</td>
-                    <td className="px-4 py-3"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs">{record.catalogState}</span>{record.isActive ? null : <div className="mt-2 text-xs text-[var(--muted)]">Archived record</div>}</td>
-                    <td className="px-4 py-3"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs">{record.policyEligibility}</span></td>
-                    <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">{record.filename ?? '—'}<div className="mt-1 text-[var(--muted)]">{formatBytes(record.fileSizeBytes)}</div></td>
-                    <td className="px-4 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => void remove(record)}>Delete</Button></div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="mb-3 flex justify-end">
+        <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
+          Show archived
+        </label>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+          <div className="border-b border-[var(--border)] px-4 py-3">
+            <h2 className="text-sm font-semibold">Vendor / platform</h2>
           </div>
-        )}
-      </section>
+          {platforms.length === 0 ? <div className="p-4 text-sm text-[var(--muted)]">No firmware platforms yet.</div> : (
+            <div className="divide-y divide-[var(--border)]">
+              {platforms.map((platform) => (
+                <button
+                  key={platform.key}
+                  type="button"
+                  onClick={() => { setSelectedKey(platform.key); setReviewOnly(false) }}
+                  className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-raised)] ${selected?.key === platform.key ? 'bg-[var(--surface-raised)]' : ''}`}
+                >
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{platform.vendorName}</div>
+                  <div className="mt-1 font-semibold">{platform.platform}</div>
+                  <div className="mt-1 text-xs text-[var(--muted)]">{platform.trainCount} train{platform.trainCount === 1 ? '' : 's'} · {platform.releaseCount} release{platform.releaseCount === 1 ? '' : 's'}</div>
+                  {platform.defaultIssue ? <div className="mt-1 text-xs font-medium text-amber-300">{platform.defaultIssue}</div> : null}
+                </button>
+              ))}
+            </div>
+          )}
+        </aside>
+
+        <main className="min-w-0 space-y-5">
+          {!selected ? <EmptyState title="No firmware platform selected" description="Create a release train first, then add exact releases." /> : (
+            <>
+              <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{selected.vendorName}</div>
+                    <h2 className="mt-1 text-lg font-semibold">{selected.platform}</h2>
+                  </div>
+                  <Button onClick={openAddRelease}>Add release</Button>
+                </div>
+                {selectedTrains.length > 0 && !selectedPreferredTrain ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-700/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+                    <span>No preferred train configured. Catalog defaults for this platform cannot resolve.</span>
+                    <ButtonLink href="/firmware/trains">Configure</ButtonLink>
+                  </div>
+                ) : selectedPreferredTrain && !selectedPreferredTrain.preferredRelease ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-700/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+                    <span>Preferred train has no preferred Allowed release.</span>
+                    <ButtonLink href={`/firmware/trains/${selectedPreferredTrain.id}`}>Configure</ButtonLink>
+                  </div>
+                ) : null}
+                {selectedTrains.length === 0 ? (
+                  <div className="p-5 text-sm text-[var(--muted)]">No release trains configured.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
+                        <tr><th className="px-4 py-3">Train</th><th className="px-4 py-3">State</th><th className="px-4 py-3">Preferred release</th><th className="px-4 py-3">Minimum acceptable</th><th className="px-4 py-3 text-right">Devices</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {selectedTrains.map((train) => (
+                          <tr key={train.id} className={train.isActive ? '' : 'opacity-60'}>
+                            <td className="px-4 py-3"><Link href={`/firmware/trains/${train.id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{train.name}</Link></td>
+                            <td className="px-4 py-3"><span className={train.state === 'PREFERRED' ? 'font-semibold text-emerald-300' : train.state === 'DEPRECATED' ? 'text-amber-300' : ''}>{train.state[0] + train.state.slice(1).toLowerCase()}</span></td>
+                            <td className="px-4 py-3 font-mono text-xs">{train.preferredRelease ? <Link href={`/firmware/${train.preferredRelease.id}`} className="text-[var(--accent-light)] hover:underline">{train.preferredRelease.logicalVersion ?? train.preferredRelease.version}</Link> : '—'}</td>
+                            <td className="px-4 py-3 font-mono text-xs">{train.minimumAcceptableRelease ? <Link href={`/firmware/${train.minimumAcceptableRelease.id}`} className="text-[var(--accent-light)] hover:underline">{train.minimumAcceptableRelease.logicalVersion ?? train.minimumAcceptableRelease.version}</Link> : '—'}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{train.deviceCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section id="firmware-release-list" className="scroll-mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+                  <div>
+                    <h2 className="text-sm font-semibold">{reviewOnly ? 'Releases needing review · all platforms' : 'Releases'}</h2>
+                    {reviewOnly ? <p className="mt-1 text-xs text-[var(--muted)]">Imported observations require review.</p> : null}
+                  </div>
+                  {reviewOnly ? <button type="button" className="text-xs font-semibold text-[var(--accent-light)] hover:underline" onClick={() => setReviewOnly(false)}>Show all platform releases</button> : null}
+                </div>
+                {releaseGroups.length === 0 ? <div className="p-5 text-sm text-[var(--muted)]">No releases match this view.</div> : (
+                  <div className="divide-y divide-[var(--border)]">
+                    {releaseGroups.map((group) => (
+                      <div key={group.key} className="p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <Link href={`/firmware/${group.releases[0].id}`} className="font-semibold text-[var(--accent-light)] hover:underline">{group.logicalVersion}</Link>
+                            <div className="mt-1 text-xs text-[var(--muted)]">
+                              {reviewOnly ? `${group.vendorName} · ${group.platform} · ` : ''}{group.trainName} · {group.releases.length} exact variant{group.releases.length === 1 ? '' : 's'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
+                          {group.releases.map((release) => {
+                            const matchingTrains = trains.filter(
+                              (train) =>
+                                train.isActive &&
+                                platformKey(train.vendorId, train.platform) ===
+                                  platformKey(release.vendorId, release.platform),
+                            )
+                            const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
+                            return (
+                              <div key={release.id} className={`p-3 ${release.isActive ? '' : 'opacity-60'}`}>
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <Link href={`/firmware/${release.id}`} className="font-mono text-xs font-semibold text-[var(--accent-light)] hover:underline">{release.version}</Link>
+                                    <div className="mt-1 text-xs text-[var(--muted)]">
+                                      {[release.imageCode ? `image ${release.imageCode}` : null, release.variant ? `variant ${release.variant}` : null]
+                                        .filter(Boolean)
+                                        .join(' · ') || 'canonical exact release'}
+                                      {' · '}
+                                      <span className={decisionClass(release.decision)}>{decisionLabel(release.decision)}</span>
+                                      {release.isActive ? '' : ' · Archived'}
+                                    </div>
+                                  </div>
+                                  {release.decision === 'NEEDS_REVIEW' && release.isActive ? (
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <select aria-label={`Train for ${release.version}`} value={chosenTrainId} onChange={(event) => setReviewTrain({ ...reviewTrain, [release.id]: event.target.value })} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 text-xs">
+                                        <option value="">No train</option>
+                                        {matchingTrains.map((train) => <option key={train.id} value={train.id}>{train.name}</option>)}
+                                      </select>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ALLOWED')}>Allow</Button>
+                                      <Button variant="ghost" disabled={saving || !chosenTrainId} onClick={() => void reviewRelease(release, 'PREFERRED')}>Allow + preferred</Button>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
+                                    </div>
+                                  ) : !release.isActive ? (
+                                    <Button
+                                      variant="ghost"
+                                      disabled={saving}
+                                      onClick={() => void reviewRelease(release, 'REACTIVATE')}
+                                    >
+                                      Reactivate
+                                    </Button>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      {release.decision === 'ALLOWED' ? (
+                                        <>
+                                          <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'BLOCKED')}>Block</Button>
+                                          <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'WITHDRAWN')}>Withdraw</Button>
+                                        </>
+                                      ) : (
+                                        <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ALLOWED')}>Allow</Button>
+                                      )}
+                                      <Button variant="ghost" disabled={saving} onClick={() => void reviewRelease(release, 'ARCHIVE')}>Archive</Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </main>
+      </div>
     </>
   )
 }

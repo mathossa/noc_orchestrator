@@ -1,3 +1,9 @@
+import {
+  catalogSemanticsFromReleaseDecision,
+  firmwareReleaseDecisions,
+  releaseDecisionFromCatalogSemantics,
+  type FirmwareReleaseDecision,
+} from '@/lib/firmware-catalog-defaults'
 import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
 
 // Legacy status remains during the migration from the Issue #7 catalog model.
@@ -53,6 +59,7 @@ export type FirmwareReleaseRecord = {
   imageCode: string | null
   catalogState: FirmwareCatalogState
   policyEligibility: FirmwarePolicyEligibility
+  decision: FirmwareReleaseDecision
   variantEquivalence: FirmwareVariantEquivalenceMode
   filename: string | null
   sha256: string | null
@@ -81,6 +88,9 @@ export type FirmwareReleaseDetailRecord = FirmwareReleaseRecord & {
   }>
   usage: {
     currentDevices: number
+    modelFamilies: number
+    customers: number
+    sites: number
     targetPolicies: number
     lifecycleTargets: number
   }
@@ -161,11 +171,11 @@ export function catalogSemanticsFromLegacyStatus(status: FirmwareReleaseStatus):
     case 'BLOCKED':
       return { catalogState: 'BLOCKED', policyEligibility: 'DISALLOWED' }
     case 'RECOMMENDED':
-      return { catalogState: 'VERIFIED', policyEligibility: 'PREFERRED' }
+      return { catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' }
     case 'APPROVED':
       return { catalogState: 'VERIFIED', policyEligibility: 'ALLOWED' }
     case 'DEPRECATED':
-      return { catalogState: 'VERIFIED', policyEligibility: 'DISALLOWED' }
+      return { catalogState: 'WITHDRAWN', policyEligibility: 'DISALLOWED' }
     case 'AVAILABLE':
     case 'TESTING':
     default:
@@ -179,8 +189,7 @@ export function legacyStatusFromCatalogSemantics(
 ): FirmwareReleaseStatus {
   if (catalogState === 'BLOCKED') return 'BLOCKED'
   if (catalogState === 'WITHDRAWN') return 'DEPRECATED'
-  if (policyEligibility === 'PREFERRED') return 'RECOMMENDED'
-  if (policyEligibility === 'ALLOWED') return 'APPROVED'
+  if (policyEligibility === 'PREFERRED' || policyEligibility === 'ALLOWED') return 'APPROVED'
   if (policyEligibility === 'DISALLOWED') return 'DEPRECATED'
   return 'AVAILABLE'
 }
@@ -244,8 +253,23 @@ export function parseFirmwareReleaseInput(input: unknown) {
   const legacySemantics = firmwareReleaseStatuses.includes(requestedLegacyStatus)
     ? catalogSemanticsFromLegacyStatus(requestedLegacyStatus)
     : { catalogState: 'VERIFIED' as const, policyEligibility: 'NOT_EVALUATED' as const }
-  const catalogState = (optionalText(body.catalogState)?.toUpperCase() ?? legacySemantics.catalogState) as FirmwareCatalogState
-  let policyEligibility = (optionalText(body.policyEligibility)?.toUpperCase() ?? legacySemantics.policyEligibility) as FirmwarePolicyEligibility
+  const requestedDecision = optionalText(body.decision)?.toUpperCase() as FirmwareReleaseDecision | undefined
+  if (requestedDecision && !firmwareReleaseDecisions.includes(requestedDecision)) {
+    errors.decision = 'Choose Needs review, Allowed, Blocked, or Withdrawn.'
+  }
+  const decisionSemantics = requestedDecision && firmwareReleaseDecisions.includes(requestedDecision)
+    ? catalogSemanticsFromReleaseDecision(requestedDecision)
+    : null
+  const catalogState = (
+    decisionSemantics?.catalogState ??
+    optionalText(body.catalogState)?.toUpperCase() ??
+    legacySemantics.catalogState
+  ) as FirmwareCatalogState
+  let policyEligibility = (
+    decisionSemantics?.policyEligibility ??
+    optionalText(body.policyEligibility)?.toUpperCase() ??
+    legacySemantics.policyEligibility
+  ) as FirmwarePolicyEligibility
   const variantEquivalence = (optionalText(body.variantEquivalence)?.toUpperCase() ?? 'EXACT_ONLY') as FirmwareVariantEquivalenceMode
 
   if (!firmwareCatalogStates.includes(catalogState)) errors.catalogState = 'Choose a supported catalog state.'
@@ -255,6 +279,9 @@ export function parseFirmwareReleaseInput(input: unknown) {
   // A blocked or withdrawn release can never remain selectable by policy.
   if (catalogState === 'BLOCKED' || catalogState === 'WITHDRAWN') policyEligibility = 'DISALLOWED'
 
+  const decision = requestedDecision && firmwareReleaseDecisions.includes(requestedDecision)
+    ? requestedDecision
+    : releaseDecisionFromCatalogSemantics({ catalogState, policyEligibility })
   const status = legacyStatusFromCatalogSemantics(catalogState, policyEligibility)
 
   if (Object.keys(errors).length > 0) throw new FirmwareReleaseValidationError('Please correct the highlighted fields.', errors)
@@ -269,6 +296,7 @@ export function parseFirmwareReleaseInput(input: unknown) {
     imageCode,
     catalogState,
     policyEligibility,
+    decision,
     variantEquivalence,
     filename,
     sha256,

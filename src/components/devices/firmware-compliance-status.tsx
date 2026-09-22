@@ -35,7 +35,14 @@ export function FirmwareComplianceStatus({
       'border-[var(--border-strong)] bg-[var(--surface-muted)] text-[var(--muted-strong)]',
   }
   const fullLabel = firmwareComplianceLabel(result)
-  const [label, detail] = fullLabel.split(' — ')
+  const [label, labelDetail] = fullLabel.split(' — ')
+  const platformDetail =
+    result.recommendation === 'PLATFORM_MIGRATION' &&
+    result.currentFirmware &&
+    result.preferredTarget
+      ? `${result.currentFirmware.platform} → ${result.preferredTarget.platform}`
+      : null
+  const detail = platformDetail ?? labelDetail
   return (
     <span
       className={`inline-flex max-w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left align-middle ${styles[urgency]}`}

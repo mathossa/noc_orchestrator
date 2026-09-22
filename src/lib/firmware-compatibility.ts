@@ -9,6 +9,7 @@ export type FirmwareCompatibilityModel = {
   vendorId: string
   familyId: string | null
   model?: string
+  platform?: string | null
 }
 
 export type FirmwareCompatibilityRelease = {
@@ -54,7 +55,7 @@ export type FirmwareCompatibilityOverride = {
 }
 
 export type FirmwareCompatibilityProvenance = {
-  kind: 'MANUAL_OVERRIDE' | 'MODEL_RULE' | 'FAMILY_RULE' | 'VENDOR_MISMATCH' | 'NO_EVIDENCE'
+  kind: 'MANUAL_OVERRIDE' | 'MODEL_RULE' | 'FAMILY_RULE' | 'PLATFORM_INHERITANCE' | 'VENDOR_MISMATCH' | 'NO_EVIDENCE'
   id: string | null
   sourceType: FirmwareCompatibilitySourceType | 'MANUAL_OVERRIDE' | 'SYSTEM'
   explanation: string
@@ -210,6 +211,24 @@ export function evaluateFirmwareCompatibility(input: {
   }
 
   if (candidates.length === 0) {
+    const inheritedPlatforms = (model.platform ?? '')
+      .split(',')
+      .map((platform) => normalize(platform))
+      .filter(Boolean)
+    if (inheritedPlatforms.includes(normalize(release.platform))) {
+      return {
+        status: 'COMPATIBLE',
+        decision: 'ALLOW',
+        provenance: {
+          kind: 'PLATFORM_INHERITANCE',
+          id: null,
+          sourceType: 'SYSTEM',
+          explanation: `The model inherits firmware compatibility from its configured platform ${release.platform}; no explicit exception overrides it.`,
+          inherited: true,
+        },
+        matchedRuleIds: [],
+      }
+    }
     return {
       status: 'UNKNOWN',
       decision: null,
@@ -217,7 +236,7 @@ export function evaluateFirmwareCompatibility(input: {
         kind: 'NO_EVIDENCE',
         id: null,
         sourceType: 'SYSTEM',
-        explanation: 'No compatibility evidence matches this model and release.',
+        explanation: 'No compatibility evidence or matching inherited model platform establishes compatibility.',
         inherited: false,
       },
       matchedRuleIds: [],
