@@ -211,6 +211,45 @@ describe('device model persistence rules', () => {
     expect(result[0].supportedPlatforms).toEqual(['Catalyst 9300'])
   })
 
+  it('adds supported platforms without changing an existing preferred platform', async () => {
+    mocks.deviceModelFindUnique.mockResolvedValue({
+      id: 'model-1',
+      vendorId: 'vendor-1',
+      deviceTypeId: 'type-1',
+      familyId: null,
+      model: 'AP',
+      platform: 'AOS-10',
+      preferredPlatform: 'AOS-10',
+      notes: null,
+      isActive: true,
+      source: 'MANUAL',
+      externalProvider: null,
+      externalId: null,
+    })
+    mocks.deviceModelFindMany.mockResolvedValue([{ id: 'model-1', model: 'AP' }])
+    mocks.deviceModelUpdate.mockResolvedValue({
+      ...baseRecord,
+      model: 'AP',
+      platform: 'AOS-10, AOS-8',
+      preferredPlatform: 'AOS-10',
+    })
+
+    await updateDeviceModel('model-1', { supportedPlatforms: ['AOS-10', 'AOS-8'] })
+
+    expect(mocks.deviceModelUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'model-1' },
+      data: expect.objectContaining({
+        platform: 'AOS-10, AOS-8',
+        preferredPlatform: 'AOS-10',
+      }),
+    }))
+    expect(mocks.syncSupportedPlatforms).toHaveBeenCalledWith({
+      deviceModelId: 'model-1',
+      vendorId: 'vendor-1',
+      supportedPlatforms: ['AOS-10', 'AOS-8'],
+    })
+  })
+
   it('supports partial archive updates without overwriting model identity or family membership', async () => {
     mocks.deviceModelFindUnique.mockResolvedValue({ id: 'model-1', vendorId: 'vendor-1', deviceTypeId: 'type-1', familyId: 'family-1', model: 'C9300-24P', platform: 'Catalyst 9300', preferredPlatform: 'Catalyst 9300', notes: null, isActive: true, source: 'MANUAL', externalProvider: null, externalId: null })
     mocks.familyFindUnique.mockResolvedValue({ id: 'family-1', vendorId: 'vendor-1' })
