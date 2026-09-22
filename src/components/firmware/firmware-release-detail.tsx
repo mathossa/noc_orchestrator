@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -153,7 +153,6 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
       <PageHeader
         eyebrow="Firmware release"
         title={`${release.vendor.name} ${release.version}`}
-        description={`${release.platform} exact catalog entry. Operational state first; exact vendor identity and provenance remain available below.`}
         breadcrumbs={[
           { label: 'Firmware catalog', href: '/firmware' },
           ...(release.firmwareTrain
@@ -174,12 +173,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
             >
               {editing ? 'Cancel edit' : 'Edit release'}
             </Button>
-            <Link
-              href={currentDevicesHref}
-              className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
-            >
-              Devices currently on release
-            </Link>
+            <ButtonLink href={currentDevicesHref}>Devices currently on release</ButtonLink>
           </div>
         }
       />
