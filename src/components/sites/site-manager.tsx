@@ -52,7 +52,7 @@ const initialForm: FormState = {
   isActive: true,
 }
 
-export function SiteManager({ customerId }: { customerId: string }) {
+export function SiteManager({ customerId, initialOrganizationUnit = '' }: { customerId: string; initialOrganizationUnit?: string }) {
   const [customer, setCustomer] = useState<CustomerDetailRecord | null>(null)
   const [units, setUnits] = useState<OrganizationUnitRecord[]>([])
   const [sites, setSites] = useState<SiteRecord[]>([])
@@ -67,7 +67,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
   const [fieldErrors, setFieldErrors] = useState<SiteFieldErrors>({})
   const [search, setSearch] = useState('')
   const [archiveFilter, setArchiveFilter] = useState('active')
-  const [unitFilter, setUnitFilter] = useState('')
+  const [unitFilter, setUnitFilter] = useState(initialOrganizationUnit)
 
   const load = useCallback(async () => {
     const [customerResponse, siteResponse, unitResponse] = await Promise.all([
