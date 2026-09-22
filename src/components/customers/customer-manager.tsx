@@ -46,6 +46,7 @@ export function CustomerManager() {
   const [contractTypes, setContractTypes] = useState<ContractType[]>([])
   const [form, setForm] = useState<FormState>(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -53,7 +54,6 @@ export function CustomerManager() {
   const [fieldErrors, setFieldErrors] = useState<CustomerFieldErrors>({})
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('active')
-  const [contractFilter, setContractFilter] = useState('all')
 
   const applyPayload = useCallback((payload: Payload) => {
     setRecords(payload.data ?? [])
@@ -87,11 +87,21 @@ export function CustomerManager() {
 
   const reload = useCallback(async () => applyPayload(await load()), [applyPayload, load])
 
-  function resetForm() {
+  function closeForm() {
+    setFormOpen(false)
     setEditingId(null)
     setForm(initialForm)
     setFieldErrors({})
     setError(null)
+  }
+
+  function beginCreate() {
+    setEditingId(null)
+    setForm(initialForm)
+    setFieldErrors({})
+    setError(null)
+    setMessage(null)
+    setFormOpen(true)
   }
 
   function beginEdit(record: CustomerRecord) {
@@ -108,6 +118,7 @@ export function CustomerManager() {
     setFieldErrors({})
     setError(null)
     setMessage(null)
+    setFormOpen(true)
   }
 
   async function saveCustomer(event: FormEvent<HTMLFormElement>) {
@@ -130,7 +141,7 @@ export function CustomerManager() {
       }
 
       setMessage(editingId ? 'Customer updated.' : 'Customer created.')
-      resetForm()
+      closeForm()
       await reload()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Customer could not be saved.')
@@ -153,6 +164,7 @@ export function CustomerManager() {
       return
     }
     setMessage(record.isActive ? 'Customer archived.' : 'Customer reactivated.')
+    closeForm()
     await reload()
   }
 
@@ -166,8 +178,8 @@ export function CustomerManager() {
       setError(payload.error?.message ?? 'Customer could not be deleted.')
       return
     }
-    if (editingId === record.id) resetForm()
     setMessage('Customer deleted.')
+    closeForm()
     await reload()
   }
 
@@ -176,14 +188,18 @@ export function CustomerManager() {
     return records.filter((record) => {
       if (statusFilter === 'active' && !record.isActive) return false
       if (statusFilter === 'archived' && record.isActive) return false
-      if (contractFilter !== 'all' && (record.contractTypeId ?? 'none') !== contractFilter) return false
       if (!needle) return true
       return [record.name, record.code ?? '', record.contractType?.name ?? '', record.externalId ?? '']
         .join(' ')
         .toLowerCase()
         .includes(needle)
     })
-  }, [records, search, statusFilter, contractFilter])
+  }, [records, search, statusFilter])
+
+  const editingRecord = editingId ? records.find((record) => record.id === editingId) ?? null : null
+  const activeRecords = records.filter((record) => record.isActive)
+  const activeSiteCount = activeRecords.reduce((sum, record) => sum + record.siteCount, 0)
+  const activeDeviceCount = activeRecords.reduce((sum, record) => sum + record.deviceCount, 0)
 
   const columns: Array<DataTableColumn<CustomerRecord>> = [
     {
@@ -194,111 +210,103 @@ export function CustomerManager() {
           <Link href={`/customers/${record.id}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]">
             {record.name}
           </Link>
-          <div className="mt-0.5 font-mono text-[11px] text-[var(--muted)]">{record.code ?? 'No code'}</div>
-        </div>
-      ),
-    },
-    { key: 'contract', header: 'Default contract', render: (record) => record.contractType?.name ?? '—' },
-    { key: 'devices', header: 'Devices', render: (record) => record.deviceCount },
-    {
-      key: 'source',
-      header: 'Source',
-      render: (record) => (
-        <div>
-          <span className="font-mono text-xs">{record.source}</span>
-          {record.externalProvider ? <div className="mt-0.5 text-xs text-[var(--muted)]">{record.externalProvider}</div> : null}
+          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--muted)]">
+            {record.code ? <span className="font-mono">{record.code}</span> : null}
+            {!record.isActive ? <span>Archived</span> : null}
+          </div>
         </div>
       ),
     },
     {
-      key: 'status',
-      header: 'Status',
-      render: (record) => (
-        <span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs">
-          {record.isActive ? 'Active' : 'Archived'}
-        </span>
-      ),
+      key: 'units',
+      header: 'Business units',
+      render: (record) => record.organizationUnitCount || '—',
+      numeric: true,
     },
+    { key: 'sites', header: 'Sites', render: (record) => record.siteCount, numeric: true },
+    { key: 'devices', header: 'Devices', render: (record) => record.deviceCount, numeric: true },
     {
       key: 'actions',
-      header: 'Actions',
-      headerClassName: 'text-right',
-      className: 'text-right',
-      render: (record) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button>
-          <Button variant="ghost" onClick={() => void toggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button>
-          <Button variant="danger" onClick={() => void deleteCustomer(record)}>Delete</Button>
-        </div>
-      ),
+      header: '',
+      className: 'w-px whitespace-nowrap',
+      render: (record) => <Button variant="ghost" onClick={() => beginEdit(record)}>Edit</Button>,
     },
   ]
 
   return (
     <>
       <PageHeader
-        eyebrow="Inventory context"
+        eyebrow="Inventory structure"
         title="Customers"
-        description="Customer ownership, default contract context, and firmware-lifecycle entry points. Individual sites may override the default contract."
+        meta={
+          <>
+            <span>{activeRecords.length} active customers</span>
+            <span aria-hidden="true">·</span>
+            <span>{activeSiteCount} sites</span>
+            <span aria-hidden="true">·</span>
+            <span>{activeDeviceCount} devices</span>
+          </>
+        }
+        actions={<Button variant="primary" onClick={beginCreate}>Add customer</Button>}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
       {error ? <div className="mb-4 rounded-md border border-[#754040] bg-[#2a1b1b] px-4 py-3 text-sm text-[#f0b0b0]" role="alert">{error}</div> : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="min-w-0 space-y-3">
-          <FilterBar>
-            <FilterSearch value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, code, default contract, external ID…" />
-            <FilterSelect
-              id="customer-status"
-              label="Status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              options={[
-                { value: 'all', label: 'All customers' },
-                { value: 'active', label: 'Active' },
-                { value: 'archived', label: 'Archived' },
-              ]}
-            />
-            <FilterSelect
-              id="customer-contract"
-              label="Default contract"
-              value={contractFilter}
-              onChange={(event) => setContractFilter(event.target.value)}
-              options={[
-                { value: 'all', label: 'All default contracts' },
-                { value: 'none', label: 'No default contract' },
-                ...contractTypes.map((contract) => ({ value: contract.id, label: `${contract.name}${contract.isActive ? '' : ' (archived)'}` })),
-              ]}
-            />
-          </FilterBar>
+      <div className="space-y-3">
+        <FilterBar>
+          <FilterSearch
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search customer name or code…"
+          />
+          <FilterSelect
+            id="customer-status"
+            label="Status"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            options={[
+              { value: 'active', label: 'Active' },
+              { value: 'all', label: 'All customers' },
+              { value: 'archived', label: 'Archived' },
+            ]}
+          />
+        </FilterBar>
 
-          {loading ? (
-            <LoadingState title="Loading customers" description="Reading customer and default contract configuration…" />
-          ) : (
-            <DataTable
-              columns={columns}
-              rows={filteredRecords}
-              rowKey={(record) => record.id}
-              caption="Configured customers"
-              emptyState={<EmptyState title="No customers match" description="Create a customer or adjust the current filters." />}
-            />
-          )}
-        </div>
+        {loading ? (
+          <LoadingState title="Loading customers" description="Reading customer structure…" />
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={filteredRecords}
+            rowKey={(record) => record.id}
+            caption="Customers"
+            emptyState={<EmptyState title="No customers match" description="Create a customer or adjust the search." />}
+          />
+        )}
+      </div>
 
-        <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold">{editingId ? 'Edit customer' : 'Add customer'}</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Manual is the default source. The customer contract is a default that sites can override.</p>
+      {formOpen ? (
+        <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">{editingId ? 'Edit customer' : 'Add customer'}</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">Keep the common fields short; source identity stays in advanced details.</p>
+            </div>
+            <Button variant="ghost" onClick={closeForm}>Close</Button>
           </div>
+
           <form className="space-y-4" onSubmit={saveCustomer}>
-            <FormField label="Name" htmlFor="customer-name" error={fieldErrors.name}>
-              <TextInput id="customer-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} aria-invalid={Boolean(fieldErrors.name)} required />
-            </FormField>
-            <FormField label="Code" htmlFor="customer-code" description="Optional shorthand; stored in uppercase." error={fieldErrors.code}>
-              <TextInput id="customer-code" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} aria-invalid={Boolean(fieldErrors.code)} />
-            </FormField>
-            <FormField label="Default contract type" htmlFor="customer-contract-type" description="Sites inherit this unless they define their own contract override." error={fieldErrors.contractTypeId}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Name" htmlFor="customer-name" error={fieldErrors.name}>
+                <TextInput id="customer-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} aria-invalid={Boolean(fieldErrors.name)} required />
+              </FormField>
+              <FormField label="Code" htmlFor="customer-code" description="Optional shorthand; searchable and stored in uppercase." error={fieldErrors.code}>
+                <TextInput id="customer-code" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} aria-invalid={Boolean(fieldErrors.code)} />
+              </FormField>
+            </div>
+
+            <FormField label="Default contract type" htmlFor="customer-contract-type" description="Sites inherit this unless they define their own override." error={fieldErrors.contractTypeId}>
               <SelectInput id="customer-contract-type" value={form.contractTypeId} onChange={(event) => setForm({ ...form, contractTypeId: event.target.value })} aria-invalid={Boolean(fieldErrors.contractTypeId)}>
                 <option value="">No default contract type</option>
                 {contractTypes.map((contract) => (
@@ -308,27 +316,47 @@ export function CustomerManager() {
                 ))}
               </SelectInput>
             </FormField>
-            <FormField label="Source" htmlFor="customer-source" error={fieldErrors.source}>
-              <SelectInput id="customer-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}>
-                <option value="MANUAL">Manual</option>
-                <option value="API">API</option>
-                <option value="IMPORT">Import</option>
-              </SelectInput>
-            </FormField>
-            <FormField label="External provider" htmlFor="customer-provider" error={fieldErrors.externalProvider}>
-              <TextInput id="customer-provider" value={form.externalProvider} onChange={(event) => setForm({ ...form, externalProvider: event.target.value })} placeholder="Optional" />
-            </FormField>
-            <FormField label="External ID" htmlFor="customer-external-id" error={fieldErrors.externalId}>
-              <TextInput id="customer-external-id" value={form.externalId} onChange={(event) => setForm({ ...form, externalId: event.target.value })} placeholder="Optional" />
-            </FormField>
 
-            <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
-              {editingId ? <Button variant="ghost" onClick={resetForm}>Cancel</Button> : null}
-              <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Create customer'}</Button>
+            <details className="border-t border-[var(--border)] pt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[var(--muted-strong)]">Advanced source details</summary>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <FormField label="Source" htmlFor="customer-source" error={fieldErrors.source}>
+                  <SelectInput id="customer-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}>
+                    <option value="MANUAL">Manual</option>
+                    <option value="API">API</option>
+                    <option value="IMPORT">Import</option>
+                  </SelectInput>
+                </FormField>
+                <FormField label="External provider" htmlFor="customer-provider" error={fieldErrors.externalProvider}>
+                  <TextInput id="customer-provider" value={form.externalProvider} onChange={(event) => setForm({ ...form, externalProvider: event.target.value })} placeholder="Optional" />
+                </FormField>
+                <FormField label="External ID" htmlFor="customer-external-id" error={fieldErrors.externalId}>
+                  <TextInput id="customer-external-id" value={form.externalId} onChange={(event) => setForm({ ...form, externalId: event.target.value })} placeholder="Optional" />
+                </FormField>
+              </div>
+            </details>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <div className="flex flex-wrap gap-2">
+                {editingRecord ? (
+                  <>
+                    <Button variant="secondary" onClick={() => void toggleArchive(editingRecord)} disabled={saving}>
+                      {editingRecord.isActive ? 'Archive' : 'Reactivate'}
+                    </Button>
+                    <Button variant="danger" onClick={() => void deleteCustomer(editingRecord)} disabled={saving}>Delete</Button>
+                  </>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={closeForm}>Cancel</Button>
+                <Button variant="primary" type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : editingId ? 'Save changes' : 'Create customer'}
+                </Button>
+              </div>
             </div>
           </form>
         </section>
-      </div>
+      ) : null}
     </>
   )
 }
