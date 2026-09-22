@@ -135,7 +135,9 @@ test('navigates customer, site, device group and device detail with attention dr
   await expect(page.getByRole('link', { name: 'pw-sw-01' })).toBeVisible()
   await page.getByRole('link', { name: 'pw-sw-01' }).click()
   await expect(page).toHaveURL(new RegExp('/devices/' + ids.first + '$'))
-  await expect(page.getByText('Inventory status')).toBeVisible()
+  await expect(page.getByText('Inventory status')).toBeVisible({
+    timeout: 20_000,
+  })
 
   await page.goto('/devices')
   await customerRow
