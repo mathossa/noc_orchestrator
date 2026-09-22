@@ -1,6 +1,10 @@
-import type { ButtonHTMLAttributes } from 'react'
+import Link from 'next/link'
+import type { ButtonHTMLAttributes, ComponentProps } from 'react'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+
+const baseButtonClass =
+  'inline-flex h-9 items-center justify-center rounded-md border px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50'
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
@@ -12,6 +16,10 @@ const variantClasses: Record<ButtonVariant, string> = {
     'border-transparent bg-transparent text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]',
 }
 
+export function buttonClassName(variant: ButtonVariant = 'secondary', className = '') {
+  return `${baseButtonClass} ${variantClasses[variant]} ${className}`.trim()
+}
+
 export function Button({
   variant = 'secondary',
   className = '',
@@ -21,8 +29,16 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex h-9 items-center justify-center rounded-md border px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${variantClasses[variant]} ${className}`}
+      className={buttonClassName(variant, className)}
       {...props}
     />
   )
+}
+
+export function ButtonLink({
+  variant = 'secondary',
+  className = '',
+  ...props
+}: ComponentProps<typeof Link> & { variant?: ButtonVariant }) {
+  return <Link {...props} className={buttonClassName(variant, className)} />
 }
