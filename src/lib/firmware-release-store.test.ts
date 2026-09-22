@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   releaseDelete: vi.fn(),
   modelFindMany: vi.fn(),
   deviceCount: vi.fn(),
+  trainCount: vi.fn(),
   policyCount: vi.fn(),
   lifecycleCount: vi.fn(),
   auditCount: vi.fn(),
@@ -20,7 +21,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     vendor: { findUnique: mocks.vendorFindUnique, findMany: mocks.vendorFindMany },
-    firmwareTrain: { findUnique: mocks.trainFindUnique, findMany: mocks.trainFindMany },
     firmwareRelease: {
       findMany: mocks.releaseFindMany,
       findUnique: mocks.releaseFindUnique,
@@ -30,6 +30,11 @@ vi.mock('@/lib/prisma', () => ({
     },
     deviceModel: { findMany: mocks.modelFindMany },
     device: { count: mocks.deviceCount },
+    firmwareTrain: {
+      findUnique: mocks.trainFindUnique,
+      findMany: mocks.trainFindMany,
+      count: mocks.trainCount,
+    },
     firmwarePolicy: { count: mocks.policyCount },
     firmwareLifecycleRecord: { count: mocks.lifecycleCount },
     auditEvent: { count: mocks.auditCount },
@@ -79,6 +84,7 @@ describe('firmware release persistence rules', () => {
     vi.clearAllMocks()
     mocks.vendorFindUnique.mockResolvedValue({ id: 'vendor-1' })
     mocks.releaseFindMany.mockResolvedValue([])
+    mocks.trainCount.mockResolvedValue(0)
   })
 
   it('creates a verified catalog release without making it policy eligible', async () => {
@@ -103,6 +109,21 @@ describe('firmware release persistence rules', () => {
     expect(result.version).toBe('17.15.5')
     expect(result.policyEligibility).toBe('NOT_EVALUATED')
     expect(mocks.policyCount).not.toHaveBeenCalled()
+  })
+
+  it('rejects creating a release with a combined platform capability list', async () => {
+    await expect(createFirmwareRelease({
+      vendorId: 'vendor-1',
+      platform: 'AOS-8, AOS-10',
+      version: '8.10.0.5',
+    })).rejects.toMatchObject({
+      name: 'FirmwareReleaseValidationError',
+      fields: {
+        platform: 'A firmware release must belong to one platform. Use model compatibility for multi-platform support.',
+      },
+    })
+
+    expect(mocks.releaseCreate).not.toHaveBeenCalled()
   })
 
   it('persists derived Aruba image identity without collapsing the exact version', async () => {
@@ -173,6 +194,36 @@ describe('firmware release persistence rules', () => {
     }))
   })
 
+  it('updates an exact version in place and re-derives its canonical identity', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({
+      ...storedRelease,
+      platform: 'AOS-S',
+      version: 'WC.16.11.0002',
+      logicalVersion: '16.11.0002',
+      imageCode: 'WC',
+      vendor: undefined,
+      firmwareTrain: undefined,
+    })
+    mocks.releaseUpdate.mockResolvedValue({
+      ...storedRelease,
+      platform: 'AOS-S',
+      version: 'YA.16.10.0025',
+      logicalVersion: '16.10.0025',
+      imageCode: 'YA',
+    })
+
+    await updateFirmwareRelease('release-1', { version: 'YA.16.10.0025' })
+
+    expect(mocks.releaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'release-1' },
+      data: expect.objectContaining({
+        version: 'YA.16.10.0025',
+        logicalVersion: '16.10.0025',
+        imageCode: 'YA',
+      }),
+    }))
+  })
+
   it('supports archive-only PATCH without overwriting catalog identity or eligibility', async () => {
     mocks.releaseFindUnique.mockResolvedValue({
       ...storedRelease,
@@ -213,7 +264,23 @@ describe('firmware release persistence rules', () => {
     }))
   })
 
-  it('blocks permanent deletion when policy/history/device references exist', async () => {
+  it('blocks permanent deletion while a train uses the release as a catalog default', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({
+      id: 'release-1',
+      source: 'MANUAL',
+      catalogState: 'VERIFIED',
+    })
+    mocks.deviceCount.mockResolvedValue(0)
+    mocks.policyCount.mockResolvedValue(0)
+    mocks.trainCount.mockResolvedValue(1)
+    mocks.lifecycleCount.mockResolvedValue(0)
+    mocks.auditCount.mockResolvedValue(0)
+
+    await expect(deleteFirmwareRelease('release-1')).rejects.toBeInstanceOf(FirmwareReleaseInUseError)
+    expect(mocks.releaseDelete).not.toHaveBeenCalled()
+  })
+
+    it('blocks permanent deletion when policy/history/device references exist', async () => {
     mocks.releaseFindUnique.mockResolvedValue({ id: 'release-1' })
     mocks.deviceCount.mockResolvedValue(0)
     mocks.policyCount.mockResolvedValue(1)

@@ -293,7 +293,11 @@ function explicitPlatformFromEvidence(
   source: ImporterV2FirmwarePlatformEvidence
   conflict?: string | null
 } {
-  const rawPlatform = canonicalPlatform(evidence.softwarePlatform)
+  const rawPlatformText = normalizeText(evidence.softwarePlatform)
+  const rawPlatform =
+    rawPlatformText && /[,;]/.test(rawPlatformText)
+      ? null
+      : canonicalPlatform(rawPlatformText)
   const text = evidenceText(evidence)
   let inferred: string | null = null
   let source: ImporterV2FirmwarePlatformEvidence = 'NONE'
@@ -322,7 +326,9 @@ function explicitPlatformFromEvidence(
   }
 
   const arubaVendor =
-    isVendor(evidence, 'aruba') || isVendor(evidence, 'hewlett packard')
+    isVendor(evidence, 'aruba') ||
+    isVendor(evidence, 'hewlett packard') ||
+    isVendor(evidence, 'hpe')
   const sourceType = key(evidence.sourceDeviceType)
   const wlanLike =
     sourceType?.includes('wireless') ||

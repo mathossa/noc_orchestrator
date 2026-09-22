@@ -48,7 +48,7 @@ const modes: Array<{
 ]
 type EditorModel = Pick<
   DeviceModelDetailRecord,
-  'id' | 'vendorId' | 'desiredFirmware' | 'availableFirmware'
+  'id' | 'vendorId' | 'desiredFirmware' | 'availableFirmware' | 'effectiveCatalogDefaults'
 >
 
 function initialForm(model: EditorModel) {
@@ -82,6 +82,7 @@ export function DesiredFirmwareEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [overrideOpen, setOverrideOpen] = useState(() => Boolean(model.desiredFirmware.policyId))
   useEffect(() => {
     let cancelled = false
     void fetch('/api/v1/firmware-trains', { cache: 'no-store' })
@@ -220,10 +221,11 @@ export function DesiredFirmwareEditor({
         )
       onSaved(payload.data)
       setForm(initialForm(payload.data))
+      if (clear) setOverrideOpen(false)
       setMessage(
         clear
-          ? 'Model baseline cleared. Inherited policies may still apply.'
-          : 'Desired firmware policy saved. Open a device to inspect its compliance and exact target compatibility.',
+          ? 'Model override removed. Devices now inherit the applicable scoped policy or Firmware Catalog default.'
+          : 'Model override saved. Open a device to inspect its effective target and compatibility.',
       )
     } catch (e) {
       setError(
@@ -239,16 +241,15 @@ export function DesiredFirmwareEditor({
       className="scroll-mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)]"
     >
       <div className="border-b border-[var(--border)] p-4">
-        <h2 className="text-sm font-semibold">Desired firmware policy</h2>
+        <h2 className="text-sm font-semibold">Firmware target</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Configure this model’s baseline. Customer, site, and device overrides
-          retain their precedence.
+          Uses the model’s preferred platform by default. Add an override only for a deliberate exception.
         </p>
       </div>
       <div className="grid gap-5 p-4 lg:grid-cols-2">
         <div>
           <h3 className="text-xs font-semibold uppercase text-[var(--muted)]">
-            Saved model baseline
+            Model override
           </h3>
           {p.policyId ? (
             <dl className="mt-3 space-y-2 text-sm">
@@ -323,11 +324,41 @@ export function DesiredFirmwareEditor({
               ) : null}
             </dl>
           ) : (
-            <p className="mt-3 text-sm text-[var(--muted)]">
-              No model baseline. Family or scoped policy may still apply.
-            </p>
+            <div className="mt-3 space-y-3 text-sm text-[var(--muted)]">
+              <p>No model override. Scoped policies still take precedence; otherwise the Firmware Catalog drives compliance automatically.</p>
+              {model.effectiveCatalogDefaults.length > 0 ? (
+                <div className="space-y-2">
+                  {model.effectiveCatalogDefaults.map((catalogDefault) => (
+                    <div key={catalogDefault.releaseId} className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Link href={`/firmware/${catalogDefault.releaseId}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">
+                          {catalogDefault.version}
+                        </Link>
+                        <span className="text-xs">{catalogDefault.deviceCount} device{catalogDefault.deviceCount === 1 ? '' : 's'}</span>
+                      </div>
+                      <div className="mt-1 text-xs">{catalogDefault.platform} · {catalogDefault.trainName} · catalog default</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs">No catalog target resolved. Check the preferred platform and its preferred train/release.</p>
+              )}
+            </div>
           )}
         </div>
+        {!p.policyId && !overrideOpen ? (
+          <div className="h-fit rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4">
+            <h3 className="text-sm font-semibold">Model override</h3>
+            <p className="mt-2 text-xs text-[var(--muted)]">Use only when this model must differ from the catalog default.</p>
+            <button
+              type="button"
+              onClick={() => setOverrideOpen(true)}
+              className="mt-4 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface)]"
+            >
+              Configure model override
+            </button>
+          </div>
+        ) : (
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -447,16 +478,30 @@ export function DesiredFirmwareEditor({
               disabled={saving || (moving && (loadingTrains || !!trainError))}
               className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Save desired firmware'}
+              {saving ? 'Saving…' : 'Save model override'}
             </button>
-            <button
-              type="button"
-              disabled={saving || !p.policyId}
-              onClick={() => void save(true)}
-              className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Clear model baseline
-            </button>
+            {p.policyId ? (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save(true)}
+                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Remove model override
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setOverrideOpen(false)
+                  setError(null)
+                }}
+                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            )}
           </div>
           {error ? (
             <p role="alert" className="text-sm text-red-300">
@@ -469,6 +514,7 @@ export function DesiredFirmwareEditor({
             </p>
           ) : null}
         </form>
+        )}
       </div>
     </section>
   )

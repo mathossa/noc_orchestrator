@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
+import { releaseDecisionFromCatalogSemantics } from '@/lib/firmware-catalog-defaults'
 import {
+  FirmwareReleaseValidationError,
   normalizedFirmwarePlatform,
   parseFirmwareReleaseInput,
   type FirmwareReleaseRecord,
@@ -78,6 +80,10 @@ function serializeRelease(record: {
     imageCode: record.imageCode,
     catalogState: record.catalogState as FirmwareReleaseRecord['catalogState'],
     policyEligibility: record.policyEligibility as FirmwareReleaseRecord['policyEligibility'],
+    decision: releaseDecisionFromCatalogSemantics({
+      catalogState: record.catalogState,
+      policyEligibility: record.policyEligibility,
+    }),
     variantEquivalence: record.variantEquivalence as FirmwareReleaseRecord['variantEquivalence'],
     filename: record.filename,
     sha256: record.sha256,
@@ -160,7 +166,7 @@ export async function getFirmwareRelease(id: string) {
   const record = await prisma.firmwareRelease.findUnique({ where: { id }, include: releaseInclude })
   if (!record) throw new FirmwareReleaseNotFoundError()
 
-  const [matchingModels, currentDevices, targetPolicies, lifecycleTargets] = await Promise.all([
+  const [matchingModels, currentDevices, currentDeviceScopes, targetPolicies, lifecycleTargets] = await Promise.all([
     prisma.deviceModel.findMany({
       where: { vendorId: record.vendorId, platform: { equals: record.platform, mode: 'insensitive' } },
       orderBy: { model: 'asc' },
@@ -173,6 +179,14 @@ export async function getFirmwareRelease(id: string) {
       },
     }),
     prisma.device.count({ where: { currentFirmwareReleaseId: id } }),
+    prisma.device.findMany({
+      where: { currentFirmwareReleaseId: id },
+      select: {
+        customerId: true,
+        siteId: true,
+        deviceModel: { select: { familyId: true } },
+      },
+    }),
     prisma.firmwarePolicy.count({ where: { targetFirmwareReleaseId: id } }),
     prisma.firmwareLifecycleRecord.count({ where: { targetFirmwareReleaseId: id } }),
   ])
@@ -188,16 +202,31 @@ export async function getFirmwareRelease(id: string) {
       deviceType: model.deviceType,
       deviceCount: model._count.devices,
     })),
-    usage: { currentDevices, targetPolicies, lifecycleTargets },
+    usage: {
+      currentDevices,
+      modelFamilies: new Set(currentDeviceScopes.map((device) => device.deviceModel.familyId).filter(Boolean)).size,
+      customers: new Set(currentDeviceScopes.map((device) => device.customerId)).size,
+      sites: new Set(currentDeviceScopes.map((device) => device.siteId).filter(Boolean)).size,
+      targetPolicies,
+      lifecycleTargets,
+    },
   }
 }
 
 export async function createFirmwareRelease(rawInput: unknown) {
   const input = parseFirmwareReleaseInput(rawInput)
+  if (/[,;]/.test(input.platform)) {
+    throw new FirmwareReleaseValidationError(
+      'Please correct the highlighted fields.',
+      { platform: 'A firmware release must belong to one platform. Use model compatibility for multi-platform support.' },
+    )
+  }
   await assertVendor(input.vendorId)
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version)
-  const created = await prisma.firmwareRelease.create({ data: input, include: releaseInclude })
+  const { decision: _decision, ...data } = input
+  void _decision
+  const created = await prisma.firmwareRelease.create({ data, include: releaseInclude })
   return serializeRelease(created)
 }
 
@@ -210,14 +239,21 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
     !Object.prototype.hasOwnProperty.call(patch, 'catalogState') &&
     !Object.prototype.hasOwnProperty.call(patch, 'policyEligibility')
 
+  const identityChanging =
+    Object.prototype.hasOwnProperty.call(patch, 'version') ||
+    Object.prototype.hasOwnProperty.call(patch, 'platform')
   const input = parseFirmwareReleaseInput({
     vendorId: current.vendorId,
     firmwareTrainId: current.firmwareTrainId,
     platform: current.platform,
     version: current.version,
-    logicalVersion: current.logicalVersion,
-    variant: current.variant,
-    imageCode: current.imageCode,
+    ...(identityChanging
+      ? {}
+      : {
+          logicalVersion: current.logicalVersion,
+          variant: current.variant,
+          imageCode: current.imageCode,
+        }),
     ...(legacyStatusOnly
       ? {}
       : { catalogState: current.catalogState, policyEligibility: current.policyEligibility }),
@@ -238,24 +274,48 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
   await assertVendor(input.vendorId)
   await assertTrainAssignment(input.firmwareTrainId, input.vendorId, input.platform)
   await assertUnique(input.vendorId, input.platform, input.version, id)
-  const updated = await prisma.firmwareRelease.update({ where: { id }, data: input, include: releaseInclude })
+  const { decision: _decision, ...data } = input
+  void _decision
+  const updated = await prisma.firmwareRelease.update({ where: { id }, data, include: releaseInclude })
   return serializeRelease(updated)
 }
 
 export async function deleteFirmwareRelease(id: string) {
-  const current = await prisma.firmwareRelease.findUnique({ where: { id }, select: { id: true } })
+  const current = await prisma.firmwareRelease.findUnique({
+    where: { id },
+    select: { id: true, source: true, catalogState: true },
+  })
   if (!current) throw new FirmwareReleaseNotFoundError()
+  if (current.source === 'IMPORT' || current.catalogState === 'OBSERVED') {
+    throw new FirmwareReleaseInUseError('Observed/imported firmware is historical evidence and cannot be permanently deleted. Archive it instead.')
+  }
 
-  const [devices, policies, lifecycle, audit] = await Promise.all([
+  const [devices, policies, trainDefaults, lifecycle, audit] = await Promise.all([
     prisma.device.count({ where: { currentFirmwareReleaseId: id } }),
-    prisma.firmwarePolicy.count({ where: { targetFirmwareReleaseId: id } }),
+    prisma.firmwarePolicy.count({
+      where: {
+        OR: [
+          { targetFirmwareReleaseId: id },
+          { minimumFirmwareReleaseId: id },
+          { maximumFirmwareReleaseId: id },
+        ],
+      },
+    }),
+    prisma.firmwareTrain.count({
+      where: {
+        OR: [
+          { preferredFirmwareReleaseId: id },
+          { minimumAcceptableFirmwareReleaseId: id },
+        ],
+      },
+    }),
     prisma.firmwareLifecycleRecord.count({ where: { targetFirmwareReleaseId: id } }),
     prisma.auditEvent.count({ where: { entityType: 'FirmwareRelease', entityId: id } }),
   ])
-  const references = devices + policies + lifecycle + audit
+  const references = devices + policies + trainDefaults + lifecycle + audit
   if (references > 0) {
     throw new FirmwareReleaseInUseError(
-      `This firmware release is referenced by ${references} device, policy, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
+      `This firmware release is referenced by ${references} device, policy, train-default, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`,
     )
   }
 

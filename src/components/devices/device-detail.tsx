@@ -125,13 +125,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <PageHeader
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Current firmware, desired firmware, technical state, and operational lifecycle decisions are separate pieces of state."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage devices</Link>
-            <Link href={`/customers/${device.customerId}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer</Link>
-          </div>
-        }
+        breadcrumbs={[{ label: 'Devices', href: '/devices' }, { label: device.name }]}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

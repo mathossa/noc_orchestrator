@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
+import { ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -45,8 +46,8 @@ export function ContractDetail({ contractId }: { contractId: string }) {
       <PageHeader
         eyebrow="Contract type"
         title={contract.name}
-        description="Firmware lifecycle applicability uses each device's effective contract: site override first, customer default second, otherwise none."
-        actions={<div className="flex flex-wrap gap-2"><Link href="/contracts" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage contract types</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Effective devices</Link></div>}
+        breadcrumbs={[{ label: 'Contract types', href: '/contracts' }, { label: contract.name }]}
+        actions={<ButtonLink href={devicesHref} variant="primary">Effective devices</ButtonLink>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

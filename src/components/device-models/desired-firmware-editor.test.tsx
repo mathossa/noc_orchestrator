@@ -37,6 +37,7 @@ function model(
       },
     },
     availableFirmware: { available: true, releases: [release] },
+    effectiveCatalogDefaults: [],
   }
 }
 describe('replacement Desired firmware editor', () => {
@@ -64,10 +65,51 @@ describe('replacement Desired firmware editor', () => {
       expect(markup.includes('id="policy-targetFirmwareReleaseId"')).toBe(
         mode !== 'LATEST_APPROVED_IN_TRAIN',
       )
-      expect(markup).toContain('Save desired firmware')
-      expect(markup).toContain('Clear model baseline')
+      expect(markup).toContain('Save model override')
+      expect(markup).toContain('Remove model override')
       if (mode === 'LATEST_APPROVED_IN_TRAIN')
         expect(markup).toContain('Synthetic approved train')
     },
   )
+
+  it('presents catalog inheritance before offering an optional model override', () => {
+    const base = model('EXACT')
+    const inherited = {
+      ...base,
+      desiredFirmware: {
+        ...base.desiredFirmware,
+        policyId: null,
+        policyMode: null,
+        desiredPlatform: null,
+        release: null,
+        minimumRelease: null,
+        maximumRelease: null,
+        firmwareTrain: null,
+        trackKey: null,
+      },
+      effectiveCatalogDefaults: [
+        {
+          releaseId: 'preferred',
+          version: '17.15.5',
+          platform: 'IOS XE',
+          trainName: '17.15',
+          deviceCount: 3,
+        },
+      ],
+    }
+    const markup = renderToStaticMarkup(
+      createElement(DesiredFirmwareEditor, {
+        model: inherited,
+        compatibility: new Map(),
+        onSaved: () => {},
+      }),
+    )
+
+    expect(markup).toContain('Firmware Catalog drives compliance automatically')
+    expect(markup).toContain('17.15.5')
+    expect(markup).toContain('3 devices')
+    expect(markup).toContain('Configure model override')
+    expect(markup).not.toContain('id="policy-targetFirmwareReleaseId"')
+  })
+
 })

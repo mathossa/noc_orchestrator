@@ -232,8 +232,7 @@ export function SiteManager({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer sites"
         title={customer ? `${customer.name} sites` : 'Customer sites'}
-        description="Manage customer locations and optionally override the customer default contract for sites covered differently."
-        actions={<Link href={`/customers/${customerId}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Back to customer</Link>}
+        breadcrumbs={[{ label: 'Customers', href: '/customers' }, ...(customer ? [{ label: customer.name, href: `/customers/${customerId}` }] : []), { label: 'Sites' }]}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}

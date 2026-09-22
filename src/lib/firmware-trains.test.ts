@@ -24,7 +24,29 @@ describe('firmware train validation', () => {
     expect(parsed.externalId).toBeNull()
   })
 
-  it('requires vendor, platform, and train name', () => {
+  it('uses Accepted as the default train state and validates preferred/minimum configuration shape', () => {
+    expect(parseFirmwareTrainInput({ vendorId: 'vendor-1', platform: 'IOS XE', name: '17.15' }).state).toBe('ACCEPTED')
+    expect(parseFirmwareTrainInput({
+      vendorId: 'vendor-1',
+      platform: 'IOS XE',
+      name: '17.15',
+      state: 'PREFERRED',
+      preferredFirmwareReleaseId: 'release-1',
+      minimumAcceptableFirmwareReleaseId: 'release-2',
+    })).toMatchObject({
+      state: 'PREFERRED',
+      preferredFirmwareReleaseId: 'release-1',
+      minimumAcceptableFirmwareReleaseId: 'release-2',
+    })
+    expect(() => parseFirmwareTrainInput({
+      vendorId: 'vendor-1',
+      platform: 'IOS XE',
+      name: '17.15',
+      minimumAcceptableFirmwareReleaseId: 'release-2',
+    })).toThrow(FirmwareTrainValidationError)
+  })
+
+    it('requires vendor, platform, and train name', () => {
     expect(() => parseFirmwareTrainInput({})).toThrow(FirmwareTrainValidationError)
   })
 })
