@@ -272,14 +272,19 @@ export async function resolveFirmwareComplianceBatch(
       }),
     })
     if (resolution.status !== 'RESOLVED') {
+      const preferredTrain = rows.find((train) => train.state === 'PREFERRED') ?? null
       return {
         status: 'UNRESOLVED',
         policy: null,
         source: null,
         unresolvedReason:
-          resolution.status === 'NO_COMPATIBLE_TRAIN'
-            ? 'NO_COMPATIBLE_CATALOG_TRAIN'
-            : 'CATALOG_COMPATIBILITY_UNRESOLVED',
+          !preferredTrain
+            ? 'CATALOG_PREFERRED_TRAIN_UNRESOLVED'
+            : !preferredTrain.preferredFirmwareReleaseId
+              ? 'CATALOG_PREFERRED_RELEASE_UNRESOLVED'
+              : resolution.status === 'NO_COMPATIBLE_TRAIN'
+                ? 'NO_COMPATIBLE_CATALOG_TRAIN'
+                : 'CATALOG_COMPATIBILITY_UNRESOLVED',
       }
     }
 
