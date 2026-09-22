@@ -52,7 +52,7 @@ type ReleaseCompatibilityView = {
   release: { id: string; version: string; platform: string; imageCode: string | null }
   counts: { compatible: number; incompatible: number; unknown: number }
   models: Array<{
-    model: { id: string; model: string; platform: string | null }
+    model: { id: string; model: string; platform: string | null; supportedPlatforms: string[] }
     result: {
       status: 'COMPATIBLE' | 'INCOMPATIBLE' | 'UNKNOWN'
       provenance: { kind: string; sourceType: string; explanation: string; inherited: boolean }
@@ -245,17 +245,44 @@ export function ModelFirmwareCompatibilityPanel({ modelId }: { modelId: string }
   )
 }
 
-function ReleaseCompatibilityModelRow({ item }: { item: ReleaseCompatibilityView['models'][number] }) {
+function ReleaseCompatibilityModelRow({
+  item,
+  releasePlatform,
+  adding,
+  onAdd,
+}: {
+  item: ReleaseCompatibilityView['models'][number]
+  releasePlatform: string
+  adding: boolean
+  onAdd: () => void
+}) {
   const { model, result } = item
+  const supportsReleasePlatform = model.supportedPlatforms.some(
+    (platform) =>
+      platform.normalize('NFKC').trim().toLocaleLowerCase('en-US') ===
+      releasePlatform.normalize('NFKC').trim().toLocaleLowerCase('en-US'),
+  )
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 p-3">
       <div>
         <Link href={`/models/${model.id}`} className="font-medium text-[var(--accent-light)] hover:underline">{model.model}</Link>
         <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{result.provenance.explanation}</p>
       </div>
-      <div className="text-right">
-        <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
-        <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div className={`text-xs font-semibold ${result.status === 'COMPATIBLE' ? 'text-emerald-300' : result.status === 'INCOMPATIBLE' ? 'text-red-300' : 'text-amber-300'}`}>{result.status}</div>
+          <div className="mt-1 text-[11px] text-[var(--muted)]">{result.provenance.kind}{result.provenance.inherited ? ' · inherited' : ''}</div>
+        </div>
+        {!supportsReleasePlatform ? (
+          <button
+            type="button"
+            disabled={adding}
+            onClick={onAdd}
+            className="inline-flex h-8 items-center rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2.5 text-xs font-semibold hover:bg-[var(--surface-muted)] disabled:opacity-50"
+          >
+            {adding ? 'Adding…' : 'Add model'}
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -266,6 +293,8 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
   const [error, setError] = useState<string | null>(null)
   const [modelQuery, setModelQuery] = useState('')
   const [showAllCompatible, setShowAllCompatible] = useState(false)
+  const [addingModelId, setAddingModelId] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -290,6 +319,39 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
       )
     : []
 
+  async function addModelPlatform(item: ReleaseCompatibilityView['models'][number]) {
+    if (!data) return
+    setAddingModelId(item.model.id)
+    setError(null)
+    setActionMessage(null)
+    try {
+      const supportedPlatforms = [...item.model.supportedPlatforms]
+      if (!supportedPlatforms.some(
+        (platform) =>
+          platform.normalize('NFKC').trim().toLocaleLowerCase('en-US') ===
+          data.release.platform.normalize('NFKC').trim().toLocaleLowerCase('en-US'),
+      )) {
+        supportedPlatforms.push(data.release.platform)
+      }
+      const response = await fetch(`/api/v1/models/${item.model.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ supportedPlatforms }),
+      })
+      const payload = (await response.json()) as ApiError
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Model compatibility could not be updated.')
+      const refreshed = await fetch(`/api/v1/firmware-releases/${releaseId}/compatibility`, { cache: 'no-store' })
+      const refreshedPayload = (await refreshed.json()) as { data?: ReleaseCompatibilityView } & ApiError
+      if (!refreshed.ok || !refreshedPayload.data) throw new Error(refreshedPayload.error?.message ?? 'Compatibility could not be reloaded.')
+      setData(refreshedPayload.data)
+      setActionMessage(`${item.model.model} now supports ${data.release.platform}.`)
+    } catch (actionError: unknown) {
+      setError(actionError instanceof Error ? actionError.message : 'Model compatibility could not be updated.')
+    } finally {
+      setAddingModelId(null)
+    }
+  }
+
   return (
     <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -307,6 +369,7 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
       </div>
 
       {error ? <div className="mt-4 text-sm text-red-300">{error}</div> : null}
+      {actionMessage ? <div className="mt-4 text-sm text-emerald-300">{actionMessage}</div> : null}
       {data ? (
         <>
           <div className="mt-4 rounded-md border border-[var(--border)]">
@@ -362,7 +425,15 @@ export function ReleaseModelCompatibilityPanel({ releaseId }: { releaseId: strin
                 {searchedModels.length === 0 ? (
                   <div className="p-3 text-sm text-[var(--muted)]">No matching model.</div>
                 ) : (
-                  searchedModels.slice(0, 20).map((item) => <ReleaseCompatibilityModelRow key={item.model.id} item={item} />)
+                  searchedModels.slice(0, 20).map((item) => (
+                    <ReleaseCompatibilityModelRow
+                      key={item.model.id}
+                      item={item}
+                      releasePlatform={data.release.platform}
+                      adding={addingModelId === item.model.id}
+                      onAdd={() => void addModelPlatform(item)}
+                    />
+                  ))
                 )}
               </div>
             ) : null}
