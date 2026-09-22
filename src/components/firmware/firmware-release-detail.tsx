@@ -12,9 +12,10 @@ import { deviceFilterHref } from '@/lib/drilldown-links'
 import type { FirmwareReleaseDetailRecord } from '@/lib/firmware-releases'
 import type { FirmwareTrainRecord } from '@/lib/firmware-trains'
 
-type ApiError = { error?: { message?: string } }
+type ApiError = { error?: { message?: string; fields?: Record<string, string> } }
 
 type EditForm = {
+  version: string
   firmwareTrainId: string
   decision: string
   releaseNotesUrl: string
@@ -23,6 +24,7 @@ type EditForm = {
 
 function editFormFor(release: FirmwareReleaseDetailRecord): EditForm {
   return {
+    version: release.version,
     firmwareTrainId: release.firmwareTrainId ?? '',
     decision: release.decision,
     releaseNotesUrl: release.releaseNotesUrl ?? '',
@@ -49,6 +51,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
   const [editError, setEditError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({
+    version: '',
     firmwareTrainId: '',
     decision: 'NEEDS_REVIEW',
     releaseNotesUrl: '',
@@ -102,6 +105,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          version: editForm.version,
           firmwareTrainId: editForm.firmwareTrainId || null,
           decision: editForm.decision,
           releaseNotesUrl: editForm.releaseNotesUrl || null,
@@ -109,7 +113,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
         }),
       })
       const payload = (await response.json()) as ApiError
-      if (!response.ok) throw new Error(payload.error?.message ?? 'Firmware release could not be updated.')
+      if (!response.ok) throw new Error(payload.error?.fields?.version ?? payload.error?.message ?? 'Firmware release could not be updated.')
       await loadRelease()
       setEditing(false)
       setMessage('Firmware release updated.')
@@ -226,7 +230,12 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <FormField label="Exact release" htmlFor="release-edit-version">
-              <TextInput id="release-edit-version" value={release.version} readOnly />
+              <TextInput
+                id="release-edit-version"
+                value={editForm.version}
+                onChange={(event) => setEditForm({ ...editForm, version: event.target.value })}
+                required
+              />
             </FormField>
             <FormField label="Train" htmlFor="release-edit-train">
               <SelectInput id="release-edit-train" value={editForm.firmwareTrainId} onChange={(event) => setEditForm({ ...editForm, firmwareTrainId: event.target.value })}>
