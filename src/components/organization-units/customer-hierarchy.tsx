@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, TextArea, TextInput } from '@/components/ui/form-controls'
 import type { OrganizationUnitRecord } from '@/lib/organization-units'
@@ -110,28 +110,21 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
   const directSites = sites.filter((site) => !site.organizationUnitId)
   const needle = search.trim().toLocaleLowerCase('en-US')
 
-  const matchingDirectSites = useMemo(
-    () => directSites.filter((site) => matchesSite(site, needle)),
-    [directSites, needle],
-  )
+  const matchingDirectSites = directSites.filter((site) => matchesSite(site, needle))
 
-  const visibleUnits = useMemo(
-    () =>
-      units
-        .map((unit) => {
-          const children = sites.filter((site) => site.organizationUnitId === unit.id)
-          const matchingChildren = children.filter((site) => matchesSite(site, needle))
-          const unitMatches = !needle || [unit.name, unit.code ?? ''].join(' ').toLocaleLowerCase('en-US').includes(needle)
-          return {
-            unit,
-            children,
-            matchingChildren: unitMatches ? children : matchingChildren,
-            matches: unitMatches || matchingChildren.length > 0,
-          }
-        })
-        .filter((entry) => entry.matches),
-    [needle, sites, units],
-  )
+  const visibleUnits = units
+    .map((unit) => {
+      const children = sites.filter((site) => site.organizationUnitId === unit.id)
+      const matchingChildren = children.filter((site) => matchesSite(site, needle))
+      const unitMatches = !needle || [unit.name, unit.code ?? ''].join(' ').toLocaleLowerCase('en-US').includes(needle)
+      return {
+        unit,
+        children,
+        matchingChildren: unitMatches ? children : matchingChildren,
+        matches: unitMatches || matchingChildren.length > 0,
+      }
+    })
+    .filter((entry) => entry.matches)
 
   const totalDevices = sites.reduce((sum, site) => sum + site.deviceCount, 0)
   const usesBusinessUnits = units.length > 0
