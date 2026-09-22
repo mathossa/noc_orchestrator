@@ -7,7 +7,7 @@ export type FirmwarePolicyMode = (typeof FIRMWARE_POLICY_MODES)[number]
 export const FIRMWARE_POLICY_TRACK_CLASSES = ['PREFERRED', 'ACCEPTED', 'LEGACY', 'RESTRICTED'] as const
 export type FirmwarePolicyTrackClass = (typeof FIRMWARE_POLICY_TRACK_CLASSES)[number]
 
-export const FIRMWARE_POLICY_SCOPES = ['DEVICE', 'SITE', 'CUSTOMER', 'MODEL', 'FAMILY'] as const
+export const FIRMWARE_POLICY_SCOPES = ['DEVICE', 'SITE', 'CUSTOMER', 'MODEL', 'FAMILY', 'CATALOG'] as const
 export type FirmwarePolicyScope = (typeof FIRMWARE_POLICY_SCOPES)[number]
 
 export type FirmwarePolicyDeviceContext = {
@@ -48,7 +48,7 @@ export type FirmwarePolicyCandidate = {
 export type FirmwarePolicySource = {
   scope: FirmwarePolicyScope
   scopeId: string
-  subject: 'DEVICE' | 'MODEL' | 'FAMILY' | 'UNSCOPED'
+  subject: 'DEVICE' | 'MODEL' | 'FAMILY' | 'CATALOG' | 'UNSCOPED'
   subjectId: string | null
   policyId: string
   policyVersion: number
@@ -62,7 +62,16 @@ export type FirmwarePolicyResolution = {
   status: 'RESOLVED' | 'UNRESOLVED'
   policy: FirmwarePolicyCandidate | null
   source: FirmwarePolicySource | null
-  unresolvedReason: 'NO_POLICY' | 'NO_DEFAULT_TRACK' | 'AMBIGUOUS_DEFAULT_TRACK' | null
+  unresolvedReason:
+    | 'NO_POLICY'
+    | 'NO_DEFAULT_TRACK'
+    | 'AMBIGUOUS_DEFAULT_TRACK'
+    | 'CATALOG_PLATFORM_UNRESOLVED'
+    | 'CATALOG_PREFERRED_TRAIN_UNRESOLVED'
+    | 'CATALOG_PREFERRED_RELEASE_UNRESOLVED'
+    | 'CATALOG_COMPATIBILITY_UNRESOLVED'
+    | 'NO_COMPATIBLE_CATALOG_TRAIN'
+    | null
 }
 
 export type FirmwarePolicyTimelineResolution = FirmwarePolicyResolution & {

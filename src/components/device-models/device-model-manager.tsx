@@ -44,6 +44,7 @@ type FormState = {
   familyId: string
   model: string
   supportedPlatformsText: string
+  preferredPlatform: string
   notes: string
   source: string
   externalProvider: string
@@ -66,6 +67,7 @@ const initialForm: FormState = {
   familyId: '',
   model: '',
   supportedPlatformsText: '',
+  preferredPlatform: '',
   notes: '',
   source: 'MANUAL',
   externalProvider: '',
@@ -87,6 +89,7 @@ function formForRecord(record: DeviceModelRecord): FormState {
     familyId: record.familyId ?? '',
     model: record.model,
     supportedPlatformsText: record.supportedPlatforms.join(', '),
+    preferredPlatform: record.preferredPlatform ?? '',
     notes: record.notes ?? '',
     source: record.source,
     externalProvider: record.externalProvider ?? '',
@@ -502,8 +505,10 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       <PageHeader
         eyebrow="Firmware catalog"
         title="Device models"
-        description="Manage concrete hardware variants, their supported firmware platforms, explicit vendor families / series, and desired firmware policy."
-        actions={<Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>}
+        breadcrumbs={[
+          { label: 'Firmware catalog', href: '/firmware' },
+          { label: 'Device models' },
+        ]}
       />
 
       {message ? (
@@ -574,7 +579,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
           {selectedModels.length > 0 ? (
             <section className="rounded-lg border border-[var(--accent-muted)] bg-[var(--surface)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div><h2 className="text-sm font-semibold">Bulk desired firmware · {selectedModels.length} selected</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This explicitly changes each selected concrete model policy. Supported-platform compatibility is respected; family membership itself never chooses desired firmware.</p></div>
+                <div><h2 className="text-sm font-semibold">Bulk model override · {selectedModels.length} selected</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Use this only when selected models must deliberately differ from Firmware Catalog defaults. Supported-platform compatibility is respected.</p></div>
                 <Button variant="ghost" onClick={() => { setSelectedIds([]); setBulkReleaseId('') }}>Clear selection</Button>
               </div>
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
@@ -584,15 +589,15 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
                     {commonReleases.map((release) => <option key={release.id} value={release.id}>{release.version} · {release.platform} · {release.status}{release.firmwareTrain ? ` · ${release.firmwareTrain.name}` : ''}</option>)}
                   </SelectInput>
                 </FormField>
-                <Button variant="primary" onClick={() => void applyBulkDesired()} disabled={!validBulkReleaseId || bulkSaving || mixedVendors}>{bulkSaving ? 'Saving…' : 'Apply desired'}</Button>
-                <Button variant="ghost" onClick={() => void clearBulkDesired()} disabled={bulkSaving}>{bulkSaving ? 'Saving…' : 'Clear desired'}</Button>
+                <Button variant="primary" onClick={() => void applyBulkDesired()} disabled={!validBulkReleaseId || bulkSaving || mixedVendors}>{bulkSaving ? 'Saving…' : 'Apply override'}</Button>
+                <Button variant="ghost" onClick={() => void clearBulkDesired()} disabled={bulkSaving}>{bulkSaving ? 'Saving…' : 'Remove overrides'}</Button>
               </div>
             </section>
           ) : null}
 
           <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div><h2 className="text-sm font-semibold">Concrete models</h2><p className="mt-0.5 text-xs text-[var(--muted)]">Devices always reference these concrete models. Supported platforms describe what each model can run; desired firmware is separate policy intent.</p></div>
+              <h2 className="text-sm font-semibold">Concrete models</h2>
               <span className="text-xs text-[var(--muted)]">{filteredRecords.length} shown / {records.length} total</span>
             </div>
 
@@ -625,11 +630,11 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
         </div>
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Family / series is optional grouping. Supported firmware platforms are the model&apos;s explicit broad compatibility selection.</p></div>
+          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2></div>
 
           {activeVendorCount === 0 || activeTypeCount === 0 ? <div className="mb-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">You need at least one active vendor and one active device type before creating a model.</div> : null}
 
-          {editingId ? <div className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Desired firmware</div><p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">Desired firmware remains an explicit policy separate from model compatibility.</p><Link href={`/models/${editingId}#desired-firmware-policy`} className="mt-2 inline-flex text-sm font-semibold text-[var(--accent-light)] hover:underline">Configure desired firmware →</Link></div> : null}
+          {editingId ? <div className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Firmware target</div><p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">Firmware Catalog defaults are automatic. Add a model override only for a deliberate exception.</p><Link href={`/models/${editingId}#desired-firmware-policy`} className="mt-2 inline-flex text-sm font-semibold text-[var(--accent-light)] hover:underline">Review firmware target →</Link></div> : null}
 
           <form onSubmit={(event) => void saveModel(event)} className="space-y-4">
             <FormField label="Vendor" htmlFor="model-vendor" error={fieldErrors.vendorId}><SelectInput id="model-vendor" value={form.vendorId} onChange={(event) => changeModelVendor(event.target.value)} required><option value="">Select vendor</option>{references.vendors.map((vendor) => <option key={vendor.id} value={vendor.id} disabled={!vendor.isActive && vendor.id !== form.vendorId}>{vendor.name}{vendor.isActive ? '' : ' (archived)'}</option>)}</SelectInput></FormField>
@@ -640,14 +645,43 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
               label="Supported firmware platforms"
               htmlFor="model-supported-platforms"
               error={fieldErrors.supportedPlatforms}
-              description="Optional. Enter one or more supported platforms separated by commas. A non-empty list is authoritative: unselected same-vendor platforms are incompatible for this model."
             >
               <TextInput
                 id="model-supported-platforms"
                 value={form.supportedPlatformsText}
-                onChange={(event) => setForm((current) => ({ ...current, supportedPlatformsText: event.target.value }))}
-                placeholder="e.g. AOS-S, AOS-S-v2"
+                onChange={(event) => {
+                  const supportedPlatformsText = event.target.value
+                  const supported = parseSupportedPlatformsText(supportedPlatformsText)
+                  setForm((current) => ({
+                    ...current,
+                    supportedPlatformsText,
+                    preferredPlatform:
+                      supported.length === 1
+                        ? supported[0]
+                        : supported.some((platform) => platform.toLocaleLowerCase('en-US') === current.preferredPlatform.toLocaleLowerCase('en-US'))
+                          ? current.preferredPlatform
+                          : '',
+                  }))
+                }}
+                placeholder="e.g. AOS-8, AOS-10"
               />
+            </FormField>
+            <FormField
+              label="Preferred firmware platform"
+              htmlFor="model-preferred-platform"
+              error={fieldErrors.preferredPlatform}
+            >
+              <SelectInput
+                id="model-preferred-platform"
+                value={form.preferredPlatform}
+                onChange={(event) => setForm((current) => ({ ...current, preferredPlatform: event.target.value }))}
+                disabled={parseSupportedPlatformsText(form.supportedPlatformsText).length === 0}
+              >
+                <option value="">No preferred platform</option>
+                {parseSupportedPlatformsText(form.supportedPlatformsText).map((platform) => (
+                  <option key={platform.toLocaleLowerCase('en-US')} value={platform}>{platform}</option>
+                ))}
+              </SelectInput>
             </FormField>
             <FormField label="Notes" htmlFor="model-notes" error={fieldErrors.notes}><TextArea id="model-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional firmware or model-specific notes" /></FormField>
 
@@ -695,7 +729,7 @@ function ModelTable({
             <th className="px-3 py-2.5 font-semibold">Family / series</th>
             <th className="px-3 py-2.5 font-semibold">Vendor / type</th>
             <th className="px-3 py-2.5 font-semibold">Supported platforms</th>
-            <th className="px-3 py-2.5 font-semibold">Desired firmware</th>
+            <th className="px-3 py-2.5 font-semibold">Model override</th>
             <th className="px-3 py-2.5 text-right font-semibold">Devices</th>
             <th className="px-3 py-2.5 font-semibold">Status</th>
             <th className="px-3 py-2.5 text-right font-semibold">Actions</th>
@@ -708,11 +742,11 @@ function ModelTable({
               <td className="px-3 py-2.5"><Link href={`/models/${record.id}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)]">{record.model}</Link><div className="mt-0.5 text-xs text-[var(--muted)]">{record.source}</div></td>
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.family?.name ?? '—'}</td>
               <td className="px-3 py-2.5"><div className="text-[var(--muted-strong)]">{record.vendor.name}</div><div className="mt-0.5 text-xs text-[var(--muted)]">{record.deviceType.name}</div></td>
-              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.supportedPlatforms.length ? record.supportedPlatforms.join(', ') : 'Unknown'}</td>
-              <td className="px-3 py-2.5">{record.desiredFirmwareRelease ? <Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}<span className="ml-2 font-sans text-xs font-normal text-[var(--muted)]">{record.desiredFirmwareRelease.status}</span></Link> : <span className="text-xs text-[var(--muted)]">No policy</span>}</td>
+              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.supportedPlatforms.length ? <div className="flex flex-wrap gap-1">{record.supportedPlatforms.map((platform) => <span key={platform} className={platform.toLocaleLowerCase('en-US') === record.preferredPlatform?.toLocaleLowerCase('en-US') ? 'font-semibold text-[var(--accent-light)]' : ''}>{platform}{platform.toLocaleLowerCase('en-US') === record.preferredPlatform?.toLocaleLowerCase('en-US') ? ' · preferred' : ''}</span>)}</div> : 'Unknown'}</td>
+              <td className="px-3 py-2.5">{record.desiredFirmwareRelease ? <><Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link><div className="mt-0.5 text-xs text-[var(--muted)]">Explicit model override</div></> : <><span className="text-sm text-[var(--muted-strong)]">Automatic</span><div className="mt-0.5 text-xs text-[var(--muted)]">Catalog / scoped policy</div></>}</td>
               <td className="px-3 py-2.5 text-right tabular-nums"><Link href={`/devices?model=${encodeURIComponent(record.id)}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.deviceCount}</Link></td>
               <td className="px-3 py-2.5"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs text-[var(--muted-strong)]">{record.isActive ? 'Active' : 'Archived'}</span></td>
-              <td className="px-3 py-2.5"><div className="flex justify-end gap-1"><Link href={`/models/${record.id}`} className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]">View</Link><Link href={`/models/${record.id}#desired-firmware-policy`} className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]">Desired</Link><Button variant="ghost" onClick={() => onEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => onToggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => onDelete(record)}>Delete</Button></div></td>
+              <td className="px-3 py-2.5"><div className="flex justify-end gap-1"><Link href={`/models/${record.id}`} className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]">View</Link><Link href={`/models/${record.id}#desired-firmware-policy`} className="inline-flex h-9 items-center rounded-md border border-transparent px-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-light)]">Override</Link><Button variant="ghost" onClick={() => onEdit(record)}>Edit</Button><Button variant="ghost" onClick={() => onToggleArchive(record)}>{record.isActive ? 'Archive' : 'Reactivate'}</Button><Button variant="danger" onClick={() => onDelete(record)}>Delete</Button></div></td>
             </tr>
           ))}
         </tbody>

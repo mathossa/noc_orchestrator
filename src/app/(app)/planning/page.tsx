@@ -1,12 +1,16 @@
-import { SectionPlaceholder } from '@/components/ui/section-placeholder'
+import { FirmwarePlanList } from '@/components/firmware/planning/firmware-plan-list'
 
-export default function PlanningPage() {
+type PlanningPageProps = {
+  searchParams: Promise<{ view?: string }>
+}
+
+export default async function PlanningPage({
+  searchParams,
+}: PlanningPageProps) {
+  const params = await searchParams
   return (
-    <SectionPlaceholder
-      title="Planning"
-      description="Operational lifecycle decisions: planned, ignored, customer declined, and done."
-      emptyTitle="No lifecycle planning view yet"
-      emptyDescription="Planning remains distinct from technical firmware state and will connect to lifecycle records later in the MVP."
+    <FirmwarePlanList
+      initialView={params.view === 'history' ? 'history' : 'active'}
     />
   )
 }

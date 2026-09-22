@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
+import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
 import type { Prisma } from '../generated/prisma/client'
 import {
   importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
 } from '@/lib/importer-v2-identity'
+import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
 import {
   buildImporterV2PublicationQa,
   importerV2CatalogProposalKey,
@@ -963,7 +966,7 @@ async function ensureObservedRelease(
     }
     if (
       platform &&
-      release.platform.toLocaleLowerCase('en-US') !== platform.toLocaleLowerCase('en-US')
+      normalizedFirmwarePlatform(release.platform) !== normalizedFirmwarePlatform(platform)
     ) {
       throw new ImporterV2PublicationConflictError(
         'Selected firmware release no longer matches the staged software platform.',
@@ -972,18 +975,28 @@ async function ensureObservedRelease(
     return { releaseId: release.id, rawVersion }
   }
   if (!platform) return { releaseId: null, rawVersion }
-  assertApprovedProposal({ field: 'currentFirmware', label: rawVersion, snapshot, approvals })
-  const existing = await tx.firmwareRelease.findUnique({
-    where: { vendorId_platform_version: { vendorId, platform, version: rawVersion } },
-    select: { id: true },
+  // A deterministic vendor/platform/version observation is inventory evidence,
+  // not a policy choice. Publication may canonicalize it automatically as
+  // Needs review without requiring a separate catalog proposal approval.
+  void approvals
+  const candidates = await tx.firmwareRelease.findMany({
+    where: { vendorId, version: rawVersion },
+    select: { id: true, platform: true },
   })
+  const existing = candidates.find(
+    (release) => normalizedFirmwarePlatform(release.platform) === normalizedFirmwarePlatform(platform),
+  )
   if (existing) return { releaseId: existing.id, rawVersion }
+
+  const identity = deriveFirmwareReleaseIdentity({ platform, version: rawVersion })
   const created = await tx.firmwareRelease.create({
     data: {
       vendorId,
       platform,
       version: rawVersion,
-      logicalVersion: rawVersion,
+      logicalVersion: identity.logicalVersion,
+      variant: identity.variant,
+      imageCode: identity.imageCode,
       catalogState: 'OBSERVED',
       policyEligibility: 'NOT_EVALUATED',
       status: 'AVAILABLE',
@@ -1665,15 +1678,8 @@ export async function publishImporterV2Batch(input: {
           )
         }
         const rowNumbers = selectImporterV2PublicationRows(qa, input.mode)
-        const publicationSourceRows = importerV2PublicationRowsIncludingStackMembers(
-          qa,
-          rowNumbers,
-        )
         const approvals = new Set(input.approvedProposalKeys)
-        const requiredProposalKeys = qa.catalogProposals
-          .filter((proposal) =>
-            proposal.rowNumbers.some((rowNumber) => publicationSourceRows.has(rowNumber)),
-          )
+        const requiredProposalKeys = publicationProposalsRequiredForRows(qa, rowNumbers)
           .map((proposal) => proposal.key)
         const missingApprovals = requiredProposalKeys.filter((key) => !approvals.has(key))
         if (missingApprovals.length > 0) {
@@ -1955,7 +1961,9 @@ export function publicationProposalsRequiredForRows(
   rowNumbers: readonly number[],
 ) {
   const selected = importerV2PublicationRowsIncludingStackMembers(qa, rowNumbers)
-  return qa.catalogProposals.filter((proposal) =>
-    proposal.rowNumbers.some((rowNumber) => selected.has(rowNumber)),
-  )
+  return qa.catalogProposals
+    .filter((proposal) =>
+      proposal.rowNumbers.some((rowNumber) => selected.has(rowNumber)),
+    )
+    .filter((proposal) => importerV2CatalogProposalRequiresApproval(qa, proposal))
 }

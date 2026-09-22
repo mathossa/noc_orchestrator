@@ -27,15 +27,13 @@ const navigation: readonly NavigationGroup[] = [
     children: [
       { label: 'Catalog', href: '/firmware' },
       { label: 'Models', href: '/models' },
+      { label: 'Planning', href: '/planning' },
       { label: 'Exceptions', href: '/firmware/exceptions' },
     ],
   },
   {
     label: 'Operations',
-    children: [
-      { label: 'Planning', href: '/planning' },
-      { label: 'Reports', href: '/reports' },
-    ],
+    children: [{ label: 'Reports', href: '/reports' }],
   },
   {
     label: 'Administration',

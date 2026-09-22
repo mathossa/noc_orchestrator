@@ -36,6 +36,8 @@ export type DeviceModelRecord = {
   model: string
   /** The model's explicit broad firmware-platform compatibility selection. */
   supportedPlatforms: string[]
+  /** Normal catalog platform when more than one supported platform exists. */
+  preferredPlatform: string | null
   notes: string | null
   isActive: boolean
   source: string
@@ -72,6 +74,13 @@ export type DeviceModelDetailRecord = DeviceModelRecord & {
     unknown: number
     noPolicy: number
   }
+  effectiveCatalogDefaults: Array<{
+    releaseId: string
+    version: string
+    platform: string
+    trainName: string
+    deviceCount: number
+  }>
   desiredFirmware: {
     available: true
     policyId: string | null
@@ -150,6 +159,7 @@ export function parseDeviceModelInput(input: unknown) {
   const familyId = optionalText(body.familyId)
   const model = cleanDeviceModelName(body.model)
   const notes = optionalText(body.notes)
+  const requestedPreferredPlatform = optionalText(body.preferredPlatform)
   const source = optionalText(body.source)?.toUpperCase() ?? 'MANUAL'
   const externalProvider = optionalText(body.externalProvider)
   const externalId = optionalText(body.externalId)
@@ -166,6 +176,11 @@ export function parseDeviceModelInput(input: unknown) {
   // DeviceModel.platform remains an internal serialized DB column during the
   // migration. The public model contract exposes supportedPlatforms only.
   const platform = supportedPlatforms ? supportedPlatforms.join(', ') || null : optionalText(body.platform)
+  const effectiveSupportedPlatforms =
+    supportedPlatforms ?? parseLegacyPlatformStorage(body.platform, errors) ?? []
+  const preferredPlatform =
+    requestedPreferredPlatform ??
+    (effectiveSupportedPlatforms.length === 1 ? effectiveSupportedPlatforms[0] : null)
 
   if (!vendorId) errors.vendorId = 'Vendor is required.'
   if (!deviceTypeId) errors.deviceTypeId = 'Device type is required.'
@@ -175,6 +190,12 @@ export function parseDeviceModelInput(input: unknown) {
 
   if (platform && platform.length > 160) {
     errors.supportedPlatforms = 'The supported-platform list must be 160 characters or fewer in total.'
+  }
+  if (preferredPlatform) {
+    const preferredKey = preferredPlatform.toLocaleLowerCase('en-US')
+    if (!effectiveSupportedPlatforms.some((candidate) => candidate.toLocaleLowerCase('en-US') === preferredKey)) {
+      errors.preferredPlatform = 'Preferred platform must be one of the model’s supported platforms.'
+    }
   }
   if (notes && notes.length > 4000) errors.notes = 'Notes must be 4000 characters or fewer.'
 
@@ -191,6 +212,7 @@ export function parseDeviceModelInput(input: unknown) {
     model,
     platform,
     supportedPlatforms,
+    preferredPlatform,
     notes,
     isActive,
     source,

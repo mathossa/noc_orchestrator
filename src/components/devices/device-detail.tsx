@@ -128,29 +128,20 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           { label: 'Devices', href: '/devices' },
           {
             label: device.customer.name,
-            href: '/devices/customers/' + device.customerId,
+            href: `/devices/customers/${device.customerId}`,
           },
           ...(device.site
-            ? [{
-                label: device.site.name,
-                href:
-                  '/devices/customers/' +
-                  device.customerId +
-                  '/sites/' +
-                  device.site.id,
-              }]
+            ? [
+                {
+                  label: device.site.name,
+                  href: `/devices/customers/${device.customerId}/sites/${device.site.id}`,
+                },
+              ]
             : []),
           { label: device.name },
         ]}
         eyebrow={`${device.customer.name} · Device`}
         title={device.name}
-        description="Why this device is in its inventory state, with technical, exception, workflow, contract and source facts kept separate."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/devices" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Device inventory</Link>
-            <Link href={`/customers/${device.customerId}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer record</Link>
-          </div>
-        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

@@ -85,7 +85,7 @@ model ContractType {
   id                        String  @id @default(uuid())
   code                      String  @unique
   name                      String  @unique
-  description               String?
+  description String?
   firmwareManagementEnabled Boolean @default(true)
   isActive                  Boolean @default(true)
 
@@ -257,9 +257,10 @@ model DeviceModel {
   vendorId     String
   deviceTypeId String
   familyId     String?
-  model        String
-  platform     String?
-  notes        String?
+  model             String
+  platform          String?
+  preferredPlatform String?
+  notes             String?
   isActive     Boolean @default(true)
 
   // Inventory provenance. Initial conceptual values are MANUAL, API, and IMPORT.
@@ -284,6 +285,7 @@ model DeviceModel {
   @@index([deviceTypeId])
   @@index([familyId])
   @@index([platform])
+  @@index([preferredPlatform])
   @@index([source])
   @@index([isActive])
 }
@@ -296,6 +298,11 @@ model FirmwareTrain {
   notes    String?
   isActive Boolean @default(true)
 
+  // Global catalog defaults. Scoped deviations remain owned by FirmwarePolicy.
+  state                              String  @default("ACCEPTED")
+  preferredFirmwareReleaseId         String?
+  minimumAcceptableFirmwareReleaseId String?
+
   // Catalog provenance. Initial conceptual values are MANUAL, API, and IMPORT.
   source             String   @default("MANUAL")
   externalProvider   String?
@@ -303,15 +310,20 @@ model FirmwareTrain {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor        Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  releases      FirmwareRelease[]
-  policyTargets FirmwarePolicy[] @relation("PolicyFirmwareTrain")
+  vendor                   Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  releases                 FirmwareRelease[] @relation("FirmwareTrainReleases")
+  preferredRelease         FirmwareRelease?  @relation("TrainPreferredRelease", fields: [preferredFirmwareReleaseId], references: [id], onDelete: Restrict)
+  minimumAcceptableRelease FirmwareRelease?  @relation("TrainMinimumAcceptableRelease", fields: [minimumAcceptableFirmwareReleaseId], references: [id], onDelete: Restrict)
+  policyTargets            FirmwarePolicy[]  @relation("PolicyFirmwareTrain")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([vendorId])
   @@index([platform])
+  @@index([state])
+  @@index([preferredFirmwareReleaseId])
+  @@index([minimumAcceptableFirmwareReleaseId])
   @@index([source])
   @@index([isActive])
   @@index([externalProvider, externalId])
@@ -352,9 +364,11 @@ model FirmwareRelease {
   lastSynchronizedAt DateTime?
   sourceMetadata     Json?
 
-  vendor              Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  firmwareTrain       FirmwareTrain?             @relation(fields: [firmwareTrainId], references: [id], onDelete: Restrict)
-  currentOnDevices    Device[]                   @relation("DeviceCurrentFirmware")
+  vendor                    Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  firmwareTrain             FirmwareTrain?    @relation("FirmwareTrainReleases", fields: [firmwareTrainId], references: [id], onDelete: Restrict)
+  preferredForTrains        FirmwareTrain[]   @relation("TrainPreferredRelease")
+  minimumForTrains          FirmwareTrain[]   @relation("TrainMinimumAcceptableRelease")
+  currentOnDevices          Device[]          @relation("DeviceCurrentFirmware")
   targetedByPolicies  FirmwarePolicy[]           @relation("PolicyTargetFirmware")
   minimumForPolicies  FirmwarePolicy[]           @relation("PolicyMinimumFirmware")
   maximumForPolicies  FirmwarePolicy[]           @relation("PolicyMaximumFirmware")
@@ -624,4 +638,110 @@ model FirmwareExceptionReason {
   label String
   replacementRelated Boolean @default(false)
   isActive Boolean @default(true)
+}
+
+// Work planning is separate from technical compliance and exceptions. IDs and
+// labels on targets are historical snapshots on purpose: later inventory or
+// catalog changes must not rewrite what an engineer actually planned.
+model FirmwareWorkPlan {
+  id                         String   @id @default(uuid())
+  state                      String   @default("PROPOSED")
+  title                      String?
+  reason                     String?
+  notes                      String?
+  externalReference                    String?
+  proposedFor                          DateTime?
+  proposedMaintenanceWindowReference   String?
+  scheduledFor                         DateTime?
+  maintenanceWindowReference           String?
+  upgradeCapability          String   @default("UNKNOWN")
+  createdByUserId            String?
+  approvedByUserId           String?
+  approvedAt                 DateTime?
+  scheduledAt                DateTime?
+  startedAt                  DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  legacyLifecycleId          String?  @unique
+  legacyEvidence             Json?
+
+  targets FirmwareWorkPlanTarget[]
+  events  FirmwareWorkPlanEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([state, proposedFor])
+  @@index([state, scheduledFor])
+  @@index([createdByUserId])
+  @@index([completedAt])
+}
+
+model FirmwareWorkPlanTarget {
+  id                               String  @id @default(uuid())
+  planId                           String
+  deviceId                         String
+  deviceName                       String
+  customerId                       String
+  customerName                     String
+  siteId                           String?
+  siteName                         String?
+  deviceModelId                    String
+  deviceModelName                  String
+  logicalGroupKey                  String?
+  observedFirmwareReleaseId        String?
+  observedFirmwareVersion          String?
+  observedFirmwareRawVersion       String?
+  observedFirmwareFingerprint      String?
+  observedAt                       DateTime?
+  policyId                         String?
+  policyScope                      String?
+  policyTrackKey                   String?
+  policyTrackName                  String?
+  policyVersion                    Int?
+  policyFingerprint                String?
+  recommendation                   String
+  preferredTargetFirmwareReleaseId String?
+  preferredTargetVersion           String?
+  targetFirmwareReleaseId          String
+  targetVersion                    String
+  targetLogicalVersion             String
+  targetPlatform                   String
+  targetVariant                    String?
+  targetImageCode                  String?
+  compatibilityStatus              String?
+  exceptionOverride                Boolean @default(false)
+  exceptionSnapshot                Json?
+  memberSnapshot                   Json?
+  upgradeCapability                String @default("UNKNOWN")
+
+  plan FirmwareWorkPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([planId, deviceId])
+  @@index([deviceId])
+  @@index([customerId])
+  @@index([siteId])
+  @@index([deviceModelId])
+  @@index([targetFirmwareReleaseId])
+}
+
+model FirmwareWorkPlanEvent {
+  id          String   @id @default(uuid())
+  planId      String
+  targetId    String?
+  fromState   String?
+  toState     String
+  actorUserId String?
+  reason      String?
+  notes       String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  plan FirmwareWorkPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, createdAt])
+  @@index([targetId])
+  @@index([actorUserId])
 }

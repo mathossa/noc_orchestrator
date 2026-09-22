@@ -129,7 +129,29 @@ describe('generic firmware compatibility evaluator', () => {
     expect(result.matchedRuleIds).toEqual(['allow-ya', 'deny-ya'])
   })
 
-  it('returns UNKNOWN when no evidence matches and the model has no explicit supported-platform selection', () => {
+  it('inherits compatibility from the model platform when no explicit exception exists', () => {
+    const result = evaluateFirmwareCompatibility({
+      model: { ...model, platform: 'AOS-S' },
+      release: release(),
+      rules: [],
+    })
+    expect(result).toMatchObject({
+      status: 'COMPATIBLE',
+      decision: 'ALLOW',
+      provenance: { kind: 'PLATFORM_INHERITANCE', inherited: true },
+    })
+  })
+
+  it('keeps a different unproven platform unknown instead of guessing compatibility', () => {
+    const result = evaluateFirmwareCompatibility({
+      model: { ...model, platform: 'AOS-S' },
+      release: release({ platform: 'AOS-10' }),
+      rules: [],
+    })
+    expect(result).toMatchObject({ status: 'UNKNOWN', provenance: { kind: 'NO_EVIDENCE' } })
+  })
+
+    it('returns UNKNOWN when no evidence matches and the model has no explicit supported-platform selection', () => {
     const result = evaluateFirmwareCompatibility({ model, release: release({ platform: 'AOS-10' }), rules: [rule()] })
     expect(result).toMatchObject({ status: 'UNKNOWN', decision: null, provenance: { kind: 'NO_EVIDENCE' } })
   })

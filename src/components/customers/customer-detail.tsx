@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { CustomerHierarchy } from '@/components/organization-units/customer-hierarchy'
 import { useEffect, useState } from 'react'
+import { ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -51,13 +52,25 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer"
         title={customer.name}
-        description="Firmware lifecycle context for this customer. Technical desired-state compliance and operational workflow decisions are shown independently."
+        breadcrumbs={[
+          { label: 'Customers', href: '/customers' },
+          { label: customer.name },
+        ]}
         actions={
-          <div className="flex flex-wrap gap-2"><Link href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`} className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
-            <Link href="/customers" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage customers</Link>
-            <Link href={`/customers/${customer.id}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Manage sites</Link>
-            <Link href={`/devices/customers/${customer.id}`} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Customer inventory</Link>
-          </div>
+          <>
+            <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`}>
+              Exceptions
+            </ButtonLink>
+            <ButtonLink href={`/customers/${customer.id}/sites`}>
+              Sites
+            </ButtonLink>
+            <ButtonLink
+              href={`/devices/customers/${customer.id}`}
+              variant="primary"
+            >
+              Customer inventory
+            </ButtonLink>
+          </>
         }
       />
 
