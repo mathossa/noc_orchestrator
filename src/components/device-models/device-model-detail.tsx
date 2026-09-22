@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { DesiredFirmwareEditor } from '@/components/device-models/desired-firmware-editor'
 import { useMemo, useEffect, useState } from 'react'
 import { AuditHistory } from '@/components/ui/audit-history'
-import { ButtonLink } from '@/components/ui/button'
+import { Button, ButtonLink } from '@/components/ui/button'
+import { SelectInput } from '@/components/ui/form-controls'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -29,6 +30,9 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [firmwareQuery, setFirmwareQuery] = useState('')
   const [showAllCompatibleFirmware, setShowAllCompatibleFirmware] = useState(false)
+  const [preferredPlatformDraft, setPreferredPlatformDraft] = useState('')
+  const [savingPreferredPlatform, setSavingPreferredPlatform] = useState(false)
+  const [preferredPlatformError, setPreferredPlatformError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -44,6 +48,7 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
         if (!cancelled) {
           const loaded = modelPayload.data ?? null
           setModel(loaded)
+          setPreferredPlatformDraft(loaded?.preferredPlatform ?? '')
           setCompatibility(compatibilityPayload.data ?? null)
         }
       })
@@ -55,6 +60,31 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
       })
     return () => { cancelled = true }
   }, [modelId])
+
+  async function savePreferredPlatform() {
+    if (!model) return
+    setSavingPreferredPlatform(true)
+    setPreferredPlatformError(null)
+    try {
+      const response = await fetch(`/api/v1/models/${model.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preferredPlatform: preferredPlatformDraft || null }),
+      })
+      const payload = (await response.json()) as ApiError
+      if (!response.ok) throw new Error(payload.error?.message ?? 'Preferred platform could not be saved.')
+
+      const refreshed = await fetch(`/api/v1/models/${model.id}`, { cache: 'no-store' })
+      const refreshedPayload = (await refreshed.json()) as { data?: DeviceModelDetailRecord } & ApiError
+      if (!refreshed.ok || !refreshedPayload.data) throw new Error(refreshedPayload.error?.message ?? 'Device model could not be reloaded.')
+      setModel(refreshedPayload.data)
+      setPreferredPlatformDraft(refreshedPayload.data.preferredPlatform ?? '')
+    } catch (saveError: unknown) {
+      setPreferredPlatformError(saveError instanceof Error ? saveError.message : 'Preferred platform could not be saved.')
+    } finally {
+      setSavingPreferredPlatform(false)
+    }
+  }
 
   const compatibilityByRelease = useMemo(
     () => new Map(compatibility?.availableReleases.map((release) => [release.id, release.compatibility]) ?? []),
@@ -79,9 +109,9 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
         )
       : !model.preferredPlatform && model.supportedPlatforms.length > 1
         ? (
-            <Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-amber-300 hover:underline">
+            <a href="#preferred-platform" className="text-amber-300 hover:underline">
               Set preferred platform
-            </Link>
+            </a>
           )
         : 'Catalog unresolved'
   const desiredDetail = model.desiredFirmware.policyId
@@ -184,7 +214,29 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Model information</h2><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Edit model</Link></div>
-          <dl className="mt-4 space-y-3 text-sm"><DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Family / series" value={model.family?.name ?? '—'} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Supported platforms" value={model.supportedPlatforms.length ? model.supportedPlatforms.join(', ') : 'Unknown'} /><DetailRow label="Preferred platform" value={model.preferredPlatform ?? 'Not configured'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Catalog releases" value={model.availableFirmware.releases.length} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} /></dl>
+          <div id="preferred-platform" className="mt-4 scroll-mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+            <label htmlFor="model-detail-preferred-platform" className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Preferred platform</label>
+            <div className="mt-2 flex gap-2">
+              <SelectInput
+                id="model-detail-preferred-platform"
+                value={preferredPlatformDraft}
+                onChange={(event) => setPreferredPlatformDraft(event.target.value)}
+                disabled={model.supportedPlatforms.length === 0 || savingPreferredPlatform}
+              >
+                <option value="">No preferred platform</option>
+                {model.supportedPlatforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+              </SelectInput>
+              <Button
+                type="button"
+                onClick={() => void savePreferredPlatform()}
+                disabled={savingPreferredPlatform || preferredPlatformDraft === (model.preferredPlatform ?? '')}
+              >
+                {savingPreferredPlatform ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+            {preferredPlatformError ? <p className="mt-2 text-xs text-red-300">{preferredPlatformError}</p> : null}
+          </div>
+          <dl className="mt-4 space-y-3 text-sm"><DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Family / series" value={model.family?.name ?? '—'} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Supported platforms" value={model.supportedPlatforms.length ? model.supportedPlatforms.join(', ') : 'Unknown'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Catalog releases" value={model.availableFirmware.releases.length} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} /></dl>
           {model.family ? <div className="mt-5 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-xs leading-5 text-[var(--muted-strong)]"><strong>{model.family.name}</strong> may provide inherited compatibility evidence. Concrete model support configured above takes precedence.</div> : null}
           {model.notes ? <div className="mt-5 border-t border-[var(--border)] pt-4"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Notes</div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{model.notes}</p></div> : null}
         </section>
