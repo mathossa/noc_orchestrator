@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState, useEffect, type FormEvent } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -343,14 +343,11 @@ export function FirmwareReleaseManager() {
       <PageHeader
         eyebrow="Firmware catalog"
         title="Firmware catalog"
-        description="Global firmware truth and defaults: platform → train → exact releases. Customer, site, device, and deliberate legacy-track deviations remain firmware policy."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/firmware/trains" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">
-              Manage trains
-            </Link>
+          <>
+            <ButtonLink href="/firmware/trains">Manage trains</ButtonLink>
             <Button onClick={openAddRelease} disabled={!selected}>Add release</Button>
-          </div>
+          </>
         }
       />
 
@@ -467,7 +464,7 @@ export function FirmwareReleaseManager() {
                   <Button onClick={openAddRelease}>Add release</Button>
                 </div>
                 {selectedTrains.length === 0 ? (
-                  <div className="p-5 text-sm text-[var(--muted)]">No release trains are configured for this platform. Train creation is explicit; it is never derived from version strings.</div>
+                  <div className="p-5 text-sm text-[var(--muted)]">No release trains configured.</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] text-left text-sm">
