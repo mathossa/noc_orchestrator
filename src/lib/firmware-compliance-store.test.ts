@@ -108,6 +108,19 @@ describe('batch firmware compliance integration', () => {
     })
   })
 
+  it('reports a missing preferred train as catalog configuration, not compatibility', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.trains.mockResolvedValue([])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'NO_POLICY',
+      effectivePolicy: {
+        status: 'UNRESOLVED',
+        unresolvedReason: 'CATALOG_PREFERRED_TRAIN_UNRESOLVED',
+      },
+    })
+  })
+
   it('requires an explicit preferred platform when a model supports multiple platforms', async () => {
     mocks.policies.mockResolvedValue([])
     mocks.devices.mockResolvedValue([
