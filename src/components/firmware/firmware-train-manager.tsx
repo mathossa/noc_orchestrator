@@ -179,14 +179,7 @@ export function FirmwareTrainManager() {
         eyebrow="Firmware catalog"
         title="Release trains"
         description="Group exact firmware releases into explicit vendor release families such as 8.13.x or 17.15.x. Train membership is never inferred from the version string."
-        actions={
-          <Link
-            href="/firmware"
-            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
-          >
-            Back to catalog
-          </Link>
-        }
+        breadcrumbs={[{ label: 'Firmware catalog', href: '/firmware' }, { label: 'Trains' }]}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
