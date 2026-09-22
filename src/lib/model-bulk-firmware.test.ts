@@ -19,6 +19,7 @@ function model(overrides: Partial<DeviceModelRecord> & Pick<DeviceModelRecord, '
     deviceCount: 0,
     desiredFirmwareRelease: null,
     ...overrides,
+    preferredPlatform: overrides.preferredPlatform ?? null,
   }
 }
 
