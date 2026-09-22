@@ -14,6 +14,11 @@ const columns: Array<{
   { header: 'Serial number', value: (row) => row.serialNumber },
   { header: 'Management address', value: (row) => row.managementAddress },
   { header: 'Current firmware', value: (row) => row.currentFirmware },
+  { header: 'Effective target', value: (row) => row.effectiveTarget },
+  { header: 'Target platform', value: (row) => row.targetPlatform },
+  { header: 'Target train', value: (row) => row.targetTrain },
+  { header: 'Policy source / scope', value: (row) => row.policyContext },
+  { header: 'Policy track', value: (row) => row.policyTrack },
   { header: 'Primary inventory status', value: (row) => row.primaryStatus },
   { header: 'Status reason', value: (row) => row.statusReason },
   { header: 'Technical compliance', value: (row) => row.technicalCompliance },
@@ -38,5 +43,5 @@ export function inventoryExportCsv(rows: InventoryExportRecord[]) {
   for (const row of rows) {
     output.push(columns.map((column) => csvCell(column.value(row))).join(','))
   }
-  return output.join('\r\n') + '\r\n'
+  return '\uFEFF' + output.join('\r\n') + '\r\n'
 }

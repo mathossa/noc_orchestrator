@@ -176,6 +176,49 @@ describe('inventory explorer read model', () => {
     })
   })
 
+  it('preserves critical counts through every aggregate alongside normal attention and healthy inventory', async () => {
+    const rows = [fact('critical'), ...Array.from({ length: 4 }, (_, i) => fact('attention-' + i)), fact('healthy', beta, branch)]
+    mocks.deviceFindMany.mockResolvedValue(rows)
+    mocks.compliance.mockResolvedValue(new Map(rows.map((row) => [row.id, complianceResult(
+      row.id === 'critical' ? { compliance: 'BLOCKED_RELEASE', recommendation: 'REVIEW_REQUIRED' }
+        : row.id === 'healthy' ? { compliance: 'PREFERRED', recommendation: 'NO_ACTION' }
+        : { compliance: 'ACCEPTED', recommendation: 'UPDATE_RECOMMENDED' },
+    )])))
+    const overview = await getInventoryOverview(query())
+    expect(overview.customers[0]).toMatchObject({ id: acme.id, criticalCount: 1, attentionCount: 5 })
+    expect(overview.customers[1]).toMatchObject({ id: beta.id, criticalCount: 0, attentionCount: 0 })
+    mocks.deviceFindMany.mockResolvedValue(rows.slice(0, 5))
+    const customer = await getCustomerInventory(acme.id, query())
+    expect(customer?.sites[0]).toMatchObject({ criticalCount: 1, attentionCount: 5 })
+    const site = await getSiteInventory(acme.id, hq.id, query())
+    expect(site?.deviceTypes[0]).toMatchObject({ criticalCount: 1, attentionCount: 5 })
+  })
+
+  it('exposes direct site code matches while preserving query scope and bounded results', async () => {
+    const row = { ...fact('matched'), site: { ...hq, code: '1012DB45' } }
+    mocks.deviceFindMany.mockImplementation(async (args: { select: { hostname?: boolean } }) => args.select.hostname ? [compact(row)] : [row])
+    mocks.compliance.mockResolvedValue(new Map([[row.id, complianceResult()]]))
+    const root = await getInventoryOverview(query({ q: '1012DB45' }))
+    expect(root.hierarchyMatches).toContainEqual({ kind: 'Site', label: 'Acme / HQ', href: '/devices/customers/customer-a/sites/site-hq' })
+    await getCustomerInventory(acme.id, query({ q: '1012DB45' }))
+    expect(mocks.deviceFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { AND: expect.arrayContaining([{ customerId: acme.id }]) } }))
+    const site = await getSiteInventory(acme.id, hq.id, query({ q: '1012DB45' }))
+    expect(site?.hierarchyMatches).toEqual([])
+    expect(mocks.deviceFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { AND: expect.arrayContaining([{ customerId: acme.id }, { siteId: hq.id }]) } }))
+  })
+
+  it('uses resolved preferred target and actual override scope in group rows', async () => {
+    const row = fact('migration')
+    mocks.deviceFindMany.mockImplementation(async (args: { select: { hostname?: boolean } }) => args.select.hostname ? [{ ...compact(row), lifecycle: { state: 'PLANNED' } }] : [row])
+    mocks.compliance.mockResolvedValue(new Map([[row.id, complianceResult({
+      preferredTarget: complianceRelease('10.5.5', { platform: 'AOS-10', firmwareTrain: { id: '10.5', name: '10.5' } }),
+      recommendation: 'PLATFORM_MIGRATION',
+      policySource: { scope: 'SITE', scopeId: hq.id, subject: 'MODEL', subjectId: model.id, policyId: 'policy', policyVersion: 2, trackKey: 'default', trackName: 'Preferred', trackClass: 'PREFERRED', effectiveFrom: '2026-01-01' },
+    })]]))
+    const group = await getDeviceTypeInventory(acme.id, hq.id, type.id, query())
+    expect(group?.devices[0]).toMatchObject({ currentFirmware: '17.12.5', effectiveTarget: '10.5.5', targetPlatform: 'AOS-10', targetTrain: '10.5', policyContext: 'Site override', decision: 'Planned' })
+  })
+
   it('scans large root inventory in deterministic bounded batches', async () => {
     const rows = Array.from({ length: 1001 }, (_, index) =>
       fact('batch-' + String(index + 1).padStart(4, '0')),

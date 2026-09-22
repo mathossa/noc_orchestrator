@@ -1,9 +1,10 @@
 'use client'
 
+import { firmwarePolicyLabel } from '@/lib/firmware-policy-label'
 import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
 import { DeviceOperationalDecision } from '@/components/devices/device-operational-decision'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DeviceFilterBar } from '@/components/devices/device-filter-bar'
 import { Button, ButtonLink } from '@/components/ui/button'
@@ -94,27 +95,48 @@ function observedCurrentFirmwareVersion(record: DeviceRecord) {
 function firmwareTargetSource(record: DeviceQueryRecord) {
   const source = record.firmwareCompliance.policySource
   if (!source) return null
-  if (source.scope === 'CATALOG') return `Catalog default · ${source.trackName}`
-  const label = source.scope.charAt(0) + source.scope.slice(1).toLowerCase()
-  return `${label} policy · ${source.trackName}`
+  return `${firmwarePolicyLabel(source)} · ${source.trackName}`
+}
+
+function formForRecord(record: DeviceRecord): FormState {
+  return {
+      customerId: record.customerId,
+      siteId: record.siteId ?? '',
+      deviceModelId: record.deviceModelId,
+      name: record.name,
+      hostname: record.hostname ?? '',
+      serialNumber: record.serialNumber ?? '',
+      managementAddress: record.managementAddress ?? '',
+      notes: record.notes ?? '',
+      currentFirmwareReleaseId: record.currentFirmwareReleaseId ?? '',
+      currentFirmwareObservedAt: toLocalDateTimeInput(record.currentFirmwareObservedAt),
+      currentFirmwareSource: record.currentFirmwareSource,
+      source: record.source,
+      externalProvider: record.externalProvider ?? '',
+      externalId: record.externalId ?? '',
+      isActive: record.isActive,
+    }
 }
 
 export function DeviceManager({
   initialCustomerId = '',
   initialSiteId = '',
+  initialEditRecord,
 }: {
   initialCustomerId?: string
   initialSiteId?: string
   initialModelId?: string
+  initialEditRecord?: DeviceRecord
 }) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const queryString = searchParams.toString()
   const [records, setRecords] = useState<DeviceQueryRecord[]>([])
   const [references, setReferences] = useState<DeviceReferenceData>(EMPTY_REFERENCES)
   const [meta, setMeta] = useState<DeviceQueryMeta | null>(null)
-  const [form, setForm] = useState<FormState>(() => emptyForm(initialCustomerId, initialSiteId))
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState<FormState>(() => initialEditRecord ? formForRecord(initialEditRecord) : emptyForm(initialCustomerId, initialSiteId))
+  const [formOpen, setFormOpen] = useState(Boolean(initialEditRecord))
+  const [editingId, setEditingId] = useState<string | null>(initialEditRecord?.id ?? null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -161,6 +183,7 @@ export function DeviceManager({
   }
 
   function closeForm() {
+    if (initialEditRecord) { router.push('/devices/' + initialEditRecord.id); return }
     resetForm()
     setFormOpen(false)
   }
@@ -174,23 +197,7 @@ export function DeviceManager({
   function beginEdit(record: DeviceRecord) {
     setEditingId(record.id)
     setFormOpen(true)
-    setForm({
-      customerId: record.customerId,
-      siteId: record.siteId ?? '',
-      deviceModelId: record.deviceModelId,
-      name: record.name,
-      hostname: record.hostname ?? '',
-      serialNumber: record.serialNumber ?? '',
-      managementAddress: record.managementAddress ?? '',
-      notes: record.notes ?? '',
-      currentFirmwareReleaseId: record.currentFirmwareReleaseId ?? '',
-      currentFirmwareObservedAt: toLocalDateTimeInput(record.currentFirmwareObservedAt),
-      currentFirmwareSource: record.currentFirmwareSource,
-      source: record.source,
-      externalProvider: record.externalProvider ?? '',
-      externalId: record.externalId ?? '',
-      isActive: record.isActive,
-    })
+    setForm(formForRecord(record))
     setFieldErrors({})
     setError(null)
     setMessage(null)
@@ -240,6 +247,7 @@ export function DeviceManager({
         setFieldErrors(payload.error?.fields ?? {})
         throw new Error(payload.error?.message ?? 'Device could not be saved.')
       }
+      if (initialEditRecord) { router.push('/devices/' + initialEditRecord.id); router.refresh(); return }
       setMessage(editingId ? 'Device updated.' : 'Device created.')
       resetForm()
       setFormOpen(false)

@@ -14,6 +14,11 @@ function record(overrides: Partial<InventoryExportRecord> = {}): InventoryExport
     serialNumber: 'SER-1',
     managementAddress: '10.0.0.1',
     currentFirmware: '17.12.5',
+    effectiveTarget: '17.15.5',
+    targetPlatform: 'IOS-XE',
+    targetTrain: '17.15',
+    policyContext: 'Site override',
+    policyTrack: 'Stable',
     primaryStatus: 'Update required',
     statusReason: 'Below minimum',
     technicalCompliance: 'BELOW_MINIMUM',
@@ -31,6 +36,15 @@ function record(overrides: Partial<InventoryExportRecord> = {}): InventoryExport
 }
 
 describe('inventory export CSV', () => {
+  it('exports effective policy context and UTF-8 BOM for spreadsheet punctuation', () => {
+    const csv = inventoryExportCsv([record({ statusReason: 'Accepted — update recommended.' })])
+    const bytes = new TextEncoder().encode(csv)
+    expect([...bytes.slice(0, 3)]).toEqual([239, 187, 191])
+    expect(new TextDecoder().decode(bytes)).toContain('Accepted — update recommended.')
+    expect(csv).toContain('Effective target,Target platform,Target train,Policy source / scope,Policy track')
+    expect(csv).toContain('17.15.5,IOS-XE,17.15,Site override,Stable')
+  })
+
   it('exports detailed inventory fields and quotes CSV-sensitive values', () => {
     const csv = inventoryExportCsv([
       record({ customer: 'Acme, North', statusReason: 'Needs "review"' }),

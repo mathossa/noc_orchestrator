@@ -39,6 +39,7 @@ export type InventoryCustomerRow = {
   siteCount: number
   deviceCount: number
   attentionCount: number
+  criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
 
@@ -47,6 +48,7 @@ export type InventorySiteRow = {
   name: string
   deviceCount: number
   attentionCount: number
+  criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
 
@@ -55,6 +57,7 @@ export type InventoryDeviceTypeRow = {
   name: string
   deviceCount: number
   attentionCount: number
+  criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
 
@@ -63,6 +66,11 @@ export type InventoryDeviceRow = {
   name: string
   hostname: string | null
   model: string
+  effectiveTarget: string | null
+  targetPlatform: string | null
+  targetTrain: string | null
+  policyContext: string
+  decision: string | null
   currentFirmware: string | null
   status: import('@/lib/inventory-status').InventoryPrimaryStatus
   customer: { id: string; name: string }
@@ -77,9 +85,12 @@ export type InventoryPagination = {
   totalPages: number
 }
 
+export type InventoryHierarchyMatch = { kind: 'Customer' | 'Site' | 'Device type'; label: string; href: string }
+
 export type InventoryOverviewModel = {
   counts: InventoryCounts
   customers: InventoryCustomerRow[]
+  hierarchyMatches: InventoryHierarchyMatch[]
   searchHits: InventoryDeviceRow[]
   filters: InventoryFilterOptions
 }
@@ -88,6 +99,7 @@ export type CustomerInventoryModel = {
   customer: { id: string; name: string }
   counts: InventoryCounts
   sites: InventorySiteRow[]
+  hierarchyMatches: InventoryHierarchyMatch[]
   searchHits: InventoryDeviceRow[]
   filters: InventoryFilterOptions
 }
@@ -97,6 +109,7 @@ export type SiteInventoryModel = {
   site: { id: string; name: string; unassigned: boolean }
   counts: InventoryCounts
   deviceTypes: InventoryDeviceTypeRow[]
+  hierarchyMatches: InventoryHierarchyMatch[]
   searchHits: InventoryDeviceRow[]
   filters: InventoryFilterOptions
 }

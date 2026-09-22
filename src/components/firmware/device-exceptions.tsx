@@ -35,7 +35,7 @@ export function DeviceExceptions({ deviceId }: { deviceId: string }) {
               ? 'Accepted exception; the technical recommendation remains visible above.'
               : 'No exception suppresses the current recommendation.')}
       </p>
-      {data?.records.map((r) => (
+      {data?.records.filter((r) => r.id === resolution?.selectedId).map((r) => (
         <p className="my-2 text-sm" key={r.id}>
           {r.reasonCode.replaceAll('_', ' ')} · {r.scopeLabel} · {r.status}
           {r.expiresAt
@@ -44,6 +44,18 @@ export function DeviceExceptions({ deviceId }: { deviceId: string }) {
           {resolution?.selectedId === r.id ? ' · Effective decision' : ''}
         </p>
       ))}
+      {data?.records.some((r) => r.id !== resolution?.selectedId) ? <details className="my-3">
+        <summary className="cursor-pointer text-sm font-semibold">Exception history and other matches</summary>
+      {data?.records.filter((r) => r.id !== resolution?.selectedId).map((r) => (
+        <p className="my-2 text-sm" key={r.id}>
+          {r.reasonCode.replaceAll('_', ' ')} · {r.scopeLabel} · {r.status}
+          {r.expiresAt
+            ? ` · Review ${new Date(r.expiresAt).toLocaleDateString()}`
+            : ''}
+          {resolution?.selectedId === r.id ? ' · Effective decision' : ''}
+        </p>
+      ))}
+      </details> : null}
       <Link
         className="text-sm text-[var(--accent-light)] hover:underline"
         href={`/firmware/exceptions?scope=DEVICE&scopeId=${encodeURIComponent(deviceId)}`}

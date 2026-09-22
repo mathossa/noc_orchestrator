@@ -9,6 +9,7 @@ const ids = {
   vendor: prefix + '-vendor',
   type: prefix + '-type',
   model: prefix + '-model',
+  blockedRelease: prefix + '-blocked',
   first: prefix + '-device-1',
   second: prefix + '-device-2',
 }
@@ -56,6 +57,9 @@ test.beforeAll(async () => {
       model: 'PW-C9300',
     },
   })
+  await prisma.firmwareRelease.create({ data: {
+    id: ids.blockedRelease, vendorId: ids.vendor, platform: 'PW-OS', version: '1.0', logicalVersion: '1.0', catalogState: 'BLOCKED',
+  } })
   await prisma.device.createMany({
     data: [
       {
@@ -64,6 +68,7 @@ test.beforeAll(async () => {
         siteId: ids.site,
         deviceModelId: ids.model,
         name: 'PW-SW-01',
+        currentFirmwareReleaseId: ids.blockedRelease,
         hostname: 'pw-sw-01',
         serialNumber: 'PW-SERIAL-107',
         managementAddress: '10.107.10.1',
@@ -104,6 +109,7 @@ test('navigates customer, site, device group and device detail with attention dr
     customerRow.getByRole('link', { name: /2 devices need attention/i }),
   ).toBeVisible()
 
+  await expect(customerRow).toContainText('1 critical · 1 attention')
   await customerLink.click()
   await expect(page).toHaveURL(
     new RegExp('/devices/customers/' + ids.customer + '$'),
@@ -112,11 +118,13 @@ test('navigates customer, site, device group and device detail with attention dr
     page.getByRole('link', { name: 'Playwright HQ', exact: true }),
   ).toBeVisible()
 
+  await expect(page.getByRole('link', { name: 'Playwright HQ', exact: true }).locator('xpath=ancestor::tr')).toContainText('1 critical · 1 attention')
   await page.getByRole('link', { name: 'Playwright HQ', exact: true }).click()
   await expect(page).toHaveURL(
     new RegExp('/devices/customers/' + ids.customer + '/sites/' + ids.site + '$'),
   )
 
+  await expect(page.getByRole('link', { name: 'Playwright Switches', exact: true }).locator('xpath=ancestor::tr')).toContainText('1 critical · 1 attention')
   await page
     .getByRole('link', { name: 'Playwright Switches', exact: true })
     .click()
@@ -138,6 +146,12 @@ test('navigates customer, site, device group and device detail with attention dr
   await expect(page.getByText('Inventory status')).toBeVisible({
     timeout: 20_000,
   })
+
+  await expect(page.getByRole('link', { name: 'Playwright Switches', exact: true })).toHaveAttribute('href', `/devices/customers/${ids.customer}/sites/${ids.site}/types/${ids.type}`)
+  await page.getByRole('link', { name: 'Edit device', exact: true }).click()
+  await expect(page.getByLabel('Device name', { exact: true })).toHaveValue('PW-SW-01', { timeout: 20_000 })
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp('/devices/' + ids.first + '$'))
 
   await page.goto('/devices')
   await customerRow
@@ -165,4 +179,25 @@ test('uses root inventory search for direct device lookup', async ({ page }) => 
       exact: true,
     }),
   ).toBeVisible()
+})
+
+
+test('debounces scoped search and exposes a direct site link', async ({ page }) => {
+  await page.goto('/devices')
+  await page.clock.install()
+  const queries: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.pathname === '/devices' && url.searchParams.has('q')) queries.push(url.searchParams.get('q')!)
+  })
+  const search = page.getByRole('searchbox', { name: 'Search inventory' })
+  await search.fill('PW')
+  await page.clock.runFor(200)
+  await search.fill('PWHQ')
+  await page.clock.runFor(399)
+  expect(queries).toEqual([])
+  await page.clock.runFor(1)
+  await expect(page).toHaveURL(/q=PWHQ/)
+  expect(queries).not.toContain('PW')
+  await expect(page.getByRole('link', { name: 'Site: Playwright Inventory Customer / Playwright HQ' })).toHaveAttribute('href', `/devices/customers/${ids.customer}/sites/${ids.site}`)
 })

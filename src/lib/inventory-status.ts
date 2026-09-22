@@ -20,7 +20,7 @@ export type InventoryPrimaryStatus = {
   attention: boolean
   severity: number
   reason: string
-  tone: 'danger' | 'warning' | 'info' | 'accent' | 'neutral' | 'success'
+  tone: 'danger' | 'warning' | 'info' | 'accent' | 'neutral' | 'success' | 'required' | 'recommended'
 }
 
 /**
@@ -104,7 +104,7 @@ export function deriveInventoryPrimaryStatus(
       attention: true,
       severity: 500,
       reason: result.explanation,
-      tone: 'warning',
+      tone: 'required',
     }
   }
 
@@ -149,7 +149,7 @@ export function deriveInventoryPrimaryStatus(
       attention: true,
       severity: 200,
       reason: result.explanation,
-      tone: 'neutral',
+      tone: 'recommended',
     }
   }
 

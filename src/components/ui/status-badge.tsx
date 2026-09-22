@@ -3,9 +3,17 @@ import type { ReactNode } from 'react'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
 
 export type WorkflowState = 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE'
-export type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
+export type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' | 'required' | 'recommended'
 
 const toneStyles: Record<StatusTone, { className: string; dot: string }> = {
+  required: {
+    className: 'border-[var(--required-border)] bg-[var(--required-soft)] text-[var(--required)]',
+    dot: 'bg-[var(--required)]',
+  },
+  recommended: {
+    className: 'border-[var(--recommended-border)] bg-[var(--recommended-soft)] text-[var(--recommended)]',
+    dot: 'bg-[var(--recommended)]',
+  },
   neutral: {
     className: 'border-[var(--border-strong)] bg-[var(--surface-muted)] text-[var(--muted-strong)]',
     dot: 'bg-[var(--muted)]',
@@ -15,19 +23,19 @@ const toneStyles: Record<StatusTone, { className: string; dot: string }> = {
     dot: 'bg-[var(--accent)]',
   },
   success: {
-    className: 'border-[#315d47] bg-[#173326] text-[#a8e7c1]',
+    className: 'border-[var(--success-border)] bg-[var(--success-soft)] text-[var(--success)]',
     dot: 'bg-[var(--success)]',
   },
   warning: {
-    className: 'border-[#6d5930] bg-[#342b18] text-[#efd18d]',
+    className: 'border-[var(--warning-border)] bg-[var(--warning-soft)] text-[var(--warning)]',
     dot: 'bg-[var(--warning)]',
   },
   danger: {
-    className: 'border-[#744141] bg-[#332020] text-[#f0a0a0]',
+    className: 'border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]',
     dot: 'bg-[var(--danger)]',
   },
   info: {
-    className: 'border-[#506269] bg-[#1b2528] text-[#b9c8cd]',
+    className: 'border-[var(--info-border)] bg-[var(--info-soft)] text-[var(--info)]',
     dot: 'bg-[var(--info)]',
   },
 }

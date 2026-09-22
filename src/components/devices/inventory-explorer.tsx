@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { InventorySearchForm } from './inventory-search-form'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -48,9 +49,11 @@ export function InventoryStatusBadge({
 
 function GroupAttention({
   count,
+  criticalCount,
   href,
 }: {
   count: number
+  criticalCount: number
   href: string
 }) {
   if (count === 0) {
@@ -62,8 +65,8 @@ function GroupAttention({
   }
   return (
     <Link href={href} className="inline-flex hover:brightness-110">
-      <StatusBadge tone="warning" ariaLabel={count + ' devices need attention'}>
-        {count + ' attention'}
+      <StatusBadge tone={criticalCount > 0 ? 'danger' : 'warning'} ariaLabel={count + ' devices need attention; ' + criticalCount + ' critical'}>
+        {criticalCount > 0 ? criticalCount + ' critical' + (count > criticalCount ? ' · ' + (count - criticalCount) + ' attention' : '') : count + ' attention'}
       </StatusBadge>
     </Link>
   )
@@ -96,7 +99,7 @@ function InventoryToolbar({
   const filtersActive = hasAdvancedFilters(query)
 
   return (
-    <form action={path} method="get" className="mb-5">
+    <InventorySearchForm key={path} path={path}>
       {query.attention ? <input type="hidden" name="attention" value="1" /> : null}
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 gap-2">
@@ -220,7 +223,7 @@ function InventoryToolbar({
           </div>
         </details>
       </div>
-    </form>
+    </InventorySearchForm>
   )
 }
 
@@ -368,6 +371,16 @@ function DeviceRows({
       ),
     },
     {
+      key: 'target',
+      header: 'Effective target',
+      render: (row) => <div><span className="font-mono text-xs">{row.effectiveTarget ?? 'Unresolved'}</span><div className="text-xs text-[var(--muted)]">{[row.targetPlatform, row.targetTrain].filter(Boolean).join(' · ')}</div></div>,
+    },
+    {
+      key: 'policy',
+      header: 'Policy / decision',
+      render: (row) => <div>{row.policyContext}{row.decision ? <div className="text-xs text-[var(--muted)]">{row.decision}</div> : null}</div>,
+    },
+    {
       key: 'status',
       header: 'Status',
       render: (row) => (
@@ -408,14 +421,20 @@ function DeviceRows({
 
 function SearchMatches({
   rows,
+  hierarchy,
   showContext,
 }: {
   rows: InventoryDeviceRow[]
+  hierarchy: import('@/lib/inventory-explorer').InventoryHierarchyMatch[]
   showContext: boolean
 }) {
-  if (rows.length === 0) return null
+  if (rows.length === 0 && hierarchy.length === 0) return null
   return (
     <section className="mb-6">
+      {hierarchy.length > 0 ? <div className="mb-4">
+        <h2 className="text-sm font-semibold">Matching locations and device groups</h2>
+        <ul className="mt-2 flex flex-wrap gap-3">{hierarchy.map((match) => <li key={match.href}><Link href={match.href} className="text-sm text-[var(--accent-light)] hover:underline">{match.kind}: {match.label}</Link></li>)}</ul>
+      </div> : null}
       <div className="mb-2">
         <h2 className="text-sm font-semibold">Direct device matches</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
@@ -481,6 +500,7 @@ export function InventoryOverview({
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
+          criticalCount={row.criticalCount}
           href={'/devices/customers/' + row.id + '?attention=1'}
         />
       ),
@@ -518,7 +538,7 @@ export function InventoryOverview({
       />
       <InventorySummary {...model.counts} />
       <AttentionToggle path={path} query={query} />
-      <SearchMatches rows={model.searchHits} showContext />
+      <SearchMatches hierarchy={model.hierarchyMatches} rows={model.searchHits} showContext />
 
       <section>
         <div className="mb-2">
@@ -576,6 +596,7 @@ export function CustomerInventory({
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
+          criticalCount={row.criticalCount}
           href={path + '/sites/' + row.id + '?attention=1'}
         />
       ),
@@ -617,7 +638,7 @@ export function CustomerInventory({
       />
       <InventorySummary {...model.counts} />
       <AttentionToggle path={path} query={query} />
-      <SearchMatches rows={model.searchHits} showContext={false} />
+      <SearchMatches hierarchy={model.hierarchyMatches} rows={model.searchHits} showContext={false} />
       <DataTable
         caption={'Sites for ' + model.customer.name}
         rows={model.sites}
@@ -670,6 +691,7 @@ export function SiteInventory({
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
+          criticalCount={row.criticalCount}
           href={path + '/types/' + row.id + '?attention=1'}
         />
       ),
@@ -719,7 +741,7 @@ export function SiteInventory({
       />
       <InventorySummary {...model.counts} />
       <AttentionToggle path={path} query={query} />
-      <SearchMatches rows={model.searchHits} showContext={false} />
+      <SearchMatches hierarchy={model.hierarchyMatches} rows={model.searchHits} showContext={false} />
       <DataTable
         caption={'Device types at ' + model.site.name}
         rows={model.deviceTypes}

@@ -1,3 +1,4 @@
+import { firmwarePolicyLabel } from '@/lib/firmware-policy-label'
 import type { Prisma } from '@/generated/prisma/client'
 import { resolveDeviceExceptionSummaries } from '@/lib/device-exception-summary-store'
 import {
@@ -33,19 +34,24 @@ type InventoryFact = {
   customerId: string
   siteId: string | null
   deviceModelId: string
-  customer: { id: string; name: string }
-  site: { id: string; name: string } | null
+  customer: { id: string; name: string; code?: string | null }
+  site: { id: string; name: string; code?: string | null } | null
   deviceModel: {
     id: string
     model: string
     vendor: { id: string; name: string }
-    deviceType: { id: string; name: string }
+    deviceType: { id: string; name: string; code?: string }
   }
   status: InventoryPrimaryStatus
   compliance: string
   recommendation: string
   exceptionState: string
   exceptionReason: string | null
+  effectiveTarget: string | null
+  targetPlatform: string | null
+  targetTrain: string | null
+  policyContext: string
+  policyTrack: string
 }
 
 const factSelect = {
@@ -54,14 +60,14 @@ const factSelect = {
   customerId: true,
   siteId: true,
   deviceModelId: true,
-  customer: { select: { id: true, name: true } },
-  site: { select: { id: true, name: true } },
+  customer: { select: { id: true, name: true, code: true } },
+  site: { select: { id: true, name: true, code: true } },
   deviceModel: {
     select: {
       id: true,
       model: true,
       vendor: { select: { id: true, name: true } },
-      deviceType: { select: { id: true, name: true } },
+      deviceType: { select: { id: true, name: true, code: true } },
     },
   },
 } as const
@@ -72,15 +78,16 @@ const compactDeviceSelect = {
   id: true,
   name: true,
   hostname: true,
+  lifecycle: { select: { state: true } },
   currentFirmwareRawVersion: true,
   currentFirmwareNormalizedVersion: true,
   currentFirmwareRelease: { select: { version: true } },
-  customer: { select: { id: true, name: true } },
-  site: { select: { id: true, name: true } },
+  customer: { select: { id: true, name: true, code: true } },
+  site: { select: { id: true, name: true, code: true } },
   deviceModel: {
     select: {
       model: true,
-      deviceType: { select: { id: true, name: true } },
+      deviceType: { select: { id: true, name: true, code: true } },
     },
   },
 } as const
@@ -94,6 +101,8 @@ function searchWhere(q: string): Prisma.DeviceWhereInput | null {
       { serialNumber: { contains: q, mode: 'insensitive' } },
       { managementAddress: { contains: q, mode: 'insensitive' } },
       { customer: { name: { contains: q, mode: 'insensitive' } } },
+      { customer: { code: { contains: q, mode: 'insensitive' } } },
+      { deviceModel: { deviceType: { code: { contains: q, mode: 'insensitive' } } } },
       { site: { name: { contains: q, mode: 'insensitive' } } },
       { site: { code: { contains: q, mode: 'insensitive' } } },
       { deviceModel: { model: { contains: q, mode: 'insensitive' } } },
@@ -214,6 +223,12 @@ async function resolveFactRows(
       recommendation: compliance.recommendation,
       exceptionState: exception.state,
       exceptionReason: exception.effective?.reasonLabel ?? null,
+      effectiveTarget: compliance.preferredTarget?.version ?? null,
+      targetPlatform: compliance.preferredTarget?.platform ?? null,
+      targetTrain: compliance.preferredTarget?.firmwareTrain?.name ?? null,
+      policyContext: firmwarePolicyLabel(compliance.policySource),
+      policyTrack: compliance.policySource?.trackName ?? '',
+
     }
   })
 }
@@ -320,6 +335,7 @@ function customerRows(
         siteCount,
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
     })
@@ -370,6 +386,7 @@ function siteRows(
         name: grouped[0].site?.name ?? 'Unassigned devices',
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
     })
@@ -415,6 +432,7 @@ function typeRows(
         name: grouped[0].deviceModel.deviceType.name,
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
     })
@@ -503,6 +521,11 @@ async function deviceRows(
           row.currentFirmwareNormalizedVersion ??
           row.currentFirmwareRawVersion ??
           null,
+        effectiveTarget: fact.effectiveTarget,
+        targetPlatform: fact.targetPlatform,
+        targetTrain: fact.targetTrain,
+        policyContext: fact.policyContext,
+        decision: fact.exceptionState === 'ACTIVE' ? 'Exception accepted' : row.lifecycle ? statusCodeLabel(row.lifecycle.state) : null,
         status: fact.status,
         customer: row.customer,
         site: row.site,
@@ -520,6 +543,31 @@ async function searchHits(
   return deviceRows(sortFacts(visibleFacts).slice(0, 12))
 }
 
+function hierarchyMatches(query: InventoryQuery, facts: InventoryFact[], scope: InventoryScope = {}) {
+  const matches = new Map<string, import('@/lib/inventory-explorer').InventoryHierarchyMatch>()
+  const term = query.q.toLocaleLowerCase('en-US')
+  if (!term) return []
+  const matchesText = (name: string, code?: string | null) =>
+    [name, code ?? ''].some((value) => value.toLocaleLowerCase('en-US').includes(term))
+  for (const fact of facts) {
+    const customerPath = '/devices/customers/' + fact.customerId
+    const sitePath = customerPath + '/sites/' + (fact.siteId ?? 'unassigned')
+    if (!scope.customerId && matchesText(fact.customer.name, fact.customer.code)) {
+      matches.set(customerPath, { kind: 'Customer', label: fact.customer.name, href: customerPath })
+    }
+    if (scope.siteId === undefined && fact.site && matchesText(fact.site.name, fact.site.code)) {
+      matches.set(sitePath, { kind: 'Site', label: fact.customer.name + ' / ' + fact.site.name, href: sitePath })
+    }
+    const type = fact.deviceModel.deviceType
+    if (matchesText(type.name, type.code)) {
+      const href = sitePath + '/types/' + type.id
+      matches.set(href, { kind: 'Device type', label: fact.customer.name + ' / ' + (fact.site?.name ?? 'Unassigned') + ' / ' + type.name, href })
+    }
+    if (matches.size >= 12) break
+  }
+  return [...matches.values()].slice(0, 12)
+}
+
 export async function getInventoryOverview(
   query: InventoryQuery,
 ): Promise<InventoryOverviewModel> {
@@ -531,6 +579,7 @@ export async function getInventoryOverview(
   return {
     counts: countsFor(facts),
     customers: customerRows(facts, visible),
+    hierarchyMatches: hierarchyMatches(query, visible),
     searchHits: await searchHits(query, visible),
     filters,
   }
@@ -555,6 +604,7 @@ export async function getCustomerInventory(
     customer,
     counts: countsFor(facts),
     sites: siteRows(facts, visible),
+    hierarchyMatches: hierarchyMatches(query, visible, { customerId }),
     searchHits: await searchHits(query, visible),
     filters,
   }
@@ -612,6 +662,7 @@ export async function getSiteInventory(
     site: context.site,
     counts: countsFor(facts),
     deviceTypes: typeRows(facts, visible),
+    hierarchyMatches: hierarchyMatches(query, visible, { customerId, siteId: context.databaseSiteId }),
     searchHits: await searchHits(query, visible),
     filters,
   }
@@ -685,6 +736,11 @@ export type InventoryExportRecord = {
   model: string
   serialNumber: string
   managementAddress: string
+  effectiveTarget: string
+  targetPlatform: string
+  targetTrain: string
+  policyContext: string
+  policyTrack: string
   currentFirmware: string
   primaryStatus: string
   statusReason: string
@@ -780,6 +836,11 @@ export async function getInventoryExportRecords(
           row.currentFirmwareNormalizedVersion ??
           row.currentFirmwareRawVersion ??
           '',
+        effectiveTarget: fact.effectiveTarget ?? '',
+        targetPlatform: fact.targetPlatform ?? '',
+        targetTrain: fact.targetTrain ?? '',
+        policyContext: fact.policyContext,
+        policyTrack: fact.policyTrack,
         primaryStatus: fact.status.label,
         statusReason: fact.status.reason,
         technicalCompliance: fact.compliance,
@@ -800,7 +861,7 @@ export async function getInventoryExportRecords(
   })
 }
 
-export function statusCodeLabel(code: InventoryPrimaryStatusCode) {
+export function statusCodeLabel(code: InventoryPrimaryStatusCode | import('@/lib/firmware-lifecycle').FirmwareWorkflowState) {
   return code
     .toLowerCase()
     .split('_')
