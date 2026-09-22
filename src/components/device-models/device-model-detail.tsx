@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { DesiredFirmwareEditor } from '@/components/device-models/desired-firmware-editor'
 import { useMemo, useEffect, useState } from 'react'
 import { AuditHistory } from '@/components/ui/audit-history'
+import { ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SummaryStat } from '@/components/ui/summary-stat'
@@ -26,6 +27,8 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
   const [compatibility, setCompatibility] = useState<ModelCompatibilitySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [firmwareQuery, setFirmwareQuery] = useState('')
+  const [showAllCompatibleFirmware, setShowAllCompatibleFirmware] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -74,31 +77,49 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
             {catalogDefaults[0].version}
           </Link>
         )
-      : catalogDefaults.length > 1
-        ? `${catalogDefaults.length} catalog defaults`
-        : 'Catalog default'
+      : !model.preferredPlatform && model.supportedPlatforms.length > 1
+        ? (
+            <Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-amber-300 hover:underline">
+              Set preferred platform
+            </Link>
+          )
+        : 'Catalog unresolved'
   const desiredDetail = model.desiredFirmware.policyId
     ? `${model.desiredFirmware.policyMode} model override`
     : catalogDefaults.length === 1
-      ? `Inherited · ${catalogDefaults[0].platform} · ${catalogDefaults[0].trainName} · ${catalogDefaults[0].deviceCount} device${catalogDefaults[0].deviceCount === 1 ? '' : 's'}`
-      : catalogDefaults.length > 1
-        ? 'Inherited automatically per device from its observed supported platform.'
-        : model.deviceCount > 0
-          ? 'Catalog default is unresolved for the currently observed device state.'
-          : 'No model override; devices will inherit the Firmware Catalog default for their observed supported platform.'
+      ? `${catalogDefaults[0].platform} · ${catalogDefaults[0].trainName}`
+      : !model.preferredPlatform && model.supportedPlatforms.length > 1
+        ? 'Multiple supported platforms; no normal platform selected.'
+        : 'Preferred platform has no resolvable catalog target.'
+  const catalogRows = model.availableFirmware.releases.map((release) => ({
+    release,
+    compatibility: compatibilityByRelease.get(release.id)?.status ?? 'UNKNOWN' as CompatibilityStatus,
+  }))
+  const compatibleCatalogRows = catalogRows.filter((row) => row.compatibility === 'COMPATIBLE')
+  const visibleCompatibleCatalogRows = showAllCompatibleFirmware
+    ? compatibleCatalogRows
+    : compatibleCatalogRows.slice(0, 8)
+  const normalizedFirmwareQuery = firmwareQuery.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+  const searchedCatalogRows = normalizedFirmwareQuery
+    ? catalogRows.filter(({ release }) =>
+        [release.version, release.platform, release.firmwareTrain?.name ?? '']
+          .join(' ')
+          .toLocaleLowerCase('en-US')
+          .includes(normalizedFirmwareQuery),
+      )
+    : []
 
   return (
     <>
       <PageHeader
         eyebrow={`${model.vendor.name}${model.family ? ` · ${model.family.name}` : ''} · ${model.deviceType.name}`}
         title={model.model}
-        description="Concrete model firmware lifecycle context. Supported platforms, desired policy, and current firmware remain separate but connected."
         breadcrumbs={[
           { label: 'Firmware catalog', href: '/firmware' },
           { label: 'Device models', href: '/models' },
           { label: model.model },
         ]}
-        actions={<div className="flex flex-wrap gap-2"><Link href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Exceptions</Link><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Edit model</Link><Link href={devicesHref} className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)]">Devices using model</Link></div>}
+        actions={<><ButtonLink href={`/firmware/exceptions?scope=MODEL&scopeId=${encodeURIComponent(modelId)}`}>Exceptions</ButtonLink><ButtonLink href={`/models?edit=${encodeURIComponent(model.id)}`}>Edit model</ButtonLink><ButtonLink href={devicesHref} variant="primary">Devices using model</ButtonLink></>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -115,11 +136,38 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]"><SectionHeading title="Desired firmware history" description="Append-oriented history of explicit desired-firmware changes for this concrete model, including bulk actions." /><AuditHistory events={model.auditHistory} emptyText="No desired-firmware policy changes have been recorded yet." /></section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <SectionHeading title="Vendor firmware catalog" description="All same-vendor catalog releases are visible for reference. Compatibility is shown explicitly; this list is not the desired-firmware selector." />
-            {model.availableFirmware.releases.length === 0 ? <div className="px-4 py-6 text-sm text-[var(--muted)]">No releases exist for {model.vendor.name}.</div> : <div className="divide-y divide-[var(--border)]">{model.availableFirmware.releases.map((release) => {
-              const compat = compatibilityByRelease.get(release.id)?.status ?? 'UNKNOWN'
-              return <Link key={release.id} href={`/firmware/${release.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-raised)]"><span><span className="font-mono font-semibold text-[var(--accent-light)]">{release.version}</span><span className="ml-2 text-xs text-[var(--muted)]">{release.firmwareTrain?.name ?? release.platform}</span></span><span className="text-right text-xs text-[var(--muted)]">{compat}{release.selectable ? ' · policy eligible' : ''}{release.isActive ? '' : ' · archived'}</span></Link>
-            })}</div>}
+            <SectionHeading title="Compatible firmware" />
+            {visibleCompatibleCatalogRows.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-[var(--muted)]">No compatible catalog release is currently proven.</div>
+            ) : (
+              <div className="divide-y divide-[var(--border)]">
+                {visibleCompatibleCatalogRows.map(({ release }) => (
+                  <Link key={release.id} href={`/firmware/${release.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-raised)]">
+                    <span><span className="font-mono font-semibold text-[var(--accent-light)]">{release.version}</span><span className="ml-2 text-xs text-[var(--muted)]">{release.platform} · {release.firmwareTrain?.name ?? 'no train'}</span></span>
+                    <span className="text-xs text-emerald-300">Compatible</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+            {compatibleCatalogRows.length > 8 ? (
+              <button type="button" onClick={() => setShowAllCompatibleFirmware((value) => !value)} className="m-3 text-xs font-semibold text-[var(--accent-light)] hover:underline">
+                {showAllCompatibleFirmware ? 'Show fewer' : `Show all ${compatibleCatalogRows.length}`}
+              </button>
+            ) : null}
+            <div className="border-t border-[var(--border)] p-3">
+              <label htmlFor="model-firmware-search" className="text-xs font-semibold">Check another release</label>
+              <input id="model-firmware-search" type="search" value={firmwareQuery} onChange={(event) => setFirmwareQuery(event.target.value)} placeholder="Version, platform or train…" className="mt-2 w-full max-w-md rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
+              {normalizedFirmwareQuery ? (
+                <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
+                  {searchedCatalogRows.length === 0 ? <div className="p-3 text-sm text-[var(--muted)]">No matching release.</div> : searchedCatalogRows.slice(0, 20).map(({ release, compatibility }) => (
+                    <Link key={release.id} href={`/firmware/${release.id}`} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-[var(--surface-raised)]">
+                      <span><span className="font-mono font-semibold text-[var(--accent-light)]">{release.version}</span><span className="ml-2 text-xs text-[var(--muted)]">{release.platform}</span></span>
+                      <span className={compatibility === 'COMPATIBLE' ? 'text-xs text-emerald-300' : compatibility === 'INCOMPATIBLE' ? 'text-xs text-red-300' : 'text-xs text-amber-300'}>{compatibility}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -136,7 +184,7 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Model information</h2><Link href={`/models?edit=${encodeURIComponent(model.id)}`} className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Edit model</Link></div>
-          <dl className="mt-4 space-y-3 text-sm"><DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Family / series" value={model.family?.name ?? '—'} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Supported platforms" value={model.supportedPlatforms.length ? model.supportedPlatforms.join(', ') : 'Unknown'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Catalog releases" value={model.availableFirmware.releases.length} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} /></dl>
+          <dl className="mt-4 space-y-3 text-sm"><DetailRow label="Vendor" value={model.vendor.name} /><DetailRow label="Family / series" value={model.family?.name ?? '—'} /><DetailRow label="Device type" value={model.deviceType.name} /><DetailRow label="Supported platforms" value={model.supportedPlatforms.length ? model.supportedPlatforms.join(', ') : 'Unknown'} /><DetailRow label="Preferred platform" value={model.preferredPlatform ?? 'Not configured'} /><DetailRow label="Status" value={model.isActive ? 'Active' : 'Archived'} /><DetailRow label="Catalog releases" value={model.availableFirmware.releases.length} /><DetailRow label="Source" value={model.source} /><DetailRow label="External provider" value={model.externalProvider ?? '—'} /><DetailRow label="External ID" value={model.externalId ?? '—'} /><DetailRow label="Last synchronized" value={model.lastSynchronizedAt ? new Date(model.lastSynchronizedAt).toLocaleString() : 'Never / manual'} /></dl>
           {model.family ? <div className="mt-5 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-xs leading-5 text-[var(--muted-strong)]"><strong>{model.family.name}</strong> may provide inherited compatibility evidence. Concrete model support configured above takes precedence.</div> : null}
           {model.notes ? <div className="mt-5 border-t border-[var(--border)] pt-4"><div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Notes</div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{model.notes}</p></div> : null}
         </section>
@@ -145,8 +193,8 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
   )
 }
 
-function SectionHeading({ title, description }: { title: string; description: string }) {
-  return <div className="border-b border-[var(--border)] px-4 py-3"><h2 className="text-sm font-semibold">{title}</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">{description}</p></div>
+function SectionHeading({ title, description }: { title: string; description?: string }) {
+  return <div className="border-b border-[var(--border)] px-4 py-3"><h2 className="text-sm font-semibold">{title}</h2>{description ? <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{description}</p> : null}</div>
 }
 
 
