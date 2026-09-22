@@ -184,6 +184,9 @@ export function FirmwareReleaseManager() {
       })
   }, [trains, selected, showArchived])
 
+  const selectedPreferredTrain =
+    selectedTrains.find((train) => train.isActive && train.state === 'PREFERRED') ?? null
+
   const selectedReleases = useMemo(() => {
     if (reviewOnly) {
       return records.filter(
@@ -463,6 +466,17 @@ export function FirmwareReleaseManager() {
                   </div>
                   <Button onClick={openAddRelease}>Add release</Button>
                 </div>
+                {selectedTrains.length > 0 && !selectedPreferredTrain ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-700/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+                    <span>No preferred train configured. Catalog defaults for this platform cannot resolve.</span>
+                    <ButtonLink href="/firmware/trains">Configure</ButtonLink>
+                  </div>
+                ) : selectedPreferredTrain && !selectedPreferredTrain.preferredRelease ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-700/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+                    <span>Preferred train has no preferred Allowed release.</span>
+                    <ButtonLink href={`/firmware/trains/${selectedPreferredTrain.id}`}>Configure</ButtonLink>
+                  </div>
+                ) : null}
                 {selectedTrains.length === 0 ? (
                   <div className="p-5 text-sm text-[var(--muted)]">No release trains configured.</div>
                 ) : (
@@ -491,7 +505,7 @@ export function FirmwareReleaseManager() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
                   <div>
                     <h2 className="text-sm font-semibold">{reviewOnly ? 'Releases needing review · all platforms' : 'Releases'}</h2>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{reviewOnly ? 'Global review queue. Imported observations never become Allowed or Preferred automatically.' : 'Exact variants stay canonical underneath the engineer-facing logical release.'}</p>
+                    {reviewOnly ? <p className="mt-1 text-xs text-[var(--muted)]">Imported observations require review.</p> : null}
                   </div>
                   {reviewOnly ? <button type="button" className="text-xs font-semibold text-[var(--accent-light)] hover:underline" onClick={() => setReviewOnly(false)}>Show all platform releases</button> : null}
                 </div>
