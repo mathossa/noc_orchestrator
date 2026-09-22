@@ -505,7 +505,6 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
       <PageHeader
         eyebrow="Firmware catalog"
         title="Device models"
-        description="Manage concrete hardware variants, supported firmware platforms, vendor families / series, and optional model-level firmware overrides."
         breadcrumbs={[
           { label: 'Firmware catalog', href: '/firmware' },
           { label: 'Device models' },
@@ -598,7 +597,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
 
           <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div><h2 className="text-sm font-semibold">Concrete models</h2><p className="mt-0.5 text-xs text-[var(--muted)]">Devices always reference these concrete models. Supported platforms describe what each model can run; desired firmware is separate policy intent.</p></div>
+              <h2 className="text-sm font-semibold">Concrete models</h2>
               <span className="text-xs text-[var(--muted)]">{filteredRecords.length} shown / {records.length} total</span>
             </div>
 
@@ -631,7 +630,7 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
         </div>
 
         <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Family / series is optional grouping. Supported firmware platforms are the model&apos;s explicit broad compatibility selection.</p></div>
+          <div className="mb-4"><h2 className="text-sm font-semibold">{editingId ? 'Edit concrete model' : 'Add concrete model'}</h2></div>
 
           {activeVendorCount === 0 || activeTypeCount === 0 ? <div className="mb-4 rounded-md border border-[var(--warning)]/40 bg-[#2b2415] px-3 py-2 text-xs leading-5 text-[#efd18d]">You need at least one active vendor and one active device type before creating a model.</div> : null}
 
