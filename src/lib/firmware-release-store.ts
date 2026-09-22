@@ -239,14 +239,21 @@ export async function updateFirmwareRelease(id: string, rawInput: unknown) {
     !Object.prototype.hasOwnProperty.call(patch, 'catalogState') &&
     !Object.prototype.hasOwnProperty.call(patch, 'policyEligibility')
 
+  const identityChanging =
+    Object.prototype.hasOwnProperty.call(patch, 'version') ||
+    Object.prototype.hasOwnProperty.call(patch, 'platform')
   const input = parseFirmwareReleaseInput({
     vendorId: current.vendorId,
     firmwareTrainId: current.firmwareTrainId,
     platform: current.platform,
     version: current.version,
-    logicalVersion: current.logicalVersion,
-    variant: current.variant,
-    imageCode: current.imageCode,
+    ...(identityChanging
+      ? {}
+      : {
+          logicalVersion: current.logicalVersion,
+          variant: current.variant,
+          imageCode: current.imageCode,
+        }),
     ...(legacyStatusOnly
       ? {}
       : { catalogState: current.catalogState, policyEligibility: current.policyEligibility }),
