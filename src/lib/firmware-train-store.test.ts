@@ -81,7 +81,12 @@ describe('firmware train persistence rules', () => {
       vendorId: 'vendor-1',
       platform: 'AOS-8, AOS-10',
       name: '8.10',
-    })).rejects.toThrow('A firmware train must belong to one platform.')
+    })).rejects.toMatchObject({
+      name: 'FirmwareTrainValidationError',
+      fields: {
+        platform: 'A firmware train must belong to one platform. Models may support multiple platforms.',
+      },
+    })
 
     expect(mocks.trainCreate).not.toHaveBeenCalled()
   })
