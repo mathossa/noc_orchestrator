@@ -116,7 +116,12 @@ describe('firmware release persistence rules', () => {
       vendorId: 'vendor-1',
       platform: 'AOS-8, AOS-10',
       version: '8.10.0.5',
-    })).rejects.toThrow('A firmware release must belong to one platform.')
+    })).rejects.toMatchObject({
+      name: 'FirmwareReleaseValidationError',
+      fields: {
+        platform: 'A firmware release must belong to one platform. Use model compatibility for multi-platform support.',
+      },
+    })
 
     expect(mocks.releaseCreate).not.toHaveBeenCalled()
   })
