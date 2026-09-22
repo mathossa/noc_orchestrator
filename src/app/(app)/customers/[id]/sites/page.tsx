@@ -1,8 +1,11 @@
 import { SiteManager } from '@/components/sites/site-manager'
 
-type PageProps = { params: Promise<{ id: string }> }
+type PageProps = {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ organizationUnit?: string }>
+}
 
-export default async function CustomerSitesPage({ params }: PageProps) {
-  const { id } = await params
-  return <SiteManager customerId={id} />
+export default async function CustomerSitesPage({ params, searchParams }: PageProps) {
+  const [{ id }, query] = await Promise.all([params, searchParams])
+  return <SiteManager customerId={id} initialOrganizationUnit={query.organizationUnit ?? ''} />
 }
