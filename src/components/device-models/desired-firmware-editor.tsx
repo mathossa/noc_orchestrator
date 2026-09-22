@@ -341,7 +341,7 @@ export function DesiredFirmwareEditor({
                   ))}
                 </div>
               ) : (
-                <p className="text-xs leading-5">No catalog target is currently resolved from devices using this model. For multi-platform models, the observed current firmware platform selects the applicable catalog default.</p>
+                <p className="text-xs">No catalog target resolved. Check the preferred platform and its preferred train/release.</p>
               )}
             </div>
           )}
@@ -349,9 +349,7 @@ export function DesiredFirmwareEditor({
         {!p.policyId && !overrideOpen ? (
           <div className="h-fit rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4">
             <h3 className="text-sm font-semibold">Model override</h3>
-            <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              You normally do not need this. Add an override only when this model should intentionally use a different target than the catalog default.
-            </p>
+            <p className="mt-2 text-xs text-[var(--muted)]">Use only when this model must differ from the catalog default.</p>
             <button
               type="button"
               onClick={() => setOverrideOpen(true)}
