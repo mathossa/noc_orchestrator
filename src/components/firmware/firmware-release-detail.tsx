@@ -222,12 +222,7 @@ export function FirmwareReleaseDetail({ releaseId }: { releaseId: string }) {
 
       {editing ? (
         <form id="edit-release" onSubmit={saveEdit} className="mt-4 rounded-lg border border-[var(--accent)] bg-[var(--surface)] p-4 sm:p-5">
-          <div>
-            <h2 className="text-sm font-semibold">Edit release</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-              Update operational catalog decisions and train assignment. Vendor, platform, and exact version stay stable so historical device and planning references keep their identity.
-            </p>
-          </div>
+          <h2 className="text-sm font-semibold">Edit release</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <FormField label="Exact release" htmlFor="release-edit-version">
               <TextInput
