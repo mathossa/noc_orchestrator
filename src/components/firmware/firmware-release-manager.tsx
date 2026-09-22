@@ -169,7 +169,24 @@ export function FirmwareReleaseManager() {
       current.releaseCount += 1
       map.set(key, current)
     }
-    return [...map.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName) || a.platform.localeCompare(b.platform, 'en', { numeric: true }))
+    return [...map.values()]
+      .map((platform) => {
+        const preferredTrain = trains.find(
+          (train) =>
+            train.isActive &&
+            train.state === 'PREFERRED' &&
+            platformKey(train.vendorId, train.platform) === platform.key,
+        )
+        return {
+          ...platform,
+          defaultIssue: !preferredTrain
+            ? 'No preferred train'
+            : !preferredTrain.preferredRelease
+              ? 'No preferred release'
+              : null,
+        }
+      })
+      .sort((a, b) => a.vendorName.localeCompare(b.vendorName) || a.platform.localeCompare(b.platform, 'en', { numeric: true }))
   }, [trains, records, showArchived])
 
   const selected = platforms.find((platform) => platform.key === selectedKey) ?? platforms[0] ?? null
@@ -449,6 +466,7 @@ export function FirmwareReleaseManager() {
                   <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{platform.vendorName}</div>
                   <div className="mt-1 font-semibold">{platform.platform}</div>
                   <div className="mt-1 text-xs text-[var(--muted)]">{platform.trainCount} train{platform.trainCount === 1 ? '' : 's'} · {platform.releaseCount} release{platform.releaseCount === 1 ? '' : 's'}</div>
+                  {platform.defaultIssue ? <div className="mt-1 text-xs font-medium text-amber-300">{platform.defaultIssue}</div> : null}
                 </button>
               ))}
             </div>
