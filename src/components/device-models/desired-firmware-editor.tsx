@@ -243,7 +243,7 @@ export function DesiredFirmwareEditor({
       <div className="border-b border-[var(--border)] p-4">
         <h2 className="text-sm font-semibold">Firmware target</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Normal behavior is automatic: devices inherit the Firmware Catalog default for their observed supported platform. Configure a model override only when this model must deliberately differ.
+          Uses the model’s preferred platform by default. Add an override only for a deliberate exception.
         </p>
       </div>
       <div className="grid gap-5 p-4 lg:grid-cols-2">
