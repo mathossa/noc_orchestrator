@@ -37,6 +37,7 @@ function device(id = 'device') {
       vendorId: 'synthetic-vendor',
       familyId: 'family',
       platform: 'IOS XE',
+      preferredPlatform: null,
     },
   }
 }
@@ -107,34 +108,116 @@ describe('batch firmware compliance integration', () => {
     })
   })
 
-  it('uses the observed firmware platform for catalog defaults on multi-platform models', async () => {
+  it('requires an explicit preferred platform when a model supports multiple platforms', async () => {
     mocks.policies.mockResolvedValue([])
     mocks.devices.mockResolvedValue([
       {
         ...device(),
+        currentFirmwareReleaseId: '8.10.21',
         deviceModel: {
           ...device().deviceModel,
-          platform: 'IOS XE, NX-OS',
+          platform: 'AOS-8, AOS-10',
+          preferredPlatform: null,
         },
       },
     ])
-    mocks.trains.mockResolvedValue([
-      {
-        id: 'train',
-        vendorId: 'synthetic-vendor',
-        platform: 'IOS XE',
-        name: '17.15',
-        state: 'PREFERRED',
-        preferredFirmwareReleaseId: '17.15.5',
-        minimumAcceptableFirmwareReleaseId: '17.12.5',
-      },
+    mocks.releases.mockResolvedValue([
+      release('8.10.21', { platform: 'AOS-8', firmwareTrainId: 'aos8-train' }),
+      release('10.1', { platform: 'AOS-10', firmwareTrainId: 'aos10-train' }),
+    ])
+    mocks.rules.mockResolvedValue([
+      rule({ id: 'aos8', platform: 'AOS-8' }),
+      rule({ id: 'aos10', platform: 'AOS-10' }),
     ])
 
     expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
-      compliance: 'ACCEPTED',
-      policySource: { scope: 'CATALOG', trackName: '17.15' },
-      preferredTarget: { id: '17.15.5' },
-      minimum: { id: '17.12.5' },
+      compliance: 'NO_POLICY',
+      effectivePolicy: {
+        status: 'UNRESOLVED',
+        unresolvedReason: 'CATALOG_PLATFORM_UNRESOLVED',
+      },
+    })
+  })
+
+  it('recommends a platform migration from a supported alternate platform to the model preferred platform', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.devices.mockResolvedValue([
+      {
+        ...device(),
+        currentFirmwareReleaseId: '8.10.21',
+        deviceModel: {
+          ...device().deviceModel,
+          platform: 'AOS-8, AOS-10',
+          preferredPlatform: 'AOS-10',
+        },
+      },
+    ])
+    mocks.releases.mockResolvedValue([
+      release('8.10.21', { platform: 'AOS-8', firmwareTrainId: 'aos8-train' }),
+      release('10.1', { platform: 'AOS-10', firmwareTrainId: 'aos10-train' }),
+    ])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'aos10-train',
+        vendorId: 'synthetic-vendor',
+        platform: 'AOS-10',
+        name: '10.1',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '10.1',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+    ])
+    mocks.rules.mockResolvedValue([
+      rule({ id: 'aos8', platform: 'AOS-8' }),
+      rule({ id: 'aos10', platform: 'AOS-10' }),
+    ])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'OUTSIDE_RANGE',
+      recommendation: 'PLATFORM_MIGRATION',
+      policySource: { scope: 'CATALOG', trackName: '10.1' },
+      currentFirmware: { platform: 'AOS-8' },
+      preferredTarget: { platform: 'AOS-10', version: '10.1' },
+    })
+  })
+
+  it('lets a site policy keep a supported alternate platform compliant', async () => {
+    mocks.devices.mockResolvedValue([
+      {
+        ...device(),
+        currentFirmwareReleaseId: '8.10.21',
+        deviceModel: {
+          ...device().deviceModel,
+          platform: 'AOS-8, AOS-10',
+          preferredPlatform: 'AOS-10',
+        },
+      },
+    ])
+    mocks.policies.mockResolvedValue([
+      policy({
+        id: 'site-aos8',
+        siteId: 'site',
+        policyMode: 'LATEST_APPROVED_IN_TRAIN',
+        desiredPlatform: 'AOS-8',
+        firmwareTrainId: 'aos8-train',
+        targetFirmwareReleaseId: null,
+        minimumFirmwareReleaseId: null,
+      }),
+    ])
+    mocks.releases.mockResolvedValue([
+      release('8.10.21', { platform: 'AOS-8', firmwareTrainId: 'aos8-train' }),
+      release('10.1', { platform: 'AOS-10', firmwareTrainId: 'aos10-train' }),
+    ])
+    mocks.rules.mockResolvedValue([
+      rule({ id: 'aos8', platform: 'AOS-8' }),
+      rule({ id: 'aos10', platform: 'AOS-10' }),
+    ])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'PREFERRED',
+      recommendation: 'NO_ACTION',
+      policySource: { scope: 'SITE', policyId: 'site-aos8' },
+      preferredTarget: { platform: 'AOS-8', version: '8.10.21' },
     })
   })
 
