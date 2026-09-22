@@ -173,7 +173,12 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-[var(--foreground)]">{unit.name}</h3>
+                        <Link
+                          href={`/customers/${customerId}/sites?organizationUnit=${encodeURIComponent(unit.id)}`}
+                          className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
+                        >
+                          {unit.name}
+                        </Link>
                         {unit.code ? <span className="font-mono text-[11px] text-[var(--muted)]">{unit.code}</span> : null}
                         {!unit.isActive ? <span className="text-xs text-[var(--muted)]">Inactive</span> : null}
                       </div>
@@ -195,7 +200,12 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
 
               {directSites.length > 0 && (!needle || matchingDirectSites.length > 0) ? (
                 <div className="py-4">
-                  <h3 className="font-semibold text-[var(--foreground)]">Sites without business unit</h3>
+                  <Link
+                    href={`/customers/${customerId}/sites?organizationUnit=none`}
+                    className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
+                  >
+                    Sites without business unit
+                  </Link>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     {directSites.length} site{directSites.length === 1 ? '' : 's'} · {directSites.reduce((sum, site) => sum + site.deviceCount, 0)} devices
                   </p>
