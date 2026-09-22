@@ -133,7 +133,7 @@ export function DeviceModelDetail({ modelId }: { modelId: string }) {
         <div className="min-w-0 space-y-5">
           <DesiredFirmwareEditor model={model} compatibility={compatibilityByRelease} onSaved={setModel} />
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]"><SectionHeading title="Desired firmware history" description="Append-oriented history of explicit desired-firmware changes for this concrete model, including bulk actions." /><AuditHistory events={model.auditHistory} emptyText="No desired-firmware policy changes have been recorded yet." /></section>
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]"><SectionHeading title="Desired firmware history" /><AuditHistory events={model.auditHistory} emptyText="No desired-firmware policy changes have been recorded yet." /></section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <SectionHeading title="Compatible firmware" />
