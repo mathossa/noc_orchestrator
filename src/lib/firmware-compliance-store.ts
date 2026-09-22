@@ -221,7 +221,6 @@ export async function resolveFirmwareComplianceBatch(
     model: (typeof devices)[number]['deviceModel'],
     rules: FirmwareCompatibilityRule[],
     overrides: FirmwareCompatibilityOverride[],
-    currentFirmware: ComplianceRelease | null,
   ): FirmwarePolicyResolution {
     const platforms = supportedFirmwarePlatforms(model.platform)
     const preferredPlatformKey = normalizedFirmwarePlatform(model.preferredPlatform)
@@ -390,7 +389,7 @@ export async function resolveFirmwareComplianceBatch(
 
     const effectivePolicy =
       scopedPolicy.status === 'UNRESOLVED' && scopedPolicy.unresolvedReason === 'NO_POLICY'
-        ? catalogDefaultPolicyForModel(model, rules, overrides, currentFirmware)
+        ? catalogDefaultPolicyForModel(model, rules, overrides)
         : scopedPolicy
     const policy = effectivePolicy.policy
     let preferredTarget =
