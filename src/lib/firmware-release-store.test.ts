@@ -194,6 +194,36 @@ describe('firmware release persistence rules', () => {
     }))
   })
 
+  it('updates an exact version in place and re-derives its canonical identity', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({
+      ...storedRelease,
+      platform: 'AOS-S',
+      version: 'WC.16.11.0002',
+      logicalVersion: '16.11.0002',
+      imageCode: 'WC',
+      vendor: undefined,
+      firmwareTrain: undefined,
+    })
+    mocks.releaseUpdate.mockResolvedValue({
+      ...storedRelease,
+      platform: 'AOS-S',
+      version: 'YA.16.10.0025',
+      logicalVersion: '16.10.0025',
+      imageCode: 'YA',
+    })
+
+    await updateFirmwareRelease('release-1', { version: 'YA.16.10.0025' })
+
+    expect(mocks.releaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'release-1' },
+      data: expect.objectContaining({
+        version: 'YA.16.10.0025',
+        logicalVersion: '16.10.0025',
+        imageCode: 'YA',
+      }),
+    }))
+  })
+
   it('supports archive-only PATCH without overwriting catalog identity or eligibility', async () => {
     mocks.releaseFindUnique.mockResolvedValue({
       ...storedRelease,
