@@ -44,6 +44,7 @@ type FormState = {
   familyId: string
   model: string
   supportedPlatformsText: string
+  preferredPlatform: string
   notes: string
   source: string
   externalProvider: string
@@ -66,6 +67,7 @@ const initialForm: FormState = {
   familyId: '',
   model: '',
   supportedPlatformsText: '',
+  preferredPlatform: '',
   notes: '',
   source: 'MANUAL',
   externalProvider: '',
@@ -87,6 +89,7 @@ function formForRecord(record: DeviceModelRecord): FormState {
     familyId: record.familyId ?? '',
     model: record.model,
     supportedPlatformsText: record.supportedPlatforms.join(', '),
+    preferredPlatform: record.preferredPlatform ?? '',
     notes: record.notes ?? '',
     source: record.source,
     externalProvider: record.externalProvider ?? '',
@@ -643,14 +646,43 @@ export function DeviceModelManager({ initialEditId = '' }: { initialEditId?: str
               label="Supported firmware platforms"
               htmlFor="model-supported-platforms"
               error={fieldErrors.supportedPlatforms}
-              description="Optional. Enter one or more supported platforms separated by commas. A non-empty list is authoritative: unselected same-vendor platforms are incompatible for this model."
             >
               <TextInput
                 id="model-supported-platforms"
                 value={form.supportedPlatformsText}
-                onChange={(event) => setForm((current) => ({ ...current, supportedPlatformsText: event.target.value }))}
-                placeholder="e.g. AOS-S, AOS-S-v2"
+                onChange={(event) => {
+                  const supportedPlatformsText = event.target.value
+                  const supported = parseSupportedPlatformsText(supportedPlatformsText)
+                  setForm((current) => ({
+                    ...current,
+                    supportedPlatformsText,
+                    preferredPlatform:
+                      supported.length === 1
+                        ? supported[0]
+                        : supported.some((platform) => platform.toLocaleLowerCase('en-US') === current.preferredPlatform.toLocaleLowerCase('en-US'))
+                          ? current.preferredPlatform
+                          : '',
+                  }))
+                }}
+                placeholder="e.g. AOS-8, AOS-10"
               />
+            </FormField>
+            <FormField
+              label="Preferred firmware platform"
+              htmlFor="model-preferred-platform"
+              error={fieldErrors.preferredPlatform}
+            >
+              <SelectInput
+                id="model-preferred-platform"
+                value={form.preferredPlatform}
+                onChange={(event) => setForm((current) => ({ ...current, preferredPlatform: event.target.value }))}
+                disabled={parseSupportedPlatformsText(form.supportedPlatformsText).length === 0}
+              >
+                <option value="">No preferred platform</option>
+                {parseSupportedPlatformsText(form.supportedPlatformsText).map((platform) => (
+                  <option key={platform.toLocaleLowerCase('en-US')} value={platform}>{platform}</option>
+                ))}
+              </SelectInput>
             </FormField>
             <FormField label="Notes" htmlFor="model-notes" error={fieldErrors.notes}><TextArea id="model-notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional firmware or model-specific notes" /></FormField>
 
@@ -711,7 +743,7 @@ function ModelTable({
               <td className="px-3 py-2.5"><Link href={`/models/${record.id}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)]">{record.model}</Link><div className="mt-0.5 text-xs text-[var(--muted)]">{record.source}</div></td>
               <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.family?.name ?? '—'}</td>
               <td className="px-3 py-2.5"><div className="text-[var(--muted-strong)]">{record.vendor.name}</div><div className="mt-0.5 text-xs text-[var(--muted)]">{record.deviceType.name}</div></td>
-              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.supportedPlatforms.length ? record.supportedPlatforms.join(', ') : 'Unknown'}</td>
+              <td className="px-3 py-2.5 text-[var(--muted-strong)]">{record.supportedPlatforms.length ? <div className="flex flex-wrap gap-1">{record.supportedPlatforms.map((platform) => <span key={platform} className={platform.toLocaleLowerCase('en-US') === record.preferredPlatform?.toLocaleLowerCase('en-US') ? 'font-semibold text-[var(--accent-light)]' : ''}>{platform}{platform.toLocaleLowerCase('en-US') === record.preferredPlatform?.toLocaleLowerCase('en-US') ? ' · preferred' : ''}</span>)}</div> : 'Unknown'}</td>
               <td className="px-3 py-2.5">{record.desiredFirmwareRelease ? <><Link href={`/firmware/${record.desiredFirmwareRelease.id}`} className="font-mono font-semibold text-[var(--accent-light)] hover:underline">{record.desiredFirmwareRelease.version}</Link><div className="mt-0.5 text-xs text-[var(--muted)]">Explicit model override</div></> : <><span className="text-sm text-[var(--muted-strong)]">Automatic</span><div className="mt-0.5 text-xs text-[var(--muted)]">Catalog / scoped policy</div></>}</td>
               <td className="px-3 py-2.5 text-right tabular-nums"><Link href={`/devices?model=${encodeURIComponent(record.id)}`} className="font-semibold text-[var(--accent-light)] hover:underline">{record.deviceCount}</Link></td>
               <td className="px-3 py-2.5"><span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs text-[var(--muted-strong)]">{record.isActive ? 'Active' : 'Archived'}</span></td>
