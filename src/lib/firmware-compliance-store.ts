@@ -80,6 +80,7 @@ export async function resolveFirmwareComplianceBatch(
           vendorId: true,
           familyId: true,
           platform: true,
+          preferredPlatform: true,
         },
       },
     },
@@ -223,18 +224,15 @@ export async function resolveFirmwareComplianceBatch(
     currentFirmware: ComplianceRelease | null,
   ): FirmwarePolicyResolution {
     const platforms = supportedFirmwarePlatforms(model.platform)
-    const currentPlatformKey =
-      currentFirmware?.vendorId === model.vendorId
-        ? normalizedFirmwarePlatform(currentFirmware.platform)
-        : ''
-    const currentSupportedPlatform = currentPlatformKey
+    const preferredPlatformKey = normalizedFirmwarePlatform(model.preferredPlatform)
+    const configuredPreferredPlatform = preferredPlatformKey
       ? platforms.find(
           (platform) =>
-            normalizedFirmwarePlatform(platform) === currentPlatformKey,
+            normalizedFirmwarePlatform(platform) === preferredPlatformKey,
         ) ?? null
       : null
     const platform =
-      currentSupportedPlatform ?? (platforms.length === 1 ? platforms[0] : null)
+      configuredPreferredPlatform ?? (platforms.length === 1 ? platforms[0] : null)
 
     if (!platform) {
       return {
