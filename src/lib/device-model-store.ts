@@ -86,6 +86,7 @@ type IncludedDeviceModel = {
   familyId: string | null
   model: string
   platform: string | null
+  preferredPlatform: string | null
   notes: string | null
   isActive: boolean
   source: string
@@ -135,6 +136,7 @@ function serializeDeviceModel(
     familyId: record.familyId,
     model: record.model,
     supportedPlatforms,
+    preferredPlatform: record.preferredPlatform,
     notes: record.notes,
     isActive: record.isActive,
     source: record.source,
@@ -390,6 +392,7 @@ export async function updateDeviceModel(id: string, rawInput: unknown) {
     familyId: current.familyId,
     model: current.model,
     platform: current.platform,
+    preferredPlatform: current.preferredPlatform,
     notes: current.notes,
     isActive: current.isActive,
     source: current.source,
