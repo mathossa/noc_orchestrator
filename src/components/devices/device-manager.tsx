@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DeviceFilterBar } from '@/components/devices/device-filter-bar'
-import { Button } from '@/components/ui/button'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/form-controls'
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -320,14 +320,7 @@ export function DeviceManager({
       <PageHeader
         eyebrow="Recorded inventory"
         title="Devices"
-        description="Filter and group recorded inventory across technical firmware state, accepted operational exceptions, planning, contract, and provenance."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/firmware/exceptions" className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold">Exceptions</Link>
-            <Link href="/firmware" className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]">Firmware catalog</Link>
-            <Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button>
-          </div>
-        }
+        actions={<><ButtonLink href="/firmware/exceptions">Exceptions</ButtonLink><ButtonLink href="/firmware">Firmware catalog</ButtonLink><Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button></>}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
