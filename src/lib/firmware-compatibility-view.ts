@@ -276,11 +276,20 @@ export async function getReleaseModelCompatibilityView(firmwareReleaseId: string
     },
   })
 
+  const supportedByModel = await listConfiguredModelSupportedPlatforms(models.map((model) => model.id))
   const pureRelease = asRelease(release)
   const pureRules = rules.map(asRule)
   const pureOverrides = overrides.map(asOverride)
   const results = models.map((model) => ({
-    model,
+    model: {
+      ...model,
+      supportedPlatforms:
+        supportedByModel.get(model.id) ??
+        (model.platform ?? '')
+          .split(',')
+          .map((platform) => platform.normalize('NFKC').trim().replace(/\s+/g, ' '))
+          .filter(Boolean),
+    },
     result: evaluateFirmwareCompatibility({
       model,
       release: pureRelease,
