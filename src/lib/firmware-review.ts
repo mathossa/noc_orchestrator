@@ -239,7 +239,10 @@ export type FirmwareReviewActionGroup = {
   proposedOccurrences: string[]
   scheduledOccurrences: string[]
   planIds: string[]
+  externalReferences: string[]
+  missingExternalReferencePlanIds: string[]
   exceptionIds: string[]
+  exceptionExpiries: string[]
   policyIds: string[]
   firmwareTrainIds: string[]
   preferredTargetReleaseIds: string[]
@@ -562,7 +565,24 @@ export function firmwareReviewActionGroups(
           devices.map((device) => device.planning?.scheduledFor),
         ),
         planIds: unique(devices.map((device) => device.planning?.id)),
+        externalReferences: unique(
+          devices.map((device) => device.planning?.externalReference),
+        ),
+        missingExternalReferencePlanIds: unique(
+          devices.map((device) =>
+            device.planning &&
+            ['PROPOSED', 'AWAITING_CUSTOMER', 'APPROVED', 'SCHEDULED', 'IN_PROGRESS'].includes(
+              device.planning.state,
+            ) &&
+            !device.planning.externalReference
+              ? device.planning.id
+              : null,
+          ),
+        ),
         exceptionIds: unique(devices.map((device) => device.exception?.id)),
+        exceptionExpiries: unique(
+          devices.map((device) => device.exception?.expiresAt),
+        ),
         policyIds: unique(
           devices.map((device) => device.technical.policy?.id),
         ),
