@@ -93,11 +93,13 @@ Routes:
 - `/devices/customers/:customerId/sites/:siteId` — site inventory grouped by canonical device type
 - `/devices/customers/:customerId/sites/:siteId/types/:deviceTypeId` — bounded individual-device list
 - `/devices/manage` — existing manual inventory create/edit/archive/delete workspace
-- `/devices/[id]` — device detail explaining firmware, exception, planning/lifecycle, contract, source, and history facts
+- `/devices/[id]` — device workspace with Overview, Firmware, Compliance, Network, Notes & issues, and History sections. Overview keeps common network-device identity, firmware target/status, maintenance, contract, and source facts visible without exposing every diagnostic field at once.
 - `/api/v1/devices` and `/api/v1/devices/[id]` — existing CRUD/query contracts
 - `/api/v1/inventory/export` — scoped customer/site/device-type CSV export
 
 The explorer is server/query backed. It reads compact device identity and hierarchy facts, resolves firmware compliance with the existing batch resolver, applies the existing exception resolver, and rolls the presentation status upward. Individual display rows are fetched only after bounded pagination. The browser never receives the whole inventory in order to group it.
+
+The device workspace deliberately remains inventory/lifecycle focused. Its Network section currently exposes recorded management identity and provenance only; it does not turn NOC Orchestrator into an NMS by adding live interface, traffic, uptime, polling, or topology monitoring.
 
 ### Primary inventory status
 
