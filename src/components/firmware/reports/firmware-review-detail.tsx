@@ -141,6 +141,7 @@ function ExecutiveSummary({ snapshot }: { snapshot: FirmwareReviewSnapshot }) {
     ['Update required', snapshot.summary.updateRequired],
     ['Platform migration', snapshot.summary.platformMigration],
     ['Review required / unknown', snapshot.summary.reviewRequired],
+    ['Accepted exception', snapshot.summary.acceptedException ?? 0],
     ['Customer declined', snapshot.summary.customerDeclined],
     ['Replacement / EOL', snapshot.summary.replacementOrEol],
     ['Unmanaged', snapshot.summary.unmanaged],
