@@ -62,11 +62,14 @@ export function SiteOverview() {
       return [
         site.customer.name,
         site.customer.code ?? '',
+        site.organizationUnit?.name ?? '',
         site.name,
         site.code ?? '',
         site.city ?? '',
         site.region ?? '',
         site.country ?? '',
+        site.externalProvider ?? '',
+        site.externalId ?? '',
         site.effectiveContractType?.name ?? '',
       ]
         .join(' ')
@@ -78,9 +81,9 @@ export function SiteOverview() {
   return (
     <>
       <PageHeader
-        eyebrow="Customer inventory"
-        title="Sites"
-        description="Browse customer locations, effective contracts, and device counts across the organization."
+        eyebrow="Cross-customer lookup"
+        title="All sites"
+        description="Find a site across customers by name, code, business unit, location, or external identity."
       />
 
       {error ? (
@@ -91,11 +94,11 @@ export function SiteOverview() {
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="grid gap-3 border-b border-[var(--border)] p-4 md:grid-cols-3">
-          <SelectInput aria-label="Filter sites by business unit" value={unitFilter} onChange={e => setUnitFilter(e.target.value)}><option value="">All business units</option><option value="none">Ungrouped</option>{units.map(unit => <option key={unit.id} value={unit.id}>{customers.find(customer => customer.id === unit.customerId)?.name} / {unit.name}</option>)}</SelectInput>
+          <SelectInput aria-label="Filter sites by business unit" value={unitFilter} onChange={e => setUnitFilter(e.target.value)}><option value="">All business units</option><option value="none">No business unit</option>{units.map(unit => <option key={unit.id} value={unit.id}>{customers.find(customer => customer.id === unit.customerId)?.name} / {unit.name}</option>)}</SelectInput>
           <TextInput
             type="search"
             aria-label="Search sites"
-            placeholder="Search customer, site, city, contract…"
+            placeholder="Search site/customer code, business unit, city, provider…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -150,7 +153,7 @@ export function SiteOverview() {
                       >
                         {site.name}
                       </Link>
-                      <div className="mt-1 font-mono text-xs text-[var(--muted)]">{site.organizationUnit?.name ?? 'Ungrouped'} · {site.code ?? 'No code'}</div>
+                      <div className="mt-1 font-mono text-xs text-[var(--muted)]">{site.organizationUnit?.name ?? 'No business unit'} · {site.code ?? 'No code'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/customers/${site.customerId}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]">

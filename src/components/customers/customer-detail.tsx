@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react'
 import { ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
-import { SummaryStat } from '@/components/ui/summary-stat'
 import type { CustomerDetailRecord } from '@/lib/customers'
 
 type ApiError = { error?: { message?: string } }
@@ -36,7 +35,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
     }
   }, [customerId])
 
-  if (loading) return <LoadingState title="Loading customer" description="Reading firmware lifecycle context…" />
+  if (loading) return <LoadingState title="Loading customer" description="Reading customer structure…" />
   if (error || !customer) {
     return (
       <ErrorState
@@ -52,99 +51,70 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer"
         title={customer.name}
-        breadcrumbs={[
-          { label: 'Customers', href: '/customers' },
-          { label: customer.name },
-        ]}
-        actions={
+        breadcrumbs={[{ label: 'Customers', href: '/customers' }, { label: customer.name }]}
+        meta={
           <>
-            <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`}>
-              Exceptions
-            </ButtonLink>
-            <ButtonLink href={`/customers/${customer.id}/sites`}>
-              Sites
-            </ButtonLink>
-            <ButtonLink
-              href={`/devices/customers/${customer.id}`}
-              variant="primary"
-            >
-              Customer inventory
-            </ButtonLink>
+            {customer.code ? <span className="font-mono">{customer.code}</span> : null}
+            {customer.code ? <span aria-hidden="true">·</span> : null}
+            {customer.organizationUnitCount > 0 ? (
+              <>
+                <span>{customer.organizationUnitCount} business unit{customer.organizationUnitCount === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">·</span>
+              </>
+            ) : null}
+            <span>{customer.siteCount} sites</span>
+            <span aria-hidden="true">·</span>
+            <span>{customer.deviceCount} devices</span>
           </>
+        }
+        actions={
+          <ButtonLink href={`/devices/customers/${customer.id}`} variant="primary">
+            Customer inventory
+          </ButtonLink>
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryStat label="Devices" value={customer.deviceCount} detail="Inventory records assigned to this customer." />
-        <SummaryStat label="Sites" value={customer.siteCount} detail="Customer locations; sites may override the default contract." />
-        <SummaryStat label="No action recommended" value={customer.desiredStateSummary.current} detail="Devices whose effective policy recommends no action." />
-        <SummaryStat label="Needs attention" value={customer.desiredStateSummary.actionRequired} detail="Devices with a technical update, migration, or review recommendation." />
-        <SummaryStat label="Planned" value={customer.workflowCounts.planned} detail="Operational workflow state, separate from compliance." />
-      </div>
+      <CustomerHierarchy customerId={customerId} />
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="min-w-0 space-y-5">
-          <CustomerHierarchy customerId={customerId} />
-
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <div className="border-b border-[var(--border)] px-4 py-3">
-              <h2 className="text-sm font-semibold">Technical firmware state</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">Effective policy, canonical version comparison, and model compatibility determine these summaries.</p>
-            </div>
-            <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                ['No action recommended', customer.desiredStateSummary.current],
-                ['Action required', customer.desiredStateSummary.actionRequired],
-                ['Unknown current', customer.desiredStateSummary.unknown],
-                ['No policy', customer.desiredStateSummary.noPolicy],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-[var(--surface)] p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</div>
-                  <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <div className="border-b border-[var(--border)] px-4 py-3">
-              <h2 className="text-sm font-semibold">Lifecycle summary</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">Workflow decisions remain separate from technical firmware compliance.</p>
-            </div>
-            <div className="grid gap-px bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                ['Planned', customer.workflowCounts.planned],
-                ['Ignored', customer.workflowCounts.ignored],
-                ['Customer declined', customer.workflowCounts.customerDeclined],
-                ['Done', customer.workflowCounts.done],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-[var(--surface)] p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</div>
-                  <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Customer information</h2>
-          <dl className="mt-4 space-y-3 text-sm">
-            <DetailRow label="Code" value={customer.code ?? '—'} />
+      <details className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] sm:px-5">
+          Customer details
+        </summary>
+        <div className="border-t border-[var(--border)] px-4 py-4 sm:px-5">
+          <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
             <DetailRow label="Status" value={customer.isActive ? 'Active' : 'Archived'} />
             <DetailRow label="Default contract" value={customer.contractType?.name ?? 'No default contract'} />
-            <DetailRow label="Default firmware management" value={customer.contractType ? (customer.contractType.firmwareManagementEnabled ? 'Enabled by contract' : 'Disabled by contract') : 'No default contract capability set'} />
+            <DetailRow
+              label="Firmware management"
+              value={
+                customer.contractType
+                  ? customer.contractType.firmwareManagementEnabled
+                    ? 'Enabled by contract'
+                    : 'Disabled by contract'
+                  : 'No default contract'
+              }
+            />
             <DetailRow label="Source" value={customer.source} />
             <DetailRow label="External provider" value={customer.externalProvider ?? '—'} />
             <DetailRow label="External ID" value={customer.externalId ?? '—'} />
             <DetailRow label="Last synchronized" value={customer.lastSynchronizedAt ? new Date(customer.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
           </dl>
-        </section>
-      </div>
+          <div className="mt-4">
+            <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`} variant="ghost">
+              Customer exceptions
+            </ButtonLink>
+          </div>
+        </div>
+      </details>
     </>
   )
 }
 
 function DetailRow({ label, value }: { label: string; value: string | number }) {
-  return <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0"><dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt><dd className="min-w-0 break-words text-[var(--muted-strong)]">{value}</dd></div>
+  return (
+    <div className="border-b border-[var(--border)] pb-3">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt>
+      <dd className="mt-1 min-w-0 break-words text-[var(--muted-strong)]">{value}</dd>
+    </div>
+  )
 }

@@ -13,6 +13,7 @@ export type CustomerRecord = {
   lastSynchronizedAt: string | null
   deviceCount: number
   siteCount: number
+  organizationUnitCount: number
 }
 
 export type CustomerDetailRecord = CustomerRecord & {

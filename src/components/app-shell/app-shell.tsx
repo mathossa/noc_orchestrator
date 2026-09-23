@@ -5,7 +5,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
 
-type NavigationLink = { label: string; href: string }
+type NavigationLink = {
+  label: string
+  href: string
+  children?: readonly NavigationLink[]
+}
 type NavigationGroup = { label: string; children: readonly NavigationLink[] }
 
 const navigation: readonly NavigationGroup[] = [
@@ -16,8 +20,11 @@ const navigation: readonly NavigationGroup[] = [
   {
     label: 'Inventory',
     children: [
-      { label: 'Customers', href: '/customers' },
-      { label: 'Sites', href: '/sites' },
+      {
+        label: 'Customers',
+        href: '/customers',
+        children: [{ label: 'All sites', href: '/sites' }],
+      },
       { label: 'Devices', href: '/devices' },
       { label: 'Import', href: '/devices/import' },
     ],
@@ -46,16 +53,10 @@ const navigation: readonly NavigationGroup[] = [
   },
 ]
 
-function isCustomerSitePath(pathname: string) {
-  return pathname === '/sites' || pathname.startsWith('/sites/') || /^\/customers\/[^/]+\/sites(?:\/|$)/.test(pathname)
-}
-
-function isActivePath(pathname: string, href: string) {
+export function isActivePath(pathname: string, href: string) {
   if (href === '/dashboard') return pathname === href
-  if (href === '/sites') return isCustomerSitePath(pathname)
-  if (href === '/customers') {
-    return (pathname === href || pathname.startsWith(`${href}/`)) && !isCustomerSitePath(pathname)
-  }
+  if (href === '/customers') return pathname === href || pathname.startsWith(`${href}/`)
+  if (href === '/sites') return pathname === href || pathname.startsWith(`${href}/`)
   if (href === '/firmware') return (pathname === href || pathname.startsWith('/firmware/')) && !pathname.startsWith('/firmware/exceptions')
   if (href === '/devices') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
@@ -63,12 +64,20 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+function hasActiveDescendant(pathname: string, item: NavigationLink): boolean {
+  return item.children?.some((child) => isActivePath(pathname, child.href) || hasActiveDescendant(pathname, child)) ?? false
+}
+
 function NavigationLinkItem({
   item,
   onNavigate,
+  depth = 0,
+  ancestor = false,
 }: {
   item: NavigationLink
   onNavigate?: () => void
+  depth?: number
+  ancestor?: boolean
 }) {
   const pathname = usePathname()
   const active = isActivePath(pathname, item.href)
@@ -79,17 +88,25 @@ function NavigationLinkItem({
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
       className={[
-        'group flex min-h-9 items-center gap-3 rounded-md border px-3 text-sm font-medium transition-colors',
+        'group flex items-center gap-3 rounded-md border font-medium transition-colors',
+        depth > 0 ? 'ml-4 min-h-8 px-2.5 text-[13px]' : 'min-h-9 px-3 text-sm',
         active
           ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
-          : 'border-transparent text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]',
+          : ancestor
+            ? 'border-transparent bg-[var(--surface-muted)] text-[var(--foreground)]'
+            : 'border-transparent text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]',
       ].join(' ')}
     >
       <span
         aria-hidden="true"
         className={[
-          'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
-          active ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)] group-hover:bg-[var(--muted)]',
+          'shrink-0 rounded-full transition-colors',
+          depth > 0 ? 'h-1 w-1' : 'h-1.5 w-1.5',
+          active
+            ? 'bg-[var(--accent)]'
+            : ancestor
+              ? 'bg-[var(--muted)]'
+              : 'bg-[var(--border-strong)] group-hover:bg-[var(--muted)]',
         ].join(' ')}
       />
       <span className="truncate">{item.label}</span>
@@ -97,7 +114,43 @@ function NavigationLinkItem({
   )
 }
 
-function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
+function NavigationTreeItem({
+  item,
+  onNavigate,
+  depth = 0,
+}: {
+  item: NavigationLink
+  onNavigate?: () => void
+  depth?: number
+}) {
+  const pathname = usePathname()
+  const ancestor = !isActivePath(pathname, item.href) && hasActiveDescendant(pathname, item)
+
+  return (
+    <li>
+      <NavigationLinkItem
+        item={item}
+        onNavigate={onNavigate}
+        depth={depth}
+        ancestor={ancestor}
+      />
+      {item.children?.length ? (
+        <ul className="mt-0.5 space-y-0.5">
+          {item.children.map((child) => (
+            <NavigationTreeItem
+              key={child.href}
+              item={child}
+              onNavigate={onNavigate}
+              depth={depth + 1}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  )
+}
+
+export function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav aria-label="Primary navigation">
       <ul className="space-y-4">
@@ -108,9 +161,7 @@ function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
             </div>
             <ul className="space-y-0.5">
               {group.children.map((item) => (
-                <li key={item.href}>
-                  <NavigationLinkItem item={item} onNavigate={onNavigate} />
-                </li>
+                <NavigationTreeItem key={item.href} item={item} onNavigate={onNavigate} />
               ))}
             </ul>
           </li>
