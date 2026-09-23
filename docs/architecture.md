@@ -64,7 +64,7 @@ The identities are intentionally separate:
 
 - **provider** is the external inventory authority, for example `AUVIK`. Confirmed device crosswalks stay provider-scoped so an identity learned from an Auvik XLSX export can be reused by a later Auvik API adapter.
 - **adapter type** describes the transport family, for example `xlsx` or a future `auvik-api-v2`.
-- **source adapter identity** identifies one logical source/connection, for example `auvik-xlsx` or a future `auvik-api-v2:<connection-id>`. Repeat-import snapshots remain source-adapter-scoped because two connections may expose different inventory views.
+- **source adapter identity** identifies one logical source/connection. The established Auvik XLSX source keeps its existing identity `xlsx` for profile, rule and repeat-history compatibility; a future API connection uses a distinct identity such as `auvik-api-v2:<connection-id>`. Repeat-import snapshots remain source-adapter-scoped because two connections may expose different inventory views.
 
 XLSX is the first functional adapter. Its existing workbook parsing, source/profile recognition and column mapping remain XLSX-specific; after normalization it uses the same shared staging path that future adapters use. Source adapters do not own hierarchy reconciliation, canonical device identity, firmware policy, QA, or publication.
 
