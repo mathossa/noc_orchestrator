@@ -78,7 +78,8 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
 export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
   const [activeTab, setActiveTab] = useState<SiteTab>('overview')
   const customerPath = `/customers/${site.customerId}`
-  const managePath = `${customerPath}/sites`
+  const siteListPath = `${customerPath}/sites`
+  const managePath = `${siteListPath}?edit=${encodeURIComponent(site.id)}`
   const inventoryPath = `/devices/customers/${site.customerId}/sites/${site.id}`
 
   const breadcrumbs = [
@@ -88,7 +89,7 @@ export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
       ? [
           {
             label: site.organizationUnit.name,
-            href: `${managePath}?organizationUnit=${encodeURIComponent(site.organizationUnit.id)}`,
+            href: `${siteListPath}?organizationUnit=${encodeURIComponent(site.organizationUnit.id)}`,
           },
         ]
       : []),
