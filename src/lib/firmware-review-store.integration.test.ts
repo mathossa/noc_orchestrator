@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { randomUUID } from 'node:crypto'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   startPostgresTestDatabase,
   type TestPostgresDatabase,
@@ -182,12 +182,8 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
 
     db = (await import('./prisma')).prisma
     store = await import('./firmware-review-store')
-  }, 120_000)
-
-  beforeEach(async () => {
-    await testDatabase?.reset()
     await seedFixture()
-  })
+  }, 120_000)
 
   afterAll(async () => {
     try {
