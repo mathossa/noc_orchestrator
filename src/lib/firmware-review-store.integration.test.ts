@@ -255,6 +255,23 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
   })
 
   it('keeps exception, planning and Site changes out of an old version while a new version captures them', async () => {
+    await db.firmwarePolicy.update({
+      where: { id: ids.policy },
+      data: {
+        targetFirmwareReleaseId: ids.targetRelease,
+        policyVersion: 1,
+      },
+    })
+    await db.device.update({
+      where: { id: ids.device },
+      data: {
+        currentFirmwareReleaseId: ids.currentRelease,
+        currentFirmwareRawVersion: '1.0',
+        currentFirmwareNormalizedVersion: '1.0',
+        currentFirmwareObservedAt: new Date('2026-09-01T08:00:00.000Z'),
+      },
+    })
+
     const { cycle, report } = await createVersionOne()
     const before = await storedReport(report.id)
 
