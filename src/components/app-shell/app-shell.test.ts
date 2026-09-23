@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { isActivePath } from './app-shell'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import { isActivePath, NavigationGroups } from './app-shell'
+
+const navigationState = vi.hoisted(() => ({ pathname: '/sites' }))
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => navigationState.pathname,
+}))
 
 describe('app shell inventory navigation', () => {
   it('keeps customer-scoped site routes under Customers', () => {
@@ -15,5 +23,17 @@ describe('app shell inventory navigation', () => {
     expect(isActivePath('/sites', '/sites')).toBe(true)
     expect(isActivePath('/sites/example', '/sites')).toBe(true)
     expect(isActivePath('/sites', '/customers')).toBe(false)
+  })
+
+  it('gives aria-current only to the actual page link', () => {
+    navigationState.pathname = '/sites'
+    const allSitesHtml = renderToStaticMarkup(createElement(NavigationGroups))
+    expect(allSitesHtml.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(allSitesHtml).toContain('All sites')
+
+    navigationState.pathname = '/customers/customer-1/sites/site-1'
+    const customerSiteHtml = renderToStaticMarkup(createElement(NavigationGroups))
+    expect(customerSiteHtml.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(customerSiteHtml).toContain('Customers')
   })
 })
