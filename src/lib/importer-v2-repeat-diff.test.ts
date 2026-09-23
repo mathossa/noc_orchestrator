@@ -230,6 +230,7 @@ describe('Importer v2 repeat-import diff', () => {
           rowNumber: 6,
           canonicalDeviceId: null,
           identityStatus: 'NEW',
+          allowSourceSnapshotMatch: true,
           identifiers: {
             sourceId: 'stack-member-1',
             serialNumber: 'MEMBER-SER-1',
@@ -245,6 +246,7 @@ describe('Importer v2 repeat-import diff', () => {
           rowNumber: 7,
           canonicalDeviceId: null,
           identityStatus: 'NEW',
+          allowSourceSnapshotMatch: true,
           identifiers: {
             sourceId: 'stack-member-2',
             serialNumber: 'MEMBER-SER-2',
