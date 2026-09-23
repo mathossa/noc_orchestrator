@@ -71,6 +71,7 @@ describe('site workspace', () => {
     }
 
     expect(html).toContain('/devices/customers/customer-1/sites/site-1')
+    expect(html).toContain('/customers/customer-1/sites?edit=site-1')
     expect(html).not.toContain('https://auvik.com/site/')
     expect(html).not.toContain('Auvik URL')
   })
