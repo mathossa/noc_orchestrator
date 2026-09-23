@@ -48,3 +48,63 @@ CREATE INDEX "InventorySyncProfileSource_sourceId_idx" ON "InventorySyncProfileS
 
 ALTER TABLE "InventorySyncProfileSource" ADD CONSTRAINT "InventorySyncProfileSource_profileId_fkey" FOREIGN KEY ("profileId") REFERENCES "InventorySyncProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "InventorySyncProfileSource" ADD CONSTRAINT "InventorySyncProfileSource_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "InventorySource"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+
+-- Normalize the legacy Auvik display spelling into the canonical provider code.
+-- sourceAdapterId deliberately remains "xlsx": it is established source identity
+-- used by source profiles, repeat snapshots, topology evidence and importer rules.
+UPDATE "ImporterV2SourceProfile"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "ImporterV2WorkspaceBatch"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "ImporterV2DeviceCrosswalk"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "ImporterV2SourceSnapshot"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "ImporterV2ExactMapping"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "DeviceTopology"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "DeviceTopologyMember"
+SET "provider" = 'AUVIK'
+WHERE lower("provider") = 'auvik';
+
+UPDATE "Customer"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "CustomerOrganizationUnit"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "Site"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "DeviceModel"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "FirmwareTrain"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "FirmwareRelease"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
+
+UPDATE "Device"
+SET "externalProvider" = 'AUVIK'
+WHERE lower("externalProvider") = 'auvik';
