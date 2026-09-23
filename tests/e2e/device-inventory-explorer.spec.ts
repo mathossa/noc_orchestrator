@@ -183,8 +183,13 @@ test('uses root inventory search for direct device lookup', async ({ page }) => 
 
 
 test('debounces scoped search and exposes a direct site link', async ({ page }) => {
+  const clockStart = Date.now()
+  // Install before navigation so the application consistently uses fake timers.
+  await page.clock.install({ time: clockStart })
   await page.goto('/devices')
-  await page.clock.install()
+  // install() alone keeps time flowing between Playwright commands. Pause before
+  // typing so only runFor() advances the debounce window, including its reset.
+  await page.clock.pauseAt(clockStart + 60 * 60 * 1000)
   const queries: string[] = []
   page.on('request', (request) => {
     const url = new URL(request.url())
@@ -197,6 +202,8 @@ test('debounces scoped search and exposes a direct site link', async ({ page }) 
   await page.clock.runFor(399)
   expect(queries).toEqual([])
   await page.clock.runFor(1)
+  // The debounce has fired; allow Next.js navigation/render timers to run normally.
+  await page.clock.resume()
   await expect(page).toHaveURL(/q=PWHQ/)
   expect(queries).not.toContain('PW')
   await expect(page.getByRole('link', { name: 'Site: Playwright Inventory Customer / Playwright HQ' })).toHaveAttribute('href', `/devices/customers/${ids.customer}/sites/${ids.site}`)
