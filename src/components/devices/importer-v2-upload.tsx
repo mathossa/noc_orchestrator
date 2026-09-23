@@ -76,8 +76,8 @@ function fileSize(value: number) {
 export function ImporterV2Upload() {
   const router = useRouter()
   const [file, setFile] = useState<File | null>(null)
-  const [provider, setProvider] = useState('Auvik')
-  const [sourceAdapterId, setSourceAdapterId] = useState('xlsx')
+  const [provider, setProvider] = useState('AUVIK')
+  const [sourceAdapterId, setSourceAdapterId] = useState('auvik-xlsx')
   const [inspection, setInspection] = useState<Inspection | null>(null)
   const [sheetName, setSheetName] = useState('')
   const [headerRow, setHeaderRow] = useState(1)
@@ -240,7 +240,7 @@ export function ImporterV2Upload() {
               value={provider}
               onChange={(event) => { setProvider(event.target.value); resetInspection() }}
               className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-              placeholder="Auvik"
+              placeholder="AUVIK"
             />
           </label>
           <label className="block text-sm font-medium text-[var(--foreground)]">
@@ -249,7 +249,7 @@ export function ImporterV2Upload() {
               value={sourceAdapterId}
               onChange={(event) => { setSourceAdapterId(event.target.value); resetInspection() }}
               className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-              placeholder="xlsx"
+              placeholder="auvik-xlsx"
             />
           </label>
           <Button onClick={() => void inspect()} disabled={!file || !provider.trim() || !sourceAdapterId.trim() || busy !== null}>
