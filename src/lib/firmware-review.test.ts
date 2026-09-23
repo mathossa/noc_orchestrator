@@ -249,6 +249,7 @@ describe('firmware review domain', () => {
       updateRequired: 1,
       platformMigration: 1,
       reviewRequired: 0,
+      acceptedException: 1,
       customerDeclined: 1,
       replacementOrEol: 1,
       unmanaged: 1,
