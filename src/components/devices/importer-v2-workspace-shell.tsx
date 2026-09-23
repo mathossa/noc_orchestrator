@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
 import type {
+  ImporterV2WorkspaceAction,
   ImporterV2WorkspaceFilters,
   ImporterV2WorkspaceGroup,
   ImporterV2WorkspaceSelection,
