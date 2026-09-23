@@ -1,0 +1,54 @@
+// Generic inventory source definitions and sync-profile composition.
+//
+// Provider identity is deliberately separate from adapter/transport identity.
+// AUVIK can therefore retain provider-scoped crosswalks while moving from an
+// Auvik XLSX source to a future Auvik API source.
+model InventorySource {
+  id              String  @id @default(uuid())
+  provider        String
+  adapterType     String
+  sourceAdapterId String
+  name            String
+  enabled         Boolean @default(true)
+  configuration   Json
+  metadata        Json?
+
+  profileLinks InventorySyncProfileSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([provider, sourceAdapterId])
+  @@index([provider, enabled])
+  @@index([adapterType, enabled])
+  @@index([name])
+}
+
+model InventorySyncProfile {
+  id      String  @id @default(uuid())
+  name    String  @unique
+  enabled Boolean @default(true)
+
+  sources InventorySyncProfileSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([enabled, name])
+}
+
+model InventorySyncProfileSource {
+  id        String @id @default(uuid())
+  profileId String
+  sourceId  String
+  position  Int    @default(0)
+
+  profile InventorySyncProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source  InventorySource      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, sourceId])
+  @@index([profileId, position])
+  @@index([sourceId])
+}
