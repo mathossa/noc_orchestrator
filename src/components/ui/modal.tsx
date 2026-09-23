@@ -19,15 +19,22 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
+
   useEffect(() => {
-    const dialog = ref.current!
+    const dialog = ref.current
+    if (!dialog) return
+
     const trigger = document.activeElement
-    dialog.showModal()
+    if (!dialog.open) dialog.showModal()
+
     return () => {
-      dialog.close()
+      // React removes an unmounted dialog from the top layer itself. Calling
+      // dialog.close() here can fire onClose while Strict Mode is replaying
+      // effects, which races the parent state that controls this component.
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus()
     }
   }, [])
+
   return (
     <dialog
       ref={ref}
