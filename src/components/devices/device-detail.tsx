@@ -862,64 +862,130 @@ function ComplianceTab({ device }: { device: DeviceDetailRecord }) {
   )
 }
 
-function NetworkTab({
+export function NetworkTab({
   device,
   sitePath,
 }: {
   device: DeviceDetailRecord
   sitePath: string
 }) {
+  const topology = device.topology
   return (
-    <div className="grid gap-5 xl:grid-cols-2">
-      <PanelCard title="Management identity">
-        <DetailList>
-          <DetailRow label="Hostname" value={device.hostname ?? '—'} />
-          <DetailRow
-            label="Management address"
-            value={device.managementAddress ?? '—'}
-          />
-          <DetailRow
-            label="Site"
-            value={
-              device.site ? (
-                <Link
-                  href={sitePath}
-                  className="font-medium text-[var(--accent-light)] hover:underline"
-                >
-                  {device.site.name}
-                </Link>
-              ) : (
-                'Unassigned'
-              )
-            }
-          />
-          <DetailRow label="Vendor" value={device.deviceModel.vendor.name} />
-          <DetailRow label="Model" value={device.deviceModel.model} />
-          <DetailRow
-            label="Device type"
-            value={device.deviceModel.deviceType.name}
-          />
-        </DetailList>
-      </PanelCard>
+    <div className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <PanelCard title="Management identity">
+          <DetailList>
+            <DetailRow label="Hostname" value={device.hostname ?? '—'} />
+            <DetailRow
+              label="Management address"
+              value={device.managementAddress ?? '—'}
+            />
+            <DetailRow
+              label="Site"
+              value={
+                device.site ? (
+                  <Link
+                    href={sitePath}
+                    className="font-medium text-[var(--accent-light)] hover:underline"
+                  >
+                    {device.site.name}
+                  </Link>
+                ) : (
+                  'Unassigned'
+                )
+              }
+            />
+            <DetailRow label="Vendor" value={device.deviceModel.vendor.name} />
+            <DetailRow label="Model" value={device.deviceModel.model} />
+            <DetailRow
+              label="Device type"
+              value={device.deviceModel.deviceType.name}
+            />
+          </DetailList>
+        </PanelCard>
 
-      <PanelCard title="Inventory source">
-        <DetailList>
-          <DetailRow label="Source" value={humanize(device.source)} />
-          <DetailRow
-            label="External provider"
-            value={device.externalProvider ?? '—'}
-          />
-          <DetailRow label="External ID" value={device.externalId ?? '—'} />
-          <DetailRow
-            label="Last synchronized"
-            value={formatDate(device.lastSynchronizedAt, 'Never / manual')}
-          />
-          <DetailRow
-            label="Current firmware source"
-            value={humanize(device.currentFirmwareSource)}
-          />
-        </DetailList>
-      </PanelCard>
+        <PanelCard title="Inventory source">
+          <DetailList>
+            <DetailRow label="Source" value={humanize(device.source)} />
+            <DetailRow
+              label="External provider"
+              value={device.externalProvider ?? '—'}
+            />
+            <DetailRow label="External ID" value={device.externalId ?? '—'} />
+            <DetailRow
+              label="Last synchronized"
+              value={formatDate(device.lastSynchronizedAt, 'Never / manual')}
+            />
+            <DetailRow
+              label="Current firmware source"
+              value={humanize(device.currentFirmwareSource)}
+            />
+          </DetailList>
+        </PanelCard>
+      </div>
+
+      {topology?.kind === 'STACK' && topology.members.length > 0 ? (
+        <PanelCard title="Stack members">
+          <p className="mb-4 text-sm text-[var(--muted-strong)]">
+            Physical members belong to this logical stack. They remain available
+            as hardware and firmware evidence here, but are not separate
+            Inventory, compliance, planning, or reporting devices.
+          </p>
+          <div className="overflow-x-auto rounded-md border border-[var(--border)]">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead className="bg-[var(--surface-raised)] text-xs uppercase tracking-[0.06em] text-[var(--muted)]">
+                <tr>
+                  <th className="px-3 py-2">Member</th>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Model</th>
+                  <th className="px-3 py-2">Serial</th>
+                  <th className="px-3 py-2">Firmware</th>
+                  <th className="px-3 py-2">Source ID</th>
+                  <th className="px-3 py-2">Last seen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {topology.members.map((member) => (
+                  <tr key={member.id}>
+                    <td className="px-3 py-2 font-mono font-semibold">
+                      {member.position}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium">
+                        {member.name ?? member.hostname ?? 'Unnamed member'}
+                      </div>
+                      {!member.isActive ? (
+                        <div className="mt-0.5 text-xs text-[var(--warning)]">
+                          No longer active
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      {member.deviceModel?.model ?? 'Unknown model'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {member.serialNumber ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {member.firmwareRelease?.version ??
+                        member.normalizedFirmwareVersion ??
+                        member.rawFirmwareVersion ??
+                        member.rawSoftwareVersion ??
+                        '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {member.sourceId ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-[var(--muted-strong)]">
+                      {formatDate(member.lastSeenAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </PanelCard>
+      ) : null}
     </div>
   )
 }
