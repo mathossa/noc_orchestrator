@@ -87,6 +87,14 @@ function decisionResolvesIssue(
   decision: WorkspaceDecision,
 ) {
   if (decision.action === 'EXCLUDE_ROW') return true
+  if (decision.action === 'PRESERVE_EXISTING_FIRMWARE') {
+    return (
+      issue.severity === 'WARNING' &&
+      issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
+      (issue.field === 'currentFirmware' ||
+        issue.field === 'softwarePlatform')
+    )
+  }
   if (!decision.field || issue.field !== decision.field) return false
 
   switch (decision.action) {
@@ -100,13 +108,6 @@ function decisionResolvesIssue(
         : issue.code === 'AMBIGUOUS_DECISION'
     case 'VERIFY_OBSERVED_FIRMWARE':
       return issue.field === 'currentFirmware'
-    case 'PRESERVE_EXISTING_FIRMWARE':
-      return (
-        issue.severity === 'WARNING' &&
-        issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
-        (issue.field === 'currentFirmware' ||
-          issue.field === 'softwarePlatform')
-      )
     case 'IGNORE_FIELD':
       return (
         issue.code === 'OPTIONAL_FIELD_UNRESOLVED' ||
