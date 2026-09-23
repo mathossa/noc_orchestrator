@@ -63,7 +63,6 @@ export function SiteOverview() {
         site.customer.name,
         site.customer.code ?? '',
         site.organizationUnit?.name ?? '',
-        site.organizationUnit?.code ?? '',
         site.name,
         site.code ?? '',
         site.city ?? '',
