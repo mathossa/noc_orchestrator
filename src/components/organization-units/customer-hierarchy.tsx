@@ -107,27 +107,14 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
     void mutate(editing, form)
   }
 
-  const directSites = sites.filter((site) => !site.organizationUnitId)
-  const needle = search.trim().toLocaleLowerCase('en-US')
-
-  const matchingDirectSites = directSites.filter((site) => matchesSite(site, needle))
-
-  const visibleUnits = units
-    .map((unit) => {
-      const children = sites.filter((site) => site.organizationUnitId === unit.id)
-      const matchingChildren = children.filter((site) => matchesSite(site, needle))
-      const unitMatches = !needle || [unit.name, unit.code ?? ''].join(' ').toLocaleLowerCase('en-US').includes(needle)
-      return {
-        unit,
-        children,
-        matchingChildren: unitMatches ? children : matchingChildren,
-        matches: unitMatches || matchingChildren.length > 0,
-      }
-    })
-    .filter((entry) => entry.matches)
-
-  const totalDevices = sites.reduce((sum, site) => sum + site.deviceCount, 0)
-  const usesBusinessUnits = units.length > 0
+  const {
+    directSites,
+    matchingDirectSites,
+    visibleUnits,
+    totalDevices,
+    usesBusinessUnits,
+    needle,
+  } = buildCustomerHierarchy(units, sites, search)
 
   return (
     <section id="organization-units" className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
@@ -271,6 +258,45 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
       ) : null}
     </section>
   )
+}
+
+export function buildCustomerHierarchy(
+  units: OrganizationUnitRecord[],
+  sites: SiteRecord[],
+  search = '',
+) {
+  const directSites = sites.filter((site) => !site.organizationUnitId)
+  const needle = search.trim().toLocaleLowerCase('en-US')
+  const matchingDirectSites = directSites.filter((site) => matchesSite(site, needle))
+
+  const visibleUnits = units
+    .map((unit) => {
+      const children = sites.filter((site) => site.organizationUnitId === unit.id)
+      const matchingChildren = children.filter((site) => matchesSite(site, needle))
+      const unitMatches =
+        !needle ||
+        [unit.name, unit.code ?? '']
+          .join(' ')
+          .toLocaleLowerCase('en-US')
+          .includes(needle)
+
+      return {
+        unit,
+        children,
+        matchingChildren: unitMatches ? children : matchingChildren,
+        matches: unitMatches || matchingChildren.length > 0,
+      }
+    })
+    .filter((entry) => entry.matches)
+
+  return {
+    directSites,
+    matchingDirectSites,
+    visibleUnits,
+    totalDevices: sites.reduce((sum, site) => sum + site.deviceCount, 0),
+    usesBusinessUnits: units.length > 0,
+    needle,
+  }
 }
 
 function matchesSite(site: SiteRecord, needle: string) {
