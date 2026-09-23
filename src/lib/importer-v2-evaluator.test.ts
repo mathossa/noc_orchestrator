@@ -409,6 +409,48 @@ describe('Importer v2 pure staged evaluator', () => {
     )
   })
 
+  it('normalizes equivalent legacy catalog IDs to the canonical model relationship', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['model', 'deviceType']
+    input.rows = [
+      {
+        rowNumber: 2,
+        rawValues: {
+          model: 'WS-C2960X-48FPS-L',
+          deviceType: 'Switch',
+        },
+      },
+    ]
+    input.catalog.values = {
+      model: [{ id: 'model-2960', label: 'WS-C2960X-48FPS-L' }],
+      deviceType: [{ id: 'legacy-switch-type', label: 'Switch' }],
+    }
+    input.catalog.modelRelations = [
+      {
+        modelId: 'model-2960',
+        modelLabel: 'WS-C2960X-48FPS-L',
+        vendor: { id: 'vendor-cisco', label: 'Cisco' },
+        deviceType: { id: 'canonical-switch-type', label: 'Switch' },
+        productFamily: null,
+      },
+    ]
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.deviceType).toMatchObject({
+      proposedValue: {
+        id: 'canonical-switch-type',
+        label: 'Switch',
+      },
+      decision: {
+        source: 'CANONICAL_RELATION',
+        requiresConfirmation: false,
+      },
+      issues: [],
+    })
+    expect(evaluated.statuses).not.toContain('NEEDS_REVIEW')
+  })
+
   it('keeps conflicting canonical model relationships reviewable', () => {
     const input = baseInput()
     input.profile.requiredFields = ['vendor', 'model']
