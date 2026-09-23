@@ -94,6 +94,7 @@ Routes:
 - `/devices/customers/:customerId/sites/:siteId/types/:deviceTypeId` — bounded individual-device list
 - `/devices/manage` — existing manual inventory create/edit/archive/delete workspace
 - `/devices/[id]` — device workspace with Overview, Firmware, Compliance, Network, Notes & issues, and History sections. Overview keeps common network-device identity, firmware target/status, maintenance, contract, and source facts visible without exposing every diagnostic field at once.
+  Editing from this page opens an in-place modal and refreshes the device workspace after save; `/devices/manage` remains the broader inventory administration workspace.
 - `/api/v1/devices` and `/api/v1/devices/[id]` — existing CRUD/query contracts
 - `/api/v1/inventory/export` — scoped customer/site/device-type CSV export
 
