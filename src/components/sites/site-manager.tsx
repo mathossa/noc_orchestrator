@@ -52,7 +52,35 @@ const initialForm: FormState = {
   isActive: true,
 }
 
-export function SiteManager({ customerId, initialOrganizationUnit = '' }: { customerId: string; initialOrganizationUnit?: string }) {
+function formStateForSite(site: SiteRecord): FormState {
+  return {
+    organizationUnitId: site.organizationUnitId ?? '',
+    name: site.name,
+    code: site.code ?? '',
+    contractTypeId: site.contractTypeId ?? '',
+    addressLine1: site.addressLine1 ?? '',
+    addressLine2: site.addressLine2 ?? '',
+    postalCode: site.postalCode ?? '',
+    city: site.city ?? '',
+    region: site.region ?? '',
+    country: site.country ?? '',
+    notes: site.notes ?? '',
+    source: site.source,
+    externalProvider: site.externalProvider ?? '',
+    externalId: site.externalId ?? '',
+    isActive: site.isActive,
+  }
+}
+
+export function SiteManager({
+  customerId,
+  initialOrganizationUnit = '',
+  initialEditId = '',
+}: {
+  customerId: string
+  initialOrganizationUnit?: string
+  initialEditId?: string
+}) {
   const [customer, setCustomer] = useState<CustomerDetailRecord | null>(null)
   const [units, setUnits] = useState<OrganizationUnitRecord[]>([])
   const [sites, setSites] = useState<SiteRecord[]>([])
@@ -100,6 +128,16 @@ export function SiteManager({ customerId, initialOrganizationUnit = '' }: { cust
         setSites(payload.sites)
         setContractTypes(payload.contractTypes)
         setUnits(payload.units)
+        if (initialEditId) {
+          const requestedSite = payload.sites.find((site) => site.id === initialEditId)
+          if (requestedSite) {
+            setEditingId(requestedSite.id)
+            setForm(formStateForSite(requestedSite))
+            setFieldErrors({})
+            setMessage(null)
+            setFormOpen(true)
+          }
+        }
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Sites could not be loaded.')
@@ -110,7 +148,7 @@ export function SiteManager({ customerId, initialOrganizationUnit = '' }: { cust
     return () => {
       cancelled = true
     }
-  }, [load])
+  }, [initialEditId, load])
 
   async function reload() {
     const payload = await load()
@@ -142,23 +180,7 @@ export function SiteManager({ customerId, initialOrganizationUnit = '' }: { cust
 
   function beginEdit(site: SiteRecord) {
     setEditingId(site.id)
-    setForm({
-      organizationUnitId: site.organizationUnitId ?? '',
-      name: site.name,
-      code: site.code ?? '',
-      contractTypeId: site.contractTypeId ?? '',
-      addressLine1: site.addressLine1 ?? '',
-      addressLine2: site.addressLine2 ?? '',
-      postalCode: site.postalCode ?? '',
-      city: site.city ?? '',
-      region: site.region ?? '',
-      country: site.country ?? '',
-      notes: site.notes ?? '',
-      source: site.source,
-      externalProvider: site.externalProvider ?? '',
-      externalId: site.externalId ?? '',
-      isActive: site.isActive,
-    })
+    setForm(formStateForSite(site))
     setError(null)
     setMessage(null)
     setFieldErrors({})
