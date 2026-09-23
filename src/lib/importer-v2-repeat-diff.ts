@@ -260,12 +260,23 @@ export function diffImporterV2RepeatImport(input: {
     }
 
     let previousIndexes: readonly number[] = []
-    if (current.identityStatus !== 'NEW' && current.canonicalDeviceId) {
-      previousIndexes = previousByCanonical.get(current.canonicalDeviceId) ?? []
+
+    // Repeat evidence is source-scoped, not a replacement for canonical identity.
+    // A physical stack member intentionally has no standalone Device crosswalk,
+    // so its current identity can be NEW while the successful source snapshot
+    // still contains the same durable member source ID/serial+MAC. Prefer that
+    // unique source key before canonical-device fallback so several member rows
+    // may safely belong to one logical stack Device.
+    const sourceKey = stableSourceKey(current.identifiers)
+    if (sourceKey) {
+      previousIndexes = previousBySourceKey.get(sourceKey) ?? []
     }
-    if (current.identityStatus !== 'NEW' && previousIndexes.length === 0) {
-      const key = stableSourceKey(current.identifiers)
-      if (key) previousIndexes = previousBySourceKey.get(key) ?? []
+    if (
+      previousIndexes.length === 0 &&
+      current.identityStatus !== 'NEW' &&
+      current.canonicalDeviceId
+    ) {
+      previousIndexes = previousByCanonical.get(current.canonicalDeviceId) ?? []
     }
 
     if (previousIndexes.length > 1) {
