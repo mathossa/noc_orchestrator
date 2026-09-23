@@ -216,7 +216,7 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
     expect(after.snapshot).toEqual(before.snapshot)
     expect(after.snapshotHash).toBe(before.snapshotHash)
 
-    const snapshot = before.snapshot as {
+    const snapshot = before.snapshot as unknown as {
       sites: Array<{
         devices: Array<{
           technical: { preferredTarget: { id: string } | null }
@@ -246,7 +246,7 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
     expect(after.snapshot).toEqual(before.snapshot)
     expect(after.snapshotHash).toBe(before.snapshotHash)
 
-    const snapshot = before.snapshot as {
+    const snapshot = before.snapshot as unknown as {
       sites: Array<{
         devices: Array<{ currentFirmware: { version: string | null } }>
       }>
@@ -342,7 +342,7 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
     expect(detail?.reports.map((row) => row.version)).toEqual([2, 1])
 
     const firstSnapshot = detail?.reports.find((row) => row.version === 1)
-      ?.snapshot as {
+      ?.snapshot as unknown as {
       sites: Array<{
         siteName: string
         devices: Array<{
@@ -352,7 +352,7 @@ describe('firmware review PostgreSQL snapshot persistence', () => {
       }>
     }
     const secondSnapshot = detail?.reports.find((row) => row.version === 2)
-      ?.snapshot as {
+      ?.snapshot as unknown as {
       sites: Array<{
         siteName: string
         devices: Array<{
