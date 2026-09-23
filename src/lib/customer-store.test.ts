@@ -71,7 +71,7 @@ function storedCustomer(overrides: Record<string, unknown> = {}) {
     isActive: true,
     createdAt: new Date('2026-08-31T18:00:00Z'),
     updatedAt: new Date('2026-08-31T18:00:00Z'),
-    _count: { devices: 0, sites: 0 },
+    _count: { devices: 0, sites: 0, organizationUnits: 0 },
     ...overrides,
   }
 }
@@ -102,7 +102,7 @@ describe('customer persistence rules', () => {
         },
       }),
     )
-    expect(result).toMatchObject({ id: 'customer-1', deviceCount: 0, siteCount: 0, source: 'MANUAL' })
+    expect(result).toMatchObject({ id: 'customer-1', deviceCount: 0, siteCount: 0, organizationUnitCount: 0, source: 'MANUAL' })
   })
 
   it('rejects a contract type that does not exist', async () => {
@@ -146,7 +146,7 @@ describe('customer persistence rules', () => {
   })
 
   it('returns site, workflow, and canonical technical firmware summaries', async () => {
-    mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1 } }))
+    mocks.customerFindUnique.mockResolvedValue(storedCustomer({ code: null, name: 'Customer', _count: { devices: 4, sites: 1, organizationUnits: 0 } }))
     mocks.deviceFindMany.mockResolvedValue([
       { id: 'd1', deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-a', lifecycle: { state: 'PLANNED' } },
       { id: 'd2', deviceModelId: 'model-1', currentFirmwareReleaseId: 'release-b', lifecycle: { state: 'DONE' } },

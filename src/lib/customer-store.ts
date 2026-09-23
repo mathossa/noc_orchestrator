@@ -58,7 +58,7 @@ function serializeCustomer(record: {
   externalProvider: string | null
   externalId: string | null
   lastSynchronizedAt: Date | null
-  _count: { devices: number; sites: number }
+  _count: { devices: number; sites: number; organizationUnits: number }
 }) {
   return {
     id: record.id,
@@ -73,6 +73,7 @@ function serializeCustomer(record: {
     lastSynchronizedAt: record.lastSynchronizedAt?.toISOString() ?? null,
     deviceCount: record._count.devices,
     siteCount: record._count.sites,
+    organizationUnitCount: record._count.organizationUnits,
   }
 }
 
@@ -86,7 +87,7 @@ const customerInclude = {
       isActive: true,
     },
   },
-  _count: { select: { devices: true, sites: true } },
+  _count: { select: { devices: true, sites: true, organizationUnits: true } },
 } as const
 
 export async function listCustomers() {

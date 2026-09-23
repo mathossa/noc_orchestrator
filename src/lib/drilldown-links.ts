@@ -7,7 +7,7 @@ export function deviceFilterHref(filters: Record<string, DeviceFilterValue>) {
     params.set(key, String(value))
   }
   const query = params.toString()
-  return query ? `/devices?${query}` : '/devices'
+  return query ? `/devices/manage?${query}` : '/devices/manage'
 }
 
 export function technicalStateDeviceHref(scope: Record<string, DeviceFilterValue>, state: string) {

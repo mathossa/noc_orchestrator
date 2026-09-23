@@ -1,9 +1,10 @@
 'use client'
 
+import { firmwarePolicyLabel } from '@/lib/firmware-policy-label'
 import { FirmwareComplianceStatus } from '@/components/devices/firmware-compliance-status'
 import { DeviceOperationalDecision } from '@/components/devices/device-operational-decision'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DeviceFilterBar } from '@/components/devices/device-filter-bar'
 import { Button, ButtonLink } from '@/components/ui/button'
@@ -11,11 +12,15 @@ import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/for
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import {
+  deviceFormForRecord,
+  deviceReleaseMatchesModel,
+  emptyDeviceForm,
+  type DeviceFormState,
+} from '@/lib/device-form'
 import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
   DeviceFieldErrors,
-  DeviceFirmwareReference,
-  DeviceModelReference,
   DeviceRecord,
   DeviceReferenceData,
 } from '@/lib/devices'
@@ -23,63 +28,11 @@ import type {
 type ApiError = { error?: { message?: string; fields?: DeviceFieldErrors } }
 type Payload = { data?: DeviceQueryRecord[]; meta?: DeviceQueryMeta } & ApiError
 
-type FormState = {
-  customerId: string
-  siteId: string
-  deviceModelId: string
-  name: string
-  hostname: string
-  serialNumber: string
-  managementAddress: string
-  notes: string
-  currentFirmwareReleaseId: string
-  currentFirmwareObservedAt: string
-  currentFirmwareSource: string
-  source: string
-  externalProvider: string
-  externalId: string
-  isActive: boolean
-}
-
-const EMPTY_REFERENCES: DeviceReferenceData = { customers: [], sites: [], models: [], firmwareReleases: [] }
-
-function emptyForm(customerId = '', siteId = ''): FormState {
-  return {
-    customerId,
-    siteId,
-    deviceModelId: '',
-    name: '',
-    hostname: '',
-    serialNumber: '',
-    managementAddress: '',
-    notes: '',
-    currentFirmwareReleaseId: '',
-    currentFirmwareObservedAt: '',
-    currentFirmwareSource: 'MANUAL',
-    source: 'MANUAL',
-    externalProvider: '',
-    externalId: '',
-    isActive: true,
-  }
-}
-
-function normalizePlatform(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
-}
-
-function releaseMatchesModel(release: DeviceFirmwareReference, model: DeviceModelReference | undefined) {
-  if (!model || release.vendorId !== model.vendor.id) return false
-  if (model.supportedPlatforms.length === 0) return true
-  const releasePlatform = normalizePlatform(release.platform)
-  return model.supportedPlatforms.some((platform) => normalizePlatform(platform) === releasePlatform)
-}
-
-function toLocalDateTimeInput(value: string | null) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
+const EMPTY_REFERENCES: DeviceReferenceData = {
+  customers: [],
+  sites: [],
+  models: [],
+  firmwareReleases: [],
 }
 
 function observedCurrentFirmwareVersion(record: DeviceRecord) {
@@ -94,27 +47,28 @@ function observedCurrentFirmwareVersion(record: DeviceRecord) {
 function firmwareTargetSource(record: DeviceQueryRecord) {
   const source = record.firmwareCompliance.policySource
   if (!source) return null
-  if (source.scope === 'CATALOG') return `Catalog default · ${source.trackName}`
-  const label = source.scope.charAt(0) + source.scope.slice(1).toLowerCase()
-  return `${label} policy · ${source.trackName}`
+  return `${firmwarePolicyLabel(source)} · ${source.trackName}`
 }
 
 export function DeviceManager({
   initialCustomerId = '',
   initialSiteId = '',
+  initialEditRecord,
 }: {
   initialCustomerId?: string
   initialSiteId?: string
   initialModelId?: string
+  initialEditRecord?: DeviceRecord
 }) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const queryString = searchParams.toString()
   const [records, setRecords] = useState<DeviceQueryRecord[]>([])
   const [references, setReferences] = useState<DeviceReferenceData>(EMPTY_REFERENCES)
   const [meta, setMeta] = useState<DeviceQueryMeta | null>(null)
-  const [form, setForm] = useState<FormState>(() => emptyForm(initialCustomerId, initialSiteId))
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState<DeviceFormState>(() => initialEditRecord ? deviceFormForRecord(initialEditRecord) : emptyDeviceForm(initialCustomerId, initialSiteId))
+  const [formOpen, setFormOpen] = useState(Boolean(initialEditRecord))
+  const [editingId, setEditingId] = useState<string | null>(initialEditRecord?.id ?? null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -155,12 +109,13 @@ export function DeviceManager({
 
   function resetForm() {
     setEditingId(null)
-    setForm(emptyForm(initialCustomerId, initialSiteId))
+    setForm(emptyDeviceForm(initialCustomerId, initialSiteId))
     setFieldErrors({})
     setError(null)
   }
 
   function closeForm() {
+    if (initialEditRecord) { router.push('/devices/' + initialEditRecord.id); return }
     resetForm()
     setFormOpen(false)
   }
@@ -174,23 +129,7 @@ export function DeviceManager({
   function beginEdit(record: DeviceRecord) {
     setEditingId(record.id)
     setFormOpen(true)
-    setForm({
-      customerId: record.customerId,
-      siteId: record.siteId ?? '',
-      deviceModelId: record.deviceModelId,
-      name: record.name,
-      hostname: record.hostname ?? '',
-      serialNumber: record.serialNumber ?? '',
-      managementAddress: record.managementAddress ?? '',
-      notes: record.notes ?? '',
-      currentFirmwareReleaseId: record.currentFirmwareReleaseId ?? '',
-      currentFirmwareObservedAt: toLocalDateTimeInput(record.currentFirmwareObservedAt),
-      currentFirmwareSource: record.currentFirmwareSource,
-      source: record.source,
-      externalProvider: record.externalProvider ?? '',
-      externalId: record.externalId ?? '',
-      isActive: record.isActive,
-    })
+    setForm(deviceFormForRecord(record))
     setFieldErrors({})
     setError(null)
     setMessage(null)
@@ -205,7 +144,7 @@ export function DeviceManager({
   function changeModel(deviceModelId: string) {
     const model = references.models.find((item) => item.id === deviceModelId)
     const selectedRelease = references.firmwareReleases.find((item) => item.id === form.currentFirmwareReleaseId)
-    const keepRelease = selectedRelease ? releaseMatchesModel(selectedRelease, model) : true
+    const keepRelease = selectedRelease ? deviceReleaseMatchesModel(selectedRelease, model) : true
     setForm({
       ...form,
       deviceModelId,
@@ -240,6 +179,7 @@ export function DeviceManager({
         setFieldErrors(payload.error?.fields ?? {})
         throw new Error(payload.error?.message ?? 'Device could not be saved.')
       }
+      if (initialEditRecord) { router.push('/devices/' + initialEditRecord.id); router.refresh(); return }
       setMessage(editingId ? 'Device updated.' : 'Device created.')
       resetForm()
       setFormOpen(false)
@@ -293,7 +233,7 @@ export function DeviceManager({
       ? 'Customer default'
       : 'No contract'
   const formSites = references.sites.filter((site) => site.customerId === form.customerId)
-  const formReleases = references.firmwareReleases.filter((release) => releaseMatchesModel(release, selectedModel))
+  const formReleases = references.firmwareReleases.filter((release) => deviceReleaseMatchesModel(release, selectedModel))
 
   const pageGroups = useMemo(() => {
     if (!meta || meta.query.groupBy === 'none') return [{ key: 'all', label: null as string | null, records }]
@@ -312,7 +252,7 @@ export function DeviceManager({
     if (page <= 1) params.delete('page')
     else params.set('page', String(page))
     const serialized = params.toString()
-    return serialized ? `/devices?${serialized}` : '/devices'
+    return serialized ? `/devices/manage?${serialized}` : '/devices/manage'
   }
 
   return (
