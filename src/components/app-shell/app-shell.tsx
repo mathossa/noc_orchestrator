@@ -48,7 +48,11 @@ const navigation: readonly NavigationGroup[] = [
       { label: 'Vendors', href: '/vendors' },
       { label: 'Device types', href: '/device-types' },
       { label: 'Contract types', href: '/contracts' },
-      { label: 'Settings', href: '/settings' },
+      {
+        label: 'Settings',
+        href: '/settings',
+        children: [{ label: 'Integrations', href: '/settings/integrations' }],
+      },
     ],
   },
 ]
@@ -57,6 +61,7 @@ export function isActivePath(pathname: string, href: string) {
   if (href === '/dashboard') return pathname === href
   if (href === '/customers') return pathname === href || pathname.startsWith(`${href}/`)
   if (href === '/sites') return pathname === href || pathname.startsWith(`${href}/`)
+  if (href === '/settings') return pathname === href
   if (href === '/firmware') return (pathname === href || pathname.startsWith('/firmware/')) && !pathname.startsWith('/firmware/exceptions')
   if (href === '/devices') {
     return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
