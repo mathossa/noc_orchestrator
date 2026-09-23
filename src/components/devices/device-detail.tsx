@@ -143,8 +143,6 @@ export function DeviceWorkspace({
   const migration = Boolean(
     currentPlatform && desired && currentPlatform !== desired.platform,
   )
-  const exception = device.exceptionSummary
-
   const actionTitle =
     panel === 'ADD_NOTE'
       ? 'Add note'
