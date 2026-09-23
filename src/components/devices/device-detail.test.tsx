@@ -1,43 +1,56 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { DeviceOverview } from './device-detail'
+import { DeviceWorkspace } from './device-detail'
 import { deviceDetailFixture } from '@/lib/test-fixtures/device-detail'
 import { result, release } from '@/lib/test-fixtures/firmware-compliance'
 import { deviceFirmwareSummary } from '@/lib/device-overview'
 
 function render(device = deviceDetailFixture()) {
   return renderToStaticMarkup(
-    createElement(DeviceOverview, { device, onUpdate: () => {} }),
+    createElement(DeviceWorkspace, { device, onUpdate: () => {} }),
   )
 }
 
-describe('compact device overview', () => {
-  it('shows a short healthy summary and identifiers without collapsed sections or empty exception/decision text', () => {
+describe('device detail workspace', () => {
+  it('shows a compact overview with normal network-device inventory facts', () => {
     const html = render()
-    expect(html).toContain('Firmware is up to date.')
+
     for (const text of [
+      'Device information',
+      'Firmware',
+      'Status &amp; compliance',
+      'Maintenance',
       'SERIAL-1',
       '10.0.0.1',
       'AP-505',
-      'Add note',
-      'Flag issue',
+      'Vendor',
+      'Access Point',
+      'Customer',
+      'HQ',
       'Edit device',
-      'Details &amp; history',
+      'Actions',
+      'Overview',
+      'Compliance',
+      'Network',
+      'Notes &amp; issues',
+      'History',
+      'View firmware details',
     ])
       expect(html).toContain(text)
+
     for (const text of [
       'Record decision',
-      'No decision',
+      'Details &amp; history',
       'No active exception',
-      'explicitly permitted equivalent',
       '<details',
-      'Firmware resolution',
-      'Inventory context',
     ])
       expect(html).not.toContain(text)
+
     expect(html).toContain('/devices/customers/customer/sites/site/types/ap')
+    expect(html).toContain('/devices/customers/customer/sites/site')
   })
+
   it('links to actual maintenance plans without offering per-device lifecycle actions', () => {
     const html = render(
       deviceDetailFixture({
@@ -55,27 +68,26 @@ describe('compact device overview', () => {
         },
       }),
     )
+
     expect(html).toContain('href="/planning/plan"')
     expect(html).toContain('HQ Access Points')
     expect(html).not.toContain('Not included in a maintenance plan')
     expect(html).not.toContain('Record decision')
   })
-  it('shows open issues and notes while keeping firmware current', () => {
+
+  it('surfaces an open issue on the overview without expanding notes into the default view', () => {
     const html = render(
       deviceDetailFixture({
         issueReason: 'Cannot reach management',
         notes: 'Rack 2',
       }),
     )
-    for (const text of [
-      'Needs investigation',
-      'Cannot reach management',
-      'Resolve issue',
-      'Rack 2',
-      'Firmware is up to date.',
-    ])
-      expect(html).toContain(text)
+
+    expect(html).toContain('Device issue')
+    expect(html).toContain('Needs investigation')
+    expect(html).not.toContain('Rack 2')
   })
+
   it('keeps platform migrations explicit even when version labels coincide', () => {
     const firmware = result({
       recommendation: 'PLATFORM_MIGRATION',
@@ -90,10 +102,11 @@ describe('compact device overview', () => {
         },
       }),
     )
+
     expect(html).toContain('IOS XE')
     expect(html).toContain('Different platform')
-    expect(html).toContain('A platform migration is recommended')
   })
+
   it('uses specific blocked/minimum/unknown guidance instead of a generic accepted explanation', () => {
     const blocked = deviceDetailFixture({
       firmwareCompliance: result({
@@ -104,6 +117,7 @@ describe('compact device overview', () => {
     expect(deviceFirmwareSummary(blocked)).toContain(
       'Current release is blocked',
     )
+
     const required = deviceDetailFixture({
       firmwareCompliance: result({
         compliance: 'BELOW_MINIMUM',
@@ -113,6 +127,7 @@ describe('compact device overview', () => {
     expect(deviceFirmwareSummary(required)).toContain(
       'Below the minimum acceptable release',
     )
+
     const unknown = deviceDetailFixture({
       firmwareCompliance: result({
         compliance: 'NO_POLICY',
