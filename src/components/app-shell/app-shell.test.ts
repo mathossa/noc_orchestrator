@@ -25,6 +25,18 @@ describe('app shell inventory navigation', () => {
     expect(isActivePath('/sites', '/customers')).toBe(false)
   })
 
+  it('keeps Settings as an ancestor while Integrations is the active page', () => {
+    expect(isActivePath('/settings', '/settings')).toBe(true)
+    expect(isActivePath('/settings/integrations', '/settings')).toBe(false)
+    expect(isActivePath('/settings/integrations', '/settings/integrations')).toBe(true)
+
+    navigationState.pathname = '/settings/integrations'
+    const html = renderToStaticMarkup(createElement(NavigationGroups))
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toContain('Settings')
+    expect(html).toContain('Integrations')
+  })
+
   it('gives aria-current only to the actual page link', () => {
     navigationState.pathname = '/sites'
     const allSitesHtml = renderToStaticMarkup(createElement(NavigationGroups))
