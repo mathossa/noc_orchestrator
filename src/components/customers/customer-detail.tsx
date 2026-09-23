@@ -76,30 +76,34 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
 
       <CustomerHierarchy customerId={customerId} />
 
-      <details className="mt-6 border-t border-[var(--border)] pt-4">
-        <summary className="cursor-pointer text-sm font-semibold text-[var(--muted-strong)]">Customer details</summary>
-        <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
-          <DetailRow label="Status" value={customer.isActive ? 'Active' : 'Archived'} />
-          <DetailRow label="Default contract" value={customer.contractType?.name ?? 'No default contract'} />
-          <DetailRow
-            label="Firmware management"
-            value={
-              customer.contractType
-                ? customer.contractType.firmwareManagementEnabled
-                  ? 'Enabled by contract'
-                  : 'Disabled by contract'
-                : 'No default contract'
-            }
-          />
-          <DetailRow label="Source" value={customer.source} />
-          <DetailRow label="External provider" value={customer.externalProvider ?? '—'} />
-          <DetailRow label="External ID" value={customer.externalId ?? '—'} />
-          <DetailRow label="Last synchronized" value={customer.lastSynchronizedAt ? new Date(customer.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
-        </dl>
-        <div className="mt-4">
-          <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`} variant="ghost">
-            Customer exceptions
-          </ButtonLink>
+      <details className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] sm:px-5">
+          Customer details
+        </summary>
+        <div className="border-t border-[var(--border)] px-4 py-4 sm:px-5">
+          <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
+            <DetailRow label="Status" value={customer.isActive ? 'Active' : 'Archived'} />
+            <DetailRow label="Default contract" value={customer.contractType?.name ?? 'No default contract'} />
+            <DetailRow
+              label="Firmware management"
+              value={
+                customer.contractType
+                  ? customer.contractType.firmwareManagementEnabled
+                    ? 'Enabled by contract'
+                    : 'Disabled by contract'
+                  : 'No default contract'
+              }
+            />
+            <DetailRow label="Source" value={customer.source} />
+            <DetailRow label="External provider" value={customer.externalProvider ?? '—'} />
+            <DetailRow label="External ID" value={customer.externalId ?? '—'} />
+            <DetailRow label="Last synchronized" value={customer.lastSynchronizedAt ? new Date(customer.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
+          </dl>
+          <div className="mt-4">
+            <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`} variant="ghost">
+              Customer exceptions
+            </ButtonLink>
+          </div>
         </div>
       </details>
     </>
