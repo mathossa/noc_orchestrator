@@ -6,6 +6,11 @@ import {
   type ImporterV2Field,
   type ImporterV2StagedRow,
 } from '@/lib/importer-v2-evaluator'
+import {
+  normalizeInventorySourceDefinition,
+  type InventorySourceDefinition,
+  type NormalizedInventorySourceRow,
+} from '@/lib/inventory-source-adapter'
 import { evaluateImporterV2WithFirmware } from '@/lib/importer-v2-firmware-evaluation'
 import {
   IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
@@ -38,10 +43,12 @@ import {
   detectImporterV2HeaderRow,
   importerV2HeadersFromRow,
   importerV2ObservedSchema,
-  importerV2SourceEvidence,
-  mappedImporterV2Rows,
   suggestImporterV2ColumnMappings,
 } from '@/lib/importer-v2-xlsx'
+import {
+  XLSX_INVENTORY_ADAPTER_TYPE,
+  xlsxInventorySourceAdapter,
+} from '@/lib/importer-v2-xlsx-adapter'
 import { readXlsxWorkbook, XLSX_LIMITS, XlsxImportError, type XlsxSheet } from '@/lib/xlsx-reader'
 
 export type ImporterV2XlsxStageConfig = {
@@ -224,11 +231,17 @@ async function effectiveProfile(input: {
   return createImporterV2SourceProfile(candidate)
 }
 
+export type ImporterV2NormalizedSourceProfile = Pick<
+  ImporterV2SourceProfile,
+  'id' | 'version' | 'hierarchyTemplate' | 'deviceTypePolicy' | 'defaults' | 'exactValueAliases'
+>
+
 function prepareRows(
   rows: readonly ImporterV2StagedRow[],
-  profile: ImporterV2SourceProfile,
+  profile: ImporterV2NormalizedSourceProfile,
+  directHierarchyFields: readonly ImporterV2Field[] = [],
 ) {
-  const directHierarchy = new Set(profile.columnMappings.map((mapping) => mapping.targetField))
+  const directHierarchy = new Set(directHierarchyFields)
   return rows.map((sourceRow) => {
     const row: ImporterV2StagedRow = {
       ...sourceRow,
@@ -437,33 +450,26 @@ function firmwareEvidencePattern(row: ReturnType<typeof evaluateImporterV2WithFi
   return 'missing-or-placeholder'
 }
 
-export async function stageImporterV2Xlsx(input: {
-  file: File
-  config: ImporterV2XlsxStageConfig
+export async function stageImporterV2NormalizedSource(input: {
+  source: InventorySourceDefinition
+  profile: ImporterV2NormalizedSourceProfile
+  rows: readonly NormalizedInventorySourceRow[]
+  directHierarchyFields?: readonly ImporterV2Field[]
+  isFullInventoryExport?: boolean
 }) {
-  const provider = clean(input.config.provider)
-  const sourceAdapterId = clean(input.config.sourceAdapterId)
-  if (!provider || !sourceAdapterId) throw new Error('Provider and source adapter are required.')
-  if (!Number.isInteger(input.config.headerRow) || input.config.headerRow < 1) throw new Error('Header row must be a positive integer.')
+  const source = normalizeInventorySourceDefinition(input.source)
+  const provider = source.provider
+  const sourceAdapterId = source.sourceAdapterId
+  if (input.rows.length === 0) {
+    throw new Error('No normalized inventory rows were provided by the source adapter.')
+  }
 
-  const workbook = readXlsxWorkbook(await workbookBuffer(input.file))
-  const sheet = workbook.sheets.find((candidate) => candidate.name === input.config.sheetName)
-  if (!sheet) throw new Error(`Worksheet “${input.config.sheetName}” was not found in the uploaded workbook.`)
-  const headerSource = sheet.rows.find((row) => row.rowNumber === input.config.headerRow)
-  if (!headerSource) throw new Error(`Header row ${input.config.headerRow} is empty or unavailable.`)
-  const headers = importerV2HeadersFromRow(headerSource, sheet.columnCount)
-  const mappings = normalizedMappings(headers, input.config.columnMappings)
-  const config = { ...input.config, provider, sourceAdapterId }
-  const profile = await effectiveProfile({ config, fileName: input.file.name, headers, mappings })
-
-  const sourceRows = mappedImporterV2Rows({
-    sheet,
-    headerRow: config.headerRow,
-    mappings,
-    defaults: profile.defaults,
-  })
-  if (sourceRows.length === 0) throw new Error('No data rows were found below the selected header row.')
-  const rows = prepareRows(sourceRows, profile)
+  const rows = prepareRows(
+    input.rows,
+    input.profile,
+    input.directHierarchyFields,
+  )
+  const profile = input.profile
   const { catalog, compatibilityRules } = await catalogSnapshot()
   const exactMappings = await listActiveImporterV2ExactMappings({ provider, profileId: profile.id })
   const rememberedMappings = [
@@ -558,10 +564,12 @@ export async function stageImporterV2Xlsx(input: {
           : undefined,
       }
     }),
-    isFullInventoryExport: false,
+    isFullInventoryExport: input.isFullInventoryExport ?? false,
   })
   const repeatByRow = new Map(repeat.items.filter((item) => item.rowNumber !== null).map((item) => [item.rowNumber!, item]))
-  const sourceRowsByNumber = new Map(sheet.rows.map((row) => [row.rowNumber, row]))
+  const normalizedRowsByNumber = new Map(
+    input.rows.map((row) => [row.rowNumber, row]),
+  )
 
   const seedRows: ImporterV2WorkspaceSeedRow[] = evaluation.rows.map((row, index) => {
     const identity = identities[index]
@@ -569,10 +577,10 @@ export async function stageImporterV2Xlsx(input: {
     const statuses = new Set<string>(row.statuses)
     if (row.inclusion !== 'EXCLUDED' && identity.requiresConfirmation) statuses.add('NEEDS_REVIEW')
     if (repeatItem) statuses.add(repeatItem.classification)
-    const sourceRow = sourceRowsByNumber.get(row.rowNumber)
+    const sourceRow = normalizedRowsByNumber.get(row.rowNumber)
     const evaluated = {
       ...row,
-      sourceEvidence: sourceRow ? importerV2SourceEvidence({ sourceRow, headers }) : {},
+      sourceEvidence: sourceRow?.sourceEvidence ?? {},
     }
     return {
       rowNumber: row.rowNumber,
@@ -607,7 +615,7 @@ export async function stageImporterV2Xlsx(input: {
   })
 
   const batch = await stageImporterV2Workspace({
-    name: input.file.name,
+    name: source.name,
     provider,
     sourceAdapterId,
     profileId: profile.id,
@@ -623,11 +631,96 @@ export async function stageImporterV2Xlsx(input: {
       rowCount: batch.rowCount,
       status: batch.status,
     },
-    profile: { id: profile.id, name: profile.name, version: profile.version },
+    profile: {
+      id: profile.id,
+      version: profile.version,
+    },
     evaluation: {
       fingerprint: evaluation.evaluationFingerprint,
       firmwareInterpreterVersion: evaluation.firmwareInterpreterVersion,
       firmwareCompatibilityVersion: evaluation.firmwareCompatibilityVersion,
+    },
+  }
+}
+
+export async function stageImporterV2Xlsx(input: {
+  file: File
+  config: ImporterV2XlsxStageConfig
+}) {
+  const provider = clean(input.config.provider)
+  const sourceAdapterId = clean(input.config.sourceAdapterId)
+  if (!provider || !sourceAdapterId) {
+    throw new Error('Provider and source adapter are required.')
+  }
+  if (
+    !Number.isInteger(input.config.headerRow) ||
+    input.config.headerRow < 1
+  ) {
+    throw new Error('Header row must be a positive integer.')
+  }
+
+  const workbook = readXlsxWorkbook(await workbookBuffer(input.file))
+  const sheet = workbook.sheets.find(
+    (candidate) => candidate.name === input.config.sheetName,
+  )
+  if (!sheet) {
+    throw new Error(
+      `Worksheet “${input.config.sheetName}” was not found in the uploaded workbook.`,
+    )
+  }
+  const headerSource = sheet.rows.find(
+    (row) => row.rowNumber === input.config.headerRow,
+  )
+  if (!headerSource) {
+    throw new Error(
+      `Header row ${input.config.headerRow} is empty or unavailable.`,
+    )
+  }
+  const headers = importerV2HeadersFromRow(headerSource, sheet.columnCount)
+  const mappings = normalizedMappings(headers, input.config.columnMappings)
+  const config = { ...input.config, provider, sourceAdapterId }
+  const profile = await effectiveProfile({
+    config,
+    fileName: input.file.name,
+    headers,
+    mappings,
+  })
+
+  const normalized = await xlsxInventorySourceAdapter.loadAndNormalize({
+    source: {
+      provider,
+      adapterType: XLSX_INVENTORY_ADAPTER_TYPE,
+      sourceAdapterId,
+      name: input.file.name,
+      enabled: true,
+      configuration: {},
+      metadata: { fileName: input.file.name },
+    },
+    input: {
+      sheet,
+      headerRow: config.headerRow,
+      headers,
+      mappings,
+      defaults: profile.defaults,
+    },
+  })
+
+  const result = await stageImporterV2NormalizedSource({
+    source: normalized.source,
+    profile,
+    rows: normalized.rows,
+    directHierarchyFields: profile.columnMappings.map(
+      (mapping) => mapping.targetField,
+    ),
+    isFullInventoryExport: false,
+  })
+
+  return {
+    ...result,
+    profile: {
+      id: profile.id,
+      name: profile.name,
+      version: profile.version,
     },
   }
 }
