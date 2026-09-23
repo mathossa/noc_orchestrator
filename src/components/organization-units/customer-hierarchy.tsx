@@ -3,7 +3,10 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Button, ButtonLink } from '@/components/ui/button'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
+import { FilterBar, FilterSearch } from '@/components/ui/filter-bar'
 import { FormField, TextArea, TextInput } from '@/components/ui/form-controls'
+import { EmptyState } from '@/components/ui/page-state'
 import type { OrganizationUnitRecord } from '@/lib/organization-units'
 import type { SiteRecord } from '@/lib/sites'
 
@@ -111,150 +114,200 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
     directSites,
     matchingDirectSites,
     visibleUnits,
-    totalDevices,
     usesBusinessUnits,
-    needle,
   } = buildCustomerHierarchy(units, sites, search)
 
-  return (
-    <section id="organization-units" className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+  const unitColumns: Array<DataTableColumn<(typeof visibleUnits)[number]>> = [
+    {
+      key: 'unit',
+      header: 'Business unit',
+      render: ({ unit }) => (
         <div>
-          <h2 className="text-base font-semibold text-[var(--foreground)]">
-            {usesBusinessUnits ? 'Business units and sites' : 'Sites'}
-          </h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {usesBusinessUnits
-              ? `${units.length} business unit${units.length === 1 ? '' : 's'} · ${sites.length} sites · ${totalDevices} devices`
-              : `${sites.length} sites · ${totalDevices} devices`}
-          </p>
+          <Link
+            href={`/customers/${customerId}/sites?organizationUnit=${encodeURIComponent(unit.id)}`}
+            className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
+          >
+            {unit.name}
+          </Link>
+          <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
+            {unit.code ? <span className="font-mono">{unit.code}</span> : null}
+            {!unit.isActive ? <span>Inactive</span> : null}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={beginCreate}>Add business unit</Button>
-          <ButtonLink href={`/customers/${customerId}/sites`} variant="primary">Add site</ButtonLink>
-        </div>
-      </div>
+      ),
+    },
+    {
+      key: 'sites',
+      header: 'Sites',
+      render: ({ children }) => children.length,
+      numeric: true,
+    },
+    {
+      key: 'devices',
+      header: 'Devices',
+      render: ({ children }) => children.reduce((sum, site) => sum + site.deviceCount, 0),
+      numeric: true,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-px whitespace-nowrap',
+      render: ({ unit }) => (
+        <Button variant="ghost" onClick={() => beginEdit(unit)}>
+          Edit
+        </Button>
+      ),
+    },
+  ]
 
-      {error ? <p role="alert" className="px-4 py-3 text-sm text-[var(--danger)] sm:px-5">{error}</p> : null}
+  return (
+    <section id="organization-units" className="space-y-3">
+      <FilterBar
+        label="Customer structure"
+        actions={
+          <>
+            <Button variant="secondary" onClick={beginCreate}>
+              Add business unit
+            </Button>
+            <ButtonLink href={`/customers/${customerId}/sites`} variant="primary">
+              Add site
+            </ButtonLink>
+          </>
+        }
+      >
+        <FilterSearch
+          id="customer-structure-search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={usesBusinessUnits ? 'Search business unit or site name/code…' : 'Search site name or code…'}
+        />
+      </FilterBar>
+
+      {error ? <p role="alert" className="text-sm text-[var(--danger)]">{error}</p> : null}
 
       {loading ? (
-        <p className="px-4 py-5 text-sm text-[var(--muted)] sm:px-5">Loading customer structure…</p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-5 text-sm text-[var(--muted)]">
+          Loading customer structure…
+        </div>
+      ) : !usesBusinessUnits ? (
+        <SiteTable
+          customerId={customerId}
+          sites={matchingDirectSites}
+          caption="Customer sites"
+          emptyTitle="No sites match"
+        />
       ) : (
         <>
-          <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3 sm:px-5">
-            <TextInput
-              type="search"
-              aria-label="Search customer structure"
-              placeholder={usesBusinessUnits ? 'Search business unit or site name/code…' : 'Search site name or code…'}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
+          <DataTable
+            columns={unitColumns}
+            rows={visibleUnits}
+            rowKey={({ unit }) => unit.id}
+            caption="Business units"
+            emptyState={
+              <EmptyState
+                title="No business units match"
+                description="Adjust the search or add another business unit."
+              />
+            }
+          />
 
-          {!usesBusinessUnits ? (
-            <div className="px-4 py-1 sm:px-5">
-              <SiteList customerId={customerId} sites={matchingDirectSites} emptyLabel="No sites match." />
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {visibleUnits.map(({ unit, children, matchingChildren }) => (
-                <div key={unit.id} className="px-4 py-4 sm:px-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/customers/${customerId}/sites?organizationUnit=${encodeURIComponent(unit.id)}`}
-                          className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
-                        >
-                          {unit.name}
-                        </Link>
-                        {unit.code ? <span className="font-mono text-[11px] text-[var(--muted)]">{unit.code}</span> : null}
-                        {!unit.isActive ? <span className="text-xs text-[var(--muted)]">Inactive</span> : null}
-                      </div>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        {children.length} site{children.length === 1 ? '' : 's'} · {children.reduce((sum, site) => sum + site.deviceCount, 0)} devices
-                      </p>
-                    </div>
-                    <Button variant="ghost" onClick={() => beginEdit(unit)}>Edit</Button>
-                  </div>
-                  {matchingChildren.length > 0 ? (
-                    <div className="mt-3 border-l border-[var(--border-strong)] pl-4">
-                      <SiteList customerId={customerId} sites={matchingChildren} />
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-[var(--muted)]">No sites in this business unit.</p>
-                  )}
-                </div>
-              ))}
-
-              {directSites.length > 0 && (!needle || matchingDirectSites.length > 0) ? (
-                <div className="px-4 py-4 sm:px-5">
-                  <Link
-                    href={`/customers/${customerId}/sites?organizationUnit=none`}
-                    className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
-                  >
+          {directSites.length > 0 && matchingDirectSites.length > 0 ? (
+            <section className="space-y-2" aria-labelledby="direct-sites-heading">
+              <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+                <div>
+                  <h2 id="direct-sites-heading" className="text-sm font-semibold text-[var(--foreground)]">
                     Sites without business unit
-                  </Link>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    {directSites.length} site{directSites.length === 1 ? '' : 's'} · {directSites.reduce((sum, site) => sum + site.deviceCount, 0)} devices
+                  </h2>
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">
+                    {matchingDirectSites.length} site{matchingDirectSites.length === 1 ? '' : 's'} ·{' '}
+                    {matchingDirectSites.reduce((sum, site) => sum + site.deviceCount, 0)} devices
                   </p>
-                  <div className="mt-3 border-l border-[var(--border-strong)] pl-4">
-                    <SiteList customerId={customerId} sites={matchingDirectSites} />
-                  </div>
                 </div>
-              ) : null}
+                <ButtonLink
+                  href={`/customers/${customerId}/sites?organizationUnit=none`}
+                  variant="ghost"
+                >
+                  View sites
+                </ButtonLink>
+              </div>
+              <SiteTable
+                customerId={customerId}
+                sites={matchingDirectSites}
+                caption="Sites without business unit"
+              />
+            </section>
+          ) : null}
 
-              {visibleUnits.length === 0 && matchingDirectSites.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-[var(--muted)] sm:px-5">No business units or sites match.</p>
-              ) : null}
-            </div>
-          )}
+          {visibleUnits.length === 0 && matchingDirectSites.length === 0 ? (
+            <EmptyState
+              title="No business units or sites match"
+              description="Adjust the customer structure search."
+            />
+          ) : null}
         </>
       )}
 
       {formOpen ? (
-        <form className="space-y-3 border-t border-[var(--border)] px-4 py-4 sm:px-5" onSubmit={save}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold">{editing ? 'Edit business unit' : 'Add business unit'}</h3>
-            <Button variant="ghost" onClick={closeForm}>Close</Button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormField label="Name" htmlFor="unit-name">
-              <TextInput
-                id="unit-name"
-                required
-                maxLength={160}
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Code" htmlFor="unit-code" description="Optional shorthand; searchable.">
-              <TextInput
-                id="unit-code"
-                value={form.code}
-                onChange={(event) => setForm({ ...form, code: event.target.value })}
-              />
-            </FormField>
-          </div>
-          <details>
-            <summary className="cursor-pointer text-sm font-semibold text-[var(--muted-strong)]">Notes</summary>
-            <div className="mt-3">
-              <FormField label="Notes" htmlFor="unit-notes">
-                <TextArea
-                  id="unit-notes"
-                  value={form.notes}
-                  onChange={(event) => setForm({ ...form, notes: event.target.value })}
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+          <form className="space-y-4" onSubmit={save}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {editing ? 'Edit business unit' : 'Add business unit'}
+                </h2>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Business units remain optional for each customer.
+                </p>
+              </div>
+              <Button variant="ghost" onClick={closeForm}>
+                Close
+              </Button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Name" htmlFor="unit-name">
+                <TextInput
+                  id="unit-name"
+                  required
+                  maxLength={160}
+                  value={form.name}
+                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                />
+              </FormField>
+              <FormField label="Code" htmlFor="unit-code" description="Optional shorthand; searchable.">
+                <TextInput
+                  id="unit-code"
+                  value={form.code}
+                  onChange={(event) => setForm({ ...form, code: event.target.value })}
                 />
               </FormField>
             </div>
-          </details>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={closeForm}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Saving…' : editing ? 'Save changes' : 'Add business unit'}
-            </Button>
-          </div>
-        </form>
+
+            <details className="border-t border-[var(--border)] pt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[var(--muted-strong)]">
+                Notes
+              </summary>
+              <div className="mt-3">
+                <FormField label="Notes" htmlFor="unit-notes">
+                  <TextArea
+                    id="unit-notes"
+                    value={form.notes}
+                    onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                  />
+                </FormField>
+              </div>
+            </details>
+
+            <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+              <Button variant="ghost" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? 'Saving…' : editing ? 'Save changes' : 'Add business unit'}
+              </Button>
+            </div>
+          </form>
+        </section>
       ) : null}
     </section>
   )
@@ -307,38 +360,72 @@ function matchesSite(site: SiteRecord, needle: string) {
     .includes(needle)
 }
 
-function SiteList({
+function SiteTable({
   customerId,
   sites,
-  emptyLabel,
+  caption,
+  emptyTitle,
 }: {
   customerId: string
   sites: SiteRecord[]
-  emptyLabel?: string
+  caption: string
+  emptyTitle?: string
 }) {
-  if (sites.length === 0) return emptyLabel ? <p className="py-4 text-sm text-[var(--muted)]">{emptyLabel}</p> : null
+  const columns: Array<DataTableColumn<SiteRecord>> = [
+    {
+      key: 'site',
+      header: 'Site',
+      render: (site) => (
+        <div>
+          <Link
+            className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
+            href={`/customers/${customerId}/sites/${site.id}`}
+          >
+            {site.name}
+          </Link>
+          <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
+            {site.code ? <span className="font-mono">{site.code}</span> : null}
+            {site.city ? <span>{site.city}</span> : null}
+            {!site.isActive ? <span>Archived</span> : null}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'devices',
+      header: 'Devices',
+      render: (site) => site.deviceCount,
+      numeric: true,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-px whitespace-nowrap',
+      render: (site) => (
+        <ButtonLink
+          href={`/customers/${customerId}/sites?edit=${encodeURIComponent(site.id)}`}
+          variant="ghost"
+        >
+          Edit
+        </ButtonLink>
+      ),
+    },
+  ]
 
   return (
-    <ul className="divide-y divide-[var(--border)]">
-      {sites.map((site) => (
-        <li key={site.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-          <div className="min-w-0">
-            <Link
-              className="font-medium text-[var(--foreground)] hover:text-[var(--accent)]"
-              href={`/customers/${customerId}/sites/${site.id}`}
-            >
-              {site.name}
-            </Link>
-            <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
-              {site.code ? <span className="font-mono">{site.code}</span> : null}
-              {!site.isActive ? <span>Archived</span> : null}
-            </div>
-          </div>
-          <span className="text-sm tabular-nums text-[var(--muted-strong)]">
-            {site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <DataTable
+      columns={columns}
+      rows={sites}
+      rowKey={(site) => site.id}
+      caption={caption}
+      emptyState={
+        emptyTitle ? (
+          <EmptyState
+            title={emptyTitle}
+            description="Add a site or adjust the current search."
+          />
+        ) : undefined
+      }
+    />
   )
 }
