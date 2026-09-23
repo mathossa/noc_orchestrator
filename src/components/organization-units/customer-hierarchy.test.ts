@@ -1,5 +1,7 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { buildCustomerHierarchy } from './customer-hierarchy'
+import { buildCustomerHierarchy, SiteTable } from './customer-hierarchy'
 import type { OrganizationUnitRecord } from '@/lib/organization-units'
 import type { SiteRecord } from '@/lib/sites'
 
@@ -91,6 +93,21 @@ describe('customer hierarchy derivation', () => {
     expect(result.usesBusinessUnits).toBe(true)
     expect(result.visibleUnits[0]?.children.map((record) => record.id)).toEqual(['grouped-site'])
     expect(result.directSites.map((record) => record.id)).toEqual(['direct-site'])
+  })
+
+
+  it('renders a site edit action using the existing site manager flow', () => {
+    const html = renderToStaticMarkup(
+      createElement(SiteTable, {
+        customerId: 'customer-1',
+        sites: [site('site-1', null)],
+        caption: 'Customer sites',
+      }),
+    )
+
+    expect(html).toContain('Edit')
+    expect(html).toContain('/customers/customer-1/sites?edit=site-1')
+    expect(html).not.toContain('border-l')
   })
 
   it('searches business-unit and site codes within the customer', () => {
