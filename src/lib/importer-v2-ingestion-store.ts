@@ -7,6 +7,8 @@ import {
   type ImporterV2StagedRow,
 } from '@/lib/importer-v2-evaluator'
 import {
+  normalizeInventoryProvider,
+  normalizeInventorySourceAdapterId,
   normalizeInventorySourceDefinition,
   type InventorySourceDefinition,
   type NormalizedInventorySourceRow,
@@ -121,8 +123,14 @@ export async function inspectImporterV2Xlsx(input: {
   provider: string
   sourceAdapterId: string
 }) {
-  const provider = clean(input.provider)
-  const sourceAdapterId = clean(input.sourceAdapterId)
+  const provider = normalizeInventoryProvider(input.provider)
+  const sourceAdapterId = provider
+    ? normalizeInventorySourceAdapterId({
+        provider,
+        adapterType: XLSX_INVENTORY_ADAPTER_TYPE,
+        sourceAdapterId: input.sourceAdapterId,
+      })
+    : null
   if (!provider) throw new Error('Provider is required before inspecting a workbook.')
   if (!sourceAdapterId) throw new Error('Source adapter is required before inspecting a workbook.')
 
@@ -647,8 +655,14 @@ export async function stageImporterV2Xlsx(input: {
   file: File
   config: ImporterV2XlsxStageConfig
 }) {
-  const provider = clean(input.config.provider)
-  const sourceAdapterId = clean(input.config.sourceAdapterId)
+  const provider = normalizeInventoryProvider(input.config.provider)
+  const sourceAdapterId = provider
+    ? normalizeInventorySourceAdapterId({
+        provider,
+        adapterType: XLSX_INVENTORY_ADAPTER_TYPE,
+        sourceAdapterId: input.config.sourceAdapterId,
+      })
+    : null
   if (!provider || !sourceAdapterId) {
     throw new Error('Provider and source adapter are required.')
   }
