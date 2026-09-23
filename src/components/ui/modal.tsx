@@ -9,12 +9,14 @@ export function Modal({
   children,
   onClose,
   panel = false,
+  wide = false,
   busy = false,
 }: {
   title: string
   children: ReactNode
   onClose: () => void
   panel?: boolean
+  wide?: boolean
   busy?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -43,7 +45,7 @@ export function Modal({
       onCancel={(event) => {
         if (busy) event.preventDefault()
       }}
-      className={`border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--foreground)] shadow-xl backdrop:bg-black/60 ${panel ? 'fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-2xl' : 'm-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-lg rounded-lg'}`}
+      className={`border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--foreground)] shadow-xl backdrop:bg-black/60 ${panel ? 'fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-2xl' : `m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] ${wide ? 'max-w-4xl' : 'max-w-lg'} rounded-lg`}`}
     >
       <div className="flex h-full max-h-[inherit] flex-col">
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] p-4">
