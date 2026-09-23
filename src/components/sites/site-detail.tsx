@@ -30,12 +30,6 @@ function contractSourceLabel(source: SiteDetailRecord['contractSource']) {
   return 'No contract'
 }
 
-function realAuvikUrl(site: SiteDetailRecord) {
-  if (site.externalProvider?.trim().toLocaleLowerCase('en-US') !== 'auvik') return null
-  const value = site.externalId?.trim()
-  return value && /^https?:\/\//i.test(value) ? value : null
-}
-
 export function SiteDetail({ customerId, siteId }: { customerId: string; siteId: string }) {
   const [site, setSite] = useState<SiteDetailRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,7 +80,6 @@ export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
   const customerPath = `/customers/${site.customerId}`
   const managePath = `${customerPath}/sites`
   const inventoryPath = `/devices/customers/${site.customerId}/sites/${site.id}`
-  const auvikUrl = realAuvikUrl(site)
 
   const breadcrumbs = [
     { label: 'Customers', href: '/customers' },
@@ -176,7 +169,6 @@ export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
         <OverviewTab
           site={site}
           inventoryPath={inventoryPath}
-          auvikUrl={auvikUrl}
           onOpenNetwork={() => setActiveTab('network')}
         />
       ) : null}
@@ -191,12 +183,10 @@ export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
 function OverviewTab({
   site,
   inventoryPath,
-  auvikUrl,
   onOpenNetwork,
 }: {
   site: SiteDetailRecord
   inventoryPath: string
-  auvikUrl: string | null
   onOpenNetwork: () => void
 }) {
   const address = [site.addressLine1, site.addressLine2].filter(Boolean).join(', ')
@@ -210,23 +200,8 @@ function OverviewTab({
           {site.city ? <DetailRow label="City" value={site.city} /> : null}
           {site.postalCode ? <DetailRow label="Postal code" value={site.postalCode} /> : null}
           {site.country ? <DetailRow label="Country" value={site.country} /> : null}
-          {auvikUrl ? (
-            <DetailRow
-              label="Auvik URL"
-              value={
-                <a
-                  href={auvikUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-[var(--accent-light)] hover:underline"
-                >
-                  Open in Auvik ↗
-                </a>
-              }
-            />
-          ) : null}
         </DetailList>
-        {!address && !site.region && !site.city && !site.postalCode && !site.country && !auvikUrl ? (
+        {!address && !site.region && !site.city && !site.postalCode && !site.country ? (
           <p className="text-sm text-[var(--muted)]">No location details recorded.</p>
         ) : null}
       </PanelCard>
