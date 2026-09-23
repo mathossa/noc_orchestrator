@@ -1,0 +1,32 @@
+name: Issue 80 validation
+
+on:
+  push:
+    branches:
+      - issue/80-integrations-inventory-sync-foundation
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and importer regression tests
+        run: npm test
+      - name: PostgreSQL integration tests
+        run: npm run test:integration
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Integrations Playwright smoke
+        run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts
