@@ -96,9 +96,9 @@ describe('site workspace', () => {
     expect(withUnit).toContain('organizationUnit=unit-1')
   })
 
-  it('shows a real stored Auvik URL only when the provider data already contains one', () => {
+  it('does not treat externalId as a canonical Auvik URL', () => {
     const html = render(siteFixture({ externalId: 'https://example.auvik.com/site/123' }))
-    expect(html).toContain('Auvik URL')
-    expect(html).toContain('https://example.auvik.com/site/123')
+    expect(html).not.toContain('Auvik URL')
+    expect(html).not.toContain('href="https://example.auvik.com/site/123"')
   })
 })
