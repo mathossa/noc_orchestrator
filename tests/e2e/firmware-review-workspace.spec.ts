@@ -111,7 +111,7 @@ function reviewSnapshot(version: number) {
           scopeId: ids.site,
           scopeLabel: 'Review UI Site',
           subject: 'RELEASE',
-          duration: 'UNTIL_DATE',
+          duration: 'CUSTOM_DATE',
           decidedAt: '2026-09-01T00:00:00.000Z',
           expiresAt: '2026-10-15T00:00:00.000Z',
           contactReference: null,
