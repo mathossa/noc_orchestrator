@@ -35,16 +35,16 @@ export function DataTable<T>({
 }) {
   if (rows.length === 0 && emptyState) return <>{emptyState}</>
 
-  const cellPadding = density === 'compact' ? 'px-3 py-2.5' : 'px-4 py-3.5'
+  const cellPadding = density === 'compact' ? 'px-[var(--table-compact-x)] py-[var(--table-compact-y)]' : 'px-[var(--table-comfortable-x)] py-[var(--table-comfortable-y)]'
 
   return (
     <div
-      className="noc-scrollbar relative overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+      className="noc-scrollbar relative min-w-0 max-w-full overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
       tabIndex={0}
       role="region"
       aria-label={caption}
     >
-      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+      <table className="w-full border-collapse text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-[var(--border)] bg-[var(--surface-raised)]">

@@ -6,6 +6,9 @@ function displayValue(value: AuditJsonScalar | undefined) {
 }
 
 function eventSummary(event: AuditEventRecord) {
+  if (event.action === 'DEVICE_NOTE_ADDED') return String(event.metadata?.note ?? '')
+  if (event.action === 'DEVICE_ISSUE_FLAGGED') return String(event.after?.issueReason ?? '')
+  if (event.action === 'DEVICE_ISSUE_RESOLVED') return String(event.before?.issueReason ?? '')
   if (event.action.startsWith('FIRMWARE_LIFECYCLE_')) {
     const state = displayValue(event.after?.state)
     const target = displayValue(event.after?.targetVersion)

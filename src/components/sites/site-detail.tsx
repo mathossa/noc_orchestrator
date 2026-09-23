@@ -92,8 +92,8 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
         actions={
           <>
             <ButtonLink href={`/customers/${customerId}/sites`}>Manage sites</ButtonLink>
-            <ButtonLink href={`/devices?customer=${encodeURIComponent(customerId)}&site=${encodeURIComponent(site.id)}`} variant="primary">
-              Site devices
+            <ButtonLink href={`/devices/customers/${customerId}/sites/${site.id}`} variant="primary">
+              Site inventory
             </ButtonLink>
           </>
         }

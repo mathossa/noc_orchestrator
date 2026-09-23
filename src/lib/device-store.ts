@@ -1,9 +1,12 @@
+import { resolveDeviceWorkPlanning } from '@/lib/firmware-work-plan-query-store'
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { listAuditEventsForEntity } from '@/lib/audit-event-store'
 import { evaluateModelFirmwareCompatibility } from '@/lib/firmware-compatibility-store'
 import { assertSiteBelongsToCustomer } from '@/lib/site-store'
 import { resolveFirmwareComplianceForDevice } from '@/lib/firmware-compliance-store'
+import { resolveDeviceExceptionSummaries } from '@/lib/device-exception-summary-store'
+import { deriveInventoryPrimaryStatus } from '@/lib/inventory-status'
 import { resolveTechnicalFirmwareState } from '@/lib/firmware-state'
 import {
   normalizedDeviceName,
@@ -311,20 +314,50 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
-  const [firmwareCompliance, auditHistory] = await Promise.all([
+  const [firmwareCompliance, auditHistory, planningByDevice] = await Promise.all([
     resolveFirmwareComplianceForDevice(id),
     listAuditEventsForEntity('Device', id),
+    resolveDeviceWorkPlanning([id]),
   ])
   const desiredRelease = firmwareCompliance.preferredTarget
   const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
+  const exceptionSummary = (
+    await resolveDeviceExceptionSummaries(
+      [{
+        id: record.id,
+        customerId: record.customerId,
+        siteId: record.siteId,
+        deviceModelId: record.deviceModelId,
+      }],
+      new Map([[record.id, firmwareCompliance]]),
+    )
+  ).get(record.id) ?? {
+    state: 'NONE' as const,
+    effective: null,
+    activeCount: 0,
+    inheritedCount: 0,
+    historyCount: 0,
+    reviewDueAt: null,
+  }
 
   return {
     ...serializeDevice(record as IncludedDevice),
+    issueReason: record.issueReason ?? null,
+    issueFlaggedAt: record.issueFlaggedAt?.toISOString() ?? null,
+    planning: {
+      activePlans: (planningByDevice.get(id)?.activePlans ?? []).map(serializePlanReference),
+      history: (planningByDevice.get(id)?.history ?? []).map(serializePlanReference),
+    },
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     desiredFirmware: { available: true, release: desiredRelease },
     technicalState: { available: true, state: technicalState },
     firmwareCompliance,
+    exceptionSummary,
+    inventoryStatus: deriveInventoryPrimaryStatus(
+      firmwareCompliance,
+      exceptionSummary,
+    ),
     auditHistory,
   }
 }
@@ -429,4 +462,7 @@ export async function deleteDevice(id: string) {
   const references = policies + lifecycleRecords + auditEvents
   if (references > 0) throw new DeviceInUseError(`This device is referenced by ${references} policy, lifecycle, or audit record${references === 1 ? '' : 's'} and cannot be deleted. Archive it instead.`)
   return prisma.device.delete({ where: { id } })
+}
+function serializePlanReference(plan: { id: string; title: string | null; state: import('@/lib/firmware-work-planning').FirmwareWorkPlanState; scheduledFor: Date | null; proposedFor: Date | null }) {
+  return { id: plan.id, title: plan.title, state: plan.state, scheduledFor: plan.scheduledFor?.toISOString() ?? null, proposedFor: plan.proposedFor?.toISOString() ?? null }
 }

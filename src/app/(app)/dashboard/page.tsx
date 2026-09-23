@@ -57,7 +57,7 @@ export default async function DashboardPage() {
         <EmptyState
           title="No active device inventory yet"
           description="Add a device or populate inventory through an API/import integration. Firmware attention will appear here as soon as recorded devices exist."
-          action={<Link href="/devices" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]">Add a device</Link>}
+          action={<Link href="/devices/manage" className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]">Add a device</Link>}
         />
       ) : (
         <>

@@ -70,7 +70,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
         actions={
           <>
             <ButtonLink href={`/customers/${customer.id}/sites`}>Manage sites</ButtonLink>
-            <ButtonLink href={`/devices?customer=${encodeURIComponent(customer.id)}`} variant="primary">Customer devices</ButtonLink>
+            <ButtonLink href={`/devices/customers/${customer.id}`} variant="primary">Customer inventory</ButtonLink>
           </>
         }
       />

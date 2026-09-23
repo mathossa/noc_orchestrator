@@ -19,7 +19,25 @@
   --success: #6fcf97;
   --warning: #e4b95b;
   --danger: #ef7d7d;
-  --info: #8ba6b0;
+  --info: #80baff;
+  --required: #ffa144;
+  --recommended: #efd18d;
+  --success-soft: #173326;
+  --success-border: #315d47;
+  --warning-soft: #342b18;
+  --warning-border: #6d5930;
+  --danger-soft: #332020;
+  --danger-border: #744141;
+  --info-soft: #16283c;
+  --info-border: #365e8a;
+  --required-soft: #2d1c0e;
+  --required-border: #9e581b;
+  --recommended-soft: #342b18;
+  --recommended-border: #6d5930;
+  --table-compact-x: 0.75rem;
+  --table-compact-y: 0.625rem;
+  --table-comfortable-x: 1rem;
+  --table-comfortable-y: 0.875rem;
   --focus: #ffb45f;
 }
 

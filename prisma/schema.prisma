@@ -400,6 +400,8 @@ model Device {
   serialNumber              String?
   managementAddress         String?
   notes                     String?
+  issueReason               String?
+  issueFlaggedAt            DateTime?
   currentFirmwareReleaseId  String?
   currentFirmwareObservedAt DateTime?
   currentFirmwareSource     String   @default("MANUAL")
