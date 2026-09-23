@@ -198,9 +198,9 @@ describe('Importer v2 repeat-import diff', () => {
           rowNumber: 7,
           canonicalDeviceId: 'stack-device-1',
           identifiers: {
-            sourceId: 'stack-member-2',
+            sourceId: null,
             serialNumber: 'MEMBER-SER-2',
-            macAddress: 'aa:bb:cc:dd:ee:12',
+            macAddress: null,
           },
           values: {
             ...previous.values,
@@ -248,9 +248,9 @@ describe('Importer v2 repeat-import diff', () => {
           identityStatus: 'NEW',
           allowSourceSnapshotMatch: true,
           identifiers: {
-            sourceId: 'stack-member-2',
+            sourceId: null,
             serialNumber: 'MEMBER-SER-2',
-            macAddress: 'aa:bb:cc:dd:ee:12',
+            macAddress: null,
           },
           values: {
             ...previous.values,
