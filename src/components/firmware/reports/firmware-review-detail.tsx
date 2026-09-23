@@ -120,6 +120,24 @@ function exceptionContexts(
   return [...contexts.values()]
 }
 
+function policySources(
+  snapshot: FirmwareReviewSnapshot,
+  group: FirmwareReviewActionGroup,
+) {
+  const ids = new Set(group.deviceIds)
+  const values = new Set<string>()
+  for (const device of snapshotDevices(snapshot)) {
+    if (!ids.has(device.deviceId) || !device.technical.policySource) continue
+    const source = device.technical.policySource
+    values.add(
+      displayCode(source.scope) +
+        ' · ' +
+        (source.trackName || device.technical.policy?.trackName || 'Policy'),
+    )
+  }
+  return [...values].sort()
+}
+
 function technicalReason(
   snapshot: FirmwareReviewSnapshot,
   group: FirmwareReviewActionGroup,
@@ -231,6 +249,12 @@ function SiteActionGroups({
             <span className="text-[var(--muted)]">Preferred:</span>{' '}
             {distribution(group.preferredTargets, 'No resolved target')}
           </div>
+          {policySources(snapshot, group).length ? (
+            <div className="mt-1">
+              <span className="text-[var(--muted)]">Source:</span>{' '}
+              {policySources(snapshot, group).join(', ')}
+            </div>
+          ) : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {group.firmwareTrainIds.slice(0, 2).map((trainId) => (
               <Link
