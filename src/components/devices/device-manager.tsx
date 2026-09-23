@@ -12,76 +12,21 @@ import { FormField, SelectInput, TextArea, TextInput } from '@/components/ui/for
 import { EmptyState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import {
+  deviceFormForRecord,
+  deviceReleaseMatchesModel,
+  emptyDeviceForm,
+  type DeviceDeviceFormState,
+} from '@/lib/device-form'
 import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
   DeviceFieldErrors,
-  DeviceFirmwareReference,
-  DeviceModelReference,
   DeviceRecord,
   DeviceReferenceData,
 } from '@/lib/devices'
 
 type ApiError = { error?: { message?: string; fields?: DeviceFieldErrors } }
 type Payload = { data?: DeviceQueryRecord[]; meta?: DeviceQueryMeta } & ApiError
-
-type FormState = {
-  customerId: string
-  siteId: string
-  deviceModelId: string
-  name: string
-  hostname: string
-  serialNumber: string
-  managementAddress: string
-  notes: string
-  currentFirmwareReleaseId: string
-  currentFirmwareObservedAt: string
-  currentFirmwareSource: string
-  source: string
-  externalProvider: string
-  externalId: string
-  isActive: boolean
-}
-
-const EMPTY_REFERENCES: DeviceReferenceData = { customers: [], sites: [], models: [], firmwareReleases: [] }
-
-function emptyForm(customerId = '', siteId = ''): FormState {
-  return {
-    customerId,
-    siteId,
-    deviceModelId: '',
-    name: '',
-    hostname: '',
-    serialNumber: '',
-    managementAddress: '',
-    notes: '',
-    currentFirmwareReleaseId: '',
-    currentFirmwareObservedAt: '',
-    currentFirmwareSource: 'MANUAL',
-    source: 'MANUAL',
-    externalProvider: '',
-    externalId: '',
-    isActive: true,
-  }
-}
-
-function normalizePlatform(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
-}
-
-function releaseMatchesModel(release: DeviceFirmwareReference, model: DeviceModelReference | undefined) {
-  if (!model || release.vendorId !== model.vendor.id) return false
-  if (model.supportedPlatforms.length === 0) return true
-  const releasePlatform = normalizePlatform(release.platform)
-  return model.supportedPlatforms.some((platform) => normalizePlatform(platform) === releasePlatform)
-}
-
-function toLocalDateTimeInput(value: string | null) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
 
 function observedCurrentFirmwareVersion(record: DeviceRecord) {
   return (
@@ -98,7 +43,7 @@ function firmwareTargetSource(record: DeviceQueryRecord) {
   return `${firmwarePolicyLabel(source)} · ${source.trackName}`
 }
 
-function formForRecord(record: DeviceRecord): FormState {
+function deviceFormForRecord(record: DeviceRecord): DeviceFormState {
   return {
       customerId: record.customerId,
       siteId: record.siteId ?? '',
@@ -134,7 +79,7 @@ export function DeviceManager({
   const [records, setRecords] = useState<DeviceQueryRecord[]>([])
   const [references, setReferences] = useState<DeviceReferenceData>(EMPTY_REFERENCES)
   const [meta, setMeta] = useState<DeviceQueryMeta | null>(null)
-  const [form, setForm] = useState<FormState>(() => initialEditRecord ? formForRecord(initialEditRecord) : emptyForm(initialCustomerId, initialSiteId))
+  const [form, setForm] = useState<DeviceFormState>(() => initialEditRecord ? deviceFormForRecord(initialEditRecord) : emptyDeviceForm(initialCustomerId, initialSiteId))
   const [formOpen, setFormOpen] = useState(Boolean(initialEditRecord))
   const [editingId, setEditingId] = useState<string | null>(initialEditRecord?.id ?? null)
   const [loading, setLoading] = useState(true)
@@ -177,7 +122,7 @@ export function DeviceManager({
 
   function resetForm() {
     setEditingId(null)
-    setForm(emptyForm(initialCustomerId, initialSiteId))
+    setForm(emptyDeviceForm(initialCustomerId, initialSiteId))
     setFieldErrors({})
     setError(null)
   }
@@ -197,7 +142,7 @@ export function DeviceManager({
   function beginEdit(record: DeviceRecord) {
     setEditingId(record.id)
     setFormOpen(true)
-    setForm(formForRecord(record))
+    setForm(deviceFormForRecord(record))
     setFieldErrors({})
     setError(null)
     setMessage(null)
@@ -212,7 +157,7 @@ export function DeviceManager({
   function changeModel(deviceModelId: string) {
     const model = references.models.find((item) => item.id === deviceModelId)
     const selectedRelease = references.firmwareReleases.find((item) => item.id === form.currentFirmwareReleaseId)
-    const keepRelease = selectedRelease ? releaseMatchesModel(selectedRelease, model) : true
+    const keepRelease = selectedRelease ? deviceReleaseMatchesModel(selectedRelease, model) : true
     setForm({
       ...form,
       deviceModelId,
@@ -301,7 +246,7 @@ export function DeviceManager({
       ? 'Customer default'
       : 'No contract'
   const formSites = references.sites.filter((site) => site.customerId === form.customerId)
-  const formReleases = references.firmwareReleases.filter((release) => releaseMatchesModel(release, selectedModel))
+  const formReleases = references.firmwareReleases.filter((release) => deviceReleaseMatchesModel(release, selectedModel))
 
   const pageGroups = useMemo(() => {
     if (!meta || meta.query.groupBy === 'none') return [{ key: 'all', label: null as string | null, records }]
