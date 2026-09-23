@@ -16,7 +16,7 @@ import {
   deviceFormForRecord,
   deviceReleaseMatchesModel,
   emptyDeviceForm,
-  type DeviceDeviceFormState,
+  type DeviceFormState,
 } from '@/lib/device-form'
 import type { DeviceQueryMeta, DeviceQueryRecord } from '@/lib/device-query'
 import type {
@@ -27,6 +27,13 @@ import type {
 
 type ApiError = { error?: { message?: string; fields?: DeviceFieldErrors } }
 type Payload = { data?: DeviceQueryRecord[]; meta?: DeviceQueryMeta } & ApiError
+
+const EMPTY_REFERENCES: DeviceReferenceData = {
+  customers: [],
+  sites: [],
+  models: [],
+  firmwareReleases: [],
+}
 
 function observedCurrentFirmwareVersion(record: DeviceRecord) {
   return (
@@ -41,26 +48,6 @@ function firmwareTargetSource(record: DeviceQueryRecord) {
   const source = record.firmwareCompliance.policySource
   if (!source) return null
   return `${firmwarePolicyLabel(source)} · ${source.trackName}`
-}
-
-function deviceFormForRecord(record: DeviceRecord): DeviceFormState {
-  return {
-      customerId: record.customerId,
-      siteId: record.siteId ?? '',
-      deviceModelId: record.deviceModelId,
-      name: record.name,
-      hostname: record.hostname ?? '',
-      serialNumber: record.serialNumber ?? '',
-      managementAddress: record.managementAddress ?? '',
-      notes: record.notes ?? '',
-      currentFirmwareReleaseId: record.currentFirmwareReleaseId ?? '',
-      currentFirmwareObservedAt: toLocalDateTimeInput(record.currentFirmwareObservedAt),
-      currentFirmwareSource: record.currentFirmwareSource,
-      source: record.source,
-      externalProvider: record.externalProvider ?? '',
-      externalId: record.externalId ?? '',
-      isActive: record.isActive,
-    }
 }
 
 export function DeviceManager({
