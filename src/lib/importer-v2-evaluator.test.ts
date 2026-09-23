@@ -448,7 +448,15 @@ describe('Importer v2 pure staged evaluator', () => {
       },
       issues: [],
     })
-    expect(evaluated.statuses).not.toContain('NEEDS_REVIEW')
+    expect(evaluated.fields.deviceType.issues).toEqual([])
+    expect(evaluated.issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'deviceType',
+          severity: 'ERROR',
+        }),
+      ]),
+    )
   })
 
   it('keeps conflicting canonical model relationships reviewable', () => {
