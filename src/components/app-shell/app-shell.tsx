@@ -53,7 +53,7 @@ const navigation: readonly NavigationGroup[] = [
   },
 ]
 
-function isActivePath(pathname: string, href: string) {
+export function isActivePath(pathname: string, href: string) {
   if (href === '/dashboard') return pathname === href
   if (href === '/customers') return pathname === href || pathname.startsWith(`${href}/`)
   if (href === '/sites') return pathname === href || pathname.startsWith(`${href}/`)
