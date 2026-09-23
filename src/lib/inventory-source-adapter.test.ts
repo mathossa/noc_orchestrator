@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
   normalizedInventorySource,
+  normalizeInventorySourceDefinition,
   type InventorySourceAdapter,
 } from '@/lib/inventory-source-adapter'
 
 describe('generic inventory source adapter boundary', () => {
+  it('canonicalizes the legacy Auvik provider spelling without changing source identity', () => {
+    const source = normalizeInventorySourceDefinition({
+      provider: ' Auvik ',
+      adapterType: 'xlsx',
+      sourceAdapterId: 'xlsx',
+      name: 'Auvik XLSX',
+      enabled: true,
+      configuration: {},
+      metadata: null,
+    })
+
+    expect(source).toMatchObject({
+      provider: 'AUVIK',
+      adapterType: 'xlsx',
+      sourceAdapterId: 'xlsx',
+    })
+  })
+
   it('hands normalized staged rows to Importer v2 without coupling provider identity to transport', async () => {
     const adapter: InventorySourceAdapter<{ deviceName: string }> = {
       adapterType: 'fixture-api',
