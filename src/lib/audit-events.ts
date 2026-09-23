@@ -16,6 +16,9 @@ export type AuditEventRecord = {
 }
 
 export const AUDIT_ACTIONS = {
+  deviceNoteAdded: 'DEVICE_NOTE_ADDED',
+  deviceIssueFlagged: 'DEVICE_ISSUE_FLAGGED',
+  deviceIssueResolved: 'DEVICE_ISSUE_RESOLVED',
   desiredFirmwareChanged: 'DESIRED_FIRMWARE_CHANGED',
   desiredFirmwareCleared: 'DESIRED_FIRMWARE_CLEARED',
   currentFirmwareChanged: 'CURRENT_FIRMWARE_CHANGED',
@@ -29,6 +32,9 @@ export const AUDIT_ACTIONS = {
 
 export function auditActionLabel(action: string) {
   switch (action) {
+    case AUDIT_ACTIONS.deviceNoteAdded: return 'Device note added'
+    case AUDIT_ACTIONS.deviceIssueFlagged: return 'Device issue flagged'
+    case AUDIT_ACTIONS.deviceIssueResolved: return 'Device issue resolved'
     case AUDIT_ACTIONS.desiredFirmwareChanged:
       return 'Desired firmware changed'
     case AUDIT_ACTIONS.desiredFirmwareCleared:

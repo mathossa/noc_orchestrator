@@ -7,6 +7,7 @@ import type { DeviceExceptionSummary } from './device-exception-summary-store'
 import { parseInventoryQuery } from './inventory-explorer'
 
 const mocks = vi.hoisted(() => ({
+  planning: vi.fn().mockResolvedValue(new Map()),
   deviceFindMany: vi.fn(),
   vendorFindMany: vi.fn(),
   modelFindMany: vi.fn(),
@@ -18,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   compliance: vi.fn(),
   exceptions: vi.fn(),
 }))
+
+vi.mock('@/lib/firmware-work-plan-query-store', () => ({ resolveDeviceWorkPlanning: mocks.planning }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -216,7 +219,23 @@ describe('inventory explorer read model', () => {
       policySource: { scope: 'SITE', scopeId: hq.id, subject: 'MODEL', subjectId: model.id, policyId: 'policy', policyVersion: 2, trackKey: 'default', trackName: 'Preferred', trackClass: 'PREFERRED', effectiveFrom: '2026-01-01' },
     })]]))
     const group = await getDeviceTypeInventory(acme.id, hq.id, type.id, query())
-    expect(group?.devices[0]).toMatchObject({ currentFirmware: '17.12.5', effectiveTarget: '10.5.5', targetPlatform: 'AOS-10', targetTrain: '10.5', policyContext: 'Site override', decision: 'Planned' })
+    expect(group?.devices[0]).toMatchObject({ currentFirmware: '17.12.5', effectiveTarget: '10.5.5', targetPlatform: 'AOS-10', targetTrain: '10.5', policyContext: 'Site override', decision: null })
+  })
+
+  it('rolls issue flags up separately without changing healthy firmware compliance', async () => {
+    const flagged = { ...fact('flagged'), issueReason: 'Management unreachable' }
+    const healthy = { ...fact('healthy', beta, branch), issueReason: null }
+    mocks.deviceFindMany.mockImplementation(async (args: { select: { hostname?: boolean } }) => args.select.hostname ? [compact(flagged)] : [flagged, healthy])
+    mocks.compliance.mockResolvedValue(new Map([flagged, healthy].map((row) => [row.id, complianceResult({ compliance: 'PREFERRED', recommendation: 'NO_ACTION' })])))
+    const result = await getInventoryOverview(query({ flagged: '1' }))
+    expect(result.counts).toMatchObject({ issues: 1, attention: 0, critical: 0 })
+    expect(result.customers).toEqual([expect.objectContaining({ id: acme.id, issueCount: 1, attentionCount: 0, highestStatus: 'CURRENT' })])
+    const customer = await getCustomerInventory(acme.id, query({ flagged: '1' }))
+    expect(customer?.sites).toEqual([expect.objectContaining({ issueCount: 1, attentionCount: 0 })])
+    const site = await getSiteInventory(acme.id, hq.id, query({ flagged: '1' }))
+    expect(site?.deviceTypes[0]).toMatchObject({ issueCount: 1, attentionCount: 0 })
+    const group = await getDeviceTypeInventory(acme.id, hq.id, type.id, query({ flagged: '1' }))
+    expect(group?.devices).toEqual([expect.objectContaining({ issueReason: 'Management unreachable', status: expect.objectContaining({ code: 'CURRENT' }) })])
   })
 
   it('scans large root inventory in deterministic bounded batches', async () => {

@@ -2,6 +2,7 @@ import { result as complianceResult, release as complianceRelease } from './test
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  planning: vi.fn().mockResolvedValue(new Map()),
   compliance: vi.fn(),
   exceptionSummaries: vi.fn(),
   customerFindUnique: vi.fn(),
@@ -28,6 +29,8 @@ vi.mock('@/lib/firmware-compliance-store', () => ({ resolveFirmwareComplianceBat
 vi.mock('@/lib/device-exception-summary-store', () => ({
   resolveDeviceExceptionSummaries: mocks.exceptionSummaries,
 }))
+
+vi.mock('@/lib/firmware-work-plan-query-store', () => ({ resolveDeviceWorkPlanning: mocks.planning }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -159,6 +162,7 @@ const desiredRelease = {
 describe('device inventory persistence rules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.planning.mockResolvedValue(new Map())
     mocks.compliance.mockResolvedValue(complianceResult({ compliance: 'NO_POLICY', recommendation: 'REVIEW_REQUIRED', preferredTarget: null }))
     mocks.exceptionSummaries.mockImplementation(async (devices: Array<{ id: string }>) =>
       new Map(devices.map((device) => [device.id, {
@@ -187,6 +191,15 @@ describe('device inventory persistence rules', () => {
       device: { create: mocks.deviceCreate, update: mocks.deviceUpdate },
       auditEvent: { create: mocks.auditCreate },
     }))
+  })
+
+  it('returns real plan references with serialized schedule dates', async () => {
+    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
+    mocks.planning.mockResolvedValue(new Map([['device-1', {
+      activePlans: [{ id: 'plan-1', title: 'HQ switches', state: 'SCHEDULED', scheduledFor: new Date('2026-10-01T18:00:00Z'), proposedFor: null }], history: [],
+    }]]))
+    const device = await getDevice('device-1')
+    expect(device.planning.activePlans[0]).toEqual({ id: 'plan-1', title: 'HQ switches', state: 'SCHEDULED', scheduledFor: '2026-10-01T18:00:00.000Z', proposedFor: null })
   })
 
   it('creates a minimal manual device without site or external identity', async () => {

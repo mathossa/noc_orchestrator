@@ -14,6 +14,7 @@ export type InventoryQuery = {
   contract: string
   source: string
   status: InventoryPrimaryStatusCode | ''
+  flagged: boolean
   attention: boolean
   page: number
   pageSize: number
@@ -30,6 +31,7 @@ export type InventoryCounts = {
   total: number
   attention: number
   unknown: number
+  issues: number
   critical: number
 }
 
@@ -39,6 +41,7 @@ export type InventoryCustomerRow = {
   siteCount: number
   deviceCount: number
   attentionCount: number
+  issueCount: number
   criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
@@ -48,6 +51,7 @@ export type InventorySiteRow = {
   name: string
   deviceCount: number
   attentionCount: number
+  issueCount: number
   criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
@@ -57,6 +61,7 @@ export type InventoryDeviceTypeRow = {
   name: string
   deviceCount: number
   attentionCount: number
+  issueCount: number
   criticalCount: number
   highestStatus: InventoryPrimaryStatusCode | null
 }
@@ -70,6 +75,7 @@ export type InventoryDeviceRow = {
   targetPlatform: string | null
   targetTrain: string | null
   policyContext: string
+  issueReason: string | null
   decision: string | null
   currentFirmware: string | null
   status: import('@/lib/inventory-status').InventoryPrimaryStatus
@@ -160,6 +166,7 @@ export function parseInventoryQuery(params: URLSearchParams): InventoryQuery {
     )
       ? (status as InventoryPrimaryStatusCode)
       : '',
+    flagged: params.get('flagged') === '1',
     attention: params.get('attention') === '1',
     page: positiveInteger(params.get('page'), 1),
     pageSize,
@@ -195,6 +202,7 @@ export function inventoryHref(
   if (next.source) params.set('source', next.source)
   if (next.status) params.set('status', next.status)
   if (next.attention) params.set('attention', '1')
+  if (next.flagged) params.set('flagged', '1')
   if (next.page > 1) params.set('page', String(next.page))
   if (next.pageSize !== 25) params.set('pageSize', String(next.pageSize))
   const serialized = params.toString()

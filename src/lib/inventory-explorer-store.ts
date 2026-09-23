@@ -1,3 +1,4 @@
+import { resolveDeviceWorkPlanning } from '@/lib/firmware-work-plan-query-store'
 import { firmwarePolicyLabel } from '@/lib/firmware-policy-label'
 import type { Prisma } from '@/generated/prisma/client'
 import { resolveDeviceExceptionSummaries } from '@/lib/device-exception-summary-store'
@@ -29,6 +30,7 @@ type InventoryScope = {
 }
 
 type InventoryFact = {
+  issueReason: string | null
   id: string
   name: string
   customerId: string
@@ -55,6 +57,7 @@ type InventoryFact = {
 }
 
 const factSelect = {
+  issueReason: true,
   id: true,
   name: true,
   customerId: true,
@@ -78,7 +81,6 @@ const compactDeviceSelect = {
   id: true,
   name: true,
   hostname: true,
-  lifecycle: { select: { state: true } },
   currentFirmwareRawVersion: true,
   currentFirmwareNormalizedVersion: true,
   currentFirmwareRelease: { select: { version: true } },
@@ -265,6 +267,7 @@ async function loadFacts(
 
 function applyDerivedFilters(facts: InventoryFact[], query: InventoryQuery) {
   return facts.filter((fact) => {
+    if (query.flagged && !fact.issueReason) return false
     if (query.attention && !fact.status.attention) return false
     if (query.status && fact.status.code !== query.status) return false
     return true
@@ -274,6 +277,7 @@ function applyDerivedFilters(facts: InventoryFact[], query: InventoryQuery) {
 function countsFor(facts: InventoryFact[]): InventoryCounts {
   return {
     total: facts.length,
+    issues: facts.filter((fact) => fact.issueReason).length,
     attention: facts.filter((fact) => fact.status.attention).length,
     unknown: facts.filter((fact) => fact.status.code === 'UNKNOWN').length,
     critical: facts.filter(
@@ -335,6 +339,7 @@ function customerRows(
         siteCount,
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        issueCount: grouped.filter((fact) => fact.issueReason).length,
         criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
@@ -386,6 +391,7 @@ function siteRows(
         name: grouped[0].site?.name ?? 'Unassigned devices',
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        issueCount: grouped.filter((fact) => fact.issueReason).length,
         criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
@@ -432,6 +438,7 @@ function typeRows(
         name: grouped[0].deviceModel.deviceType.name,
         deviceCount: grouped.length,
         attentionCount: attention.length,
+        issueCount: grouped.filter((fact) => fact.issueReason).length,
         criticalCount: grouped.filter((fact) => fact.status.code === 'CRITICAL_ATTENTION').length,
         highestStatus: highestStatus(attention.length > 0 ? attention : grouped),
       }
@@ -505,6 +512,7 @@ async function deviceRows(
     where: { id: { in: facts.map((fact) => fact.id) } },
     select: compactDeviceSelect,
   })
+  const planning = await resolveDeviceWorkPlanning(facts.map((fact) => fact.id))
   const rowById = new Map(rows.map((row) => [row.id, row]))
 
   return facts.flatMap((fact) => {
@@ -525,7 +533,8 @@ async function deviceRows(
         targetPlatform: fact.targetPlatform,
         targetTrain: fact.targetTrain,
         policyContext: fact.policyContext,
-        decision: fact.exceptionState === 'ACTIVE' ? 'Exception accepted' : row.lifecycle ? statusCodeLabel(row.lifecycle.state) : null,
+        issueReason: fact.issueReason ?? null,
+        decision: [fact.exceptionState === 'ACTIVE' ? 'Exception accepted' : null, planning.get(row.id)?.planned ? 'In maintenance plan' : null].filter(Boolean).join(' · ') || null,
         status: fact.status,
         customer: row.customer,
         site: row.site,
@@ -727,6 +736,7 @@ export type InventoryExportScope =
     }
 
 export type InventoryExportRecord = {
+  issueReason: string
   customer: string
   site: string
   deviceType: string
@@ -841,6 +851,7 @@ export async function getInventoryExportRecords(
         targetTrain: fact.targetTrain ?? '',
         policyContext: fact.policyContext,
         policyTrack: fact.policyTrack,
+        issueReason: fact.issueReason ?? '',
         primaryStatus: fact.status.label,
         statusReason: fact.status.reason,
         technicalCompliance: fact.compliance,

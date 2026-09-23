@@ -143,7 +143,7 @@ test('navigates customer, site, device group and device detail with attention dr
   await expect(page.getByRole('link', { name: 'pw-sw-01' })).toBeVisible()
   await page.getByRole('link', { name: 'pw-sw-01' }).click()
   await expect(page).toHaveURL(new RegExp('/devices/' + ids.first + '$'))
-  await expect(page.getByText('Inventory status')).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Firmware', exact: true })).toBeVisible({
     timeout: 20_000,
   })
 
@@ -207,4 +207,45 @@ test('debounces scoped search and exposes a direct site link', async ({ page }) 
   await expect(page).toHaveURL(/q=PWHQ/)
   expect(queries).not.toContain('PW')
   await expect(page.getByRole('link', { name: 'Site: Playwright Inventory Customer / Playwright HQ' })).toHaveAttribute('href', `/devices/customers/${ids.customer}/sites/${ids.site}`)
+})
+
+
+test('keeps device details compact and records a note and issue without changing firmware', async ({ page }) => {
+  await page.goto('/devices/' + ids.first)
+  await expect(page.getByRole('heading', { name: 'Firmware', exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Record decision', exact: true })).toHaveCount(0)
+  await expect(page.locator('details')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Details & history', exact: true }).click()
+  const details = page.getByRole('dialog', { name: 'Device details & history' })
+  await expect(details).toBeVisible()
+  await expect(details.getByRole('heading', { name: 'Firmware details', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(details).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Details & history', exact: true })).toBeFocused()
+
+  await page.getByRole('button', { name: 'Add note', exact: true }).click()
+  const note = page.getByRole('dialog', { name: 'Add note', exact: true })
+  await note.getByLabel('Note', { exact: true }).fill('Check cabling at next site visit.')
+  await note.getByRole('button', { name: 'Add note', exact: true }).click()
+  await expect(note).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Device notes' })).toContainText('Check cabling')
+
+  await page.getByRole('button', { name: 'Flag issue', exact: true }).click()
+  const flag = page.getByRole('dialog', { name: 'Flag issue', exact: true })
+  await flag.getByLabel('What needs investigation?').fill('Management address unreachable')
+  await flag.getByRole('button', { name: 'Flag issue', exact: true }).click()
+  await expect(flag).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Open device issue' })).toContainText('Management address unreachable')
+  const stored = await prisma.device.findUniqueOrThrow({ where: { id: ids.first } })
+  expect(stored.currentFirmwareReleaseId).toBe(ids.blockedRelease)
+  expect(stored.issueReason).toBe('Management address unreachable')
+
+  await page.goto('/devices?flagged=1')
+  const customer = page.getByRole('link', { name: 'Playwright Inventory Customer', exact: true }).locator('xpath=ancestor::tr')
+  await expect(customer).toContainText('1 flagged')
+  await page.goto('/devices/' + ids.first)
+  await page.getByRole('button', { name: 'Resolve issue', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Resolve issue', exact: true }).getByRole('button', { name: 'Resolve issue', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Open device issue' })).toHaveCount(0)
+  expect(await prisma.auditEvent.count({ where: { entityId: ids.first, action: 'DEVICE_ISSUE_RESOLVED' } })).toBe(1)
 })

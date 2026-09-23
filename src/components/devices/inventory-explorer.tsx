@@ -100,6 +100,7 @@ function InventoryToolbar({
 
   return (
     <InventorySearchForm key={path} path={path}>
+      {query.flagged ? <input type="hidden" name="flagged" value="1" /> : null}
       {query.attention ? <input type="hidden" name="attention" value="1" /> : null}
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 gap-2">
@@ -267,10 +268,10 @@ function AttentionToggle({
     <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
       <span className="text-[var(--muted)]">Showing:</span>
       <Link
-        href={inventoryHref(path, query, { attention: false, page: 1 })}
+        href={inventoryHref(path, query, { attention: false, flagged: false, page: 1 })}
         className={
           'rounded-md border px-3 py-1.5 font-semibold ' +
-          (!query.attention
+          (!query.attention && !query.flagged
             ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
             : 'border-[var(--border-strong)] text-[var(--muted-strong)]')
         }
@@ -278,7 +279,7 @@ function AttentionToggle({
         All
       </Link>
       <Link
-        href={inventoryHref(path, query, { attention: true, page: 1 })}
+        href={inventoryHref(path, query, { attention: true, flagged: false, page: 1 })}
         className={
           'rounded-md border px-3 py-1.5 font-semibold ' +
           (query.attention
@@ -288,6 +289,7 @@ function AttentionToggle({
       >
         Needs attention
       </Link>
+      <Link href={inventoryHref(path, query, { flagged: true, attention: false, page: 1 })} className="rounded-md border border-[var(--info-border)] px-3 py-1.5 font-semibold text-[var(--info)]" aria-current={query.flagged ? 'page' : undefined}>Flagged issues</Link>
     </div>
   )
 }
@@ -297,11 +299,13 @@ function InventorySummary({
   attention,
   unknown,
   critical,
+  issues,
 }: {
   total: number
   attention: number
   unknown: number
   critical: number
+  issues: number
 }) {
   return (
     <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -320,6 +324,7 @@ function InventorySummary({
         value={<span className="text-[var(--info)]">{unknown}</span>}
         detail="Missing or unresolved firmware/policy context."
       />
+      {issues > 0 ? <SummaryStat label="Flagged device issues" value={issues} detail="Needs investigation; separate from firmware status." /> : null}
       <SummaryStat
         label="Critical attention"
         value={<span className="text-[var(--danger)]">{critical}</span>}
@@ -350,6 +355,7 @@ function DeviceRows({
           >
             {row.hostname ?? row.name}
           </Link>
+          {row.issueReason ? <div className="mt-1 text-xs font-semibold text-[var(--info)]" title={row.issueReason}>Flagged issue</div> : null}
           {row.hostname && row.hostname !== row.name ? (
             <div className="mt-0.5 text-xs text-[var(--muted)]">{row.name}</div>
           ) : null}
@@ -463,6 +469,7 @@ function exportHref(
   if (query.source) params.set('source', query.source)
   if (query.status) params.set('status', query.status)
   if (query.attention) params.set('attention', '1')
+  if (query.flagged) params.set('flagged', '1')
   return '/api/v1/inventory/export?' + params.toString()
 }
 
@@ -496,7 +503,7 @@ export function InventoryOverview({
     },
     {
       key: 'attention',
-      header: 'Attention',
+      header: 'Firmware attention',
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
@@ -505,6 +512,7 @@ export function InventoryOverview({
         />
       ),
     },
+    { key: 'issues', header: 'Device issues', render: (row) => row.issueCount > 0 ? <Link className="text-[var(--info)] hover:underline" href={'/devices/customers/' + row.id + '?flagged=1'}>{row.issueCount} flagged</Link> : <span className="text-[var(--muted)]">—</span> },
   ]
 
   return (
@@ -592,7 +600,7 @@ export function CustomerInventory({
     },
     {
       key: 'attention',
-      header: 'Attention',
+      header: 'Firmware attention',
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
@@ -601,6 +609,7 @@ export function CustomerInventory({
         />
       ),
     },
+    { key: 'issues', header: 'Device issues', render: (row) => row.issueCount > 0 ? <Link className="text-[var(--info)] hover:underline" href={path + '/sites/' + row.id + '?flagged=1'}>{row.issueCount} flagged</Link> : <span className="text-[var(--muted)]">—</span> },
   ]
 
   return (
@@ -687,7 +696,7 @@ export function SiteInventory({
     },
     {
       key: 'attention',
-      header: 'Attention',
+      header: 'Firmware attention',
       render: (row) => (
         <GroupAttention
           count={row.attentionCount}
@@ -696,6 +705,7 @@ export function SiteInventory({
         />
       ),
     },
+    { key: 'issues', header: 'Device issues', render: (row) => row.issueCount > 0 ? <Link className="text-[var(--info)] hover:underline" href={path + '/types/' + row.id + '?flagged=1'}>{row.issueCount} flagged</Link> : <span className="text-[var(--muted)]">—</span> },
   ]
 
   return (

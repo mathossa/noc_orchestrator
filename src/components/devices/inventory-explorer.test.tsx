@@ -6,10 +6,10 @@ import { parseInventoryQuery } from '@/lib/inventory-explorer'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 const query = parseInventoryQuery(new URLSearchParams())
-const counts = { total: 6, attention: 5, critical: 1, unknown: 0 }
+const counts = { total: 6, attention: 5, critical: 1, issues: 0, unknown: 0 }
 const filters = { vendors: [], models: [], deviceTypes: [], contracts: [] }
 const common = { counts, filters, searchHits: [], hierarchyMatches: [] }
-const row = { id: 'scope', name: 'Scope', deviceCount: 6, attentionCount: 5, criticalCount: 1, highestStatus: 'CRITICAL_ATTENTION' as const }
+const row = { id: 'scope', name: 'Scope', deviceCount: 6, attentionCount: 5, criticalCount: 1, issueCount: 0, highestStatus: 'CRITICAL_ATTENTION' as const }
 const customer = { id: 'customer', name: 'Customer' }
 const site = { id: 'site', name: 'Site', unassigned: false }
 
@@ -39,7 +39,7 @@ describe('inventory operational rendering', () => {
     const html = renderToStaticMarkup(createElement(DeviceTypeInventory, { query, model: {
       ...common, customer, site, deviceType: { id: 'ap', name: 'Access Point' },
       pagination: { page: 1, pageSize: 25, total: 1, totalPages: 1 },
-      devices: [{ id: 'device', name: 'AP001', hostname: null, model: 'AP-505', currentFirmware: '8.10.0', effectiveTarget: '10.5.5', targetPlatform: 'AOS-10', targetTrain: '10.5', policyContext: 'Site override', decision: 'Planned', customer, site, deviceType: { id: 'ap', name: 'Access Point' }, status: { code: 'UPDATE_RECOMMENDED', label: 'Migration recommended', attention: true, severity: 200, reason: 'Platform migration', tone: 'recommended' } }],
+      devices: [{ id: 'device', name: 'AP001', hostname: null, model: 'AP-505', currentFirmware: '8.10.0', effectiveTarget: '10.5.5', targetPlatform: 'AOS-10', targetTrain: '10.5', policyContext: 'Site override', issueReason: null, decision: 'Planned', customer, site, deviceType: { id: 'ap', name: 'Access Point' }, status: { code: 'UPDATE_RECOMMENDED', label: 'Migration recommended', attention: true, severity: 200, reason: 'Platform migration', tone: 'recommended' } }],
     } }))
     for (const text of ['8.10.0', '10.5.5', 'AOS-10', 'Site override', 'Planned', 'Migration recommended']) expect(html).toContain(text)
     expect(html).not.toContain('Serial number')

@@ -98,7 +98,19 @@ export type DeviceRecord = {
   lifecycle: DeviceLifecycleRecord | null
 }
 
+export type DevicePlanningReference = {
+  id: string
+  title: string | null
+  state: import('@/lib/firmware-work-planning').FirmwareWorkPlanState
+  scheduledFor: string | null
+  proposedFor: string | null
+}
+
 export type DeviceDetailRecord = DeviceRecord & {
+  issueReason: string | null
+  issueFlaggedAt: string | null
+  planning: { activePlans: DevicePlanningReference[]; history: DevicePlanningReference[] }
+
   firmwareCompliance: FirmwareComplianceResult
   exceptionSummary: DeviceExceptionSummary
   inventoryStatus: InventoryPrimaryStatus

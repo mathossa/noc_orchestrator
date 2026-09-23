@@ -25,6 +25,7 @@ const columns: Array<{
   { header: 'Recommendation', value: (row) => row.recommendation },
   { header: 'Exception state', value: (row) => row.exceptionState },
   { header: 'Exception reason', value: (row) => row.exceptionReason },
+  { header: 'Open device issue', value: (row) => row.issueReason },
   { header: 'Workflow', value: (row) => row.workflow },
   { header: 'Contract', value: (row) => row.contract },
   { header: 'Source', value: (row) => row.source },
