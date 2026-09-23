@@ -25,6 +25,7 @@ import {
 import { getLatestSuccessfulImporterV2SourceSnapshot } from '@/lib/importer-v2-identity-store'
 import { evaluateImporterV2DeviceType } from '@/lib/importer-v2-profile-preview'
 import { diffImporterV2RepeatImport } from '@/lib/importer-v2-repeat-diff'
+import { detectImporterV2StackGroups } from '@/lib/importer-v2-stack-topology'
 import { listActiveImporterV2ExactMappings } from '@/lib/importer-v2-rule-store'
 import {
   applyImporterV2ProfileOverrides,
@@ -515,6 +516,28 @@ export async function stageImporterV2NormalizedSource(input: {
     rows,
   })
 
+  const detectedStacks = detectImporterV2StackGroups({
+    provider,
+    rows: evaluation.rows.map((row) => ({
+      id: `staged-${row.rowNumber}`,
+      rowNumber: row.rowNumber,
+      sourceName: row.rawValues.deviceName,
+      hostname: row.rawValues.hostname,
+      customer: row.proposedCanonicalValues.customer?.label ?? row.rawValues.customer,
+      businessUnit:
+        row.proposedCanonicalValues.businessUnit?.label ?? row.rawValues.businessUnit,
+      site: row.proposedCanonicalValues.site?.label ?? row.rawValues.site,
+      deviceType:
+        row.proposedCanonicalValues.deviceType?.label ?? row.rawValues.deviceType,
+      evaluated: row,
+    })),
+  })
+  const detectedStackMemberRows = new Set(
+    detectedStacks.flatMap((stack) =>
+      stack.memberRows.map((member) => member.rowNumber),
+    ),
+  )
+
   const candidatesFor = await identityResolvers(provider)
   const identities = evaluation.rows.map((row) => {
     const identifiers = {
@@ -554,6 +577,7 @@ export async function stageImporterV2NormalizedSource(input: {
             : identities[index].kind === 'NEW'
               ? 'NEW'
               : 'AMBIGUOUS',
+        allowSourceSnapshotMatch: detectedStackMemberRows.has(row.rowNumber),
         identifiers: {
           sourceId: row.rawValues.sourceId,
           serialNumber: row.rawValues.serialNumber,
