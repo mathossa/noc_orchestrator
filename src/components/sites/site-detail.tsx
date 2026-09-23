@@ -46,8 +46,25 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
       <PageHeader
         eyebrow={`Customers / ${site.customer.name}${site.organizationUnit ? ` / ${site.organizationUnit.name}` : ''} / ${site.name}`}
         title={site.name}
-        breadcrumbs={[{ label: 'Customers', href: '/customers' }, { label: site.customer.name, href: `/customers/${customerId}` }, { label: 'Sites', href: `/customers/${customerId}/sites` }, { label: site.name }]}
-        actions={<><ButtonLink href={`/firmware/exceptions?scope=SITE&scopeId=${encodeURIComponent(siteId)}`}>Exceptions</ButtonLink><ButtonLink href={`/devices?customer=${encodeURIComponent(customerId)}&site=${encodeURIComponent(site.id)}`} variant="primary">Site devices</ButtonLink></>}
+        breadcrumbs={[
+          { label: 'Customers', href: '/customers' },
+          { label: site.customer.name, href: `/customers/${customerId}` },
+          { label: 'Sites', href: `/customers/${customerId}/sites` },
+          { label: site.name },
+        ]}
+        actions={
+          <>
+            <ButtonLink href={`/firmware/exceptions?scope=SITE&scopeId=${encodeURIComponent(siteId)}`}>
+              Exceptions
+            </ButtonLink>
+            <ButtonLink
+              href={`/devices/customers/${customerId}/sites/${site.id}`}
+              variant="primary"
+            >
+              Site inventory
+            </ButtonLink>
+          </>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

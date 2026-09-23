@@ -1,19 +1,20 @@
-import { Suspense } from 'react'
-import { DeviceManager } from '@/components/devices/device-manager'
+import { InventoryOverview } from '@/components/devices/inventory-explorer'
+import {
+  parseInventoryQuery,
+  searchParamsToUrlSearchParams,
+} from '@/lib/inventory-explorer'
+import { getInventoryOverview } from '@/lib/inventory-explorer-store'
+
+export const dynamic = 'force-dynamic'
 
 type DevicesPageProps = {
-  searchParams: Promise<{ customer?: string; site?: string; model?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
 export default async function DevicesPage({ searchParams }: DevicesPageProps) {
-  const params = await searchParams
-  return (
-    <Suspense fallback={<div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-sm text-[var(--muted)]">Loading device query…</div>}>
-      <DeviceManager
-        initialCustomerId={params.customer ?? ''}
-        initialSiteId={params.site ?? ''}
-        initialModelId={params.model ?? ''}
-      />
-    </Suspense>
+  const query = parseInventoryQuery(
+    searchParamsToUrlSearchParams(await searchParams),
   )
+  const model = await getInventoryOverview(query)
+  return <InventoryOverview model={model} query={query} />
 }

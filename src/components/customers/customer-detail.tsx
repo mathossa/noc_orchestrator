@@ -52,8 +52,26 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         eyebrow="Customer"
         title={customer.name}
-        breadcrumbs={[{ label: 'Customers', href: '/customers' }, { label: customer.name }]}
-        actions={<><ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`}>Exceptions</ButtonLink><ButtonLink href={`/customers/${customer.id}/sites`}>Sites</ButtonLink><ButtonLink href={`/devices?customer=${encodeURIComponent(customer.id)}`} variant="primary">Customer devices</ButtonLink></>}
+        breadcrumbs={[
+          { label: 'Customers', href: '/customers' },
+          { label: customer.name },
+        ]}
+        actions={
+          <>
+            <ButtonLink href={`/firmware/exceptions?scope=CUSTOMER&scopeId=${encodeURIComponent(customerId)}`}>
+              Exceptions
+            </ButtonLink>
+            <ButtonLink href={`/customers/${customer.id}/sites`}>
+              Sites
+            </ButtonLink>
+            <ButtonLink
+              href={`/devices/customers/${customer.id}`}
+              variant="primary"
+            >
+              Customer inventory
+            </ButtonLink>
+          </>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

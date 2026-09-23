@@ -1,6 +1,8 @@
 import type { FirmwareComplianceResult } from '@/lib/firmware-compliance'
 import type { AuditEventRecord } from '@/lib/audit-events'
 import type { TechnicalFirmwareState } from '@/lib/firmware-state'
+import type { DeviceExceptionSummary } from '@/lib/device-exception-summary-store'
+import type { InventoryPrimaryStatus } from '@/lib/inventory-status'
 
 export type DeviceSource = 'MANUAL' | 'API' | 'IMPORT'
 
@@ -96,8 +98,22 @@ export type DeviceRecord = {
   lifecycle: DeviceLifecycleRecord | null
 }
 
+export type DevicePlanningReference = {
+  id: string
+  title: string | null
+  state: import('@/lib/firmware-work-planning').FirmwareWorkPlanState
+  scheduledFor: string | null
+  proposedFor: string | null
+}
+
 export type DeviceDetailRecord = DeviceRecord & {
+  issueReason: string | null
+  issueFlaggedAt: string | null
+  planning: { activePlans: DevicePlanningReference[]; history: DevicePlanningReference[] }
+
   firmwareCompliance: FirmwareComplianceResult
+  exceptionSummary: DeviceExceptionSummary
+  inventoryStatus: InventoryPrimaryStatus
   createdAt: string
   updatedAt: string
   desiredFirmware: { available: true; release: DeviceFirmwareReference | null }
