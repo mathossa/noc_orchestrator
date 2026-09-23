@@ -356,7 +356,7 @@ function matchesSite(site: SiteRecord, needle: string) {
     .includes(needle)
 }
 
-function SiteTable({
+export function SiteTable({
   customerId,
   sites,
   caption,
