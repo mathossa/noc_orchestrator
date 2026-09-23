@@ -130,8 +130,8 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
   const usesBusinessUnits = units.length > 0
 
   return (
-    <section id="organization-units">
-      <div className="flex flex-col gap-3 border-b border-[var(--border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
+    <section id="organization-units" className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
         <div>
           <h2 className="text-base font-semibold text-[var(--foreground)]">
             {usesBusinessUnits ? 'Business units and sites' : 'Sites'}
@@ -144,17 +144,17 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={beginCreate}>Add business unit</Button>
-          <ButtonLink href={`/customers/${customerId}/sites`} variant="primary">Manage sites</ButtonLink>
+          <ButtonLink href={`/customers/${customerId}/sites`} variant="primary">Add site</ButtonLink>
         </div>
       </div>
 
-      {error ? <p role="alert" className="py-3 text-sm text-[var(--danger)]">{error}</p> : null}
+      {error ? <p role="alert" className="px-4 py-3 text-sm text-[var(--danger)] sm:px-5">{error}</p> : null}
 
       {loading ? (
-        <p className="py-5 text-sm text-[var(--muted)]">Loading customer structure…</p>
+        <p className="px-4 py-5 text-sm text-[var(--muted)] sm:px-5">Loading customer structure…</p>
       ) : (
         <>
-          <div className="py-3">
+          <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3 sm:px-5">
             <TextInput
               type="search"
               aria-label="Search customer structure"
@@ -165,11 +165,13 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
           </div>
 
           {!usesBusinessUnits ? (
-            <SiteList customerId={customerId} sites={matchingDirectSites} emptyLabel="No sites match." />
+            <div className="px-4 py-1 sm:px-5">
+              <SiteList customerId={customerId} sites={matchingDirectSites} emptyLabel="No sites match." />
+            </div>
           ) : (
-            <div className="divide-y divide-[var(--border)] border-y border-[var(--border)]">
+            <div className="divide-y divide-[var(--border)]">
               {visibleUnits.map(({ unit, children, matchingChildren }) => (
-                <div key={unit.id} className="py-4">
+                <div key={unit.id} className="px-4 py-4 sm:px-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -199,7 +201,7 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
               ))}
 
               {directSites.length > 0 && (!needle || matchingDirectSites.length > 0) ? (
-                <div className="py-4">
+                <div className="px-4 py-4 sm:px-5">
                   <Link
                     href={`/customers/${customerId}/sites?organizationUnit=none`}
                     className="font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
@@ -216,7 +218,7 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
               ) : null}
 
               {visibleUnits.length === 0 && matchingDirectSites.length === 0 ? (
-                <p className="py-5 text-sm text-[var(--muted)]">No business units or sites match.</p>
+                <p className="px-4 py-5 text-sm text-[var(--muted)] sm:px-5">No business units or sites match.</p>
               ) : null}
             </div>
           )}
@@ -224,7 +226,7 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
       )}
 
       {formOpen ? (
-        <form className="mt-5 space-y-3 border-t border-[var(--border)] pt-4" onSubmit={save}>
+        <form className="space-y-3 border-t border-[var(--border)] px-4 py-4 sm:px-5" onSubmit={save}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">{editing ? 'Edit business unit' : 'Add business unit'}</h3>
             <Button variant="ghost" onClick={closeForm}>Close</Button>
