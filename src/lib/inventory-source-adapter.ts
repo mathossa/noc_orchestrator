@@ -64,42 +64,12 @@ export function normalizeInventoryProvider(
   ) ?? normalized
 }
 
-export function normalizeInventorySourceAdapterId(input: {
-  provider: string
-  adapterType: string
-  sourceAdapterId: string
-}): string | null {
-  const provider = normalizeInventoryProvider(input.provider)
-  const adapterType = clean(input.adapterType)?.toLocaleLowerCase('en-US')
-  const sourceAdapterId = clean(input.sourceAdapterId)
-  if (!sourceAdapterId) return null
-
-  // Preserve a stable logical source identity for the existing Auvik XLSX
-  // transport. Future Auvik API connections get their own sourceAdapterId while
-  // sharing the same provider-scoped device crosswalk.
-  if (
-    provider === 'AUVIK' &&
-    adapterType === 'xlsx' &&
-    sourceAdapterId.toLocaleLowerCase('en-US') === 'xlsx'
-  ) {
-    return 'auvik-xlsx'
-  }
-
-  return sourceAdapterId
-}
-
 export function normalizeInventorySourceDefinition(
   input: InventorySourceDefinition,
 ): InventorySourceDefinition {
   const provider = normalizeInventoryProvider(input.provider)
   const adapterType = clean(input.adapterType)
-  const sourceAdapterId = provider && adapterType
-    ? normalizeInventorySourceAdapterId({
-        provider,
-        adapterType,
-        sourceAdapterId: input.sourceAdapterId,
-      })
-    : null
+  const sourceAdapterId = clean(input.sourceAdapterId)
   const name = clean(input.name)
 
   if (!provider) throw new Error('Inventory source provider is required.')
