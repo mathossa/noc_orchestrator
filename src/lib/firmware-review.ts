@@ -77,6 +77,7 @@ export type FirmwareReviewSummary = {
   updateRequired: number
   platformMigration: number
   reviewRequired: number
+  acceptedException?: number
   customerDeclined: number
   replacementOrEol: number
   unmanaged: number
@@ -377,6 +378,7 @@ export function summarizeFirmwareReviewRows(
       (row) => row.recommendation === 'PLATFORM_MIGRATION',
     ),
     reviewRequired: count((row) => row.recommendation === 'REVIEW_REQUIRED'),
+    acceptedException: count((row) => row.exceptionReasonCode !== null),
     customerDeclined: count(
       (row) => row.exceptionReasonCode === 'CUSTOMER_DECLINED',
     ),
