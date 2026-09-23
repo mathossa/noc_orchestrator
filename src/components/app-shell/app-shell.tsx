@@ -135,7 +135,7 @@ function NavigationTreeItem({
         ancestor={ancestor}
       />
       {item.children?.length ? (
-        <ul className="mt-0.5 space-y-0.5 border-l border-[var(--border)]">
+        <ul className="mt-0.5 space-y-0.5">
           {item.children.map((child) => (
             <NavigationTreeItem
               key={child.href}
