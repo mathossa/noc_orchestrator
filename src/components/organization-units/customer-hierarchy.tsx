@@ -198,18 +198,14 @@ export function CustomerHierarchy({ customerId }: { customerId: string }) {
         />
       ) : (
         <>
-          <DataTable
-            columns={unitColumns}
-            rows={visibleUnits}
-            rowKey={({ unit }) => unit.id}
-            caption="Business units"
-            emptyState={
-              <EmptyState
-                title="No business units match"
-                description="Adjust the search or add another business unit."
-              />
-            }
-          />
+          {visibleUnits.length > 0 ? (
+            <DataTable
+              columns={unitColumns}
+              rows={visibleUnits}
+              rowKey={({ unit }) => unit.id}
+              caption="Business units"
+            />
+          ) : null}
 
           {directSites.length > 0 && matchingDirectSites.length > 0 ? (
             <section className="space-y-2" aria-labelledby="direct-sites-heading">
