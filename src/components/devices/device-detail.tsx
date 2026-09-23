@@ -15,6 +15,7 @@ import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { AuditHistory } from '@/components/ui/audit-history'
 import { WorkflowStatusBadge } from '@/components/ui/status-badge'
+import { DeviceEditModal } from './device-edit-modal'
 import { FirmwareComplianceStatus } from './firmware-compliance-status'
 import { InventoryStatusBadge } from './inventory-explorer'
 import { deviceFirmwareSummary } from '@/lib/device-overview'
@@ -120,6 +121,7 @@ export function DeviceWorkspace({
   const [activeTab, setActiveTab] = useState<DeviceTab>('overview')
   const [panel, setPanel] = useState<Action | null>(null)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [text, setText] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -235,11 +237,7 @@ export function DeviceWorkspace({
         }
         actions={
           <>
-            <ButtonLink
-              href={'/devices/manage?edit=' + encodeURIComponent(device.id)}
-            >
-              Edit device
-            </ButtonLink>
+            <Button onClick={() => setEditOpen(true)}>Edit device</Button>
             <div className="relative">
               <Button
                 aria-haspopup="menu"
@@ -348,6 +346,14 @@ export function DeviceWorkspace({
       ) : null}
 
       {activeTab === 'history' ? <HistoryTab device={device} /> : null}
+
+      {editOpen ? (
+        <DeviceEditModal
+          device={device}
+          onClose={() => setEditOpen(false)}
+          onSaved={onUpdate}
+        />
+      ) : null}
 
       {panel ? (
         <Modal
@@ -538,6 +544,7 @@ function OverviewTab({
           </DetailList>
           <button
             type="button"
+            aria-label="View firmware details"
             className="mt-4 text-sm font-semibold text-[var(--accent-light)] hover:underline"
             onClick={onOpenFirmware}
           >
