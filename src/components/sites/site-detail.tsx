@@ -1,13 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
-import { ButtonLink } from '@/components/ui/button'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, ButtonLink } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/page-state'
 import { PageHeader } from '@/components/ui/page-header'
 import type { SiteDetailRecord } from '@/lib/sites'
 
 type ApiError = { error?: { message?: string } }
+type SiteTab = 'overview' | 'network' | 'inventory' | 'notes' | 'history'
+
+const tabs: Array<{ id: SiteTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'network', label: 'Network' },
+  { id: 'inventory', label: 'Inventory' },
+  { id: 'notes', label: 'Notes' },
+  { id: 'history', label: 'History' },
+]
+
+function formatDate(value: string | null | undefined, empty = '—') {
+  if (!value) return empty
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? empty : date.toLocaleString()
+}
+
+function contractSourceLabel(source: SiteDetailRecord['contractSource']) {
+  if (source === 'SITE') return 'Site override'
+  if (source === 'CUSTOMER') return 'Customer default'
+  return 'No contract'
+}
+
+function realAuvikUrl(site: SiteDetailRecord) {
+  if (site.externalProvider?.trim().toLocaleLowerCase('en-US') !== 'auvik') return null
+  const value = site.externalId?.trim()
+  return value && /^https?:\/\//i.test(value) ? value : null
+}
 
 export function SiteDetail({ customerId, siteId }: { customerId: string; siteId: string }) {
   const [site, setSite] = useState<SiteDetailRecord | null>(null)
@@ -39,27 +66,38 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
       <ErrorState
         title="Site could not be loaded"
         description={error ?? 'The site record is unavailable.'}
-        action={<Link href={`/customers/${customerId}/sites`} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold">Back to sites</Link>}
+        action={
+          <Link
+            href={`/customers/${customerId}`}
+            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
+          >
+            Back to customer
+          </Link>
+        }
       />
     )
   }
 
-  const address = [
-    site.addressLine1,
-    site.addressLine2,
-    [site.postalCode, site.city].filter(Boolean).join(' '),
-    site.region,
-    site.country,
-  ].filter(Boolean)
+  return <SiteWorkspace site={site} />
+}
+
+function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
+  const [activeTab, setActiveTab] = useState<SiteTab>('overview')
+  const customerPath = `/customers/${site.customerId}`
+  const managePath = `${customerPath}/sites`
+  const inventoryPath = `/devices/customers/${site.customerId}/sites/${site.id}`
+  const auvikUrl = realAuvikUrl(site)
 
   const breadcrumbs = [
     { label: 'Customers', href: '/customers' },
-    { label: site.customer.name, href: `/customers/${customerId}` },
+    { label: site.customer.name, href: customerPath },
     ...(site.organizationUnit
-      ? [{
-          label: site.organizationUnit.name,
-          href: `/customers/${customerId}/sites?organizationUnit=${encodeURIComponent(site.organizationUnit.id)}`,
-        }]
+      ? [
+          {
+            label: site.organizationUnit.name,
+            href: `${managePath}?organizationUnit=${encodeURIComponent(site.organizationUnit.id)}`,
+          },
+        ]
       : []),
     { label: site.name },
   ]
@@ -74,79 +112,263 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
           <>
             {site.code ? <span className="font-mono">{site.code}</span> : null}
             {site.code ? <span aria-hidden="true">·</span> : null}
-            <span>{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</span>
-            {site.effectiveContractType ? (
+            <span>{site.customer.name}</span>
+            {site.organizationUnit ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{site.effectiveContractType.name}</span>
+                <span>{site.organizationUnit.name}</span>
               </>
             ) : null}
+            {site.city ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{site.city}</span>
+              </>
+            ) : null}
+            <span aria-hidden="true">·</span>
+            <span>{site.deviceCount} device{site.deviceCount === 1 ? '' : 's'}</span>
             {!site.isActive ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>Archived</span>
+                <span className="text-[var(--warning)]">Archived</span>
               </>
             ) : null}
           </>
         }
         actions={
           <>
-            <ButtonLink href={`/customers/${customerId}/sites`}>Manage sites</ButtonLink>
-            <ButtonLink href={`/devices/customers/${customerId}/sites/${site.id}`} variant="primary">
+            <ButtonLink href={managePath}>Manage site</ButtonLink>
+            <ButtonLink href={inventoryPath} variant="primary">
               Site inventory
             </ButtonLink>
           </>
         }
       />
 
-      <section>
-        <h2 className="text-base font-semibold text-[var(--foreground)]">Location</h2>
-        {address.length === 0 ? (
-          <p className="mt-2 text-sm text-[var(--muted)]">No address details recorded.</p>
-        ) : (
-          <div className="mt-2 space-y-1 text-sm text-[var(--muted-strong)]">
-            {address.map((line, index) => <div key={`${line}-${index}`}>{line}</div>)}
-          </div>
-        )}
-
-        {site.notes ? (
-          <div className="mt-5 border-t border-[var(--border)] pt-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Notes</div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--muted-strong)]">{site.notes}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <details className="mt-6 border-t border-[var(--border)] pt-4">
-        <summary className="cursor-pointer text-sm font-semibold text-[var(--muted-strong)]">Site details</summary>
-        <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
-          {site.organizationUnit ? <DetailRow label="Business unit" value={site.organizationUnit.name} /> : null}
-          <DetailRow label="Contract" value={site.effectiveContractType?.name ?? '—'} />
-          <DetailRow label="Contract source" value={site.contractSource === 'SITE' ? 'Site override' : site.contractSource === 'CUSTOMER' ? 'Customer default' : 'No contract'} />
-          {site.contractSource === 'SITE' ? <DetailRow label="Customer default" value={site.customer.contractType?.name ?? 'No customer default'} /> : null}
-          <DetailRow label="Status" value={site.isActive ? 'Active' : 'Archived'} />
-          <DetailRow label="Source" value={site.source} />
-          <DetailRow label="External provider" value={site.externalProvider ?? '—'} />
-          <DetailRow label="External ID" value={site.externalId ?? '—'} />
-          <DetailRow label="Last synchronized" value={site.lastSynchronizedAt ? new Date(site.lastSynchronizedAt).toLocaleString() : 'Never / manual'} />
-          <DetailRow label="Created" value={new Date(site.createdAt).toLocaleString()} />
-          <DetailRow label="Updated" value={new Date(site.updatedAt).toLocaleString()} />
-        </dl>
-        <div className="mt-4">
-          <ButtonLink href={`/firmware/exceptions?scope=SITE&scopeId=${encodeURIComponent(siteId)}`} variant="ghost">
-            Site exceptions
-          </ButtonLink>
+      <nav
+        aria-label="Site detail sections"
+        className="mb-5 overflow-x-auto border-b border-[var(--border)]"
+      >
+        <div className="flex min-w-max gap-1">
+          {tabs.map((tab) => {
+            const active = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                className={
+                  'border-b-2 px-4 py-3 text-sm font-semibold transition ' +
+                  (active
+                    ? 'border-[var(--accent)] text-[var(--foreground)]'
+                    : 'border-transparent text-[var(--muted-strong)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]')
+                }
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
         </div>
-      </details>
+      </nav>
+
+      {activeTab === 'overview' ? (
+        <OverviewTab
+          site={site}
+          inventoryPath={inventoryPath}
+          auvikUrl={auvikUrl}
+          onOpenNetwork={() => setActiveTab('network')}
+        />
+      ) : null}
+      {activeTab === 'network' ? <NetworkTab /> : null}
+      {activeTab === 'inventory' ? <InventoryTab site={site} inventoryPath={inventoryPath} /> : null}
+      {activeTab === 'notes' ? <NotesTab notes={site.notes} /> : null}
+      {activeTab === 'history' ? <HistoryTab site={site} /> : null}
     </>
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string | number }) {
+function OverviewTab({
+  site,
+  inventoryPath,
+  auvikUrl,
+  onOpenNetwork,
+}: {
+  site: SiteDetailRecord
+  inventoryPath: string
+  auvikUrl: string | null
+  onOpenNetwork: () => void
+}) {
+  const address = [site.addressLine1, site.addressLine2].filter(Boolean).join(', ')
+
   return (
-    <div className="border-b border-[var(--border)] pb-3">
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt>
-      <dd className="mt-1 min-w-0 break-words text-[var(--muted-strong)]">{value}</dd>
+    <div className="grid gap-5 xl:grid-cols-2">
+      <PanelCard title="Site information">
+        <DetailList>
+          {address ? <DetailRow label="Address" value={address} /> : null}
+          {site.region ? <DetailRow label="Province" value={site.region} /> : null}
+          {site.city ? <DetailRow label="City" value={site.city} /> : null}
+          {site.postalCode ? <DetailRow label="Postal code" value={site.postalCode} /> : null}
+          {site.country ? <DetailRow label="Country" value={site.country} /> : null}
+          {auvikUrl ? (
+            <DetailRow
+              label="Auvik URL"
+              value={
+                <a
+                  href={auvikUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-[var(--accent-light)] hover:underline"
+                >
+                  Open in Auvik ↗
+                </a>
+              }
+            />
+          ) : null}
+        </DetailList>
+        {!address && !site.region && !site.city && !site.postalCode && !site.country && !auvikUrl ? (
+          <p className="text-sm text-[var(--muted)]">No location details recorded.</p>
+        ) : null}
+      </PanelCard>
+
+      <PanelCard title="Inventory summary">
+        <div className="flex items-end justify-between gap-4 border-b border-[var(--border)] pb-4">
+          <div>
+            <p className="text-3xl font-semibold tabular-nums text-[var(--foreground)]">{site.deviceCount}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Total devices</p>
+          </div>
+        </div>
+        <ButtonLink href={inventoryPath} variant="ghost" className="mt-3">
+          View full inventory →
+        </ButtonLink>
+      </PanelCard>
+
+      <PanelCard title="Contract & source">
+        <DetailList>
+          <DetailRow
+            label="Customer"
+            value={
+              <Link href={`/customers/${site.customerId}`} className="font-medium text-[var(--accent-light)] hover:underline">
+                {site.customer.name}
+              </Link>
+            }
+          />
+          {site.organizationUnit ? <DetailRow label="Business unit" value={site.organizationUnit.name} /> : null}
+          <DetailRow label="Effective contract" value={site.effectiveContractType?.name ?? '—'} />
+          <DetailRow label="Contract source" value={contractSourceLabel(site.contractSource)} />
+          <DetailRow label="Inventory source" value={site.source} />
+          {site.externalProvider ? <DetailRow label="External provider" value={site.externalProvider} /> : null}
+          <DetailRow label="Last synchronized" value={formatDate(site.lastSynchronizedAt, 'Never / manual')} />
+        </DetailList>
+        <ButtonLink
+          href={`/firmware/exceptions?scope=SITE&scopeId=${encodeURIComponent(site.id)}`}
+          variant="ghost"
+          className="mt-3"
+        >
+          Site exceptions
+        </ButtonLink>
+      </PanelCard>
+
+      <PanelCard title="Network drawing">
+        <p className="text-sm text-[var(--muted)]">
+          No network drawing is available for this site yet.
+        </p>
+        <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+          Topology data can later be populated from integrations such as Auvik.
+        </p>
+        <Button variant="ghost" className="mt-3" onClick={onOpenNetwork}>
+          Open Network section →
+        </Button>
+      </PanelCard>
+    </div>
+  )
+}
+
+function NetworkTab() {
+  return (
+    <PanelCard title="Network drawing">
+      <p className="text-sm text-[var(--muted)]">
+        No network drawing is available for this site yet.
+      </p>
+      <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+        Connected-device topology and update-order tiers are intentionally deferred until real integration data is available.
+      </p>
+    </PanelCard>
+  )
+}
+
+function InventoryTab({ site, inventoryPath }: { site: SiteDetailRecord; inventoryPath: string }) {
+  return (
+    <PanelCard title="Site inventory">
+      <DetailList>
+        <DetailRow label="Total devices" value={String(site.deviceCount)} />
+      </DetailList>
+      <ButtonLink href={inventoryPath} variant="primary" className="mt-4">
+        View full inventory
+      </ButtonLink>
+    </PanelCard>
+  )
+}
+
+function NotesTab({ notes }: { notes: string | null }) {
+  return (
+    <PanelCard title="Site notes">
+      {notes ? (
+        <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[var(--muted-strong)]">
+          {notes}
+        </p>
+      ) : (
+        <p className="text-sm text-[var(--muted)]">No site notes recorded.</p>
+      )}
+    </PanelCard>
+  )
+}
+
+function HistoryTab({ site }: { site: SiteDetailRecord }) {
+  return (
+    <PanelCard title="Record history">
+      <DetailList>
+        <DetailRow label="Created" value={formatDate(site.createdAt)} />
+        <DetailRow label="Updated" value={formatDate(site.updatedAt)} />
+        <DetailRow label="Last synchronized" value={formatDate(site.lastSynchronizedAt, 'Never / manual')} />
+        <DetailRow label="Source" value={site.externalProvider ?? site.source} />
+      </DetailList>
+      <p className="mt-4 text-xs text-[var(--muted)]">
+        No separate Site audit history is exposed by the current Site API.
+      </p>
+    </PanelCard>
+  )
+}
+
+function PanelCard({
+  title,
+  actions,
+  children,
+}: {
+  title: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-semibold">{title}</h2>
+        {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function DetailList({ children }: { children: ReactNode }) {
+  return <dl className="space-y-3">{children}</dl>
+}
+
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(120px,0.8fr)_minmax(0,1.2fr)] gap-4 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0">
+      <dt className="text-sm text-[var(--muted)]">{label}</dt>
+      <dd className="min-w-0 break-words text-sm text-[var(--foreground)]">{value}</dd>
     </div>
   )
 }
