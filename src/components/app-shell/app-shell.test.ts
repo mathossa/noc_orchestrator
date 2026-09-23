@@ -30,6 +30,7 @@ describe('app shell inventory navigation', () => {
     const allSitesHtml = renderToStaticMarkup(createElement(NavigationGroups))
     expect(allSitesHtml.match(/aria-current="page"/g)).toHaveLength(1)
     expect(allSitesHtml).toContain('All sites')
+    expect(allSitesHtml).not.toContain('border-l')
 
     navigationState.pathname = '/customers/customer-1/sites/site-1'
     const customerSiteHtml = renderToStaticMarkup(createElement(NavigationGroups))
