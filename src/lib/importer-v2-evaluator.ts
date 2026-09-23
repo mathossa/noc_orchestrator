@@ -569,13 +569,25 @@ function applyCanonicalModelRelations(
       current.proposedValue.id !== target.id &&
       current.decision.source !== 'UNRESOLVED'
     ) {
-      resolutions[field] = ambiguousDecision(
-        `canonical model relationship for ${relation.modelLabel}`,
-      )
-      continue
-    }
+      const sameLabel =
+        matchKey(current.proposedValue.label) === matchKey(target.label)
 
-    if (
+      if (!sameLabel) {
+        resolutions[field] = {
+          proposedValue: null,
+          ambiguous: true,
+          decision: decision(
+            'UNRESOLVED',
+            'LOW',
+            `Resolved ${field} “${current.proposedValue.label}” conflicts with canonical model “${relation.modelLabel}”, which requires “${target.label}”.`,
+          ),
+        }
+        continue
+      }
+      // Duplicate/legacy catalog IDs with the same semantic label are not a
+      // real operator conflict. The canonical DeviceModel relationship wins so
+      // publication uses the exact vendor/type/family owned by that model.
+    } else if (
       current.decision.source !== 'UNRESOLVED' &&
       current.proposedValue?.id
     ) {
