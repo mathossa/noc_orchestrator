@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { DeviceWorkspace } from './device-detail'
+import { DeviceWorkspace, NetworkTab } from './device-detail'
 import { deviceDetailFixture } from '@/lib/test-fixtures/device-detail'
 import { result, release } from '@/lib/test-fixtures/firmware-compliance'
 import { deviceFirmwareSummary } from '@/lib/device-overview'
@@ -73,6 +73,60 @@ describe('device detail workspace', () => {
     expect(html).toContain('HQ Access Points')
     expect(html).not.toContain('Not included in a maintenance plan')
     expect(html).not.toContain('Record decision')
+  })
+
+  it('keeps physical stack members inside the logical device network view', () => {
+    const device = deviceDetailFixture({
+      name: 'core-stack-01',
+      topology: {
+        id: 'topology-1',
+        kind: 'STACK',
+        provider: 'AUVIK',
+        sourceAdapterId: 'xlsx',
+        sourceGroupKey: 'group-1',
+        lastSeenAt: '2026-09-23T12:00:00Z',
+        members: [
+          {
+            id: 'member-1',
+            position: 1,
+            name: 'core-stack-01 Member 1',
+            hostname: null,
+            serialNumber: 'SER-MEMBER-1',
+            macAddress: 'aa:bb:cc:dd:ee:01',
+            deviceModelId: 'member-model',
+            firmwareReleaseId: null,
+            rawFirmwareVersion: '15.2(7)E9',
+            rawSoftwareVersion: null,
+            normalizedFirmwareVersion: '15.2(7)E9',
+            provider: 'AUVIK',
+            sourceAdapterId: 'xlsx',
+            sourceId: 'auvik-member-1',
+            isActive: true,
+            lastSeenAt: '2026-09-23T12:00:00Z',
+            deviceModel: {
+              id: 'member-model',
+              model: 'WS-C2960X-48FPS-L',
+              vendor: { id: 'cisco', code: 'CISCO', name: 'Cisco' },
+              deviceType: { id: 'switch', code: 'SWITCH', name: 'Switch' },
+            },
+            firmwareRelease: null,
+          },
+        ],
+      },
+    })
+    const html = renderToStaticMarkup(
+      createElement(NetworkTab, {
+        device,
+        sitePath: '/devices/customers/customer/sites/site',
+      }),
+    )
+
+    expect(html).toContain('Stack members')
+    expect(html).toContain('core-stack-01 Member 1')
+    expect(html).toContain('WS-C2960X-48FPS-L')
+    expect(html).toContain('SER-MEMBER-1')
+    expect(html).toContain('15.2(7)E9')
+    expect(html).toContain('not separate Inventory, compliance, planning, or reporting devices')
   })
 
   it('surfaces an open issue on the overview without expanding notes into the default view', () => {
