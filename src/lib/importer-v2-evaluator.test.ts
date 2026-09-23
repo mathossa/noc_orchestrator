@@ -347,6 +347,106 @@ describe('Importer v2 pure staged evaluator', () => {
     expect(requiredRow.statuses).not.toContain('EXCLUDED')
   })
 
+  it('derives required vendor and device type from a resolved canonical model', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['vendor', 'model', 'deviceType']
+    input.rows = [
+      {
+        rowNumber: 2,
+        sourceRecordKey: 'stack-member-1',
+        rawValues: {
+          model: 'WS-C2960X-48FPS-L',
+          vendor: null,
+          deviceType: null,
+        },
+      },
+    ]
+    input.catalog.values = {
+      vendor: [{ id: 'vendor-cisco', label: 'Cisco' }],
+      model: [{ id: 'model-2960', label: 'WS-C2960X-48FPS-L' }],
+      deviceType: [{ id: 'type-switch', label: 'Switch' }],
+    }
+    input.catalog.modelRelations = [
+      {
+        modelId: 'model-2960',
+        modelLabel: 'WS-C2960X-48FPS-L',
+        vendor: { id: 'vendor-cisco', label: 'Cisco' },
+        deviceType: { id: 'type-switch', label: 'Switch' },
+        productFamily: null,
+      },
+    ]
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.model.proposedValue).toEqual({
+      id: 'model-2960',
+      label: 'WS-C2960X-48FPS-L',
+    })
+    expect(evaluated.fields.vendor).toMatchObject({
+      proposedValue: { id: 'vendor-cisco', label: 'Cisco' },
+      decision: {
+        source: 'CANONICAL_RELATION',
+        confidence: 'HIGH',
+        requiresConfirmation: false,
+      },
+      issues: [],
+    })
+    expect(evaluated.fields.deviceType).toMatchObject({
+      proposedValue: { id: 'type-switch', label: 'Switch' },
+      decision: {
+        source: 'CANONICAL_RELATION',
+        requiresConfirmation: false,
+      },
+      issues: [],
+    })
+    expect(evaluated.issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'REQUIRED_FIELD_UNRESOLVED',
+          field: 'vendor',
+        }),
+      ]),
+    )
+  })
+
+  it('keeps conflicting canonical model relationships reviewable', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['vendor', 'model']
+    input.rows = [
+      {
+        rowNumber: 2,
+        rawValues: {
+          vendor: 'Other Vendor',
+          model: 'WS-C2960X-48FPS-L',
+        },
+      },
+    ]
+    input.catalog.values = {
+      vendor: [{ id: 'vendor-other', label: 'Other Vendor' }],
+      model: [{ id: 'model-2960', label: 'WS-C2960X-48FPS-L' }],
+    }
+    input.catalog.modelRelations = [
+      {
+        modelId: 'model-2960',
+        modelLabel: 'WS-C2960X-48FPS-L',
+        vendor: { id: 'vendor-cisco', label: 'Cisco' },
+        deviceType: { id: 'type-switch', label: 'Switch' },
+        productFamily: null,
+      },
+    ]
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.vendor.proposedValue).toBeNull()
+    expect(evaluated.fields.vendor.issues).toEqual([
+      expect.objectContaining({
+        code: 'AMBIGUOUS_DECISION',
+        severity: 'ERROR',
+      }),
+    ])
+    expect(evaluated.statuses).toContain('NEEDS_REVIEW')
+  })
+
   it('only excludes a row through a separate explicit inclusion decision', () => {
     const input = baseInput()
     input.rows[0].inclusionDecision = {
