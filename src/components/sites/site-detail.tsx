@@ -81,7 +81,7 @@ export function SiteDetail({ customerId, siteId }: { customerId: string; siteId:
   return <SiteWorkspace site={site} />
 }
 
-function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
+export function SiteWorkspace({ site }: { site: SiteDetailRecord }) {
   const [activeTab, setActiveTab] = useState<SiteTab>('overview')
   const customerPath = `/customers/${site.customerId}`
   const managePath = `${customerPath}/sites`
