@@ -279,6 +279,19 @@ export function diffImporterV2RepeatImport(input: {
     }
     if (
       previousIndexes.length === 0 &&
+      current.allowSourceSnapshotMatch
+    ) {
+      previousIndexes = input.previousRows.flatMap((previous, index) =>
+        importerV2DurableIdentityOverlaps(
+          current.identifiers,
+          previous.identifiers,
+        )
+          ? [index]
+          : [],
+      )
+    }
+    if (
+      previousIndexes.length === 0 &&
       current.identityStatus !== 'NEW' &&
       current.canonicalDeviceId
     ) {
