@@ -293,6 +293,16 @@ function SiteActionGroups({
                 {group.planningStates.map(displayCode).join(', ')}
               </div>
             ) : null}
+            {group.externalReferences.length ? (
+              <div className="mt-1 text-[var(--muted)]">
+                Ref: {group.externalReferences.join(', ')}
+              </div>
+            ) : null}
+            {group.missingExternalReferencePlanIds.length ? (
+              <div className="mt-1 font-semibold text-[var(--warning)]">
+                External reference missing
+              </div>
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
               {group.planIds.slice(0, 3).map((planId) => (
                 <Link
@@ -318,6 +328,11 @@ function SiteActionGroups({
         return (
           <div className="min-w-36 text-xs">
             <div>{group.exceptionReasonCodes.map(displayCode).join(', ')}</div>
+            {group.exceptionExpiries.length ? (
+              <div className="mt-1 text-[var(--muted)]">
+                Review / expiry: {group.exceptionExpiries.map(dateOnly).join(', ')}
+              </div>
+            ) : null}
             <div className="mt-2 flex flex-col items-start gap-1">
               {contexts.slice(0, 3).map((context) => (
                 <Link
