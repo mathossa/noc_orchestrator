@@ -139,6 +139,7 @@ function reviewSnapshot(version: number) {
     updateRequired: latest ? 1 : 0,
     platformMigration: 0,
     reviewRequired: 0,
+    acceptedException: latest ? 0 : 1,
     customerDeclined: latest ? 0 : 1,
     replacementOrEol: 0,
     unmanaged: 0,
