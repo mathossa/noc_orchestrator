@@ -54,9 +54,9 @@ describe('inventory integrations PostgreSQL foundation', () => {
 
   it('keeps provider identity separate from adapter and transport identity', async () => {
     const source = await store.createInventorySource({
-      provider: 'AUVIK',
+      provider: 'Auvik',
       adapterType: 'xlsx',
-      sourceAdapterId: 'auvik-xlsx',
+      sourceAdapterId: 'xlsx',
       name: 'Auvik XLSX',
       enabled: true,
       configuration: { upload: true },
@@ -66,13 +66,13 @@ describe('inventory integrations PostgreSQL foundation', () => {
     expect(source).toMatchObject({
       provider: 'AUVIK',
       adapterType: 'xlsx',
-      sourceAdapterId: 'auvik-xlsx',
+      sourceAdapterId: 'xlsx',
     })
   })
 
   it('allows one sync profile to reference multiple inventory sources', async () => {
     const auvik = await db.inventorySource.findFirstOrThrow({
-      where: { provider: 'AUVIK', sourceAdapterId: 'auvik-xlsx' },
+      where: { provider: 'AUVIK', sourceAdapterId: 'xlsx' },
     })
     const cmdb = await store.createInventorySource({
       provider: 'CMDB',
@@ -91,7 +91,7 @@ describe('inventory integrations PostgreSQL foundation', () => {
 
     expect(profile.sources).toHaveLength(2)
     expect(profile.sources.map((link) => link.source.sourceAdapterId)).toEqual([
-      'auvik-xlsx',
+      'xlsx',
       'cmdb-xlsx',
     ])
 
