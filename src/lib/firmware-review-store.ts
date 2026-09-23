@@ -11,7 +11,10 @@ import {
   type ExceptionRecord,
 } from '@/lib/firmware-exceptions'
 import {
+  firmwareReviewDueState,
+  firmwareReviewSnapshotFromJson,
   firmwareReviewSnapshotHash,
+  firmwareReviewWorkspaceMetrics,
   parseFirmwareReviewCycleInput,
   summarizeFirmwareReviewRows,
   type FirmwareReviewSnapshotRow,
@@ -41,11 +44,19 @@ const deviceSelect = {
   source: true,
   externalProvider: true,
   customer: { select: { id: true, name: true } },
-  site: { select: { id: true, name: true } },
+  site: {
+    select: {
+      id: true,
+      name: true,
+      organizationUnit: { select: { id: true, name: true } },
+    },
+  },
   deviceModel: {
     select: {
       id: true,
       model: true,
+      platform: true,
+      preferredPlatform: true,
       familyId: true,
       family: { select: { id: true, name: true } },
       vendor: { select: { id: true, code: true, name: true } },
@@ -120,10 +131,14 @@ function technicalSnapshot(result: FirmwareComplianceResult) {
       ? {
           scope: source.scope,
           scopeId: source.scopeId,
+          subject: source.subject,
+          subjectId: source.subjectId,
           policyId: source.policyId,
           trackKey: source.trackKey,
           trackName: source.trackName,
+          trackClass: source.trackClass,
           policyVersion: source.policyVersion,
+          effectiveFrom: source.effectiveFrom,
         }
       : null,
     preferredTarget: result.preferredTarget
@@ -239,6 +254,7 @@ async function buildSnapshot(
               plan: {
                 select: {
                   id: true,
+                  title: true,
                   state: true,
                   proposedFor: true,
                   proposedMaintenanceWindowReference: true,
@@ -296,6 +312,12 @@ async function buildSnapshot(
       hostname: device.hostname,
       siteId: device.site?.id ?? null,
       siteName: device.site?.name ?? null,
+      organizationUnit: device.site?.organizationUnit
+        ? {
+            id: device.site.organizationUnit.id,
+            name: device.site.organizationUnit.name,
+          }
+        : null,
       vendor: {
         id: device.deviceModel.vendor.id,
         code: device.deviceModel.vendor.code,
@@ -311,6 +333,8 @@ async function buildSnapshot(
         name: device.deviceModel.model,
         familyId: device.deviceModel.family?.id ?? null,
         familyName: device.deviceModel.family?.name ?? null,
+        platform: device.deviceModel.platform,
+        preferredPlatform: device.deviceModel.preferredPlatform,
       },
       inventorySource: {
         source: device.source,
@@ -325,6 +349,8 @@ async function buildSnapshot(
           device.currentFirmwareRawVersion,
         rawVersion: device.currentFirmwareRawVersion,
         observedAt: device.currentFirmwareObservedAt?.toISOString() ?? null,
+        catalogState: technical.currentFirmware?.catalogState ?? null,
+        policyEligibility: technical.currentFirmware?.policyEligibility ?? null,
       },
       technical: technicalSnapshot(technical),
       exception: exception
@@ -348,6 +374,7 @@ async function buildSnapshot(
       planning: plan
         ? {
             id: plan.id,
+            title: plan.title,
             state: plan.state,
             proposedFor: plan.proposedFor?.toISOString() ?? null,
             proposedMaintenanceWindowReference:
@@ -367,6 +394,7 @@ async function buildSnapshot(
     {
       siteId: string | null
       siteName: string | null
+      organizationUnit: { id: string; name: string } | null
       rows: typeof rows
     }
   >()
@@ -379,12 +407,13 @@ async function buildSnapshot(
       siteGroups.set(key, {
         siteId: row.siteId,
         siteName: row.siteName,
+        organizationUnit: row.organizationUnit,
         rows: [row],
       })
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     reviewCycleId: cycle.id,
     reportVersion: version,
     generatedAt: at.toISOString(),
@@ -401,6 +430,7 @@ async function buildSnapshot(
       .map((site) => ({
         siteId: site.siteId,
         siteName: site.siteName,
+        organizationUnit: site.organizationUnit,
         summary: summarizeFirmwareReviewRows(site.rows.map(reviewSummaryRow)),
         devices: site.rows,
       }))
@@ -552,5 +582,70 @@ export async function listFirmwareReviewCycles(input?: {
         },
       },
     },
+  })
+}
+
+
+export async function listFirmwareReviewWorkspace(at: Date = new Date()) {
+  const customers = await prisma.customer.findMany({
+    where: { isActive: true },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    select: { id: true, name: true, code: true },
+  })
+  if (!customers.length) return []
+
+  const cycles = await prisma.firmwareReviewCycle.findMany({
+    where: { customerId: { in: customers.map((customer) => customer.id) } },
+    orderBy: [
+      { customerId: 'asc' },
+      { periodEnd: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    include: {
+      reports: {
+        orderBy: [{ version: 'desc' }, { generatedAt: 'desc' }],
+        take: 1,
+      },
+    },
+  })
+
+  const latestByCustomer = new Map<string, (typeof cycles)[number]>()
+  for (const cycle of cycles)
+    if (!latestByCustomer.has(cycle.customerId))
+      latestByCustomer.set(cycle.customerId, cycle)
+
+  return customers.map((customer) => {
+    const cycle = latestByCustomer.get(customer.id) ?? null
+    const report = cycle?.reports[0] ?? null
+    const snapshot = report
+      ? firmwareReviewSnapshotFromJson(report.snapshot)
+      : null
+
+    return {
+      customer,
+      dueState: firmwareReviewDueState(cycle, at),
+      cycle: cycle
+        ? {
+            id: cycle.id,
+            state: cycle.state,
+            decisionStatus: cycle.decisionStatus,
+            periodStart: cycle.periodStart,
+            periodEnd: cycle.periodEnd,
+            asOf: cycle.asOf,
+            nextReviewAt: cycle.nextReviewAt,
+            reviewerName: cycle.reviewerName,
+          }
+        : null,
+      latestReport: report
+        ? {
+            id: report.id,
+            version: report.version,
+            status: report.status,
+            generatedAt: report.generatedAt,
+            snapshotHash: report.snapshotHash,
+          }
+        : null,
+      metrics: snapshot ? firmwareReviewWorkspaceMetrics(snapshot, at) : null,
+    }
   })
 }
