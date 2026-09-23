@@ -150,7 +150,7 @@ function NavigationTreeItem({
   )
 }
 
-function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
+export function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav aria-label="Primary navigation">
       <ul className="space-y-4">
