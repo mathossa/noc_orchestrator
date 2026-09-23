@@ -286,7 +286,14 @@ async function catalogSnapshot(): Promise<{
     prisma.deviceModelFamily.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
     prisma.deviceModel.findMany({
       where: { isActive: true },
-      select: { id: true, model: true, platform: true, vendor: { select: { name: true } } },
+      select: {
+        id: true,
+        model: true,
+        platform: true,
+        vendor: { select: { id: true, name: true } },
+        deviceType: { select: { id: true, name: true } },
+        family: { select: { id: true, name: true } },
+      },
       orderBy: { id: 'asc' },
     }),
     prisma.deviceType.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
@@ -301,8 +308,21 @@ async function catalogSnapshot(): Promise<{
     model: models.map((record) => ({ id: record.id, label: record.model })),
     deviceType: value(deviceTypes),
   }
+  const modelRelations = models.map((record) => ({
+    modelId: record.id,
+    modelLabel: record.model,
+    vendor: { id: record.vendor.id, label: record.vendor.name },
+    deviceType: { id: record.deviceType.id, label: record.deviceType.name },
+    productFamily: record.family
+      ? { id: record.family.id, label: record.family.name }
+      : null,
+  }))
   return {
-    catalog: { version: hash(catalogValues), values: catalogValues },
+    catalog: {
+      version: hash({ catalogValues, modelRelations }),
+      values: catalogValues,
+      modelRelations,
+    },
     compatibilityRules: models
       .filter((record): record is typeof record & { platform: string } => Boolean(clean(record.platform)))
       .map((record) => ({
