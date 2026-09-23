@@ -91,7 +91,7 @@ export type FirmwareReviewSnapshotDevice = {
   hostname: string | null
   siteId: string | null
   siteName: string | null
-  organizationUnit: { id: string; name: string } | null
+  organizationUnit?: { id: string; name: string } | null
   vendor: { id: string; code: string; name: string }
   deviceType: { id: string; code: string; name: string }
   model: {
@@ -99,8 +99,8 @@ export type FirmwareReviewSnapshotDevice = {
     name: string
     familyId: string | null
     familyName: string | null
-    platform: string | null
-    preferredPlatform: string | null
+    platform?: string | null
+    preferredPlatform?: string | null
   }
   inventorySource: {
     source: string
@@ -112,8 +112,8 @@ export type FirmwareReviewSnapshotDevice = {
     version: string | null
     rawVersion: string | null
     observedAt: string | null
-    catalogState: string | null
-    policyEligibility: string | null
+    catalogState?: string | null
+    policyEligibility?: string | null
   }
   technical: {
     compliance: string
@@ -138,14 +138,14 @@ export type FirmwareReviewSnapshotDevice = {
     policySource: {
       scope: string
       scopeId: string
-      subject: string | null
-      subjectId: string | null
+      subject?: string | null
+      subjectId?: string | null
       policyId: string
       trackKey: string
       trackName: string
-      trackClass: string
+      trackClass?: string
       policyVersion: number
-      effectiveFrom: string | null
+      effectiveFrom?: string | null
     } | null
     preferredTarget: {
       id: string
@@ -180,7 +180,7 @@ export type FirmwareReviewSnapshotDevice = {
   } | null
   planning: {
     id: string
-    title: string | null
+    title?: string | null
     state: string
     proposedFor: string | null
     proposedMaintenanceWindowReference: string | null
@@ -194,7 +194,7 @@ export type FirmwareReviewSnapshotDevice = {
 export type FirmwareReviewSnapshotSite = {
   siteId: string | null
   siteName: string | null
-  organizationUnit: { id: string; name: string } | null
+  organizationUnit?: { id: string; name: string } | null
   summary: FirmwareReviewSummary
   devices: FirmwareReviewSnapshotDevice[]
 }
@@ -515,7 +515,7 @@ export function firmwareReviewActionGroups(
         key,
         siteId: first.siteId,
         siteName: first.siteName,
-        organizationUnit: first.organizationUnit,
+        organizationUnit: first.organizationUnit ?? null,
         actionKind: firmwareReviewActionKindForDevice(first),
         vendorName: first.vendor.name,
         deviceTypeId: first.deviceType.id,
