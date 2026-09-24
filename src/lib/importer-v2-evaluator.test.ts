@@ -502,6 +502,49 @@ describe('Importer v2 pure staged evaluator', () => {
     )
   })
 
+  it('keeps logical stack type topology-owned even when the physical model is a switch', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['model', 'deviceType']
+    input.rows = [
+      {
+        rowNumber: 1,
+        topologyRole: 'STACK',
+        rawValues: {
+          model: 'WS-C2960X-24PS-L',
+          deviceType: 'Stack',
+        },
+      },
+    ]
+    input.catalog.values = {
+      model: [{ id: 'model-2960', label: 'WS-C2960X-24PS-L' }],
+      deviceType: [{ id: 'type-stack', label: 'Stack' }],
+    }
+    input.catalog.modelRelations = [
+      {
+        modelId: 'model-2960',
+        modelLabel: 'WS-C2960X-24PS-L',
+        vendor: { id: 'vendor-cisco', label: 'Cisco' },
+        deviceType: { id: 'type-switch', label: 'Switch' },
+        productFamily: null,
+      },
+    ]
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.deviceType).toMatchObject({
+      proposedValue: { id: 'type-stack', label: 'Stack' },
+      issues: [],
+    })
+    expect(evaluated.issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'deviceType',
+          severity: 'ERROR',
+        }),
+      ]),
+    )
+  })
+
   it('keeps conflicting canonical model relationships reviewable', () => {
     const input = baseInput()
     input.profile.requiredFields = ['vendor', 'model']
