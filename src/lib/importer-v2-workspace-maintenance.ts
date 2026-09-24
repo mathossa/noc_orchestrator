@@ -490,7 +490,15 @@ export async function initializeImporterV2WorkspaceAutomation(
 
   const existing = await prisma.importerV2WorkspaceDecision.findMany({
     where: { batchId },
-    select: { rowNumber: true, field: true, action: true, value: true },
+    select: {
+      id: true,
+      rowId: true,
+      rowNumber: true,
+      field: true,
+      action: true,
+      value: true,
+      scopeToken: true,
+    },
   })
   const existingSignatures = new Set(
     existing.map((decision) =>
@@ -522,6 +530,38 @@ export async function initializeImporterV2WorkspaceAutomation(
     })),
   ]
 
+  const proposedSignatures = new Set(
+    proposed.map((decision) => decisionSignature(decision)),
+  )
+  const staleRuleDecisions = existing.filter(
+    (decision) =>
+      decision.scopeToken.startsWith('AUTO_RULE:') &&
+      !proposedSignatures.has(
+        decisionSignature({
+          rowNumber: decision.rowNumber,
+          field: decision.field,
+          action: decision.action,
+          value: decision.value,
+        }),
+      ),
+  )
+
+  if (staleRuleDecisions.length > 0) {
+    await prisma.importerV2WorkspaceDecision.deleteMany({
+      where: { id: { in: staleRuleDecisions.map((decision) => decision.id) } },
+    })
+    for (const decision of staleRuleDecisions) {
+      existingSignatures.delete(
+        decisionSignature({
+          rowNumber: decision.rowNumber,
+          field: decision.field,
+          action: decision.action,
+          value: decision.value,
+        }),
+      )
+    }
+  }
+
   const fresh = proposed.filter((decision) => {
     const signature = decisionSignature(decision)
     if (existingSignatures.has(signature)) return false
@@ -545,15 +585,20 @@ export async function initializeImporterV2WorkspaceAutomation(
     })
   }
 
+  const changedRowIds = [
+    ...new Set([
+      ...fresh.map((decision) => decision.rowId),
+      ...staleRuleDecisions.map((decision) => decision.rowId),
+    ]),
+  ]
   const result = await recomputeImporterV2WorkspaceRows({
     batchId,
-    ...(onlyChangedRows
-      ? { rowIds: [...new Set(fresh.map((decision) => decision.rowId))] }
-      : {}),
+    ...(onlyChangedRows ? { rowIds: changedRowIds } : {}),
   })
   return {
     ...result,
     automaticDecisionsApplied: fresh.length,
+    automaticRuleDecisionsRemoved: staleRuleDecisions.length,
     topologyDecisionsApplied: fresh.filter((decision) =>
       decision.action.startsWith('TOPOLOGY_STACK_'),
     ).length,

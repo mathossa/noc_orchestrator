@@ -219,6 +219,43 @@ export async function listActiveImporterV2ExactMappings(input: {
   return records.map(serializeExactMapping)
 }
 
+export async function deactivateImporterV2ExactMapping(input: {
+  mappingKey: string
+  explanation: string
+  createdByUserId?: string | null
+}) {
+  return prisma.$transaction(async (tx) => {
+    const latest = await tx.importerV2ExactMapping.findFirst({
+      where: { mappingKey: input.mappingKey },
+      orderBy: { version: 'desc' },
+    })
+    if (!latest) throw new Error('Remembered exact mapping was not found.')
+    if (!latest.isActive) {
+      throw new Error('Remembered exact mapping is already inactive.')
+    }
+
+    await tx.importerV2ExactMapping.update({
+      where: { id: latest.id },
+      data: { isActive: false },
+    })
+    const created = await tx.importerV2ExactMapping.create({
+      data: {
+        mappingKey: latest.mappingKey,
+        version: latest.version + 1,
+        provider: latest.provider,
+        profileId: latest.profileId,
+        field: latest.field,
+        normalizedInput: latest.normalizedInput,
+        target: jsonValue(latest.target),
+        explanation: input.explanation,
+        isActive: false,
+        createdByUserId: input.createdByUserId ?? null,
+      },
+    })
+    return serializeExactMapping(created)
+  })
+}
+
 export async function rememberImporterV2ExactMapping(input: {
   provider: string
   profileId?: string | null

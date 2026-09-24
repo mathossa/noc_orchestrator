@@ -98,6 +98,76 @@ describe('Importer v2 effective reconciliation overlay', () => {
     expect(result.resolvedIssues).toEqual([modelError])
   })
 
+  it('acknowledges only optional missing source firmware/platform warnings without inventing values', () => {
+    const platformWarning = {
+      rowNumber: 7,
+      rowFingerprint: 'row-7',
+      field: 'softwarePlatform' as const,
+      severity: 'WARNING' as const,
+      code: 'OPTIONAL_FIELD_UNRESOLVED' as const,
+      message: 'softwarePlatform is unknown.',
+    }
+    const result = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: {
+        issues: [firmwareWarning, platformWarning],
+        proposedCanonicalValues: {
+          currentFirmware: null,
+          softwarePlatform: null,
+        },
+        firmware: {
+          runningVersion: null,
+          proposedSoftwarePlatform: null,
+        },
+      },
+      inclusion: 'INCLUDED',
+      decisions: [
+        {
+          field: null,
+          action: 'PRESERVE_EXISTING_FIRMWARE',
+          explanation:
+            'Source has no firmware evidence; keep existing canonical observation.',
+        },
+      ],
+    })
+
+    expect(result.activeWarningCount).toBe(0)
+    expect(result.resolvedIssues).toEqual([firmwareWarning, platformWarning])
+    expect(result.evaluated.proposedCanonicalValues).toEqual({
+      currentFirmware: null,
+      softwarePlatform: null,
+    })
+    expect(result.evaluated.firmware).toMatchObject({
+      runningVersion: null,
+      proposedSoftwarePlatform: null,
+    })
+  })
+
+  it('does not let missing-firmware acknowledgement suppress required platform errors', () => {
+    const requiredPlatform = {
+      rowNumber: 7,
+      rowFingerprint: 'row-7',
+      field: 'softwarePlatform' as const,
+      severity: 'ERROR' as const,
+      code: 'REQUIRED_FIELD_UNRESOLVED' as const,
+      message: 'softwarePlatform must be resolved.',
+    }
+    const state = importerV2WorkspaceIssueState({
+      evaluated: { issues: [requiredPlatform] },
+      inclusion: 'INCLUDED',
+      decisions: [
+        {
+          field: null,
+          action: 'PRESERVE_EXISTING_FIRMWARE',
+          explanation:
+            'Source has no firmware evidence; keep existing canonical observation.',
+        },
+      ],
+    })
+
+    expect(state.activeIssues).toEqual([requiredPlatform])
+    expect(state.activeErrorCount).toBe(1)
+  })
+
   it('turns explicit observed firmware verification into a row-scoped publication compatibility override', () => {
     const result = importerV2WorkspaceEffectiveEvaluated({
       evaluated: {

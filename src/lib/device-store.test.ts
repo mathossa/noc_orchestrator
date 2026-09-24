@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   exceptionSummaries: vi.fn(),
   customerFindUnique: vi.fn(),
   modelFindUnique: vi.fn(),
+  modelFindMany: vi.fn(),
   firmwareFindUnique: vi.fn(),
+  firmwareFindMany: vi.fn(),
+  deviceTopologyFindUnique: vi.fn(),
   deviceFindMany: vi.fn(),
   deviceFindUnique: vi.fn(),
   deviceCreate: vi.fn(),
@@ -36,8 +39,9 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     customer: { findUnique: mocks.customerFindUnique, findMany: vi.fn() },
     site: { findMany: vi.fn() },
-    deviceModel: { findUnique: mocks.modelFindUnique, findMany: vi.fn() },
-    firmwareRelease: { findUnique: mocks.firmwareFindUnique, findMany: vi.fn() },
+    deviceModel: { findUnique: mocks.modelFindUnique, findMany: mocks.modelFindMany },
+    firmwareRelease: { findUnique: mocks.firmwareFindUnique, findMany: mocks.firmwareFindMany },
+    deviceTopology: { findUnique: mocks.deviceTopologyFindUnique },
     device: {
       findMany: mocks.deviceFindMany,
       findUnique: mocks.deviceFindUnique,
@@ -176,6 +180,9 @@ describe('device inventory persistence rules', () => {
     )
     mocks.customerFindUnique.mockResolvedValue({ id: 'customer-1' })
     mocks.modelFindUnique.mockResolvedValue(rawModel)
+    mocks.modelFindMany.mockResolvedValue([])
+    mocks.firmwareFindMany.mockResolvedValue([])
+    mocks.deviceTopologyFindUnique.mockResolvedValue(null)
     mocks.deviceFindMany.mockResolvedValue([])
     mocks.policyFindFirst.mockResolvedValue(null)
     mocks.auditFindMany.mockResolvedValue([])
@@ -200,6 +207,76 @@ describe('device inventory persistence rules', () => {
     }]]))
     const device = await getDevice('device-1')
     expect(device.planning.activePlans[0]).toEqual({ id: 'plan-1', title: 'HQ switches', state: 'SCHEDULED', scheduledFor: '2026-10-01T18:00:00.000Z', proposedFor: null })
+  })
+
+  it('returns physical stack members as subordinate device topology', async () => {
+    mocks.deviceFindUnique.mockResolvedValue(storedDevice)
+    mocks.deviceTopologyFindUnique.mockResolvedValue({
+      id: 'topology-1',
+      deviceId: 'device-1',
+      kind: 'STACK',
+      provider: 'AUVIK',
+      sourceAdapterId: 'xlsx',
+      sourceGroupKey: 'stack-group-1',
+      sourceMetadata: null,
+      lastSeenAt: new Date('2026-09-23T12:00:00Z'),
+      createdAt: new Date('2026-09-23T12:00:00Z'),
+      updatedAt: new Date('2026-09-23T12:00:00Z'),
+      members: [
+        {
+          id: 'member-1',
+          topologyId: 'topology-1',
+          position: 1,
+          name: 'HQ-SW-01 Member 1',
+          hostname: null,
+          serialNumber: 'STACK-SER-1',
+          macAddress: 'aa:bb:cc:dd:ee:01',
+          deviceModelId: 'member-model',
+          firmwareReleaseId: 'member-release',
+          rawFirmwareVersion: '15.2(7)E9',
+          rawSoftwareVersion: null,
+          normalizedFirmwareVersion: '15.2(7)E9',
+          firmwareEvidence: null,
+          provider: 'AUVIK',
+          sourceAdapterId: 'xlsx',
+          sourceId: 'auvik-member-1',
+          sourceMetadata: null,
+          isActive: true,
+          lastSeenAt: new Date('2026-09-23T12:00:00Z'),
+          createdAt: new Date('2026-09-23T12:00:00Z'),
+          updatedAt: new Date('2026-09-23T12:00:00Z'),
+        },
+      ],
+    })
+    mocks.modelFindMany.mockResolvedValue([
+      {
+        id: 'member-model',
+        model: 'WS-C2960X-48FPS-L',
+        vendor: { id: 'vendor-1', code: 'CISCO', name: 'Cisco' },
+        deviceType: { id: 'type-1', code: 'SWITCH', name: 'Switch' },
+      },
+    ])
+    mocks.firmwareFindMany.mockResolvedValue([
+      { id: 'member-release', platform: 'IOS', version: '15.2(7)E9' },
+    ])
+
+    const device = await getDevice('device-1')
+
+    expect(device.topology).toMatchObject({
+      kind: 'STACK',
+      provider: 'AUVIK',
+      sourceAdapterId: 'xlsx',
+      members: [
+        {
+          position: 1,
+          name: 'HQ-SW-01 Member 1',
+          serialNumber: 'STACK-SER-1',
+          sourceId: 'auvik-member-1',
+          deviceModel: { model: 'WS-C2960X-48FPS-L' },
+          firmwareRelease: { version: '15.2(7)E9' },
+        },
+      ],
+    })
   })
 
   it('creates a minimal manual device without site or external identity', async () => {

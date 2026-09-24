@@ -78,6 +78,10 @@ export type ImporterV2WorkspaceAction =
       explanation: string
     }
   | {
+      type: 'PRESERVE_EXISTING_FIRMWARE'
+      explanation: string
+    }
+  | {
       type: 'REMEMBER_EXACT'
       field: ImporterV2Field
       normalizedInput: string
@@ -258,7 +262,10 @@ export function importerV2WorkspaceScopeToken(input: {
 export function importerV2WorkspaceActionNeedsReevaluation(
   action: ImporterV2WorkspaceAction,
 ) {
-  return action.type !== 'EXCLUDE_ROW'
+  return (
+    action.type !== 'EXCLUDE_ROW' &&
+    action.type !== 'PRESERVE_EXISTING_FIRMWARE'
+  )
 }
 
 export function importerV2WorkspaceCommonValues(

@@ -160,6 +160,132 @@ describe('Importer v2 repeat-import diff', () => {
     })
   })
 
+  it('recognizes recurring stack members from source snapshot identity without a standalone device crosswalk', () => {
+    const result = diffImporterV2RepeatImport({
+      previousRows: [
+        {
+          ...previous,
+          rowNumber: 5,
+          canonicalDeviceId: 'stack-device-1',
+          identifiers: {
+            sourceId: 'stack-source-1',
+            serialNumber: null,
+            macAddress: null,
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01',
+            hostname: 'core-01',
+          },
+        },
+        {
+          ...previous,
+          rowNumber: 6,
+          canonicalDeviceId: 'stack-device-1',
+          identifiers: {
+            sourceId: 'stack-member-1',
+            serialNumber: 'MEMBER-SER-1',
+            macAddress: 'aa:bb:cc:dd:ee:11',
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01 Member 1',
+            hostname: null,
+          },
+        },
+        {
+          ...previous,
+          rowNumber: 7,
+          canonicalDeviceId: 'stack-device-1',
+          identifiers: {
+            sourceId: null,
+            serialNumber: 'MEMBER-SER-2',
+            macAddress: null,
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01 Member 2',
+            hostname: null,
+          },
+        },
+      ],
+      currentRows: [
+        {
+          rowNumber: 5,
+          canonicalDeviceId: 'stack-device-1',
+          identityStatus: 'MATCHED',
+          identifiers: {
+            sourceId: 'stack-source-1',
+            serialNumber: null,
+            macAddress: null,
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01',
+            hostname: 'core-01',
+          },
+          canonicalValues: previous.values,
+        },
+        {
+          rowNumber: 6,
+          canonicalDeviceId: null,
+          identityStatus: 'NEW',
+          allowSourceSnapshotMatch: true,
+          identifiers: {
+            sourceId: 'stack-member-1',
+            serialNumber: 'MEMBER-SER-1',
+            macAddress: 'aa:bb:cc:dd:ee:11',
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01 Member 1',
+            hostname: null,
+          },
+        },
+        {
+          rowNumber: 7,
+          canonicalDeviceId: null,
+          identityStatus: 'NEW',
+          allowSourceSnapshotMatch: true,
+          identifiers: {
+            sourceId: null,
+            serialNumber: 'MEMBER-SER-2',
+            macAddress: null,
+          },
+          values: {
+            ...previous.values,
+            deviceName: 'core-01 Member 2',
+            hostname: null,
+            currentFirmware: '15.2(7)E9',
+          },
+        },
+      ],
+      isFullInventoryExport: false,
+    })
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        rowNumber: 5,
+        classification: 'UNCHANGED',
+        canonicalDeviceId: 'stack-device-1',
+      }),
+      expect.objectContaining({
+        rowNumber: 6,
+        classification: 'UNCHANGED',
+        canonicalDeviceId: 'stack-device-1',
+        previousRowNumber: 6,
+      }),
+      expect.objectContaining({
+        rowNumber: 7,
+        classification: 'CHANGED',
+        canonicalDeviceId: 'stack-device-1',
+        previousRowNumber: 7,
+      }),
+    ])
+    expect(result.summary.NEW).toBe(0)
+    expect(result.summary.MISSING).toBe(0)
+  })
+
   it('classifies source devices with no previous confirmed identity as new', () => {
     const result = diffImporterV2RepeatImport({
       previousRows: [previous],

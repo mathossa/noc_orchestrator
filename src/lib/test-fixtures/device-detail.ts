@@ -28,6 +28,7 @@ export function deviceDetailFixture(
     notes: null,
     issueReason: null,
     issueFlaggedAt: null,
+    topology: null,
     planning: { activePlans: [], history: [] },
     currentFirmwareReleaseId: '17.15.5',
     currentFirmwareObservedAt: '2026-09-22T12:00:00Z',
