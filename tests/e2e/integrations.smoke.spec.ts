@@ -17,4 +17,23 @@ test('opens the generic integrations foundation from Settings', async ({ page })
     'href',
     '/devices/import',
   )
+  await expect(
+    page.getByRole('link', { name: 'Manage import automation' }),
+  ).toHaveAttribute('href', '/settings/integrations/import-automation')
+})
+
+test('opens saved importer rules and exact mappings management', async ({ page }) => {
+  await page.goto('/settings/integrations/import-automation')
+
+  await expect(
+    page.getByRole('heading', { name: 'Import automation', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: /Rules/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Exact mappings/ })).toBeVisible()
+  await expect(
+    page.getByRole('textbox', { name: 'Search import automations' }),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Saved importer decisions are versioned/),
+  ).toBeVisible()
 })
