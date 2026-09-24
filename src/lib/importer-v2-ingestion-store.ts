@@ -26,7 +26,12 @@ import { getLatestSuccessfulImporterV2SourceSnapshot } from '@/lib/importer-v2-i
 import { evaluateImporterV2DeviceType } from '@/lib/importer-v2-profile-preview'
 import { diffImporterV2RepeatImport } from '@/lib/importer-v2-repeat-diff'
 import { detectImporterV2StackGroups } from '@/lib/importer-v2-stack-topology'
-import { listActiveImporterV2ExactMappings } from '@/lib/importer-v2-rule-store'
+import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
+import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
+import {
+  getActiveImporterV2RuleSet,
+  listActiveImporterV2ExactMappings,
+} from '@/lib/importer-v2-rule-store'
 import {
   applyImporterV2ProfileOverrides,
   buildImporterV2SourceProfile,
@@ -40,6 +45,7 @@ import {
   listActiveImporterV2SourceProfiles,
 } from '@/lib/importer-v2-source-profile-store'
 import { stageImporterV2Workspace } from '@/lib/importer-v2-workspace-store'
+import { findImporterV2WorkspaceRuleBook } from '@/lib/importer-v2-workspace-rule-book'
 import type { ImporterV2WorkspaceSeedRow } from '@/lib/importer-v2-workspace'
 import {
   detectImporterV2HeaderRow,
@@ -439,6 +445,34 @@ async function canonicalValuesForDevices(deviceIds: readonly string[]) {
   )
 }
 
+function ruleAdjustedRawValues(
+  row: ImporterV2StagedRow,
+  ruleEvaluation:
+    | ReturnType<typeof evaluateImporterV2RuleRows>[number]
+    | undefined,
+) {
+  if (!ruleEvaluation) return { ...row.rawValues }
+  return { ...ruleEvaluation.effectiveRow.rawValues }
+}
+
+function ruleAdjustedEffectiveValues(
+  row: ReturnType<typeof evaluateImporterV2WithFirmware>['rows'][number],
+  ruleEvaluation:
+    | ReturnType<typeof evaluateImporterV2RuleRows>[number]
+    | undefined,
+) {
+  const values = effectiveValues(row)
+  if (!ruleEvaluation) return values
+  for (const [field, outcome] of Object.entries(ruleEvaluation.fields) as [
+    ImporterV2Field,
+    (typeof ruleEvaluation.fields)[ImporterV2Field],
+  ][]) {
+    if (!outcome || outcome.applied.length === 0) continue
+    values[field] = outcome.mappedTarget?.label ?? outcome.effectiveValue ?? null
+  }
+  return values
+}
+
 function effectiveValues(row: ReturnType<typeof evaluateImporterV2WithFirmware>['rows'][number]) {
   return Object.fromEntries(
     IMPORTER_V2_FIELDS.map((field) => [
@@ -492,6 +526,81 @@ export async function stageImporterV2NormalizedSource(input: {
     input.directHierarchyFields,
   )
   const profile = input.profile
+
+  const existingRuleBook = await findImporterV2WorkspaceRuleBook({
+    provider,
+    profileId: profile.id,
+  })
+  const activeRuleSet = existingRuleBook
+    ? await getActiveImporterV2RuleSet(existingRuleBook.id)
+    : null
+  const preStageRuleEvaluations =
+    activeRuleSet && activeRuleSet.rules.length > 0
+      ? evaluateImporterV2RuleRows(
+          compileImporterV2RuleSet(activeRuleSet),
+          rows,
+          { profileId: profile.id, provider, sourceAdapterId },
+        )
+      : []
+  const preStageRuleByRow = new Map(
+    preStageRuleEvaluations.map((row) => [row.rowNumber, row]),
+  )
+
+  const rawStackGroups = detectImporterV2StackGroups({
+    provider,
+    rows: rows.map((row) => ({
+      id: `source-${row.rowNumber}`,
+      rowNumber: row.rowNumber,
+      sourceName: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).deviceName,
+      hostname: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).hostname,
+      customer: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).customer,
+      businessUnit: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).businessUnit,
+      site: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).site,
+      deviceType: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).deviceType,
+      evaluated: {
+        rawValues: ruleAdjustedRawValues(
+          row,
+          preStageRuleByRow.get(row.rowNumber),
+        ),
+        proposedCanonicalValues: {},
+      },
+    })),
+  })
+  const rawStackParentRows = new Set(
+    rawStackGroups.map((group) => group.parentRowNumber),
+  )
+  const rawStackMemberRows = new Set(
+    rawStackGroups.flatMap((group) =>
+      group.memberRows.map((member) => member.rowNumber),
+    ),
+  )
+  const evaluationRows = rows.map((row) => ({
+    ...row,
+    topologyRole: rawStackMemberRows.has(row.rowNumber)
+      ? ('STACK_MEMBER' as const)
+      : rawStackParentRows.has(row.rowNumber)
+        ? ('STACK' as const)
+        : ('DEVICE' as const),
+  }))
+
   const { catalog, compatibilityRules } = await catalogSnapshot()
   const exactMappings = await listActiveImporterV2ExactMappings({ provider, profileId: profile.id })
   const rememberedMappings = [
@@ -533,24 +642,34 @@ export async function stageImporterV2NormalizedSource(input: {
       compatibilityVersion: hash(compatibilityRules),
       compatibilityRules,
     },
-    rows,
+    rows: evaluationRows,
   })
 
   const detectedStacks = detectImporterV2StackGroups({
     provider,
-    rows: evaluation.rows.map((row) => ({
-      id: `staged-${row.rowNumber}`,
-      rowNumber: row.rowNumber,
-      sourceName: row.rawValues.deviceName,
-      hostname: row.rawValues.hostname,
-      customer: row.proposedCanonicalValues.customer?.label ?? row.rawValues.customer,
-      businessUnit:
-        row.proposedCanonicalValues.businessUnit?.label ?? row.rawValues.businessUnit,
-      site: row.proposedCanonicalValues.site?.label ?? row.rawValues.site,
-      deviceType:
-        row.proposedCanonicalValues.deviceType?.label ?? row.rawValues.deviceType,
-      evaluated: row,
-    })),
+    rows: evaluation.rows.map((row) => {
+      const ruleEvaluation = preStageRuleByRow.get(row.rowNumber)
+      const effective = ruleAdjustedEffectiveValues(row, ruleEvaluation)
+      return {
+        id: `staged-${row.rowNumber}`,
+        rowNumber: row.rowNumber,
+        sourceName: effective.deviceName,
+        hostname: effective.hostname,
+        customer: effective.customer,
+        businessUnit: effective.businessUnit,
+        site: effective.site,
+        deviceType: effective.deviceType,
+        evaluated: {
+          ...row,
+          proposedCanonicalValues: Object.fromEntries(
+            Object.entries(effective).map(([field, label]) => [
+              field,
+              label ? { id: null, label } : null,
+            ]),
+          ),
+        },
+      }
+    }),
   })
   const detectedStackMemberRows = new Set(
     detectedStacks.flatMap((stack) =>
@@ -603,7 +722,10 @@ export async function stageImporterV2NormalizedSource(input: {
           serialNumber: row.rawValues.serialNumber,
           macAddress: row.rawValues.macAddress,
         },
-        values: effectiveValues(row),
+        values: ruleAdjustedEffectiveValues(
+          row,
+          preStageRuleByRow.get(row.rowNumber),
+        ),
         canonicalValues: canonicalDeviceId
           ? canonicalValuesByDeviceId.get(canonicalDeviceId)
           : undefined,
@@ -665,6 +787,7 @@ export async function stageImporterV2NormalizedSource(input: {
     sourceAdapterId,
     profileId: profile.id,
     profileVersion: profile.version,
+    ruleBookId: existingRuleBook?.id ?? null,
     evaluationFingerprint: evaluation.evaluationFingerprint,
     rows: seedRows,
   })
