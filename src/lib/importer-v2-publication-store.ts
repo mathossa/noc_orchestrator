@@ -812,7 +812,13 @@ async function importerV2QaWithOnlyNewCanonicalProposals(
   const checks = await Promise.all(
     qa.catalogProposals.map(async (proposal) => ({
       proposal,
-      exists: await importerV2CatalogProposalAlreadyExists(client, proposal),
+      // Observed firmware proposals are audit/visibility evidence, not ordinary
+      // master-data creation approvals. Keep them visible even when an
+      // identical observed release already exists and publication will reuse it.
+      exists:
+        proposal.field === 'currentFirmware'
+          ? false
+          : await importerV2CatalogProposalAlreadyExists(client, proposal),
     })),
   )
   const catalogProposals = checks
