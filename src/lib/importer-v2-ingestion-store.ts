@@ -14,6 +14,7 @@ import {
 } from '@/lib/inventory-source-adapter'
 import { evaluateImporterV2WithFirmware } from '@/lib/importer-v2-firmware-evaluation'
 import { listConfiguredModelSupportedPlatforms } from '@/lib/model-platform-compatibility-store'
+import { importerV2CompatibilityRulesFromSupportedPlatforms } from '@/lib/importer-v2-model-compatibility'
 import {
   IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
   parseImporterV2Hierarchy,
@@ -278,29 +279,6 @@ function prepareRows(
     }
     row.sourceRecordKey = row.rawValues.sourceId ?? row.rawValues.serialNumber ?? row.rawValues.macAddress ?? null
     return row
-  })
-}
-
-export function importerV2CompatibilityRulesFromSupportedPlatforms(
-  models: readonly {
-    id: string
-    model: string
-    vendor: { name: string }
-  }[],
-  supportedPlatformsByModel: ReadonlyMap<string, readonly string[]>,
-) {
-  return models.flatMap((record) => {
-    const platforms = [...(supportedPlatformsByModel.get(record.id) ?? [])]
-    return platforms.length
-      ? [
-          {
-            id: `device-model:${record.id}`,
-            vendor: record.vendor.name,
-            model: record.model,
-            platforms,
-          },
-        ]
-      : []
   })
 }
 
