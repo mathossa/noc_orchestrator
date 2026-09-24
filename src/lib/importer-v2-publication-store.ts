@@ -768,15 +768,16 @@ async function importerV2CatalogProposalAlreadyExists(
       )
       if (!vendorId) return false
       return Boolean(
-        await client.deviceModel.findUnique({
-          where: {
-            vendorId_model: {
+        await uniqueRecordId(
+          await client.deviceModel.findMany({
+            where: {
               vendorId,
-              model: proposal.label,
+              isActive: true,
+              model: { equals: proposal.label, mode: 'insensitive' },
             },
-          },
-          select: { id: true },
-        }),
+            select: { id: true },
+          }),
+        ),
       )
     }
 
@@ -1206,10 +1207,17 @@ async function ensureModel(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Canonical model must be resolved before publication.')
   }
-  const existing = await tx.deviceModel.findUnique({
-    where: { vendorId_model: { vendorId, model: label } },
-    select: { id: true },
-  })
+  const existing = await exactOne(
+    await tx.deviceModel.findMany({
+      where: {
+        vendorId,
+        isActive: true,
+        model: { equals: label, mode: 'insensitive' },
+      },
+      select: { id: true },
+    }),
+    'device model',
+  )
   if (existing) return existing.id
   assertApprovedProposal({ field: 'model', label, snapshot, approvals })
   return (
