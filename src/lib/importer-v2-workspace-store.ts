@@ -600,6 +600,23 @@ function validateChangeSet(action: Extract<ImporterV2WorkspaceAction, { type: 'C
   }
 }
 
+function hasOptionalMissingFirmwareWarning(row: { evaluated: unknown }) {
+  const evaluated = row.evaluated as {
+    issues?: Array<{
+      field?: string
+      severity?: string
+      code?: string
+    }>
+  }
+  return (evaluated.issues ?? []).some(
+    (issue) =>
+      issue.severity === 'WARNING' &&
+      issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
+      (issue.field === 'currentFirmware' ||
+        issue.field === 'softwarePlatform'),
+  )
+}
+
 async function resolveActionScope(input: {
   batchId: string
   selection: ImporterV2WorkspaceSelection
@@ -612,6 +629,16 @@ async function resolveActionScope(input: {
     return scopedRuleActionScope(input.batchId, input.action)
   }
   if (input.action.type === 'CHANGE_SET') validateChangeSet(input.action)
+  if (input.action.type === 'PRESERVE_EXISTING_FIRMWARE') {
+    const rows = await rowsForSelection(input.batchId, input.selection)
+    return {
+      rows: rows.filter(hasOptionalMissingFirmwareWarning),
+      contextVersion: null,
+      confirmationReasons: [
+        'Only rows with optional missing current-firmware/software-platform warnings are affected.',
+      ],
+    }
+  }
   return {
     rows: await rowsForSelection(input.batchId, input.selection),
     contextVersion: null,
