@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   typeFindMany: vi.fn(),
   familyFindMany: vi.fn(),
   modelFindUnique: vi.fn(),
+  modelFindMany: vi.fn(),
   releaseFindMany: vi.fn(),
   attemptCreate: vi.fn(),
   deviceUpdate: vi.fn(),
@@ -27,7 +28,7 @@ vi.mock('@/lib/prisma', () => ({
     vendor: { findMany: mocks.vendorFindMany },
     deviceType: { findMany: mocks.typeFindMany },
     deviceModelFamily: { findMany: mocks.familyFindMany },
-    deviceModel: { findUnique: mocks.modelFindUnique },
+    deviceModel: { findUnique: mocks.modelFindUnique, findMany: mocks.modelFindMany },
     firmwareRelease: { findMany: mocks.releaseFindMany },
     $transaction: mocks.transaction,
   },
@@ -99,7 +100,7 @@ describe('Importer v2 publication persistence boundary', () => {
       ],
     })
     mocks.vendorFindMany.mockResolvedValue([{ id: 'vendor-cisco' }])
-    mocks.modelFindUnique.mockResolvedValue([{ id: 'model-existing' }][0])
+    mocks.modelFindMany.mockResolvedValue([{ id: 'model-existing' }])
 
     const qa = await getImporterV2PublicationQa('batch-qa')
 
@@ -112,7 +113,7 @@ describe('Importer v2 publication persistence boundary', () => {
       ]),
     )
 
-    mocks.modelFindUnique.mockResolvedValue(null)
+    mocks.modelFindMany.mockResolvedValue([])
     const changed = await getImporterV2PublicationQa('batch-qa')
     expect(changed.catalogProposals).toEqual(
       expect.arrayContaining([
