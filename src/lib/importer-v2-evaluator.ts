@@ -558,9 +558,9 @@ function applyCanonicalModelRelations(
     target: ImporterV2ProposedValue | null
   }> = [
     { field: 'vendor', target: relation.vendor },
-    ...(topologyRole === 'STACK_MEMBER'
-      ? []
-      : [{ field: 'deviceType' as const, target: relation.deviceType }]),
+    ...(topologyRole === 'DEVICE' || topologyRole === undefined
+      ? [{ field: 'deviceType' as const, target: relation.deviceType }]
+      : []),
     { field: 'productFamily', target: relation.productFamily },
   ]
 
