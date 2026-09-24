@@ -21,3 +21,4 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:integration
+      - run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts
