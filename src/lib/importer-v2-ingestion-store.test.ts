@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { importerV2CompatibilityRulesFromSupportedPlatforms } from '@/lib/importer-v2-ingestion-store'
+import { importerV2CompatibilityRulesFromSupportedPlatforms } from '@/lib/importer-v2-model-compatibility'
 
 describe('Importer v2 catalog compatibility snapshot', () => {
   it('keeps configured supported platforms as separate values for multi-platform models', () => {
