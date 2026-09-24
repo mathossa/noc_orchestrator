@@ -944,7 +944,6 @@ async function ensureCustomer(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Customer must be resolved before publication.')
   }
-  assertApprovedProposal({ field: 'customer', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.customer.findMany({
       where: { name: { equals: label, mode: 'insensitive' } },
@@ -953,6 +952,7 @@ async function ensureCustomer(
     'customer',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'customer', label, snapshot, approvals })
   return (
     await tx.customer.create({
       data: { name: label, source: 'IMPORT', externalProvider: provider },
@@ -983,7 +983,6 @@ async function ensureBusinessUnit(
   }
   const label = targetLabel(snapshot, 'businessUnit')
   if (!label) return null
-  assertApprovedProposal({ field: 'businessUnit', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.customerOrganizationUnit.findMany({
       where: {
@@ -996,6 +995,7 @@ async function ensureBusinessUnit(
     'organizational unit',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'businessUnit', label, snapshot, approvals })
   return (
     await tx.customerOrganizationUnit.create({
       data: {
@@ -1033,7 +1033,6 @@ async function ensureSite(
   }
   const label = targetLabel(snapshot, 'site')
   if (!label) throw new ImporterV2PublicationValidationError('Site must be resolved before publication.')
-  assertApprovedProposal({ field: 'site', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.site.findMany({
       where: {
@@ -1046,6 +1045,7 @@ async function ensureSite(
     'site',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'site', label, snapshot, approvals })
   return (
     await tx.site.create({
       data: {
@@ -1078,12 +1078,17 @@ async function ensureVendor(
   }
   const label = targetLabel(snapshot, 'vendor')
   if (!label) throw new ImporterV2PublicationValidationError('Vendor must be resolved before publication.')
-  const proposalKey = assertApprovedProposal({ field: 'vendor', label, snapshot, approvals })
   const existing = await tx.vendor.findFirst({
     where: { name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  const proposalKey = assertApprovedProposal({
+    field: 'vendor',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.vendor.create({
       data: {
@@ -1115,12 +1120,17 @@ async function ensureDeviceType(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Device type must be resolved before publication.')
   }
-  const proposalKey = assertApprovedProposal({ field: 'deviceType', label, snapshot, approvals })
   const existing = await tx.deviceType.findFirst({
     where: { name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  const proposalKey = assertApprovedProposal({
+    field: 'deviceType',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.deviceType.create({
       data: {
@@ -1153,12 +1163,17 @@ async function ensureFamily(
   }
   const label = targetLabel(snapshot, 'productFamily')
   if (!label) return null
-  assertApprovedProposal({ field: 'productFamily', label, snapshot, approvals })
   const existing = await tx.deviceModelFamily.findFirst({
     where: { vendorId, name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  assertApprovedProposal({
+    field: 'productFamily',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.deviceModelFamily.create({
       data: { vendorId, name: label },
@@ -1191,12 +1206,12 @@ async function ensureModel(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Canonical model must be resolved before publication.')
   }
-  assertApprovedProposal({ field: 'model', label, snapshot, approvals })
   const existing = await tx.deviceModel.findUnique({
     where: { vendorId_model: { vendorId, model: label } },
     select: { id: true },
   })
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'model', label, snapshot, approvals })
   return (
     await tx.deviceModel.create({
       data: {
