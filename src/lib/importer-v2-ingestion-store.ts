@@ -281,6 +281,29 @@ function prepareRows(
   })
 }
 
+export function importerV2CompatibilityRulesFromSupportedPlatforms(
+  models: readonly {
+    id: string
+    model: string
+    vendor: { name: string }
+  }[],
+  supportedPlatformsByModel: ReadonlyMap<string, readonly string[]>,
+) {
+  return models.flatMap((record) => {
+    const platforms = [...(supportedPlatformsByModel.get(record.id) ?? [])]
+    return platforms.length
+      ? [
+          {
+            id: `device-model:${record.id}`,
+            vendor: record.vendor.name,
+            model: record.model,
+            platforms,
+          },
+        ]
+      : []
+  })
+}
+
 async function catalogSnapshot(): Promise<{
   catalog: ImporterV2CatalogSnapshot
   compatibilityRules: Array<{ id: string; vendor: string; model: string; platforms: string[] }>
@@ -332,19 +355,10 @@ async function catalogSnapshot(): Promise<{
       values: catalogValues,
       modelRelations,
     },
-    compatibilityRules: models.flatMap((record) => {
-      const platforms = supportedPlatformsByModel.get(record.id) ?? []
-      return platforms.length
-        ? [
-            {
-              id: `device-model:${record.id}`,
-              vendor: record.vendor.name,
-              model: record.model,
-              platforms,
-            },
-          ]
-        : []
-    }),
+    compatibilityRules: importerV2CompatibilityRulesFromSupportedPlatforms(
+      models,
+      supportedPlatformsByModel,
+    ),
   }
 }
 
