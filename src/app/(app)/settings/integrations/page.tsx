@@ -132,9 +132,14 @@ export default async function IntegrationsPage() {
           { label: 'Integrations' },
         ]}
         actions={
-          <ButtonLink href="/devices/import" variant="primary">
-            Import XLSX
-          </ButtonLink>
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/settings/integrations/import-automation">
+              Manage import automation
+            </ButtonLink>
+            <ButtonLink href="/devices/import" variant="primary">
+              Import XLSX
+            </ButtonLink>
+          </div>
         }
       />
 
