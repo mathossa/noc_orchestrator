@@ -246,7 +246,7 @@ export async function deactivateImporterV2ExactMapping(input: {
         profileId: latest.profileId,
         field: latest.field,
         normalizedInput: latest.normalizedInput,
-        target: latest.target,
+        target: jsonValue(latest.target),
         explanation: input.explanation,
         isActive: false,
         createdByUserId: input.createdByUserId ?? null,
