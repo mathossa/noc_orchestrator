@@ -13,6 +13,7 @@ import {
   type NormalizedInventorySourceRow,
 } from '@/lib/inventory-source-adapter'
 import { evaluateImporterV2WithFirmware } from '@/lib/importer-v2-firmware-evaluation'
+import { listConfiguredModelSupportedPlatforms } from '@/lib/model-platform-compatibility-store'
 import {
   IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
   parseImporterV2Hierarchy,
@@ -295,7 +296,6 @@ async function catalogSnapshot(): Promise<{
       select: {
         id: true,
         model: true,
-        platform: true,
         vendor: { select: { id: true, name: true } },
         deviceType: { select: { id: true, name: true } },
         family: { select: { id: true, name: true } },
@@ -304,6 +304,9 @@ async function catalogSnapshot(): Promise<{
     }),
     prisma.deviceType.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
   ])
+  const supportedPlatformsByModel = await listConfiguredModelSupportedPlatforms(
+    models.map((record) => record.id),
+  )
   const value = (records: readonly { id: string; name: string }[]) => records.map((record) => ({ id: record.id, label: record.name }))
   const catalogValues: ImporterV2CatalogSnapshot['values'] = {
     customer: value(customers),
@@ -329,14 +332,19 @@ async function catalogSnapshot(): Promise<{
       values: catalogValues,
       modelRelations,
     },
-    compatibilityRules: models
-      .filter((record): record is typeof record & { platform: string } => Boolean(clean(record.platform)))
-      .map((record) => ({
-        id: `device-model:${record.id}`,
-        vendor: record.vendor.name,
-        model: record.model,
-        platforms: [record.platform],
-      })),
+    compatibilityRules: models.flatMap((record) => {
+      const platforms = supportedPlatformsByModel.get(record.id) ?? []
+      return platforms.length
+        ? [
+            {
+              id: `device-model:${record.id}`,
+              vendor: record.vendor.name,
+              model: record.model,
+              platforms,
+            },
+          ]
+        : []
+    }),
   }
 }
 
