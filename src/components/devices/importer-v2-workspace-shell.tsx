@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button'
 import { SelectInput, TextInput } from '@/components/ui/form-controls'
 import { PageHeader } from '@/components/ui/page-header'
 import type {
-  ImporterV2WorkspaceAction,
   ImporterV2WorkspaceFilters,
   ImporterV2WorkspaceGroup,
   ImporterV2WorkspaceSelection,
@@ -237,12 +236,6 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
   const [loadedDetail, setLoadedDetail] = useState<RowDetail | null>(null)
   const [verifyBusy, setVerifyBusy] = useState(false)
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
-  const [preserveBusy, setPreserveBusy] = useState(false)
-  const [preservePreview, setPreservePreview] = useState<{
-    scopeToken: string
-    affectedRowCount: number
-    action: ImporterV2WorkspaceAction
-  } | null>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
 
   useEffect(() => {
@@ -441,86 +434,6 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
       )
     } finally {
       setVerifyBusy(false)
-    }
-  }
-
-
-  const previewPreserveExistingFirmware = async () => {
-    if (!selection) return
-    setPreserveBusy(true)
-    setVerifyMessage(null)
-    setError(null)
-    setPreservePreview(null)
-    const action: ImporterV2WorkspaceAction = {
-      type: 'PRESERVE_EXISTING_FIRMWARE',
-      explanation:
-        'Source does not report current firmware for these rows; keep any existing canonical current-firmware observation and do not invent source evidence.',
-    }
-    try {
-      const response = await fetch(
-        `/api/v1/device-import-v2/batches/${batchId}/actions`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'PREVIEW',
-            selection,
-            action,
-          }),
-        },
-      )
-      const preview = await responseData<{
-        scopeToken: string
-        affectedRowCount: number
-      }>(response)
-      setPreservePreview({
-        scopeToken: preview.scopeToken,
-        affectedRowCount: preview.affectedRowCount,
-        action,
-      })
-    } catch (preserveError) {
-      setError(
-        preserveError instanceof Error
-          ? preserveError.message
-          : 'Unable to preview missing-firmware acknowledgement.',
-      )
-    } finally {
-      setPreserveBusy(false)
-    }
-  }
-
-  const applyPreserveExistingFirmware = async () => {
-    if (!selection || !preservePreview) return
-    setPreserveBusy(true)
-    setError(null)
-    try {
-      const response = await fetch(
-        `/api/v1/device-import-v2/batches/${batchId}/actions`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'APPLY',
-            selection,
-            action: preservePreview.action,
-            scopeToken: preservePreview.scopeToken,
-          }),
-        },
-      )
-      await responseData<Record<string, unknown>>(response)
-      setVerifyMessage(
-        `${preservePreview.affectedRowCount.toLocaleString()} row${preservePreview.affectedRowCount === 1 ? '' : 's'} acknowledged as missing firmware from this source. Existing canonical firmware is preserved where present; new devices remain unknown until another source reports firmware.`,
-      )
-      setPreservePreview(null)
-      setRefreshKey((key) => key + 1)
-    } catch (preserveError) {
-      setError(
-        preserveError instanceof Error
-          ? preserveError.message
-          : 'Unable to acknowledge missing firmware.',
-      )
-    } finally {
-      setPreserveBusy(false)
     }
   }
 
@@ -812,7 +725,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
               {selection ? (
                 <Button
                   variant="primary"
-                  disabled={verifyBusy || preserveBusy}
+                  disabled={verifyBusy}
                   onClick={() => void verifySelectedEvidence()}
                 >
                   {verifyBusy
@@ -822,23 +735,11 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
               ) : null}
               {selection ? (
                 <Button
-                  variant="secondary"
-                  disabled={verifyBusy || preserveBusy}
-                  onClick={() => void previewPreserveExistingFirmware()}
-                >
-                  {preserveBusy && !preservePreview
-                    ? 'Checking…'
-                    : 'Accept missing firmware'}
-                </Button>
-              ) : null}
-              {selection ? (
-                <Button
                   variant="ghost"
                   onClick={() => {
                     setSelectedRows(new Set())
                     setQuerySelection(null)
                     setVerifyMessage(null)
-                    setPreservePreview(null)
                   }}
                 >
                   Clear selection
@@ -855,33 +756,6 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
               </span>
             )}
           </div>
-
-          {preservePreview ? (
-            <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-3 py-3 text-xs text-[var(--muted-strong)]">
-              <p className="font-semibold text-[var(--foreground)]">
-                Acknowledge missing source firmware for {preservePreview.affectedRowCount.toLocaleString()} row{preservePreview.affectedRowCount === 1 ? '' : 's'}?
-              </p>
-              <p className="mt-1 leading-5">
-                Existing canonical firmware is kept unchanged. The source evidence remains blank, and genuinely new devices remain without a current-firmware observation until another source reports one.
-              </p>
-              <div className="mt-2 flex gap-2">
-                <Button
-                  variant="primary"
-                  disabled={preserveBusy}
-                  onClick={() => void applyPreserveExistingFirmware()}
-                >
-                  {preserveBusy ? 'Applying…' : 'Confirm'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={preserveBusy}
-                  onClick={() => setPreservePreview(null)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : null}
 
           {verifyMessage ? (
             <div
