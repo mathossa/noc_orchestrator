@@ -128,7 +128,6 @@ export async function getImporterV2AutomationAdminData(): Promise<ImporterV2Auto
 
   const exactMappings = [...mappingsByKey.values()]
     .map((history) => history[0])
-    .filter((latest) => latest.isActive)
     .map((latest) => ({
       id: latest.id,
       mappingKey: latest.mappingKey,
