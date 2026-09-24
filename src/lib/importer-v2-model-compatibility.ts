@@ -1,5 +1,3 @@
-import type { ImporterV2FirmwareCompatibilityRule } from '@/lib/importer-v2-firmware'
-
 export function importerV2CompatibilityRulesFromSupportedPlatforms(
   models: readonly {
     id: string
@@ -7,7 +5,12 @@ export function importerV2CompatibilityRulesFromSupportedPlatforms(
     vendor: { name: string }
   }[],
   supportedPlatformsByModel: ReadonlyMap<string, readonly string[]>,
-): ImporterV2FirmwareCompatibilityRule[] {
+): Array<{
+  id: string
+  vendor: string
+  model: string
+  platforms: string[]
+}> {
   return models.flatMap((record) => {
     const platforms = [...(supportedPlatformsByModel.get(record.id) ?? [])]
     return platforms.length
