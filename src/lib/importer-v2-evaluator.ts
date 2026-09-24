@@ -150,6 +150,7 @@ export type ImporterV2CanonicalComparison = {
 export type ImporterV2StagedRow = {
   rowNumber: number
   sourceRecordKey?: string | null
+  topologyRole?: 'DEVICE' | 'STACK' | 'STACK_MEMBER'
   rawValues: Partial<Record<ImporterV2Field, string | null>>
   inclusionDecision?: ImporterV2InclusionDecision | null
   comparison?: ImporterV2CanonicalComparison | null
@@ -542,6 +543,7 @@ function resolveField(
 function applyCanonicalModelRelations(
   resolutions: Record<ImporterV2Field, DecisionResolution>,
   catalog: ImporterV2CatalogSnapshot,
+  topologyRole: ImporterV2StagedRow['topologyRole'],
 ) {
   const model = resolutions.model.proposedValue
   if (!model?.id) return
@@ -556,7 +558,9 @@ function applyCanonicalModelRelations(
     target: ImporterV2ProposedValue | null
   }> = [
     { field: 'vendor', target: relation.vendor },
-    { field: 'deviceType', target: relation.deviceType },
+    ...(topologyRole === 'STACK_MEMBER'
+      ? []
+      : [{ field: 'deviceType' as const, target: relation.deviceType }]),
     { field: 'productFamily', target: relation.productFamily },
   ]
 
@@ -697,7 +701,7 @@ function evaluateRow(
       input,
     )
   }
-  applyCanonicalModelRelations(resolutions, input.catalog)
+  applyCanonicalModelRelations(resolutions, input.catalog, row.topologyRole)
 
   const evaluatedFields = {} as Record<
     ImporterV2Field,
