@@ -287,7 +287,9 @@ export function ImportAutomationManager({
 
       <div className="rounded-lg border border-[var(--info-border)] bg-[var(--info-soft)] px-4 py-3 text-sm text-[var(--muted-strong)]">
         Saved importer decisions are versioned. Disabling or removing a rule creates a new
-        active revision; previous revisions remain available in history.
+        active revision; previous revisions remain available in history. Re-run “Apply saved
+        automations” on an already-staged batch after changing rules. Exact-mapping changes
+        take effect when the source is staged again.
       </div>
 
       {message ? (
