@@ -452,12 +452,20 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
             : 'One server-paginated workspace for the full staged batch.'
         }
         actions={
-          <Link
-            href="/devices/import"
-            className="text-sm font-semibold text-[var(--accent-light)] hover:underline"
-          >
-            All batches
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/settings/integrations/import-automation"
+              className="text-sm font-semibold text-[var(--muted-strong)] hover:text-[var(--accent-light)] hover:underline"
+            >
+              Manage saved automations
+            </Link>
+            <Link
+              href="/devices/import"
+              className="text-sm font-semibold text-[var(--accent-light)] hover:underline"
+            >
+              All batches
+            </Link>
+          </div>
         }
       />
 
