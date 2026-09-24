@@ -421,6 +421,7 @@ export function ImportAutomationManager({
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-[11px] uppercase tracking-[0.08em] text-[var(--muted)]">
+                    <th className="px-3 py-2.5">Status</th>
                     <th className="px-3 py-2.5">Field</th>
                     <th className="px-3 py-2.5">Source value</th>
                     <th className="px-3 py-2.5">Canonical target</th>
@@ -444,6 +445,11 @@ export function ImportAutomationManager({
                         setShowHistory(false)
                       }}
                     >
+                      <td className="px-3 py-3">
+                        <StatusBadge tone={mapping.isActive ? 'success' : 'neutral'}>
+                          {mapping.isActive ? 'Active' : 'Inactive'}
+                        </StatusBadge>
+                      </td>
                       <td className="px-3 py-3 font-semibold text-[var(--foreground)]">
                         {fieldLabel(mapping.field)}
                       </td>
@@ -625,7 +631,9 @@ export function ImportAutomationManager({
           ) : tab === 'mappings' && activeMapping ? (
             <div className="space-y-4">
               <div>
-                <StatusBadge tone="success">Active</StatusBadge>
+                <StatusBadge tone={activeMapping.isActive ? 'success' : 'neutral'}>
+                  {activeMapping.isActive ? 'Active' : 'Inactive'}
+                </StatusBadge>
                 <h2 className="mt-3 text-lg font-semibold text-[var(--foreground)]">
                   {fieldLabel(activeMapping.field)}
                 </h2>
@@ -660,14 +668,16 @@ export function ImportAutomationManager({
                 </div>
               </div>
 
-              <Button
-                variant="danger"
-                onClick={() =>
-                  setPending({ kind: 'mapping', mapping: activeMapping })
-                }
-              >
-                Deactivate mapping
-              </Button>
+              {activeMapping.isActive ? (
+                <Button
+                  variant="danger"
+                  onClick={() =>
+                    setPending({ kind: 'mapping', mapping: activeMapping })
+                  }
+                >
+                  Deactivate mapping
+                </Button>
+              ) : null}
 
               <Button
                 variant="ghost"
