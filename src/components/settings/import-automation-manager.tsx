@@ -72,6 +72,19 @@ function profileName(profileId: string | null | undefined, data: ImporterV2Autom
   return data.profiles.find((profile) => profile.id === profileId)?.name ?? profileId
 }
 
+function ruleRisk(rule: ImporterV2RuleDefinition) {
+  for (const action of rule.actions) {
+    if (
+      action.type === 'MAP_VALUE' &&
+      action.field === 'softwarePlatform' &&
+      action.target.label.includes(',')
+    ) {
+      return 'Software platform is a singular observed platform. This rule maps one device to multiple platform values; supported platforms belong on the model compatibility relationship instead.'
+    }
+  }
+  return null
+}
+
 async function responseData(response: Response) {
   const body = await response.json()
   if (!response.ok) {
@@ -89,6 +102,7 @@ export function ImportAutomationManager({
   const [tab, setTab] = useState<'rules' | 'mappings'>('rules')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL')
+  const [profileFilter, setProfileFilter] = useState('ALL')
   const [selectedRule, setSelectedRule] = useState<string | null>(null)
   const [selectedMapping, setSelectedMapping] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
@@ -111,6 +125,12 @@ export function ImportAutomationManager({
     const needle = search.trim().toLocaleLowerCase('en-US')
     return rules.filter(({ rule }) => {
       if (status !== 'ALL' && rule.status !== status) return false
+      if (
+        profileFilter !== 'ALL' &&
+        !(rule.scope.profileIds ?? []).includes(profileFilter)
+      ) {
+        return false
+      }
       if (!needle) return true
       const haystack = [
         rule.name,
@@ -124,11 +144,18 @@ export function ImportAutomationManager({
         .toLocaleLowerCase('en-US')
       return haystack.includes(needle)
     })
-  }, [rules, search, status, data])
+  }, [rules, search, status, profileFilter, data])
 
   const filteredMappings = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase('en-US')
     return data.exactMappings.filter((mapping) => {
+      if (
+        profileFilter !== 'ALL' &&
+        mapping.profileId !== null &&
+        mapping.profileId !== profileFilter
+      ) {
+        return false
+      }
       if (!needle) return true
       return [
         mapping.field,
@@ -142,7 +169,7 @@ export function ImportAutomationManager({
         .toLocaleLowerCase('en-US')
         .includes(needle)
     })
-  }, [data, search])
+  }, [data, search, profileFilter])
 
   const activeRule =
     rules.find(({ book, rule }) => `${book.id}:${rule.id}` === selectedRule) ??
@@ -272,7 +299,7 @@ export function ImportAutomationManager({
         </div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_180px]">
         <input
           aria-label="Search import automations"
           value={search}
@@ -284,6 +311,19 @@ export function ImportAutomationManager({
           }
           className="h-10 rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
         />
+        <select
+          aria-label="Filter import profile"
+          value={profileFilter}
+          onChange={(event) => setProfileFilter(event.target.value)}
+          className="h-10 rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-sm text-[var(--foreground)]"
+        >
+          <option value="ALL">All profiles</option>
+          {data.profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.provider} · {profile.name}
+            </option>
+          ))}
+        </select>
         {tab === 'rules' ? (
           <select
             aria-label="Filter rule status"
@@ -525,6 +565,16 @@ export function ImportAutomationManager({
                     </div>
                   </div>
                 </div>
+                {ruleRisk(activeRule.rule) ? (
+                  <div className="rounded-md border border-[var(--warning-border)] bg-[var(--warning-soft)] p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--warning)]">
+                      Review this rule
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
+                      {ruleRisk(activeRule.rule)}
+                    </p>
+                  </div>
+                ) : null}
                 {activeRule.rule.description ? (
                   <div>
                     <div className="text-xs text-[var(--muted)]">Description</div>
