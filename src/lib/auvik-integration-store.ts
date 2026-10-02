@@ -116,6 +116,45 @@ function cleanCredentials(input: AuvikApiCredentials): AuvikStoredCredentials {
   return { username, apiKey }
 }
 
+type AuvikConnectionTestMetadata = {
+  status: 'UNTESTED' | 'SUCCESS' | 'FAILED'
+  testedAt: string | null
+  httpStatus: number | null
+  suggestedRegion: string | null
+}
+
+function testMetadata(value: unknown): AuvikConnectionTestMetadata {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      status: 'UNTESTED',
+      testedAt: null,
+      httpStatus: null,
+      suggestedRegion: null,
+    }
+  }
+  const record = value as Record<string, unknown>
+  const status =
+    record.lastConnectionTestStatus === 'SUCCESS' ||
+    record.lastConnectionTestStatus === 'FAILED'
+      ? record.lastConnectionTestStatus
+      : 'UNTESTED'
+  return {
+    status,
+    testedAt:
+      typeof record.lastConnectionTestAt === 'string'
+        ? record.lastConnectionTestAt
+        : null,
+    httpStatus:
+      typeof record.lastConnectionTestHttpStatus === 'number'
+        ? record.lastConnectionTestHttpStatus
+        : null,
+    suggestedRegion:
+      typeof record.suggestedRegion === 'string'
+        ? record.suggestedRegion
+        : null,
+  }
+}
+
 function publicConnection(record: {
   id: string
   provider: string
@@ -126,6 +165,7 @@ function publicConnection(record: {
   configuration: unknown
   createdAt: Date
   updatedAt: Date
+  metadata: unknown
   secret: { sourceId: string } | null
 }) {
   if (
@@ -143,6 +183,7 @@ function publicConnection(record: {
     sourceAdapterId: record.sourceAdapterId,
     configuration: parseConfiguration(record.configuration),
     credentialsConfigured: Boolean(record.secret),
+    connectionTest: testMetadata(record.metadata),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
@@ -178,6 +219,7 @@ export async function createAuvikInventoryConnection(input: {
         configuration: configuration as never,
         metadata: {
           connectionType: 'AUVIK_API_V2',
+          lastConnectionTestStatus: 'UNTESTED',
         },
       },
     })
@@ -260,6 +302,23 @@ export async function updateAuvikInventoryConnection(input: {
     ? encryptInventorySourceSecret(input.sourceId, credentials)
     : null
 
+  const changesConnectionIdentity =
+    input.region !== undefined || Boolean(input.credentials)
+  if (
+    input.enabled === true &&
+    existing.connectionTest.status !== 'SUCCESS' &&
+    !changesConnectionIdentity
+  ) {
+    throw new Error(
+      'Test the Auvik connection successfully before enabling synchronization.',
+    )
+  }
+  if (input.enabled === true && changesConnectionIdentity) {
+    throw new Error(
+      'Save changed Auvik credentials/region, test the connection, then enable synchronization.',
+    )
+  }
+
   const record = await prisma.$transaction(async (tx) => {
     const source = await tx.inventorySource.update({
       where: { id: input.sourceId },
@@ -267,6 +326,14 @@ export async function updateAuvikInventoryConnection(input: {
         name,
         enabled: input.enabled ?? existing.enabled,
         configuration: configuration as never,
+        ...(changesConnectionIdentity
+          ? {
+              metadata: {
+                connectionType: 'AUVIK_API_V2',
+                lastConnectionTestStatus: 'UNTESTED',
+              },
+            }
+          : {}),
       },
     })
     if (envelope) {
@@ -307,12 +374,23 @@ export async function testAuvikInventoryConnection(
 ) {
   const { connection, credentials } =
     await getAuvikInventoryConnectionCredentials(sourceId)
+  const testedAt = new Date().toISOString()
   try {
     await verifyAuvikCredentials({
       region: connection.configuration.region,
       credentials,
       fetchImpl: options.fetchImpl,
       signal: options.signal,
+    })
+    await prisma.inventorySource.update({
+      where: { id: sourceId },
+      data: {
+        metadata: {
+          connectionType: 'AUVIK_API_V2',
+          lastConnectionTestStatus: 'SUCCESS',
+          lastConnectionTestAt: testedAt,
+        },
+      },
     })
     return {
       ok: true as const,
@@ -321,15 +399,47 @@ export async function testAuvikInventoryConnection(
     }
   } catch (error) {
     if (error instanceof AuvikRegionRedirectError) {
+      const suggestedRegion =
+        error.redirectedRegion ?? auvikRegionFromRedirect(error.location)
+      await prisma.inventorySource.update({
+        where: { id: sourceId },
+        data: {
+          metadata: {
+            connectionType: 'AUVIK_API_V2',
+            lastConnectionTestStatus: 'FAILED',
+            lastConnectionTestAt: testedAt,
+            lastConnectionTestHttpStatus: error.status,
+            suggestedRegion,
+          },
+        },
+      })
       return {
         ok: false as const,
         region: connection.configuration.region,
-        suggestedRegion:
-          error.redirectedRegion ?? auvikRegionFromRedirect(error.location),
+        suggestedRegion,
         error: error.message,
         status: error.status,
       }
     }
+
+    const status =
+      error &&
+      typeof error === 'object' &&
+      'status' in error &&
+      typeof (error as { status?: unknown }).status === 'number'
+        ? (error as { status: number }).status
+        : null
+    await prisma.inventorySource.update({
+      where: { id: sourceId },
+      data: {
+        metadata: {
+          connectionType: 'AUVIK_API_V2',
+          lastConnectionTestStatus: 'FAILED',
+          lastConnectionTestAt: testedAt,
+          lastConnectionTestHttpStatus: status,
+        },
+      },
+    })
     throw error
   }
 }
