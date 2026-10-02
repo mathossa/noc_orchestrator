@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import {
   auvikRegionFromRedirect,
   AuvikRegionRedirectError,
+  listAuvikTenants,
   verifyAuvikCredentials,
   type AuvikApiCredentials,
 } from '@/lib/auvik-api-client'
@@ -442,6 +443,28 @@ export async function testAuvikInventoryConnection(
     })
     throw error
   }
+}
+
+export async function discoverAuvikInventoryTenants(
+  sourceId: string,
+  options: {
+    fetchImpl?: typeof fetch
+    signal?: AbortSignal
+  } = {},
+) {
+  const { connection, credentials } =
+    await getAuvikInventoryConnectionCredentials(sourceId)
+  if (connection.connectionTest.status !== 'SUCCESS') {
+    throw new Error(
+      'Test the Auvik connection successfully before discovering tenants.',
+    )
+  }
+  return listAuvikTenants({
+    region: connection.configuration.region,
+    credentials,
+    fetchImpl: options.fetchImpl,
+    signal: options.signal,
+  })
 }
 
 export const AUVIK_INVENTORY_SECRET_ALGORITHM =
