@@ -9,6 +9,7 @@ import {
   listInventorySources,
   listInventorySyncProfiles,
 } from '@/lib/inventory-integrations-store'
+import { listAuvikInventoryConnections } from '@/lib/auvik-integration-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +36,18 @@ const sourceColumns: Array<DataTableColumn<SourceRow>> = [
     header: 'Source',
     render: (row) => (
       <div className="min-w-[180px]">
-        <div className="font-semibold text-[var(--foreground)]">{row.name}</div>
+        <div className="font-semibold text-[var(--foreground)]">
+          {row.adapterType === 'auvik-api-v2' ? (
+            <a
+              href={`/settings/integrations/auvik/${row.id}`}
+              className="text-[var(--accent-light)] hover:underline"
+            >
+              {row.name}
+            </a>
+          ) : (
+            row.name
+          )}
+        </div>
         <div className="mt-0.5 text-xs text-[var(--muted)]">{row.sourceAdapterId}</div>
       </div>
     ),
@@ -91,9 +103,10 @@ const profileColumns: Array<DataTableColumn<ProfileRow>> = [
 ]
 
 export default async function IntegrationsPage() {
-  const [sources, profiles] = await Promise.all([
+  const [sources, profiles, auvikConnections] = await Promise.all([
     listInventorySources(),
     listInventorySyncProfiles(),
+    listAuvikInventoryConnections(),
   ])
   const profileNamesBySource = new Map<string, string[]>()
   for (const profile of profiles) {
@@ -133,6 +146,9 @@ export default async function IntegrationsPage() {
         ]}
         actions={
           <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/settings/integrations/auvik/new">
+              Add Auvik connection
+            </ButtonLink>
             <ButtonLink href="/settings/integrations/import-automation">
               Manage import automation
             </ButtonLink>
@@ -147,10 +163,10 @@ export default async function IntegrationsPage() {
         <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
             <h2 className="text-base font-semibold text-[var(--foreground)]">
-              Available inventory adapter
+              Inventory adapters
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              XLSX/file upload is the supported inventory transport in this slice.
+              XLSX upload and Auvik Device API v2 both feed the shared Importer v2 pipeline.
             </p>
           </div>
           <StatusBadge tone="success">Supported</StatusBadge>
@@ -165,6 +181,39 @@ export default async function IntegrationsPage() {
             </p>
           </div>
           <ButtonLink href="/devices/import">Open import</ButtonLink>
+        </div>
+        <div className="grid gap-4 border-t border-[var(--border)] px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="font-semibold text-[var(--foreground)]">
+                Auvik Network Management
+              </div>
+              <StatusBadge tone="success">Device API v2</StatusBadge>
+            </div>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--muted)]">
+              Saved encrypted connection, connection test, explicit tenant scope and
+              manual Sync now. Auvik remains observed-state only; reconciliation and
+              final publication use Importer v2.
+            </p>
+            {auvikConnections.length > 0 ? (
+              <div className="mt-2 text-xs text-[var(--muted-strong)]">
+                {auvikConnections.length} configured connection
+                {auvikConnections.length === 1 ? '' : 's'}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {auvikConnections[0] ? (
+              <ButtonLink
+                href={`/settings/integrations/auvik/${auvikConnections[0].id}`}
+              >
+                Open Auvik
+              </ButtonLink>
+            ) : null}
+            <ButtonLink href="/settings/integrations/auvik/new" variant="primary">
+              Add connection
+            </ButtonLink>
+          </div>
         </div>
       </section>
 
