@@ -56,6 +56,16 @@ export async function runAuvikInventorySync(
 ) {
   const { connection, credentials } =
     await getAuvikInventoryConnectionCredentials(sourceId)
+  if (!connection.enabled) {
+    throw new Error(
+      'Enable the Auvik connection after a successful connection test before synchronizing inventory.',
+    )
+  }
+  if (connection.connectionTest.status !== 'SUCCESS') {
+    throw new Error(
+      'Test the Auvik connection successfully before synchronizing inventory.',
+    )
+  }
   const tenantScopes = configuredTenantScopes(connection.configuration)
 
   const tenants = []
