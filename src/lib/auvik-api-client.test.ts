@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AuvikApiError,
-  AuvikRegionRedirectError,
   listAuvikDevicesV2,
   verifyAuvikCredentials,
 } from '@/lib/auvik-api-client'
