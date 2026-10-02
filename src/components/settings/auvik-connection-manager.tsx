@@ -35,6 +35,12 @@ type Connection = {
   updatedAt: string
 }
 
+type DiscoveredTenant = {
+  id: string
+  domainPrefix: string
+  tenantType: string | null
+}
+
 type TenantEditor = {
   tenantId: string
   tenantName: string
@@ -82,6 +88,9 @@ export function AuvikConnectionManager({
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
+  const [discoveredTenants, setDiscoveredTenants] = useState<
+    DiscoveredTenant[]
+  >([])
 
   const updateTenant = (
     index: number,
@@ -219,6 +228,48 @@ export function AuvikConnectionManager({
     } finally {
       setBusy(null)
     }
+  }
+
+  const discoverTenants = async () => {
+    setBusy('discover')
+    setMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/inventory-sources/auvik/${connection.id}/tenants`,
+        { method: 'POST' },
+      )
+      const result = (await responseData(response)) as DiscoveredTenant[]
+      setDiscoveredTenants(result)
+      setMessage(
+        `Discovered ${result.length.toLocaleString()} accessible Auvik tenant${result.length === 1 ? '' : 's'}.`,
+      )
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to discover Auvik tenants.',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const addDiscoveredTenant = (tenant: DiscoveredTenant) => {
+    setTenants((current) => {
+      if (current.some((entry) => entry.tenantId === tenant.id)) return current
+      const replacement = editorTenant({
+        tenantId: tenant.id,
+        tenantName: tenant.domainPrefix,
+      })
+      const onlyEmpty =
+        current.length === 1 &&
+        !current[0].tenantId &&
+        !current[0].tenantName &&
+        !current[0].customer &&
+        !current[0].businessUnit &&
+        !current[0].site
+      return onlyEmpty ? [replacement] : [...current, replacement]
+    })
   }
 
   const syncNow = async () => {
@@ -379,11 +430,53 @@ export function AuvikConnectionManager({
               canonical hierarchy decisions still happen in Importer v2.
             </p>
           </div>
-          <Button onClick={() => setTenants((current) => [...current, editorTenant()])}>
-            Add tenant
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={
+                busy !== null ||
+                connection.connectionTest.status !== 'SUCCESS'
+              }
+              onClick={() => void discoverTenants()}
+            >
+              {busy === 'discover' ? 'Discovering…' : 'Discover tenants'}
+            </Button>
+            <Button onClick={() => setTenants((current) => [...current, editorTenant()])}>
+              Add manually
+            </Button>
+          </div>
         </div>
         <div className="space-y-3 p-5">
+          {discoveredTenants.length > 0 ? (
+            <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--accent-light)]">
+                Discovered tenants
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {discoveredTenants.map((tenant) => {
+                  const configured = tenants.some(
+                    (entry) => entry.tenantId === tenant.id,
+                  )
+                  return (
+                    <button
+                      key={tenant.id}
+                      type="button"
+                      disabled={configured}
+                      onClick={() => addDiscoveredTenant(tenant)}
+                      className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-left text-xs disabled:opacity-50"
+                    >
+                      <strong>{tenant.domainPrefix}</strong>
+                      <span className="ml-2 text-[var(--muted)]">
+                        {tenant.tenantType ?? 'tenant'} · {tenant.id}
+                      </span>
+                      {configured ? (
+                        <span className="ml-2 text-[var(--success)]">Configured</span>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
           {tenants.map((tenant, index) => (
             <div
               key={index}
