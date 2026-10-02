@@ -161,11 +161,11 @@ describe('Importer v2 Auvik API adapter', () => {
   })
 
   it('rejects a non-Auvik source instead of silently changing provider identity', async () => {
-    await expect(
+    expect(() =>
       auvikApiV2InventorySourceAdapter.loadAndNormalize({
         source: { ...source, provider: 'MERAKI' },
         input: { tenants: [] },
       }),
-    ).rejects.toThrow('requires provider AUVIK')
+    ).toThrow('requires provider AUVIK')
   })
 })
