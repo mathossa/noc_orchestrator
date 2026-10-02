@@ -747,3 +747,51 @@ model FirmwareWorkPlanEvent {
   @@index([targetId])
   @@index([actorUserId])
 }
+
+//
+// Quarterly firmware review/report history.
+//
+// Review/report identity is intentionally snapshot-oriented. Customer/user IDs
+// are stored as historical references rather than cascading relations so an old
+// report remains reproducible even when live directory data changes later.
+//
+model FirmwareReviewCycle {
+  id             String   @id @default(uuid())
+  customerId     String
+  customerName   String
+  periodStart    DateTime
+  periodEnd      DateTime
+  asOf           DateTime
+  nextReviewAt   DateTime?
+  state          String   @default("DRAFT")
+  decisionStatus String   @default("PENDING")
+  reviewerUserId String?
+  reviewerName   String?
+
+  reports FirmwareReviewReport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([customerId, periodEnd])
+  @@index([state, nextReviewAt])
+}
+
+model FirmwareReviewReport {
+  id                String   @id @default(uuid())
+  reviewCycleId     String
+  version           Int
+  status            String   @default("DRAFT")
+  generatedAt       DateTime @default(now())
+  generatedByUserId String?
+  snapshot          Json
+  snapshotHash      String
+  artifactReference String?
+  sentAt            DateTime?
+
+  cycle FirmwareReviewCycle @relation(fields: [reviewCycleId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewCycleId, version])
+  @@index([status, generatedAt])
+  @@index([snapshotHash])
+}
