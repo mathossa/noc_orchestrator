@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
-import type { AwaitedReturn } from '@/lib/type-helpers'
 
 type Connection = {
   id: string
