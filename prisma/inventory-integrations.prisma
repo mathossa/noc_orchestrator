@@ -14,6 +14,7 @@ model InventorySource {
   metadata        Json?
 
   profileLinks InventorySyncProfileSource[]
+  secret       InventorySourceSecret?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -51,4 +52,24 @@ model InventorySyncProfileSource {
   @@unique([profileId, sourceId])
   @@index([profileId, position])
   @@index([sourceId])
+}
+
+
+/// Encrypted connection credentials for one inventory source.
+///
+/// The browser-facing InventorySource configuration stays non-secret. The
+/// encrypted envelope is decrypted only in server-side integration code using
+/// INVENTORY_SOURCE_SECRET_KEY.
+model InventorySourceSecret {
+  sourceId         String @id
+  algorithm        String @default("aes-256-gcm")
+  keyVersion       Int    @default(1)
+  initializationVector String
+  authenticationTag    String
+  ciphertext           String
+
+  source InventorySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
