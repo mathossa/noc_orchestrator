@@ -108,8 +108,8 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
 }
 
 function cleanCredentials(input: AuvikApiCredentials): AuvikStoredCredentials {
-  const username = clean(input.username)
-  const apiKey = clean(input.apiKey)
+  const username = input.username.normalize('NFKC').trim()
+  const apiKey = input.apiKey.trim()
   if (!username || !apiKey) {
     throw new Error('Auvik username and API key are required.')
   }
