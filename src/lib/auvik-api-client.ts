@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 
 export const AUVIK_DEVICE_V2_PATH = '/v2/api/inventory/device/info'
 export const AUVIK_VERIFY_CREDENTIALS_PATH = '/authentication/verify'
+export const AUVIK_TENANTS_PATH = '/v1/tenants'
 export const AUVIK_DEVICE_V2_PAGE_SIZE = 1000
 export const AUVIK_RATE_LIMIT_REQUESTS = 2500
 export const AUVIK_RATE_LIMIT_WINDOW_SECONDS = 5 * 60
@@ -57,6 +58,19 @@ export type AuvikDeviceV2Page = {
     next?: string | null
     [key: string]: unknown
   }
+}
+
+export type AuvikTenantResource = {
+  type: string
+  id: string
+  attributes: {
+    domainPrefix: string
+    tenantType: string | null
+  }
+}
+
+export type AuvikTenantsResponse = {
+  data: readonly AuvikTenantResource[]
 }
 
 export type AuvikApiRequestPolicy = {
@@ -167,6 +181,45 @@ function parseDevicePage(value: unknown): AuvikDeviceV2Page {
     : undefined
 
   return { data, links }
+}
+
+function parseTenantsResponse(value: unknown): AuvikTenantsResponse {
+  if (!isRecord(value) || !Array.isArray(value.data)) {
+    throw new AuvikApiError(
+      'Auvik returned an invalid Tenants API response.',
+      502,
+      false,
+    )
+  }
+
+  const data = value.data.map((candidate) => {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.id !== 'string' ||
+      typeof candidate.type !== 'string' ||
+      !isRecord(candidate.attributes) ||
+      typeof candidate.attributes.domainPrefix !== 'string'
+    ) {
+      throw new AuvikApiError(
+        'Auvik returned an invalid tenant resource.',
+        502,
+        false,
+      )
+    }
+    return {
+      type: candidate.type,
+      id: candidate.id,
+      attributes: {
+        domainPrefix: candidate.attributes.domainPrefix,
+        tenantType:
+          typeof candidate.attributes.tenantType === 'string'
+            ? candidate.attributes.tenantType
+            : null,
+      },
+    }
+  })
+
+  return { data }
 }
 
 function safeNextUrl(next: string, baseUrl: URL) {
@@ -314,6 +367,38 @@ export async function verifyAuvikCredentials(input: {
     requestPolicy: input.requestPolicy,
   })
   return { ok: true as const }
+}
+
+export async function listAuvikTenants(input: {
+  region: string
+  credentials: AuvikApiCredentials
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  requestPolicy?: AuvikApiRequestPolicy
+}) {
+  const baseUrl = auvikApiBaseUrl(input.region)
+  const url = new URL(AUVIK_TENANTS_PATH, baseUrl)
+  const response = await auvikGet({
+    url,
+    baseUrl,
+    credentials: input.credentials,
+    fetchImpl: input.fetchImpl ?? fetch,
+    signal: input.signal,
+    requestPolicy: input.requestPolicy,
+  })
+
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    throw new AuvikApiError(
+      'Auvik returned an invalid JSON response.',
+      502,
+      false,
+    )
+  }
+
+  return parseTenantsResponse(payload).data
 }
 
 /**
