@@ -134,7 +134,7 @@ describe('Auvik Device API v2 client', () => {
         credentials,
         fetchImpl,
       }),
-    ).rejects.toMatchObject<AuvikRegionRedirectError>({
+    ).rejects.toMatchObject({
       name: 'AuvikRegionRedirectError',
       status: 308,
       redirectedRegion: 'eu2',
