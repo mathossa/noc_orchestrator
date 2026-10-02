@@ -1,0 +1,42 @@
+import { notFound } from 'next/navigation'
+import { AuvikConnectionManager } from '@/components/settings/auvik-connection-manager'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatusBadge } from '@/components/ui/status-badge'
+import { getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
+
+export const dynamic = 'force-dynamic'
+
+export default async function AuvikConnectionPage({
+  params,
+}: {
+  params: Promise<{ sourceId: string }>
+}) {
+  const { sourceId } = await params
+  const connection = await getAuvikInventoryConnection(sourceId)
+  if (!connection) notFound()
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Settings · Integrations · Auvik"
+        title={connection.name}
+        description="Auvik Network Management Device API v2 inventory source. Syncs stage observed state through the shared Importer v2 reconciliation and publication path."
+        breadcrumbs={[
+          { label: 'Settings', href: '/settings' },
+          { label: 'Integrations', href: '/settings/integrations' },
+          { label: connection.name },
+        ]}
+        meta={
+          <>
+            <StatusBadge tone={connection.enabled ? 'success' : 'neutral'}>
+              {connection.enabled ? 'Enabled' : 'Disabled'}
+            </StatusBadge>
+            <span>{connection.configuration.region}</span>
+            <span>{connection.configuration.tenants.length} tenant scope(s)</span>
+          </>
+        }
+      />
+      <AuvikConnectionManager initialConnection={connection} />
+    </div>
+  )
+}
