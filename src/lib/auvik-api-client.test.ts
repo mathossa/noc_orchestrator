@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AuvikApiError,
   listAuvikDevicesV2,
+  listAuvikTenants,
   verifyAuvikCredentials,
 } from '@/lib/auvik-api-client'
 
@@ -286,6 +287,62 @@ describe('Auvik Device API v2 client', () => {
       status: 502,
       retryable: false,
     })
+  })
+
+  it('discovers tenant IDs, domain prefixes, and tenant types from the v1 Tenants API', async () => {
+    const calls: string[] = []
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input))
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              type: 'tenant',
+              id: 'tenant-1',
+              attributes: {
+                domainPrefix: 'customer-a',
+                tenantType: 'client',
+              },
+            },
+            {
+              type: 'tenant',
+              id: 'tenant-2',
+              attributes: {
+                domainPrefix: 'customer-b',
+                tenantType: 'multiClient',
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      )
+    }
+
+    const tenants = await listAuvikTenants({
+      region: 'eu1',
+      credentials,
+      fetchImpl,
+    })
+
+    expect(new URL(calls[0]).pathname).toBe('/v1/tenants')
+    expect(tenants).toEqual([
+      {
+        type: 'tenant',
+        id: 'tenant-1',
+        attributes: {
+          domainPrefix: 'customer-a',
+          tenantType: 'client',
+        },
+      },
+      {
+        type: 'tenant',
+        id: 'tenant-2',
+        attributes: {
+          domainPrefix: 'customer-b',
+          tenantType: 'multiClient',
+        },
+      },
+    ])
   })
 
   it('uses the documented credential verification endpoint', async () => {
