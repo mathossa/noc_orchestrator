@@ -325,7 +325,9 @@ export async function updateAuvikInventoryConnection(input: {
       where: { id: input.sourceId },
       data: {
         name,
-        enabled: input.enabled ?? existing.enabled,
+        enabled: changesConnectionIdentity
+          ? false
+          : (input.enabled ?? existing.enabled),
         configuration: configuration as never,
         ...(changesConnectionIdentity
           ? {
