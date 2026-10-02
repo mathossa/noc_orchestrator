@@ -250,7 +250,8 @@ async function auvikGet(input: {
     if (response.ok) return response
 
     const retryable = response.status === 429 || response.status >= 500
-    if (!retryable || attempt >= maxAttempts) {
+    const retryInClient = response.status >= 500
+    if (!retryInClient || attempt >= maxAttempts) {
       throw new AuvikApiError(
         `Auvik API request failed with HTTP ${response.status}.`,
         response.status,
