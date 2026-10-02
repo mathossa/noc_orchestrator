@@ -39,6 +39,39 @@ NOC Orchestrator owns the firmware-specific meaning and workflow:
 
 External systems may supply observed inventory/current-state evidence. They must not silently overwrite NOC-owned policy or decisions.
 
+
+## Inventory integrations and Importer v2 boundary
+
+Inventory integrations use one transport-neutral handoff into the existing Importer v2 pipeline:
+
+```text
+Inventory source definition
+  provider + adapter type + source adapter identity
+        ↓
+source adapter
+  fetch/load + normalize only
+        ↓
+ImporterV2StagedRow[]
+        ↓
+existing Importer v2
+  hierarchy → identity/crosswalk → catalog/firmware interpretation
+  → repeat diff → QA/review → atomic publication
+        ↓
+canonical inventory
+```
+
+The identities are intentionally separate:
+
+- **provider** is the external inventory authority, for example `AUVIK`. Confirmed device crosswalks stay provider-scoped so an identity learned from an Auvik XLSX export can be reused by a later Auvik API adapter.
+- **adapter type** describes the transport family, for example `xlsx` or a future `auvik-api-v2`.
+- **source adapter identity** identifies one logical source/connection. The established Auvik XLSX source keeps its existing identity `xlsx` for profile, rule and repeat-history compatibility; a future API connection uses a distinct identity such as `auvik-api-v2:<connection-id>`. Repeat-import snapshots remain source-adapter-scoped because two connections may expose different inventory views.
+
+XLSX is the first functional adapter. Its existing workbook parsing, source/profile recognition and column mapping remain XLSX-specific; after normalization it uses the same shared staging path that future adapters use. Source adapters do not own hierarchy reconciliation, canonical device identity, firmware policy, QA, or publication.
+
+`InventorySource` stores non-secret source configuration/metadata. `InventorySyncProfile` composes one or more sources through a join model so a future logical "Network Inventory" view can contain Auvik, Meraki, Aruba or other sources without assuming that one canonical Device has only one external observation. Source precedence and multi-source conflict resolution are deliberately separate follow-up work.
+
+PR #119 can plug its existing Auvik Device API v2 normalization into this seam by wrapping the already-normalized rows in the generic inventory source adapter contract, keeping `provider = AUVIK` and assigning the API connection its own `sourceAdapterId`. It should then call the shared normalized-source staging function rather than adding an Auvik-specific reconciliation or publication path.
+
 ## Reuse-first architecture
 
 Generic infrastructure should normally come from maintained open source or official vendor SDKs rather than custom implementations.

@@ -21,10 +21,15 @@ import { initializeImporterV2WorkspaceAutomation } from '@/lib/importer-v2-works
 export type ImporterV2RuleWizardScope =
   'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'
 
+export type ImporterV2RuleWizardTarget = {
+  field: ImporterV2Field
+  target: { id: string | null; label: string }
+}
+
 export type ImporterV2RuleWizardInput = {
   rowNumber: number
-  /** Field that the automation writes. */
-  field: ImporterV2Field
+  /** Backward-compatible single-field target. */
+  field?: ImporterV2Field
   /** Source field that the condition evaluates. Defaults to `field` for old clients. */
   matchField?: ImporterV2Field
   operator: Extract<
@@ -32,7 +37,9 @@ export type ImporterV2RuleWizardInput = {
     'NORMALIZED_EXACT' | 'PREFIX' | 'CONTAINS' | 'PATTERN' | 'VERSION_MATCH'
   >
   matchValue: string
-  target: { id: string | null; label: string }
+  target?: { id: string | null; label: string }
+  /** Multi-field targets are applied atomically by one persisted rule. */
+  targets?: readonly ImporterV2RuleWizardTarget[]
   scope: ImporterV2RuleWizardScope
   name?: string | null
   explanation?: string | null
@@ -83,7 +90,7 @@ function ruleScope(input: {
   batch: { provider: string; sourceAdapterId: string; profileId: string }
   rowValues: Partial<Record<ImporterV2Field, string | null>>
   scope: ImporterV2RuleWizardScope
-  targetField: ImporterV2Field
+  targetFields: readonly ImporterV2Field[]
 }): ImporterV2RuleScope {
   const scope: ImporterV2RuleScope = {
     profileIds: [input.batch.profileId],
@@ -92,7 +99,7 @@ function ruleScope(input: {
     // `sourceFields` in the current rule matcher constrains action fields. Keep
     // this bound to the field being written; the condition itself carries the
     // independent source/match field.
-    sourceFields: [input.targetField],
+    sourceFields: [...input.targetFields],
   }
   if (input.scope === 'CUSTOMER' && clean(input.rowValues.customer)) {
     scope.customers = [clean(input.rowValues.customer)!]
@@ -106,36 +113,70 @@ function ruleScope(input: {
   return scope
 }
 
+function wizardTargets(
+  wizard: ImporterV2RuleWizardInput,
+): readonly ImporterV2RuleWizardTarget[] {
+  if (wizard.targets?.length) {
+    return wizard.targets.map((entry) => ({
+      field: entry.field,
+      target: {
+        id: entry.target.id ?? null,
+        label: clean(entry.target.label) ?? '',
+      },
+    }))
+  }
+  if (wizard.field && wizard.target) {
+    return [
+      {
+        field: wizard.field,
+        target: {
+          id: wizard.target.id ?? null,
+          label: clean(wizard.target.label) ?? '',
+        },
+      },
+    ]
+  }
+  return []
+}
+
 function candidateRule(input: {
   batch: { provider: string; sourceAdapterId: string; profileId: string }
   rowValues: Partial<Record<ImporterV2Field, string | null>>
   wizard: ImporterV2RuleWizardInput
 }): ImporterV2RuleDefinition {
   const matchValue = clean(input.wizard.matchValue)
-  const targetLabel = clean(input.wizard.target.label)
-  const matchField = input.wizard.matchField ?? input.wizard.field
+  const targets = wizardTargets(input.wizard)
+  const matchField = input.wizard.matchField ?? input.wizard.field ?? targets[0]?.field
+  if (!matchField) throw new Error('Choose a source field to match.')
   if (!matchValue) throw new Error('Enter a source pattern to match.')
-  if (!targetLabel)
-    throw new Error('Choose or enter the value that the rule should set.')
+  if (targets.length === 0)
+    throw new Error('Choose at least one field/value for this automation.')
+  if (targets.some((entry) => !clean(entry.target.label)))
+    throw new Error('Every automation target requires a value.')
+  if (new Set(targets.map((entry) => entry.field)).size !== targets.length)
+    throw new Error('An automation may set each target field only once.')
   if (matchValue.length > 160)
     throw new Error('Rule patterns are limited to 160 characters.')
 
   const identity = hash({
-    field: input.wizard.field,
+    targets,
     matchField,
     operator: input.wizard.operator,
     matchValue,
-    target: input.wizard.target,
     scope: input.wizard.scope,
     profileId: input.batch.profileId,
   }).slice(0, 16)
+
+  const targetSummary = targets
+    .map((entry) => `${entry.field}=${entry.target.label}`)
+    .join(', ')
 
   return {
     id: `wizard-${identity}`,
     version: 1,
     name:
       clean(input.wizard.name) ??
-      `${matchField}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue} → ${input.wizard.field}`,
+      `${matchField}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue} → ${targetSummary}`,
     description:
       clean(input.wizard.explanation) ??
       'Created from the Importer v2 guided automation wizard.',
@@ -145,7 +186,7 @@ function candidateRule(input: {
       batch: input.batch,
       rowValues: input.rowValues,
       scope: input.wizard.scope,
-      targetField: input.wizard.field,
+      targetFields: targets.map((entry) => entry.field),
     }),
     when: {
       kind: 'CONDITION',
@@ -153,13 +194,14 @@ function candidateRule(input: {
       operator: input.wizard.operator,
       value: matchValue,
     },
-    actions: [
-      {
-        type: 'MAP_VALUE',
-        field: input.wizard.field,
-        target: { id: input.wizard.target.id, label: targetLabel },
+    actions: targets.map((entry) => ({
+      type: 'MAP_VALUE' as const,
+      field: entry.field,
+      target: {
+        id: entry.target.id,
+        label: clean(entry.target.label)!,
       },
-    ],
+    })),
   }
 }
 

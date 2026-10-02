@@ -137,6 +137,71 @@ describe('Importer v2 scoped rule engine', () => {
     expect(missed.applied).toHaveLength(0)
   })
 
+  it('applies one persisted hierarchy interpretation to multiple canonical fields', () => {
+    const compiled = compileImporterV2RuleSet(
+      snapshot([
+        rule('vmeij-hierarchy', {
+          scope: {
+            profileIds: ['profile-auvik'],
+            providers: ['Auvik'],
+            sourceAdapterIds: ['xlsx-tabular-v1'],
+            sourceFields: ['customer', 'site'],
+          },
+          when: {
+            kind: 'CONDITION',
+            field: 'customer',
+            operator: 'NORMALIZED_EXACT',
+            value: 'VMeij Installaties',
+          },
+          actions: [
+            {
+              type: 'MAP_VALUE',
+              field: 'customer',
+              target: {
+                id: 'customer-bouwbedrijf',
+                label: 'Bouwbedrijf van Mierlo',
+              },
+            },
+            {
+              type: 'MAP_VALUE',
+              field: 'site',
+              target: {
+                id: 'site-vmeij',
+                label: 'VMeij Installaties',
+              },
+            },
+          ],
+        }),
+      ]),
+    )
+
+    const evaluated = evaluateImporterV2RuleRow(
+      compiled,
+      {
+        rowNumber: 1,
+        rawValues: {
+          customer: 'VMeij Installaties',
+          site: null,
+        },
+      },
+      context,
+    )
+
+    expect(evaluated.effectiveRow.rawValues).toMatchObject({
+      customer: 'Bouwbedrijf van Mierlo',
+      site: 'VMeij Installaties',
+    })
+    expect(evaluated.fields.customer?.mappedTarget).toEqual({
+      id: 'customer-bouwbedrijf',
+      label: 'Bouwbedrijf van Mierlo',
+    })
+    expect(evaluated.fields.site?.mappedTarget).toEqual({
+      id: 'site-vmeij',
+      label: 'VMeij Installaties',
+    })
+    expect(evaluated.conflicts).toHaveLength(0)
+  })
+
   it('uses explicit priority and leaves equal-tier conflicting outputs unresolved', () => {
     const compiled = compileImporterV2RuleSet(
       snapshot([

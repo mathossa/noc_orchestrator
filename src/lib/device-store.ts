@@ -14,6 +14,7 @@ import {
   type DeviceContractReference,
   type DeviceDetailRecord,
   type DeviceRecord,
+  type DeviceTopologyRecord,
   type DeviceReferenceData,
 } from '@/lib/devices'
 
@@ -255,6 +256,77 @@ function serializeDevice(record: IncludedDevice): DeviceRecord {
   }
 }
 
+async function loadDeviceTopology(
+  deviceId: string,
+): Promise<DeviceTopologyRecord | null> {
+  const topology = await prisma.deviceTopology.findUnique({
+    where: { deviceId },
+    include: { members: { orderBy: { position: 'asc' } } },
+  })
+  if (!topology) return null
+
+  const modelIds = [...new Set(topology.members.map((member) => member.deviceModelId))]
+  const releaseIds = [
+    ...new Set(
+      topology.members.flatMap((member) =>
+        member.firmwareReleaseId ? [member.firmwareReleaseId] : [],
+      ),
+    ),
+  ]
+  const [models, releases] = await Promise.all([
+    modelIds.length
+      ? prisma.deviceModel.findMany({
+          where: { id: { in: modelIds } },
+          select: {
+            id: true,
+            model: true,
+            vendor: { select: { id: true, code: true, name: true } },
+            deviceType: { select: { id: true, code: true, name: true } },
+          },
+        })
+      : Promise.resolve([]),
+    releaseIds.length
+      ? prisma.firmwareRelease.findMany({
+          where: { id: { in: releaseIds } },
+          select: { id: true, platform: true, version: true },
+        })
+      : Promise.resolve([]),
+  ])
+  const modelsById = new Map(models.map((model) => [model.id, model]))
+  const releasesById = new Map(releases.map((release) => [release.id, release]))
+
+  return {
+    id: topology.id,
+    kind: topology.kind,
+    provider: topology.provider,
+    sourceAdapterId: topology.sourceAdapterId,
+    sourceGroupKey: topology.sourceGroupKey,
+    lastSeenAt: topology.lastSeenAt.toISOString(),
+    members: topology.members.map((member) => ({
+      id: member.id,
+      position: member.position,
+      name: member.name,
+      hostname: member.hostname,
+      serialNumber: member.serialNumber,
+      macAddress: member.macAddress,
+      deviceModelId: member.deviceModelId,
+      firmwareReleaseId: member.firmwareReleaseId,
+      rawFirmwareVersion: member.rawFirmwareVersion,
+      rawSoftwareVersion: member.rawSoftwareVersion,
+      normalizedFirmwareVersion: member.normalizedFirmwareVersion,
+      provider: member.provider,
+      sourceAdapterId: member.sourceAdapterId,
+      sourceId: member.sourceId,
+      isActive: member.isActive,
+      lastSeenAt: member.lastSeenAt.toISOString(),
+      deviceModel: modelsById.get(member.deviceModelId) ?? null,
+      firmwareRelease: member.firmwareReleaseId
+        ? releasesById.get(member.firmwareReleaseId) ?? null
+        : null,
+    })),
+  }
+}
+
 async function assertUniqueWithinCustomer(customerId: string, name: string, excludeId?: string) {
   const records = await prisma.device.findMany({ where: { customerId }, select: { id: true, name: true } })
   const normalized = normalizedDeviceName(name)
@@ -314,11 +386,13 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
   const record = await prisma.device.findUnique({ where: { id }, include: deviceInclude })
   if (!record) throw new DeviceNotFoundError()
 
-  const [firmwareCompliance, auditHistory, planningByDevice] = await Promise.all([
-    resolveFirmwareComplianceForDevice(id),
-    listAuditEventsForEntity('Device', id),
-    resolveDeviceWorkPlanning([id]),
-  ])
+  const [firmwareCompliance, auditHistory, planningByDevice, topology] =
+    await Promise.all([
+      resolveFirmwareComplianceForDevice(id),
+      listAuditEventsForEntity('Device', id),
+      resolveDeviceWorkPlanning([id]),
+      loadDeviceTopology(id),
+    ])
   const desiredRelease = firmwareCompliance.preferredTarget
   const technicalState = resolveTechnicalFirmwareState(firmwareCompliance)
   const exceptionSummary = (
@@ -344,6 +418,7 @@ export async function getDevice(id: string): Promise<DeviceDetailRecord> {
     ...serializeDevice(record as IncludedDevice),
     issueReason: record.issueReason ?? null,
     issueFlaggedAt: record.issueFlaggedAt?.toISOString() ?? null,
+    topology,
     planning: {
       activePlans: (planningByDevice.get(id)?.activePlans ?? []).map(serializePlanReference),
       history: (planningByDevice.get(id)?.history ?? []).map(serializePlanReference),

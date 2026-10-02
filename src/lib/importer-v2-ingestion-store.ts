@@ -6,7 +6,15 @@ import {
   type ImporterV2Field,
   type ImporterV2StagedRow,
 } from '@/lib/importer-v2-evaluator'
+import {
+  normalizeInventoryProvider,
+  normalizeInventorySourceDefinition,
+  type InventorySourceDefinition,
+  type NormalizedInventorySourceRow,
+} from '@/lib/inventory-source-adapter'
 import { evaluateImporterV2WithFirmware } from '@/lib/importer-v2-firmware-evaluation'
+import { listConfiguredModelSupportedPlatforms } from '@/lib/model-platform-compatibility-store'
+import { importerV2CompatibilityRulesFromSupportedPlatforms } from '@/lib/importer-v2-model-compatibility'
 import {
   IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
   parseImporterV2Hierarchy,
@@ -19,7 +27,13 @@ import {
 import { getLatestSuccessfulImporterV2SourceSnapshot } from '@/lib/importer-v2-identity-store'
 import { evaluateImporterV2DeviceType } from '@/lib/importer-v2-profile-preview'
 import { diffImporterV2RepeatImport } from '@/lib/importer-v2-repeat-diff'
-import { listActiveImporterV2ExactMappings } from '@/lib/importer-v2-rule-store'
+import { detectImporterV2StackGroups } from '@/lib/importer-v2-stack-topology'
+import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
+import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
+import {
+  getActiveImporterV2RuleSet,
+  listActiveImporterV2ExactMappings,
+} from '@/lib/importer-v2-rule-store'
 import {
   applyImporterV2ProfileOverrides,
   buildImporterV2SourceProfile,
@@ -33,15 +47,18 @@ import {
   listActiveImporterV2SourceProfiles,
 } from '@/lib/importer-v2-source-profile-store'
 import { stageImporterV2Workspace } from '@/lib/importer-v2-workspace-store'
+import { findImporterV2WorkspaceRuleBook } from '@/lib/importer-v2-workspace-rule-book'
 import type { ImporterV2WorkspaceSeedRow } from '@/lib/importer-v2-workspace'
 import {
   detectImporterV2HeaderRow,
   importerV2HeadersFromRow,
   importerV2ObservedSchema,
-  importerV2SourceEvidence,
-  mappedImporterV2Rows,
   suggestImporterV2ColumnMappings,
 } from '@/lib/importer-v2-xlsx'
+import {
+  XLSX_INVENTORY_ADAPTER_TYPE,
+  xlsxInventorySourceAdapter,
+} from '@/lib/importer-v2-xlsx-adapter'
 import { readXlsxWorkbook, XLSX_LIMITS, XlsxImportError, type XlsxSheet } from '@/lib/xlsx-reader'
 
 export type ImporterV2XlsxStageConfig = {
@@ -114,7 +131,7 @@ export async function inspectImporterV2Xlsx(input: {
   provider: string
   sourceAdapterId: string
 }) {
-  const provider = clean(input.provider)
+  const provider = normalizeInventoryProvider(input.provider)
   const sourceAdapterId = clean(input.sourceAdapterId)
   if (!provider) throw new Error('Provider is required before inspecting a workbook.')
   if (!sourceAdapterId) throw new Error('Source adapter is required before inspecting a workbook.')
@@ -224,11 +241,17 @@ async function effectiveProfile(input: {
   return createImporterV2SourceProfile(candidate)
 }
 
+export type ImporterV2NormalizedSourceProfile = Pick<
+  ImporterV2SourceProfile,
+  'id' | 'version' | 'hierarchyTemplate' | 'deviceTypePolicy' | 'defaults' | 'exactValueAliases'
+>
+
 function prepareRows(
   rows: readonly ImporterV2StagedRow[],
-  profile: ImporterV2SourceProfile,
+  profile: ImporterV2NormalizedSourceProfile,
+  directHierarchyFields: readonly ImporterV2Field[] = [],
 ) {
-  const directHierarchy = new Set(profile.columnMappings.map((mapping) => mapping.targetField))
+  const directHierarchy = new Set(directHierarchyFields)
   return rows.map((sourceRow) => {
     const row: ImporterV2StagedRow = {
       ...sourceRow,
@@ -271,11 +294,20 @@ async function catalogSnapshot(): Promise<{
     prisma.deviceModelFamily.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
     prisma.deviceModel.findMany({
       where: { isActive: true },
-      select: { id: true, model: true, platform: true, vendor: { select: { name: true } } },
+      select: {
+        id: true,
+        model: true,
+        vendor: { select: { id: true, name: true } },
+        deviceType: { select: { id: true, name: true } },
+        family: { select: { id: true, name: true } },
+      },
       orderBy: { id: 'asc' },
     }),
     prisma.deviceType.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
   ])
+  const supportedPlatformsByModel = await listConfiguredModelSupportedPlatforms(
+    models.map((record) => record.id),
+  )
   const value = (records: readonly { id: string; name: string }[]) => records.map((record) => ({ id: record.id, label: record.name }))
   const catalogValues: ImporterV2CatalogSnapshot['values'] = {
     customer: value(customers),
@@ -286,16 +318,25 @@ async function catalogSnapshot(): Promise<{
     model: models.map((record) => ({ id: record.id, label: record.model })),
     deviceType: value(deviceTypes),
   }
+  const modelRelations = models.map((record) => ({
+    modelId: record.id,
+    modelLabel: record.model,
+    vendor: { id: record.vendor.id, label: record.vendor.name },
+    deviceType: { id: record.deviceType.id, label: record.deviceType.name },
+    productFamily: record.family
+      ? { id: record.family.id, label: record.family.name }
+      : null,
+  }))
   return {
-    catalog: { version: hash(catalogValues), values: catalogValues },
-    compatibilityRules: models
-      .filter((record): record is typeof record & { platform: string } => Boolean(clean(record.platform)))
-      .map((record) => ({
-        id: `device-model:${record.id}`,
-        vendor: record.vendor.name,
-        model: record.model,
-        platforms: [record.platform],
-      })),
+    catalog: {
+      version: hash({ catalogValues, modelRelations }),
+      values: catalogValues,
+      modelRelations,
+    },
+    compatibilityRules: importerV2CompatibilityRulesFromSupportedPlatforms(
+      models,
+      supportedPlatformsByModel,
+    ),
   }
 }
 
@@ -404,6 +445,34 @@ async function canonicalValuesForDevices(deviceIds: readonly string[]) {
   )
 }
 
+function ruleAdjustedRawValues(
+  row: ImporterV2StagedRow,
+  ruleEvaluation:
+    | ReturnType<typeof evaluateImporterV2RuleRows>[number]
+    | undefined,
+) {
+  if (!ruleEvaluation) return { ...row.rawValues }
+  return { ...ruleEvaluation.effectiveRow.rawValues }
+}
+
+function ruleAdjustedEffectiveValues(
+  row: ReturnType<typeof evaluateImporterV2WithFirmware>['rows'][number],
+  ruleEvaluation:
+    | ReturnType<typeof evaluateImporterV2RuleRows>[number]
+    | undefined,
+) {
+  const values = effectiveValues(row)
+  if (!ruleEvaluation) return values
+  for (const [field, outcome] of Object.entries(ruleEvaluation.fields) as [
+    ImporterV2Field,
+    (typeof ruleEvaluation.fields)[ImporterV2Field],
+  ][]) {
+    if (!outcome || outcome.applied.length === 0) continue
+    values[field] = outcome.mappedTarget?.label ?? outcome.effectiveValue ?? null
+  }
+  return values
+}
+
 function effectiveValues(row: ReturnType<typeof evaluateImporterV2WithFirmware>['rows'][number]) {
   return Object.fromEntries(
     IMPORTER_V2_FIELDS.map((field) => [
@@ -437,33 +506,101 @@ function firmwareEvidencePattern(row: ReturnType<typeof evaluateImporterV2WithFi
   return 'missing-or-placeholder'
 }
 
-export async function stageImporterV2Xlsx(input: {
-  file: File
-  config: ImporterV2XlsxStageConfig
+export async function stageImporterV2NormalizedSource(input: {
+  source: InventorySourceDefinition
+  profile: ImporterV2NormalizedSourceProfile
+  rows: readonly NormalizedInventorySourceRow[]
+  directHierarchyFields?: readonly ImporterV2Field[]
+  isFullInventoryExport?: boolean
 }) {
-  const provider = clean(input.config.provider)
-  const sourceAdapterId = clean(input.config.sourceAdapterId)
-  if (!provider || !sourceAdapterId) throw new Error('Provider and source adapter are required.')
-  if (!Number.isInteger(input.config.headerRow) || input.config.headerRow < 1) throw new Error('Header row must be a positive integer.')
+  const source = normalizeInventorySourceDefinition(input.source)
+  const provider = source.provider
+  const sourceAdapterId = source.sourceAdapterId
+  if (input.rows.length === 0) {
+    throw new Error('No normalized inventory rows were provided by the source adapter.')
+  }
 
-  const workbook = readXlsxWorkbook(await workbookBuffer(input.file))
-  const sheet = workbook.sheets.find((candidate) => candidate.name === input.config.sheetName)
-  if (!sheet) throw new Error(`Worksheet “${input.config.sheetName}” was not found in the uploaded workbook.`)
-  const headerSource = sheet.rows.find((row) => row.rowNumber === input.config.headerRow)
-  if (!headerSource) throw new Error(`Header row ${input.config.headerRow} is empty or unavailable.`)
-  const headers = importerV2HeadersFromRow(headerSource, sheet.columnCount)
-  const mappings = normalizedMappings(headers, input.config.columnMappings)
-  const config = { ...input.config, provider, sourceAdapterId }
-  const profile = await effectiveProfile({ config, fileName: input.file.name, headers, mappings })
+  const rows = prepareRows(
+    input.rows,
+    input.profile,
+    input.directHierarchyFields,
+  )
+  const profile = input.profile
 
-  const sourceRows = mappedImporterV2Rows({
-    sheet,
-    headerRow: config.headerRow,
-    mappings,
-    defaults: profile.defaults,
+  const existingRuleBook = await findImporterV2WorkspaceRuleBook({
+    provider,
+    profileId: profile.id,
   })
-  if (sourceRows.length === 0) throw new Error('No data rows were found below the selected header row.')
-  const rows = prepareRows(sourceRows, profile)
+  const activeRuleSet = existingRuleBook
+    ? await getActiveImporterV2RuleSet(existingRuleBook.id)
+    : null
+  const preStageRuleEvaluations =
+    activeRuleSet && activeRuleSet.rules.length > 0
+      ? evaluateImporterV2RuleRows(
+          compileImporterV2RuleSet(activeRuleSet),
+          rows,
+          { profileId: profile.id, provider, sourceAdapterId },
+        )
+      : []
+  const preStageRuleByRow = new Map(
+    preStageRuleEvaluations.map((row) => [row.rowNumber, row]),
+  )
+
+  const rawStackGroups = detectImporterV2StackGroups({
+    provider,
+    rows: rows.map((row) => ({
+      id: `source-${row.rowNumber}`,
+      rowNumber: row.rowNumber,
+      sourceName: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).deviceName,
+      hostname: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).hostname,
+      customer: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).customer,
+      businessUnit: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).businessUnit,
+      site: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).site,
+      deviceType: ruleAdjustedRawValues(
+        row,
+        preStageRuleByRow.get(row.rowNumber),
+      ).deviceType,
+      evaluated: {
+        rawValues: ruleAdjustedRawValues(
+          row,
+          preStageRuleByRow.get(row.rowNumber),
+        ),
+        proposedCanonicalValues: {},
+      },
+    })),
+  })
+  const rawStackParentRows = new Set(
+    rawStackGroups.map((group) => group.parentRowNumber),
+  )
+  const rawStackMemberRows = new Set(
+    rawStackGroups.flatMap((group) =>
+      group.memberRows.map((member) => member.rowNumber),
+    ),
+  )
+  const evaluationRows = rows.map((row) => ({
+    ...row,
+    topologyRole: rawStackMemberRows.has(row.rowNumber)
+      ? ('STACK_MEMBER' as const)
+      : rawStackParentRows.has(row.rowNumber)
+        ? ('STACK' as const)
+        : ('DEVICE' as const),
+  }))
+
   const { catalog, compatibilityRules } = await catalogSnapshot()
   const exactMappings = await listActiveImporterV2ExactMappings({ provider, profileId: profile.id })
   const rememberedMappings = [
@@ -505,8 +642,40 @@ export async function stageImporterV2Xlsx(input: {
       compatibilityVersion: hash(compatibilityRules),
       compatibilityRules,
     },
-    rows,
+    rows: evaluationRows,
   })
+
+  const detectedStacks = detectImporterV2StackGroups({
+    provider,
+    rows: evaluation.rows.map((row) => {
+      const ruleEvaluation = preStageRuleByRow.get(row.rowNumber)
+      const effective = ruleAdjustedEffectiveValues(row, ruleEvaluation)
+      return {
+        id: `staged-${row.rowNumber}`,
+        rowNumber: row.rowNumber,
+        sourceName: effective.deviceName,
+        hostname: effective.hostname,
+        customer: effective.customer,
+        businessUnit: effective.businessUnit,
+        site: effective.site,
+        deviceType: effective.deviceType,
+        evaluated: {
+          ...row,
+          proposedCanonicalValues: Object.fromEntries(
+            Object.entries(effective).map(([field, label]) => [
+              field,
+              label ? { id: null, label } : null,
+            ]),
+          ),
+        },
+      }
+    }),
+  })
+  const detectedStackMemberRows = new Set(
+    detectedStacks.flatMap((stack) =>
+      stack.memberRows.map((member) => member.rowNumber),
+    ),
+  )
 
   const candidatesFor = await identityResolvers(provider)
   const identities = evaluation.rows.map((row) => {
@@ -547,21 +716,27 @@ export async function stageImporterV2Xlsx(input: {
             : identities[index].kind === 'NEW'
               ? 'NEW'
               : 'AMBIGUOUS',
+        allowSourceSnapshotMatch: detectedStackMemberRows.has(row.rowNumber),
         identifiers: {
           sourceId: row.rawValues.sourceId,
           serialNumber: row.rawValues.serialNumber,
           macAddress: row.rawValues.macAddress,
         },
-        values: effectiveValues(row),
+        values: ruleAdjustedEffectiveValues(
+          row,
+          preStageRuleByRow.get(row.rowNumber),
+        ),
         canonicalValues: canonicalDeviceId
           ? canonicalValuesByDeviceId.get(canonicalDeviceId)
           : undefined,
       }
     }),
-    isFullInventoryExport: false,
+    isFullInventoryExport: input.isFullInventoryExport ?? false,
   })
   const repeatByRow = new Map(repeat.items.filter((item) => item.rowNumber !== null).map((item) => [item.rowNumber!, item]))
-  const sourceRowsByNumber = new Map(sheet.rows.map((row) => [row.rowNumber, row]))
+  const normalizedRowsByNumber = new Map(
+    input.rows.map((row) => [row.rowNumber, row]),
+  )
 
   const seedRows: ImporterV2WorkspaceSeedRow[] = evaluation.rows.map((row, index) => {
     const identity = identities[index]
@@ -569,10 +744,10 @@ export async function stageImporterV2Xlsx(input: {
     const statuses = new Set<string>(row.statuses)
     if (row.inclusion !== 'EXCLUDED' && identity.requiresConfirmation) statuses.add('NEEDS_REVIEW')
     if (repeatItem) statuses.add(repeatItem.classification)
-    const sourceRow = sourceRowsByNumber.get(row.rowNumber)
+    const sourceRow = normalizedRowsByNumber.get(row.rowNumber)
     const evaluated = {
       ...row,
-      sourceEvidence: sourceRow ? importerV2SourceEvidence({ sourceRow, headers }) : {},
+      sourceEvidence: sourceRow?.sourceEvidence ?? {},
     }
     return {
       rowNumber: row.rowNumber,
@@ -607,11 +782,12 @@ export async function stageImporterV2Xlsx(input: {
   })
 
   const batch = await stageImporterV2Workspace({
-    name: input.file.name,
+    name: source.name,
     provider,
     sourceAdapterId,
     profileId: profile.id,
     profileVersion: profile.version,
+    ruleBookId: existingRuleBook?.id ?? null,
     evaluationFingerprint: evaluation.evaluationFingerprint,
     rows: seedRows,
   })
@@ -623,11 +799,96 @@ export async function stageImporterV2Xlsx(input: {
       rowCount: batch.rowCount,
       status: batch.status,
     },
-    profile: { id: profile.id, name: profile.name, version: profile.version },
+    profile: {
+      id: profile.id,
+      version: profile.version,
+    },
     evaluation: {
       fingerprint: evaluation.evaluationFingerprint,
       firmwareInterpreterVersion: evaluation.firmwareInterpreterVersion,
       firmwareCompatibilityVersion: evaluation.firmwareCompatibilityVersion,
+    },
+  }
+}
+
+export async function stageImporterV2Xlsx(input: {
+  file: File
+  config: ImporterV2XlsxStageConfig
+}) {
+  const provider = normalizeInventoryProvider(input.config.provider)
+  const sourceAdapterId = clean(input.config.sourceAdapterId)
+  if (!provider || !sourceAdapterId) {
+    throw new Error('Provider and source adapter are required.')
+  }
+  if (
+    !Number.isInteger(input.config.headerRow) ||
+    input.config.headerRow < 1
+  ) {
+    throw new Error('Header row must be a positive integer.')
+  }
+
+  const workbook = readXlsxWorkbook(await workbookBuffer(input.file))
+  const sheet = workbook.sheets.find(
+    (candidate) => candidate.name === input.config.sheetName,
+  )
+  if (!sheet) {
+    throw new Error(
+      `Worksheet “${input.config.sheetName}” was not found in the uploaded workbook.`,
+    )
+  }
+  const headerSource = sheet.rows.find(
+    (row) => row.rowNumber === input.config.headerRow,
+  )
+  if (!headerSource) {
+    throw new Error(
+      `Header row ${input.config.headerRow} is empty or unavailable.`,
+    )
+  }
+  const headers = importerV2HeadersFromRow(headerSource, sheet.columnCount)
+  const mappings = normalizedMappings(headers, input.config.columnMappings)
+  const config = { ...input.config, provider, sourceAdapterId }
+  const profile = await effectiveProfile({
+    config,
+    fileName: input.file.name,
+    headers,
+    mappings,
+  })
+
+  const normalized = await xlsxInventorySourceAdapter.loadAndNormalize({
+    source: {
+      provider,
+      adapterType: XLSX_INVENTORY_ADAPTER_TYPE,
+      sourceAdapterId,
+      name: input.file.name,
+      enabled: true,
+      configuration: {},
+      metadata: { fileName: input.file.name },
+    },
+    input: {
+      sheet,
+      headerRow: config.headerRow,
+      headers,
+      mappings,
+      defaults: profile.defaults,
+    },
+  })
+
+  const result = await stageImporterV2NormalizedSource({
+    source: normalized.source,
+    profile,
+    rows: normalized.rows,
+    directHierarchyFields: profile.columnMappings.map(
+      (mapping) => mapping.targetField,
+    ),
+    isFullInventoryExport: false,
+  })
+
+  return {
+    ...result,
+    profile: {
+      id: profile.id,
+      name: profile.name,
+      version: profile.version,
     },
   }
 }

@@ -31,6 +31,31 @@ function validField(value: unknown): value is ImporterV2Field {
   )
 }
 
+function parseTarget(value: unknown) {
+  const input = object(value)
+  if (!input || !validField(input.field)) {
+    throw new Error('wizard target requires a supported field.')
+  }
+  const target = object(input.target)
+  if (!target || typeof target.label !== 'string' || !target.label.trim()) {
+    throw new Error('wizard target requires a label.')
+  }
+  if (
+    target.id !== undefined &&
+    target.id !== null &&
+    typeof target.id !== 'string'
+  ) {
+    throw new Error('wizard target.id must be a string when supplied.')
+  }
+  return {
+    field: input.field,
+    target: {
+      id: (target.id as string | null | undefined) ?? null,
+      label: target.label,
+    },
+  }
+}
+
 function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   const input = object(value)
   if (!input) throw new Error('wizard input is required.')
@@ -41,9 +66,33 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   ) {
     throw new Error('wizard.rowNumber must be a positive integer.')
   }
-  if (!validField(input.field)) {
-    throw new Error('wizard.field must be a supported importer field.')
+
+  const targets = Array.isArray(input.targets)
+    ? input.targets.map(parseTarget)
+    : []
+  const field = validField(input.field) ? input.field : undefined
+  const singleTarget = object(input.target)
+
+  if (targets.length === 0) {
+    if (!field) {
+      throw new Error('wizard.field must be a supported importer field.')
+    }
+    if (
+      !singleTarget ||
+      typeof singleTarget.label !== 'string' ||
+      !singleTarget.label.trim()
+    ) {
+      throw new Error('wizard.target requires a label.')
+    }
+    if (
+      singleTarget.id !== undefined &&
+      singleTarget.id !== null &&
+      typeof singleTarget.id !== 'string'
+    ) {
+      throw new Error('wizard.target.id must be a string when supplied.')
+    }
   }
+
   if (input.matchField !== undefined && !validField(input.matchField)) {
     throw new Error('wizard.matchField must be a supported importer field.')
   }
@@ -53,21 +102,15 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   if (typeof input.matchValue !== 'string' || !input.matchValue.trim()) {
     throw new Error('wizard.matchValue is required.')
   }
-  const target = object(input.target)
-  if (!target || typeof target.label !== 'string' || !target.label.trim()) {
-    throw new Error('wizard.target requires a label.')
-  }
-  if (
-    target.id !== undefined &&
-    target.id !== null &&
-    typeof target.id !== 'string'
-  ) {
-    throw new Error('wizard.target.id must be a string when supplied.')
-  }
   if (typeof input.scope !== 'string' || !SCOPES.has(input.scope)) {
     throw new Error('wizard.scope must use a supported rule scope.')
   }
-  return input as unknown as ImporterV2RuleWizardInput
+
+  return {
+    ...(input as unknown as ImporterV2RuleWizardInput),
+    ...(field ? { field } : {}),
+    ...(targets.length ? { targets } : {}),
+  }
 }
 
 export async function POST(request: Request, context: RouteContext) {

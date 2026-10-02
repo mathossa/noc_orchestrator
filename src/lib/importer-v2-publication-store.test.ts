@@ -5,6 +5,15 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   txAttemptFindUnique: vi.fn(),
   batchFindUnique: vi.fn(),
+  customerFindMany: vi.fn(),
+  unitFindMany: vi.fn(),
+  siteFindMany: vi.fn(),
+  vendorFindMany: vi.fn(),
+  typeFindMany: vi.fn(),
+  familyFindMany: vi.fn(),
+  modelFindUnique: vi.fn(),
+  modelFindMany: vi.fn(),
+  releaseFindMany: vi.fn(),
   attemptCreate: vi.fn(),
   deviceUpdate: vi.fn(),
 }))
@@ -12,11 +21,21 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     importerV2PublicationAttempt: { findUnique: mocks.attemptFindUnique },
+    importerV2WorkspaceBatch: { findUnique: mocks.batchFindUnique },
+    customer: { findMany: mocks.customerFindMany },
+    customerOrganizationUnit: { findMany: mocks.unitFindMany },
+    site: { findMany: mocks.siteFindMany },
+    vendor: { findMany: mocks.vendorFindMany },
+    deviceType: { findMany: mocks.typeFindMany },
+    deviceModelFamily: { findMany: mocks.familyFindMany },
+    deviceModel: { findUnique: mocks.modelFindUnique, findMany: mocks.modelFindMany },
+    firmwareRelease: { findMany: mocks.releaseFindMany },
     $transaction: mocks.transaction,
   },
 }))
 
 import {
+  getImporterV2PublicationQa,
   ImporterV2PublicationConflictError,
   publishImporterV2Batch,
 } from '@/lib/importer-v2-publication-store'
@@ -25,6 +44,85 @@ describe('Importer v2 publication persistence boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.attemptFindUnique.mockResolvedValue(null)
+  })
+
+  it('does not present an existing canonical model as new data merely because the staged target has no ID', async () => {
+    mocks.batchFindUnique.mockResolvedValue({
+      id: 'batch-qa',
+      name: 'devices.xlsx',
+      provider: 'AUVIK',
+      sourceAdapterId: 'xlsx',
+      profileId: 'profile-1',
+      profileVersion: '1',
+      evaluationFingerprint: 'evaluation-1',
+      status: 'RECONCILING',
+      rowCount: 1,
+      publishedRowCount: 0,
+      rows: [
+        {
+          id: 'row-1',
+          rowNumber: 2,
+          sourceFingerprint: 'row-fingerprint',
+          inclusion: 'INCLUDED',
+          statuses: ['VALID'],
+          primaryStatus: 'VALID',
+          repeatClassification: 'CHANGED',
+          needsReevaluation: false,
+          reviewRevision: 1,
+          publishedAt: null,
+          publicationAttemptId: null,
+          firmwareEvidencePattern: null,
+          evaluated: {
+            rawValues: {
+              deviceName: 'switch-1',
+              sourceId: 'source-1',
+              vendor: 'Cisco',
+              model: 'WS-C2960X-24PS-L',
+            },
+            proposedCanonicalValues: {
+              customer: { id: 'customer-1', label: 'Customer 1' },
+              site: { id: 'site-1', label: 'Site 1' },
+              vendor: { id: 'vendor-cisco', label: 'Cisco' },
+              deviceType: { id: 'type-switch', label: 'Switch' },
+              model: { id: null, label: 'WS-C2960X-24PS-L' },
+            },
+            fields: {},
+            issues: [],
+          },
+          identityResolution: {
+            kind: 'MATCH_SUGGESTED',
+            requiresConfirmation: false,
+            candidates: [{ canonicalDeviceId: 'device-1' }],
+          },
+          repeatDiff: null,
+          decisions: [],
+        },
+      ],
+    })
+    mocks.vendorFindMany.mockResolvedValue([{ id: 'vendor-cisco' }])
+    mocks.modelFindMany.mockResolvedValue([{ id: 'model-existing' }])
+
+    const qa = await getImporterV2PublicationQa('batch-qa')
+
+    expect(qa.catalogProposals).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'model',
+          label: 'WS-C2960X-24PS-L',
+        }),
+      ]),
+    )
+
+    mocks.modelFindMany.mockResolvedValue([])
+    const changed = await getImporterV2PublicationQa('batch-qa')
+    expect(changed.catalogProposals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'model',
+          label: 'WS-C2960X-24PS-L',
+        }),
+      ]),
+    )
   })
 
   it('returns the previously committed result for an idempotent retry without opening a new transaction', async () => {

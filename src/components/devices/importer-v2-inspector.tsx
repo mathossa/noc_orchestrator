@@ -86,6 +86,10 @@ function display(value: string | null | undefined) {
   return value || '—'
 }
 
+function normalizedLabel(value: string | null | undefined) {
+  return value?.normalize('NFKC').trim().replace(/\s+/g, ' ') || null
+}
+
 function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     businessUnit: 'Subdomain',
@@ -256,6 +260,9 @@ export function ImporterV2Inspector({
   const [ruleScope, setRuleScope] = useState<'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'>('PROFILE')
   const [rulePreview, setRulePreview] = useState<GuidedRulePreview | null>(null)
   const [ruleBusy, setRuleBusy] = useState(false)
+  const [hierarchyRulePreview, setHierarchyRulePreview] =
+    useState<GuidedRulePreview | null>(null)
+  const [hierarchyRuleBusy, setHierarchyRuleBusy] = useState(false)
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
   const ruleSourceValue = detail?.evaluated.rawValues?.[ruleMatchField] ?? null
@@ -265,6 +272,38 @@ export function ImporterV2Inspector({
     detail?.identityReview?.selectedCanonicalDeviceId ||
     detail?.identityReview?.candidates[0]?.canonicalDeviceId ||
     ''
+  const missingFirmwareWarning = Boolean(
+    detail?.evaluated.issues?.some(
+      (issue) =>
+        issue.severity === 'WARNING' &&
+        issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
+        (issue.field === 'currentFirmware' ||
+          issue.field === 'softwarePlatform'),
+    ),
+  )
+  const previousHierarchyTargets = useMemo(() => {
+    if (detail?.repeatDiff?.classification !== 'MOVED') return []
+    const hierarchyFields = new Set<ImporterV2Field>([
+      'customer',
+      'businessUnit',
+      'site',
+    ])
+    return (detail.repeatDiff.changes ?? []).flatMap((change) => {
+      if (!hierarchyFields.has(change.field)) return []
+      const before = normalizedLabel(change.before)
+      const after = normalizedLabel(change.after)
+      if (!before || before === after) return []
+      return [
+        {
+          field: change.field,
+          target: { id: null, label: before },
+        },
+      ]
+    })
+  }, [detail])
+  const hierarchyMatchValue = normalizedLabel(
+    detail?.evaluated.rawValues?.customer,
+  )
 
   const action = useMemo<ImporterV2WorkspaceAction | null>(() => {
     const label = targetLabel.trim()
@@ -520,6 +559,98 @@ export function ImporterV2Inspector({
     }
   }
 
+  const missingFirmwareAction: ImporterV2WorkspaceAction = {
+    type: 'PRESERVE_EXISTING_FIRMWARE',
+    explanation:
+      'Source does not report current firmware for these rows; keep any existing canonical current-firmware observation and do not invent source evidence.',
+  }
+
+  const hierarchyWizardPayload = () => {
+    if (
+      !detail ||
+      !hierarchyMatchValue ||
+      previousHierarchyTargets.length === 0
+    ) {
+      return null
+    }
+    return {
+      rowNumber: detail.rowNumber,
+      matchField: 'customer' as const,
+      operator: 'NORMALIZED_EXACT' as const,
+      matchValue: hierarchyMatchValue,
+      targets: previousHierarchyTargets,
+      scope: 'PROFILE' as const,
+      explanation:
+        'Remembered canonical customer/site interpretation from confirmed repeat-import hierarchy evidence.',
+    }
+  }
+
+  const requestHierarchyRulePreview = async () => {
+    const wizard = hierarchyWizardPayload()
+    if (!wizard) return
+    setHierarchyRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'PREVIEW', wizard }),
+        },
+      )
+      setHierarchyRulePreview(
+        await responseData<GuidedRulePreview>(response),
+      )
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to preview hierarchy interpretation.',
+      )
+    } finally {
+      setHierarchyRuleBusy(false)
+    }
+  }
+
+  const applyHierarchyRulePreview = async () => {
+    const wizard = hierarchyWizardPayload()
+    if (!wizard || !hierarchyRulePreview) return
+    setHierarchyRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            wizard,
+            scopeToken: hierarchyRulePreview.scopeToken,
+          }),
+        },
+      )
+      const result = await responseData<{
+        automation: { automaticDecisionsApplied: number }
+      }>(response)
+      setHierarchyRulePreview(null)
+      setActionMessage(
+        `Hierarchy interpretation saved and applied. ${result.automation.automaticDecisionsApplied.toLocaleString()} staged decision${result.automation.automaticDecisionsApplied === 1 ? '' : 's'} applied.`,
+      )
+      onRefresh()
+    } catch (error) {
+      setHierarchyRulePreview(null)
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to save hierarchy interpretation.',
+      )
+    } finally {
+      setHierarchyRuleBusy(false)
+    }
+  }
+
   const commonValues = preview
     ? Object.entries(preview.commonValues)
         .filter(([, value]) => value !== undefined && value !== null)
@@ -615,6 +746,29 @@ export function ImporterV2Inspector({
               <p className="text-sm text-[var(--muted)]">Select one row to review its exceptions.</p>
             )}
 
+            {selection && (missingFirmwareWarning || !detail) ? (
+              <section className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+                <h3 className="text-xs font-semibold text-[var(--foreground)]">
+                  Missing firmware from this source
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
+                  Acknowledge that this source has no current-firmware observation.
+                  Existing canonical firmware is preserved; new devices remain unknown
+                  until another source reports firmware.
+                </p>
+                <Button
+                  variant="secondary"
+                  className="mt-2 w-full"
+                  disabled={actionBusy}
+                  onClick={() => void requestPreview(missingFirmwareAction)}
+                >
+                  {detail
+                    ? 'Accept missing firmware'
+                    : 'Accept missing firmware for applicable selected rows'}
+                </Button>
+              </section>
+            ) : null}
+
             {detail?.canonicalHierarchy ? (
               <section className="rounded-md border border-[var(--border)] p-3">
                 <h3 className="text-sm font-semibold">Canonical customer hierarchy</h3>
@@ -638,6 +792,78 @@ export function ImporterV2Inspector({
                     </p>
                   </div>
                 ))}
+              </section>
+            ) : null}
+
+            {detail &&
+            hierarchyMatchValue &&
+            previousHierarchyTargets.length > 0 ? (
+              <section className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-3">
+                <h3 className="text-xs font-semibold text-[var(--foreground)]">
+                  Repeat hierarchy interpretation
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted-strong)]">
+                  This matched device previously used a different canonical hierarchy.
+                  Keep that hierarchy and save the interpretation for future imports
+                  from this source profile.
+                </p>
+                <div className="mt-2 space-y-1 rounded border border-[var(--border)] bg-[var(--surface)] p-2 text-[10px]">
+                  <p>
+                    <span className="text-[var(--muted)]">When source customer:</span>{' '}
+                    <strong>{hierarchyMatchValue}</strong>
+                  </p>
+                  {previousHierarchyTargets.map((entry) => (
+                    <p key={entry.field}>
+                      <span className="text-[var(--muted)]">
+                        {fieldLabel(entry.field)}:
+                      </span>{' '}
+                      <strong>{entry.target.label}</strong>
+                    </p>
+                  ))}
+                </div>
+                {hierarchyRulePreview ? (
+                  <div className="mt-2 rounded border border-[var(--border)] bg-[var(--surface)] p-2 text-xs">
+                    <p className="font-semibold">
+                      Matches {hierarchyRulePreview.preview.matchedRowCount.toLocaleString()} staged row
+                      {hierarchyRulePreview.preview.matchedRowCount === 1 ? '' : 's'}
+                    </p>
+                    {hierarchyRulePreview.preview.conflicts.length ? (
+                      <p className="mt-1 font-semibold text-[#f0a0a0]">
+                        {hierarchyRulePreview.preview.conflicts.length} conflicting rule
+                        {hierarchyRulePreview.preview.conflicts.length === 1 ? '' : 's'} found.
+                      </p>
+                    ) : null}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <Button
+                        variant="ghost"
+                        onClick={() => setHierarchyRulePreview(null)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="primary"
+                        disabled={
+                          hierarchyRuleBusy ||
+                          hierarchyRulePreview.preview.conflicts.length > 0
+                        }
+                        onClick={() => void applyHierarchyRulePreview()}
+                      >
+                        Save interpretation
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="mt-2 w-full"
+                    disabled={hierarchyRuleBusy}
+                    onClick={() => void requestHierarchyRulePreview()}
+                  >
+                    {hierarchyRuleBusy
+                      ? 'Checking…'
+                      : 'Keep previous hierarchy & remember'}
+                  </Button>
+                )}
               </section>
             ) : null}
 

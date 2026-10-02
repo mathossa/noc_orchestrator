@@ -14,6 +14,7 @@ import {
   importerV2OwnedDeviceScalarPatch,
   importerV2PublicationRowsIncludingStackMembers,
   selectImporterV2PublicationRows,
+  type ImporterV2CatalogProposal,
   type ImporterV2CatalogProposalField,
   type ImporterV2PublicationMode,
   type ImporterV2PublicationQa,
@@ -568,9 +569,285 @@ async function loadBatchForQa(
   })
 }
 
+type CanonicalProposalLookupClient = Pick<
+  typeof prisma,
+  | 'customer'
+  | 'customerOrganizationUnit'
+  | 'site'
+  | 'vendor'
+  | 'deviceType'
+  | 'deviceModelFamily'
+  | 'deviceModel'
+  | 'firmwareRelease'
+>
+
+async function uniqueRecordId(
+  records: readonly { id: string }[],
+): Promise<string | null> {
+  return records.length === 1 ? records[0].id : null
+}
+
+async function customerIdForProposalContext(
+  client: CanonicalProposalLookupClient,
+  key: string | null,
+) {
+  if (!key) return null
+  return uniqueRecordId(
+    await client.customer.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { id: key },
+          { name: { equals: key, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    }),
+  )
+}
+
+async function vendorIdForProposalContext(
+  client: CanonicalProposalLookupClient,
+  key: string | null,
+) {
+  if (!key) return null
+  return uniqueRecordId(
+    await client.vendor.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { id: key },
+          { name: { equals: key, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    }),
+  )
+}
+
+async function businessUnitIdForProposalContext(
+  client: CanonicalProposalLookupClient,
+  customerId: string,
+  key: string | null,
+) {
+  if (!key) return null
+  return uniqueRecordId(
+    await client.customerOrganizationUnit.findMany({
+      where: {
+        customerId,
+        isActive: true,
+        OR: [
+          { id: key },
+          { name: { equals: key, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    }),
+  )
+}
+
+async function importerV2CatalogProposalAlreadyExists(
+  client: CanonicalProposalLookupClient,
+  proposal: ImporterV2CatalogProposal,
+) {
+  switch (proposal.field) {
+    case 'customer':
+      return Boolean(
+        await uniqueRecordId(
+          await client.customer.findMany({
+            where: {
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+
+    case 'businessUnit': {
+      const customerId = await customerIdForProposalContext(
+        client,
+        proposal.context.customer ?? null,
+      )
+      if (!customerId) return false
+      return Boolean(
+        await uniqueRecordId(
+          await client.customerOrganizationUnit.findMany({
+            where: {
+              customerId,
+              parentId: null,
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+    }
+
+    case 'site': {
+      const customerId = await customerIdForProposalContext(
+        client,
+        proposal.context.customer ?? null,
+      )
+      if (!customerId) return false
+      const businessUnitKey = proposal.context.businessUnit ?? null
+      const organizationUnitId = businessUnitKey
+        ? await businessUnitIdForProposalContext(
+            client,
+            customerId,
+            businessUnitKey,
+          )
+        : null
+      if (businessUnitKey && !organizationUnitId) return false
+      return Boolean(
+        await uniqueRecordId(
+          await client.site.findMany({
+            where: {
+              customerId,
+              organizationUnitId,
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+    }
+
+    case 'vendor':
+      return Boolean(
+        await uniqueRecordId(
+          await client.vendor.findMany({
+            where: {
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+
+    case 'deviceType':
+      return Boolean(
+        await uniqueRecordId(
+          await client.deviceType.findMany({
+            where: {
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+
+    case 'productFamily': {
+      const vendorId = await vendorIdForProposalContext(
+        client,
+        proposal.context.vendor ?? null,
+      )
+      if (!vendorId) return false
+      return Boolean(
+        await uniqueRecordId(
+          await client.deviceModelFamily.findMany({
+            where: {
+              vendorId,
+              isActive: true,
+              name: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+    }
+
+    case 'model': {
+      const vendorId = await vendorIdForProposalContext(
+        client,
+        proposal.context.vendor ?? null,
+      )
+      if (!vendorId) return false
+      return Boolean(
+        await uniqueRecordId(
+          await client.deviceModel.findMany({
+            where: {
+              vendorId,
+              isActive: true,
+              model: { equals: proposal.label, mode: 'insensitive' },
+            },
+            select: { id: true },
+          }),
+        ),
+      )
+    }
+
+    case 'currentFirmware': {
+      const vendorId = await vendorIdForProposalContext(
+        client,
+        proposal.context.vendor ?? null,
+      )
+      const platform = text(proposal.context.softwarePlatform)
+      if (!vendorId || !platform) return false
+      const releases = await client.firmwareRelease.findMany({
+        where: {
+          vendorId,
+          isActive: true,
+          version: proposal.label,
+        },
+        select: { id: true, platform: true },
+      })
+      return releases.some(
+        (release) =>
+          normalizedFirmwarePlatform(release.platform) ===
+          normalizedFirmwarePlatform(platform),
+      )
+    }
+  }
+}
+
+async function importerV2QaWithOnlyNewCanonicalProposals(
+  client: CanonicalProposalLookupClient,
+  qa: ImporterV2PublicationQa,
+): Promise<ImporterV2PublicationQa> {
+  const checks = await Promise.all(
+    qa.catalogProposals.map(async (proposal) => ({
+      proposal,
+      // Observed firmware proposals are audit/visibility evidence, not ordinary
+      // master-data creation approvals. Keep them visible even when an
+      // identical observed release already exists and publication will reuse it.
+      exists:
+        proposal.field === 'currentFirmware'
+          ? false
+          : await importerV2CatalogProposalAlreadyExists(client, proposal),
+    })),
+  )
+  const catalogProposals = checks
+    .filter((entry) => !entry.exists)
+    .map((entry) => entry.proposal)
+  const newObservedReleaseProposalRows = [
+    ...new Set(
+      catalogProposals
+        .filter((proposal) => proposal.field === 'currentFirmware')
+        .flatMap((proposal) => proposal.rowNumbers),
+    ),
+  ].sort((left, right) => left - right)
+
+  return {
+    ...qa,
+    catalogProposals,
+    firmware: {
+      ...qa.firmware,
+      newObservedReleaseProposalRows,
+    },
+  }
+}
+
 export async function getImporterV2PublicationQa(batchId: string) {
   const batch = await loadBatchForQa(prisma, batchId)
-  return buildImporterV2PublicationQa(qaInput(batch))
+  return importerV2QaWithOnlyNewCanonicalProposals(
+    prisma,
+    buildImporterV2PublicationQa(qaInput(batch)),
+  )
 }
 
 function effectiveSnapshot(row: ImporterV2PublicationQaRowInput) {
@@ -674,7 +951,6 @@ async function ensureCustomer(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Customer must be resolved before publication.')
   }
-  assertApprovedProposal({ field: 'customer', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.customer.findMany({
       where: { name: { equals: label, mode: 'insensitive' } },
@@ -683,6 +959,7 @@ async function ensureCustomer(
     'customer',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'customer', label, snapshot, approvals })
   return (
     await tx.customer.create({
       data: { name: label, source: 'IMPORT', externalProvider: provider },
@@ -713,7 +990,6 @@ async function ensureBusinessUnit(
   }
   const label = targetLabel(snapshot, 'businessUnit')
   if (!label) return null
-  assertApprovedProposal({ field: 'businessUnit', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.customerOrganizationUnit.findMany({
       where: {
@@ -726,6 +1002,7 @@ async function ensureBusinessUnit(
     'organizational unit',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'businessUnit', label, snapshot, approvals })
   return (
     await tx.customerOrganizationUnit.create({
       data: {
@@ -763,7 +1040,6 @@ async function ensureSite(
   }
   const label = targetLabel(snapshot, 'site')
   if (!label) throw new ImporterV2PublicationValidationError('Site must be resolved before publication.')
-  assertApprovedProposal({ field: 'site', label, snapshot, approvals })
   const existing = await exactOne(
     await tx.site.findMany({
       where: {
@@ -776,6 +1052,7 @@ async function ensureSite(
     'site',
   )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'site', label, snapshot, approvals })
   return (
     await tx.site.create({
       data: {
@@ -808,12 +1085,17 @@ async function ensureVendor(
   }
   const label = targetLabel(snapshot, 'vendor')
   if (!label) throw new ImporterV2PublicationValidationError('Vendor must be resolved before publication.')
-  const proposalKey = assertApprovedProposal({ field: 'vendor', label, snapshot, approvals })
   const existing = await tx.vendor.findFirst({
     where: { name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  const proposalKey = assertApprovedProposal({
+    field: 'vendor',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.vendor.create({
       data: {
@@ -845,12 +1127,17 @@ async function ensureDeviceType(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Device type must be resolved before publication.')
   }
-  const proposalKey = assertApprovedProposal({ field: 'deviceType', label, snapshot, approvals })
   const existing = await tx.deviceType.findFirst({
     where: { name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  const proposalKey = assertApprovedProposal({
+    field: 'deviceType',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.deviceType.create({
       data: {
@@ -883,12 +1170,17 @@ async function ensureFamily(
   }
   const label = targetLabel(snapshot, 'productFamily')
   if (!label) return null
-  assertApprovedProposal({ field: 'productFamily', label, snapshot, approvals })
   const existing = await tx.deviceModelFamily.findFirst({
     where: { vendorId, name: { equals: label, mode: 'insensitive' } },
     select: { id: true },
   })
   if (existing) return existing.id
+  assertApprovedProposal({
+    field: 'productFamily',
+    label,
+    snapshot,
+    approvals,
+  })
   return (
     await tx.deviceModelFamily.create({
       data: { vendorId, name: label },
@@ -921,12 +1213,19 @@ async function ensureModel(
   if (!label) {
     throw new ImporterV2PublicationValidationError('Canonical model must be resolved before publication.')
   }
-  assertApprovedProposal({ field: 'model', label, snapshot, approvals })
-  const existing = await tx.deviceModel.findUnique({
-    where: { vendorId_model: { vendorId, model: label } },
-    select: { id: true },
-  })
+  const existing = await exactOne(
+    await tx.deviceModel.findMany({
+      where: {
+        vendorId,
+        isActive: true,
+        model: { equals: label, mode: 'insensitive' },
+      },
+      select: { id: true },
+    }),
+    'device model',
+  )
   if (existing) return existing.id
+  assertApprovedProposal({ field: 'model', label, snapshot, approvals })
   return (
     await tx.deviceModel.create({
       data: {
@@ -1671,7 +1970,10 @@ export async function publishImporterV2Batch(input: {
         if (!batch) {
           throw new ImporterV2PublicationValidationError('Importer batch was not found.')
         }
-        const qa = buildImporterV2PublicationQa(qaInput(batch))
+        const qa = await importerV2QaWithOnlyNewCanonicalProposals(
+          tx,
+          buildImporterV2PublicationQa(qaInput(batch)),
+        )
         if (qa.qaFingerprint !== input.qaFingerprint) {
           throw new ImporterV2PublicationConflictError(
             'The staged QA snapshot changed after review. Reload QA before publishing.',

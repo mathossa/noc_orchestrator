@@ -29,6 +29,7 @@ export type ImporterV2DecisionSource =
   | 'PROFILE_RULE'
   | 'DETERMINISTIC_PARSER'
   | 'EXACT_CATALOG_MATCH'
+  | 'CANONICAL_RELATION'
   | 'NON_BINDING_SUGGESTION'
   | 'UNRESOLVED'
 export type ImporterV2RowStatus =
@@ -111,9 +112,18 @@ export type ImporterV2SuggestionSnapshot = {
   suggestions: readonly ImporterV2Suggestion[]
 }
 
+export type ImporterV2ModelRelation = {
+  modelId: string
+  modelLabel: string
+  vendor: ImporterV2ProposedValue
+  deviceType: ImporterV2ProposedValue
+  productFamily: ImporterV2ProposedValue | null
+}
+
 export type ImporterV2CatalogSnapshot = {
   version: string
   values: Partial<Record<ImporterV2Field, readonly ImporterV2CanonicalValue[]>>
+  modelRelations?: readonly ImporterV2ModelRelation[]
 }
 
 export type ImporterV2ProfileSnapshot = {
@@ -140,6 +150,7 @@ export type ImporterV2CanonicalComparison = {
 export type ImporterV2StagedRow = {
   rowNumber: number
   sourceRecordKey?: string | null
+  topologyRole?: 'DEVICE' | 'STACK' | 'STACK_MEMBER'
   rawValues: Partial<Record<ImporterV2Field, string | null>>
   inclusionDecision?: ImporterV2InclusionDecision | null
   comparison?: ImporterV2CanonicalComparison | null
@@ -335,7 +346,9 @@ function decision(
     confidence,
     explanation,
     requiresConfirmation:
-      source !== 'MANUAL_OVERRIDE' && source !== 'UNRESOLVED',
+      source !== 'MANUAL_OVERRIDE' &&
+      source !== 'CANONICAL_RELATION' &&
+      source !== 'UNRESOLVED',
     matchedRuleId: null,
     matchedRuleVersion: null,
     matchedParserId: null,
@@ -527,6 +540,80 @@ function resolveField(
   }
 }
 
+function applyCanonicalModelRelations(
+  resolutions: Record<ImporterV2Field, DecisionResolution>,
+  catalog: ImporterV2CatalogSnapshot,
+  topologyRole: ImporterV2StagedRow['topologyRole'],
+) {
+  const model = resolutions.model.proposedValue
+  if (!model?.id) return
+
+  const relation = catalog.modelRelations?.find(
+    (candidate) => candidate.modelId === model.id,
+  )
+  if (!relation) return
+
+  const dependencies: Array<{
+    field: 'vendor' | 'deviceType' | 'productFamily'
+    target: ImporterV2ProposedValue | null
+  }> = [
+    { field: 'vendor', target: relation.vendor },
+    ...(topologyRole === 'DEVICE' || topologyRole === undefined
+      ? [{ field: 'deviceType' as const, target: relation.deviceType }]
+      : []),
+    { field: 'productFamily', target: relation.productFamily },
+  ]
+
+  for (const { field, target } of dependencies) {
+    if (!target) continue
+    const current = resolutions[field]
+
+    if (
+      current.proposedValue?.id &&
+      current.proposedValue.id !== target.id &&
+      current.decision.source !== 'UNRESOLVED'
+    ) {
+      const sameLabel =
+        matchKey(current.proposedValue.label) === matchKey(target.label)
+
+      if (!sameLabel) {
+        resolutions[field] = {
+          proposedValue: null,
+          ambiguous: true,
+          decision: decision(
+            'UNRESOLVED',
+            'LOW',
+            `Resolved ${field} “${current.proposedValue.label}” conflicts with canonical model “${relation.modelLabel}”, which requires “${target.label}”.`,
+          ),
+        }
+        continue
+      }
+      // Duplicate/legacy catalog IDs with the same semantic label are not a
+      // real operator conflict. The canonical DeviceModel relationship wins so
+      // publication uses the exact vendor/type/family owned by that model.
+    } else if (
+      current.decision.source !== 'UNRESOLVED' &&
+      current.proposedValue?.id
+    ) {
+      continue
+    }
+
+    resolutions[field] = {
+      proposedValue: { ...target },
+      decision: decision(
+        'CANONICAL_RELATION',
+        'HIGH',
+        `${field} is determined by canonical model “${relation.modelLabel}”.`,
+        {
+          requiresConfirmation: false,
+          matchedCatalogValueId: target.id,
+          matchedCatalogVersion: catalog.version,
+        },
+      ),
+    }
+  }
+}
+
 function fieldIssues(
   rowNumber: number,
   rowFingerprint: string,
@@ -605,17 +692,23 @@ function evaluateRow(
   const rawValues = completeRawValues(row)
   const normalizedValues = completeNormalizedValues(rawValues)
   const sourceFingerprint = importerV2SourceFingerprint(row, input.profile)
-  const evaluatedFields = {} as Record<
-    ImporterV2Field,
-    ImporterV2EvaluatedField
-  >
+  const resolutions = {} as Record<ImporterV2Field, DecisionResolution>
   for (const field of IMPORTER_V2_FIELDS) {
-    const resolution = resolveField(
+    resolutions[field] = resolveField(
       field,
       sourceFingerprint,
       normalizedValues,
       input,
     )
+  }
+  applyCanonicalModelRelations(resolutions, input.catalog, row.topologyRole)
+
+  const evaluatedFields = {} as Record<
+    ImporterV2Field,
+    ImporterV2EvaluatedField
+  >
+  for (const field of IMPORTER_V2_FIELDS) {
+    const resolution = resolutions[field]
     const issues = fieldIssues(
       row.rowNumber,
       sourceFingerprint,

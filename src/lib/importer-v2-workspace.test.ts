@@ -168,5 +168,10 @@ describe('Importer v2 reconciliation workspace', () => {
       type: 'EXCLUDE_ROW',
       explanation: 'This source row is intentionally out of inventory scope.',
     })).toBe(false)
+    expect(importerV2WorkspaceActionNeedsReevaluation({
+      type: 'PRESERVE_EXISTING_FIRMWARE',
+      explanation:
+        'Source has no firmware evidence; keep existing canonical observation.',
+    })).toBe(false)
   })
 })

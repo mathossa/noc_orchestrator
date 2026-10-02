@@ -106,8 +106,49 @@ export type DevicePlanningReference = {
   proposedFor: string | null
 }
 
+export type DeviceTopologyMemberRecord = {
+  id: string
+  position: number
+  name: string | null
+  hostname: string | null
+  serialNumber: string | null
+  macAddress: string | null
+  deviceModelId: string
+  firmwareReleaseId: string | null
+  rawFirmwareVersion: string | null
+  rawSoftwareVersion: string | null
+  normalizedFirmwareVersion: string | null
+  provider: string | null
+  sourceAdapterId: string | null
+  sourceId: string | null
+  isActive: boolean
+  lastSeenAt: string
+  deviceModel: {
+    id: string
+    model: string
+    vendor: { id: string; code: string; name: string }
+    deviceType: { id: string; code: string; name: string }
+  } | null
+  firmwareRelease: {
+    id: string
+    platform: string
+    version: string
+  } | null
+}
+
+export type DeviceTopologyRecord = {
+  id: string
+  kind: string
+  provider: string | null
+  sourceAdapterId: string | null
+  sourceGroupKey: string | null
+  lastSeenAt: string
+  members: DeviceTopologyMemberRecord[]
+}
+
 export type DeviceDetailRecord = DeviceRecord & {
   issueReason: string | null
+  topology: DeviceTopologyRecord | null
   issueFlaggedAt: string | null
   planning: { activePlans: DevicePlanningReference[]; history: DevicePlanningReference[] }
 

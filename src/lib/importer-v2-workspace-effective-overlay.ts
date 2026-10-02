@@ -50,6 +50,7 @@ function targetFromAction(action: ImporterV2WorkspaceAction) {
       return null
     case 'CHANGE_SET':
     case 'EXCLUDE_ROW':
+    case 'PRESERVE_EXISTING_FIRMWARE':
       return undefined
   }
 }
@@ -86,6 +87,14 @@ function decisionResolvesIssue(
   decision: WorkspaceDecision,
 ) {
   if (decision.action === 'EXCLUDE_ROW') return true
+  if (decision.action === 'PRESERVE_EXISTING_FIRMWARE') {
+    return (
+      issue.severity === 'WARNING' &&
+      issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
+      (issue.field === 'currentFirmware' ||
+        issue.field === 'softwarePlatform')
+    )
+  }
   if (!decision.field || issue.field !== decision.field) return false
 
   switch (decision.action) {
@@ -276,7 +285,11 @@ export function importerV2WorkspaceDirectOverlay(
     return Object.keys(combined).length > 0 ? combined : null
   }
 
-  if (action.type === 'EXCLUDE_ROW' || action.type === 'IGNORE_FIELD') {
+  if (
+    action.type === 'EXCLUDE_ROW' ||
+    action.type === 'IGNORE_FIELD' ||
+    action.type === 'PRESERVE_EXISTING_FIRMWARE'
+  ) {
     return null
   }
 
@@ -370,6 +383,9 @@ export function importerV2WorkspacePreviewChangeReason(
 ) {
   if (action.type === 'EXCLUDE_ROW') {
     return 'Change: Row inclusion · Included → Excluded.'
+  }
+  if (action.type === 'PRESERVE_EXISTING_FIRMWARE') {
+    return 'Change: Missing source firmware acknowledged · existing canonical firmware is preserved when present.'
   }
   if (action.type === 'CHANGE_SET') {
     return `Changes: ${action.changes

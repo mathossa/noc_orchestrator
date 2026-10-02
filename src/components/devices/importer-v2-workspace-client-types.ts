@@ -80,7 +80,14 @@ export type RowDetail = WorkspaceRow & {
   canonicalHierarchy?: ReturnType<typeof import('@/lib/importer-v2-canonical-hierarchy').resolveCanonicalHierarchy>
   identityReview?: ImporterV2WorkspaceIdentityReview | null
   alternatives?: unknown
-  repeatDiff?: unknown
+  repeatDiff?: {
+    classification?: string
+    changes?: Array<{
+      field: ImporterV2Field
+      before: string | null
+      after: string | null
+    }>
+  } | null
   resolvedIssues?: unknown[]
   activeErrorCount?: number
   activeWarningCount?: number

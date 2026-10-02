@@ -14,6 +14,20 @@ describe('Importer v2 current firmware publication ownership', () => {
     ).toBe(false)
   })
 
+  it('still preserves canonical firmware after missing-source acknowledgement', () => {
+    expect(
+      importerV2ShouldReplaceCurrentFirmware({
+        runningVersion: null,
+        decisions: [
+          {
+            field: null,
+            action: 'PRESERVE_EXISTING_FIRMWARE',
+          },
+        ],
+      }),
+    ).toBe(false)
+  })
+
   it('replaces current firmware when a concrete observed running version exists', () => {
     expect(
       importerV2ShouldReplaceCurrentFirmware({

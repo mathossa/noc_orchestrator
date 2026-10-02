@@ -31,6 +31,11 @@ export type ImporterV2RepeatCurrentRow = {
   identifiers: ImporterV2IdentityIdentifiers
   values: Partial<Record<ImporterV2Field, string | null>>
   canonicalValues?: Partial<Record<ImporterV2Field, string | null>>
+  /**
+   * Allows repeat evidence to match a source row even when it intentionally has
+   * no standalone canonical Device crosswalk, such as a physical stack member.
+   */
+  allowSourceSnapshotMatch?: boolean
 }
 
 export type ImporterV2FieldChange = {
@@ -260,12 +265,37 @@ export function diffImporterV2RepeatImport(input: {
     }
 
     let previousIndexes: readonly number[] = []
-    if (current.identityStatus !== 'NEW' && current.canonicalDeviceId) {
-      previousIndexes = previousByCanonical.get(current.canonicalDeviceId) ?? []
+
+    // Repeat evidence is source-scoped, not a replacement for canonical identity.
+    // A physical stack member intentionally has no standalone Device crosswalk,
+    // so its current identity can be NEW while the successful source snapshot
+    // still contains the same durable member source ID/serial+MAC.
+    const sourceKey = stableSourceKey(current.identifiers)
+    if (
+      sourceKey &&
+      (current.identityStatus !== 'NEW' || current.allowSourceSnapshotMatch)
+    ) {
+      previousIndexes = previousBySourceKey.get(sourceKey) ?? []
     }
-    if (current.identityStatus !== 'NEW' && previousIndexes.length === 0) {
-      const key = stableSourceKey(current.identifiers)
-      if (key) previousIndexes = previousBySourceKey.get(key) ?? []
+    if (
+      previousIndexes.length === 0 &&
+      current.allowSourceSnapshotMatch
+    ) {
+      previousIndexes = input.previousRows.flatMap((previous, index) =>
+        importerV2DurableIdentityOverlaps(
+          current.identifiers,
+          previous.identifiers,
+        )
+          ? [index]
+          : [],
+      )
+    }
+    if (
+      previousIndexes.length === 0 &&
+      current.identityStatus !== 'NEW' &&
+      current.canonicalDeviceId
+    ) {
+      previousIndexes = previousByCanonical.get(current.canonicalDeviceId) ?? []
     }
 
     if (previousIndexes.length > 1) {
