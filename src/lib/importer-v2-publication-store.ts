@@ -179,10 +179,13 @@ async function assertBulkNewIdentitiesAreUnique(
     for (const part of chunks([...fieldValues], BULK_IDENTITY_LOOKUP_CHUNK_SIZE)) {
       if (part.length === 0) continue
       const match = await tx.importerV2DeviceCrosswalk.findFirst({
-        where: {
-          provider,
-          [field]: { in: part },
-        },
+        where:
+          field === 'normalizedSourceId'
+            ? {
+                provider,
+                normalizedSourceId: { in: part },
+              }
+            : { [field]: { in: part } },
         select: { id: true },
       })
       if (match) {
@@ -1363,17 +1366,24 @@ async function assertIdentityStillUnique(
   sourceIdentifiers: ReturnType<typeof identifiers>,
 ) {
   const normalized = normalizeImporterV2Identity(sourceIdentifiers)
-  const OR: Array<Record<string, string>> = []
-  if (normalized.sourceId) OR.push({ normalizedSourceId: normalized.sourceId })
-  if (normalized.serialNumber) OR.push({ normalizedSerialNumber: normalized.serialNumber })
-  if (normalized.macAddress) OR.push({ normalizedMacAddress: normalized.macAddress })
+  const OR = [
+    ...(normalized.sourceId
+      ? [{ provider, normalizedSourceId: normalized.sourceId }]
+      : []),
+    ...(normalized.serialNumber
+      ? [{ normalizedSerialNumber: normalized.serialNumber }]
+      : []),
+    ...(normalized.macAddress
+      ? [{ normalizedMacAddress: normalized.macAddress }]
+      : []),
+  ]
   if (OR.length === 0) {
     throw new ImporterV2PublicationConflictError(
       'Durable source identity disappeared before publication.',
     )
   }
   const matches = await tx.importerV2DeviceCrosswalk.findMany({
-    where: { provider, OR },
+    where: { OR },
     select: { canonicalDeviceId: true },
   })
   const conflicting = [...new Set(matches.map((item) => item.canonicalDeviceId))].filter(
