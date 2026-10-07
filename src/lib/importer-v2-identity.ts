@@ -27,11 +27,27 @@ export type ImporterV2IdentitySource = {
   context?: ImporterV2IdentityContext
 }
 
+export type ImporterV2IdentityEvidence = {
+  kind: 'CANONICAL' | 'CROSSWALK'
+  provider: string | null
+  sourceId: string | null
+  serialNumber: string | null
+  macAddress: string | null
+}
+
 export type ImporterV2IdentityCandidate = {
   canonicalDeviceId: string
   crosswalkId?: string | null
+  /**
+   * SAME_PROVIDER candidates may compare provider-local Source IDs.
+   * CROSS_PROVIDER and CANONICAL candidates must never compare Source IDs
+   * because those values live in unrelated provider namespaces.
+   */
+  matchScope?: 'SAME_PROVIDER' | 'CROSS_PROVIDER' | 'CANONICAL'
   identifiers: ImporterV2IdentityIdentifiers
   context?: ImporterV2IdentityContext
+  evidence?: readonly ImporterV2IdentityEvidence[]
+  hasConflictingDurableEvidence?: boolean
 }
 
 export type ImporterV2IdentitySignalKind =
@@ -57,10 +73,13 @@ export type ImporterV2IdentityContextDifference = {
 export type ImporterV2IdentityCandidateResult = {
   canonicalDeviceId: string
   crosswalkId: string | null
+  matchScope: 'SAME_PROVIDER' | 'CROSS_PROVIDER' | 'CANONICAL'
   confidence: ImporterV2Confidence
   requiresConfirmation: true
   signals: readonly ImporterV2IdentitySignal[]
   contextDifferences: readonly ImporterV2IdentityContextDifference[]
+  evidence: readonly ImporterV2IdentityEvidence[]
+  evidenceConflict: boolean
   explanation: string
 }
 
@@ -192,9 +211,9 @@ function contextDifferences(
 
 function candidateSignals(
   source: ImporterV2NormalizedIdentityIdentifiers,
-  candidate: ImporterV2IdentityIdentifiers,
+  candidate: ImporterV2IdentityCandidate,
 ): ImporterV2IdentitySignal[] {
-  const normalizedCandidate = normalizeImporterV2Identity(candidate)
+  const normalizedCandidate = normalizeImporterV2Identity(candidate.identifiers)
   const definitions = [
     ['SOURCE_ID', 'sourceId'],
     ['SERIAL_NUMBER', 'serialNumber'],
@@ -203,7 +222,15 @@ function candidateSignals(
 
   return definitions.map(([kind, key]) => {
     const sourceValue = source[key]
-    const candidateValue = normalizedCandidate[key]
+    // Provider Source IDs are opaque values in provider-local namespaces.
+    // A same-looking Source ID from Aruba/Auvik/Meraki is never evidence of
+    // cross-provider identity agreement.
+    const candidateValue =
+      kind === 'SOURCE_ID' &&
+      candidate.matchScope &&
+      candidate.matchScope !== 'SAME_PROVIDER'
+        ? null
+        : normalizedCandidate[key]
     return {
       kind,
       sourceValue,
@@ -220,30 +247,80 @@ function candidateSignals(
   })
 }
 
+function comparableContext(value: string | null | undefined) {
+  return normalizeText(value)?.toLocaleLowerCase('en-US') ?? null
+}
+
+function compatibleHardwareContext(
+  source: ImporterV2IdentityContext | undefined,
+  candidate: ImporterV2IdentityContext | undefined,
+) {
+  const sourceVendor = comparableContext(source?.vendor)
+  const sourceModel = comparableContext(source?.model)
+  const candidateVendor = comparableContext(candidate?.vendor)
+  const candidateModel = comparableContext(candidate?.model)
+  return Boolean(
+    sourceVendor &&
+      sourceModel &&
+      candidateVendor &&
+      candidateModel &&
+      sourceVendor === candidateVendor &&
+      sourceModel === candidateModel,
+  )
+}
+
 function candidateConfidence(
+  source: ImporterV2IdentitySource,
   signals: readonly ImporterV2IdentitySignal[],
   candidate: ImporterV2IdentityCandidate,
 ) {
   const agreed = signals.filter((signal) => signal.status === 'AGREE')
   const disagreed = signals.filter((signal) => signal.status === 'DISAGREE')
 
-  // A genuine provider-scoped device ID is the strongest durable signal and
-  // may remain authoritative when a stale serial/MAC changed. Auvik XLSX does
-  // not supply such an ID; its Site ID is filtered before identity resolution.
-  if (agreed.some((signal) => signal.kind === 'SOURCE_ID')) return 'HIGH' as const
-  if (disagreed.length > 0) return 'LOW' as const
+  // A genuine same-provider device ID is the strongest durable signal and may
+  // remain authoritative when a stale serial/MAC changed.
+  if (
+    candidate.matchScope !== 'CROSS_PROVIDER' &&
+    candidate.matchScope !== 'CANONICAL' &&
+    agreed.some((signal) => signal.kind === 'SOURCE_ID')
+  ) {
+    return 'HIGH' as const
+  }
+
+  if (candidate.hasConflictingDurableEvidence || disagreed.length > 0) {
+    return 'LOW' as const
+  }
   if (agreed.length >= 2) return 'HIGH' as const
 
-  // A unique serial/MAC match to a persisted crosswalk is not a fresh guess:
-  // publication previously confirmed that raw source alias for this canonical
-  // device. Reuse it automatically on later imports instead of making the
-  // engineer reconfirm the same source imperfection every time.
-  if (candidate.crosswalkId && agreed.length === 1) return 'HIGH' as const
+  // A unique serial/MAC match to a previously confirmed crosswalk for this
+  // same provider is reusable automatically on later imports.
+  if (
+    candidate.crosswalkId &&
+    candidate.matchScope !== 'CROSS_PROVIDER' &&
+    candidate.matchScope !== 'CANONICAL' &&
+    agreed.length === 1
+  ) {
+    return 'HIGH' as const
+  }
+
+  // A first observation from another provider may converge automatically when
+  // a unique canonical serial is reinforced by matching vendor + model context.
+  if (
+    (candidate.matchScope === 'CROSS_PROVIDER' ||
+      candidate.matchScope === 'CANONICAL') &&
+    agreed.some((signal) => signal.kind === 'SERIAL_NUMBER') &&
+    compatibleHardwareContext(source.context, candidate.context)
+  ) {
+    return 'HIGH' as const
+  }
 
   return 'MEDIUM' as const
 }
 
-function candidateExplanation(signals: readonly ImporterV2IdentitySignal[]) {
+function candidateExplanation(
+  signals: readonly ImporterV2IdentitySignal[],
+  candidate: ImporterV2IdentityCandidate,
+) {
   const agreed = signals
     .filter((signal) => signal.status === 'AGREE')
     .map((signal) => signal.kind)
@@ -251,10 +328,19 @@ function candidateExplanation(signals: readonly ImporterV2IdentitySignal[]) {
     .filter((signal) => signal.status === 'DISAGREE')
     .map((signal) => signal.kind)
   const agreedText = agreed.length > 0 ? agreed.join(', ') : 'no identifiers'
-  if (disagreed.length === 0) {
-    return `Durable identity agreement: ${agreedText}. Context fields did not affect confidence.`
+  if (candidate.hasConflictingDurableEvidence) {
+    return `Durable identity agreement: ${agreedText}; other retained provider/canonical evidence conflicts with the incoming durable identifiers, so review is required.`
   }
-  return `Durable identity agreement: ${agreedText}; changed or stale source identifiers: ${disagreed.join(', ')}.`
+  if (disagreed.length > 0) {
+    return `Durable identity agreement: ${agreedText}; changed or stale source identifiers: ${disagreed.join(', ')}.`
+  }
+  if (candidate.matchScope === 'CROSS_PROVIDER') {
+    return `Cross-provider durable identity agreement: ${agreedText}. Provider Source IDs were intentionally excluded from comparison.`
+  }
+  if (candidate.matchScope === 'CANONICAL') {
+    return `Canonical durable identity agreement: ${agreedText}. Provider Source IDs were intentionally excluded from comparison.`
+  }
+  return `Durable identity agreement: ${agreedText}. Context fields did not affect confidence.`
 }
 
 export function resolveImporterV2Identity(
@@ -278,16 +364,19 @@ export function resolveImporterV2Identity(
 
   const matchedCandidates = candidates
     .map((candidate) => {
-      const signals = candidateSignals(normalizedIdentifiers, candidate.identifiers)
+      const signals = candidateSignals(normalizedIdentifiers, candidate)
       if (!signals.some((signal) => signal.status === 'AGREE')) return null
       return {
         canonicalDeviceId: candidate.canonicalDeviceId,
         crosswalkId: candidate.crosswalkId ?? null,
-        confidence: candidateConfidence(signals, candidate),
+        matchScope: candidate.matchScope ?? 'SAME_PROVIDER',
+        confidence: candidateConfidence(source, signals, candidate),
         requiresConfirmation: true as const,
         signals,
         contextDifferences: contextDifferences(source.context, candidate.context),
-        explanation: candidateExplanation(signals),
+        evidence: candidate.evidence ?? [],
+        evidenceConflict: candidate.hasConflictingDurableEvidence === true,
+        explanation: candidateExplanation(signals, candidate),
       }
     })
     .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
@@ -317,8 +406,10 @@ export function resolveImporterV2Identity(
       (signal) => signal.kind === 'SOURCE_ID' && signal.status === 'AGREE',
     ),
   )
-  const hasDurableConflict = matchedCandidates.some((candidate) =>
-    candidate.signals.some((signal) => signal.status === 'DISAGREE'),
+  const hasDurableConflict = matchedCandidates.some(
+    (candidate) =>
+      candidate.evidenceConflict ||
+      candidate.signals.some((signal) => signal.status === 'DISAGREE'),
   )
   const ambiguous =
     matchedCandidates.length > 1 ||
