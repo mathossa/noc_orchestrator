@@ -455,6 +455,7 @@ async function tryPublishNewRowsBulk(input: {
         normalizedSerialNumber: row.normalizedIdentity.serialNumber,
         macAddress: row.sourceIdentifiers.macAddress,
         normalizedMacAddress: row.normalizedIdentity.macAddress,
+        ...publicationRawIdentityEvidence(row.row, row.snapshot),
         confirmedAt: input.publishedAt,
         lastSeenAt: input.publishedAt,
       })),
@@ -1359,6 +1360,34 @@ function publicationIdentifiers(row: ImporterV2PublicationQaRowInput, snapshot: 
   })
 }
 
+function publicationRawIdentityEvidence(
+  row: ImporterV2PublicationQaRowInput,
+  snapshot: EffectiveSnapshot,
+) {
+  const raw = importerV2PublicationIdentityFields({
+    topology: importerV2TopologyFromDecisions(row.decisions),
+    sourceId: snapshot.rawValues?.sourceId ?? null,
+    serialNumber: snapshot.rawValues?.serialNumber ?? null,
+    macAddress: snapshot.rawValues?.macAddress ?? null,
+  })
+  const suppressed = new Set(snapshot.suppressedSourceFields ?? [])
+  const state = (
+    field: 'sourceId' | 'serialNumber' | 'macAddress',
+    value: string | null,
+  ) => {
+    if (!value) return null
+    return suppressed.has(field) ? 'IGNORED' : 'ACCEPTED'
+  }
+  return {
+    rawSourceId: raw.sourceId,
+    rawSerialNumber: raw.serialNumber,
+    rawMacAddress: raw.macAddress,
+    sourceIdEvidenceState: state('sourceId', raw.sourceId),
+    serialNumberEvidenceState: state('serialNumber', raw.serialNumber),
+    macAddressEvidenceState: state('macAddress', raw.macAddress),
+  }
+}
+
 async function assertIdentityStillUnique(
   tx: PublicationTx,
   provider: string,
@@ -1854,6 +1883,7 @@ async function publishRow(input: {
       normalizedSerialNumber: normalizedAfterCreate.serialNumber,
       macAddress: sourceIdentifiers.macAddress,
       normalizedMacAddress: normalizedAfterCreate.macAddress,
+      ...publicationRawIdentityEvidence(row, snapshot),
       confirmedAt: publishedAt,
       lastSeenAt: publishedAt,
     },
@@ -1865,6 +1895,7 @@ async function publishRow(input: {
       normalizedSerialNumber: normalizedAfterCreate.serialNumber,
       macAddress: sourceIdentifiers.macAddress,
       normalizedMacAddress: normalizedAfterCreate.macAddress,
+      ...publicationRawIdentityEvidence(row, snapshot),
       confirmedAt: publishedAt,
       lastSeenAt: publishedAt,
     },
