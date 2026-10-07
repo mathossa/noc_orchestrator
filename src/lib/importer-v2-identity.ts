@@ -147,25 +147,30 @@ export function normalizeImporterV2Identity(
 }
 
 /**
- * Keep the durable values reported by the source as crosswalk aliases. A manual
- * correction changes the canonical Device field, not the identity alias that
- * the source will report again on the next import. When the source omitted an
- * identifier entirely, an explicitly supplied effective value may seed it.
+ * Keep durable values reported by the source as crosswalk aliases for ordinary
+ * canonical corrections. An explicit IGNORE_FIELD / CLEAR_FIELD decision is
+ * different: that source identifier has been declared unreliable for durable
+ * identity and must not be reintroduced into the crosswalk from raw evidence.
+ * Raw evidence itself remains immutable in the staged snapshot.
  */
 export function importerV2SourceIdentityForCrosswalk(input: {
   rawIdentifiers: ImporterV2IdentityIdentifiers
   effectiveIdentifiers: ImporterV2IdentityIdentifiers
+  suppressedSourceFields?: readonly string[]
 }): { sourceId: string | null; serialNumber: string | null; macAddress: string | null } {
+  const suppressed = new Set(input.suppressedSourceFields ?? [])
+  const value = (
+    field: keyof ImporterV2IdentityIdentifiers,
+  ) =>
+    suppressed.has(field)
+      ? null
+      : normalizeText(input.rawIdentifiers[field]) ??
+        normalizeText(input.effectiveIdentifiers[field])
+
   return {
-    sourceId:
-      normalizeText(input.rawIdentifiers.sourceId) ??
-      normalizeText(input.effectiveIdentifiers.sourceId),
-    serialNumber:
-      normalizeText(input.rawIdentifiers.serialNumber) ??
-      normalizeText(input.effectiveIdentifiers.serialNumber),
-    macAddress:
-      normalizeText(input.rawIdentifiers.macAddress) ??
-      normalizeText(input.effectiveIdentifiers.macAddress),
+    sourceId: value('sourceId'),
+    serialNumber: value('serialNumber'),
+    macAddress: value('macAddress'),
   }
 }
 
