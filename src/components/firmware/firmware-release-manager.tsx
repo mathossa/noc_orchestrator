@@ -12,6 +12,12 @@ import type {
 } from '@/lib/firmware-releases'
 import type { FirmwareTrainRecord } from '@/lib/firmware-trains'
 import { firmwareReleaseDecisions } from '@/lib/firmware-catalog-defaults'
+import {
+  firmwarePlatformOptionsForVendor,
+  firmwareTrainsForPlatform,
+  reviewPlatformPatch,
+  reviewTrainIdForPlatform,
+} from '@/lib/firmware-review-platform'
 
 type ApiError = { error?: { message?: string; fields?: FirmwareReleaseFieldErrors } }
 type ReleasePayload = { data?: FirmwareReleaseRecord[] } & ApiError
@@ -92,6 +98,7 @@ export function FirmwareReleaseManager() {
   const [addOpen, setAddOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [form, setForm] = useState<AddForm>(emptyAddForm)
+  const [reviewPlatform, setReviewPlatform] = useState<Record<string, string>>({})
   const [reviewTrain, setReviewTrain] = useState<Record<string, string>>({})
   const [fieldErrors, setFieldErrors] = useState<FirmwareReleaseFieldErrors>({})
   const [loading, setLoading] = useState(true)
@@ -310,7 +317,17 @@ export function FirmwareReleaseManager() {
     setError(null)
     setMessage(null)
     try {
-      const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
+      const chosenPlatform = reviewPlatform[release.id] ?? release.platform
+      const chosenTrainId = reviewTrainIdForPlatform({
+        release,
+        selectedPlatform: chosenPlatform,
+        selectedTrainId: reviewTrain[release.id],
+      })
+      const platformPatch = reviewPlatformPatch({
+        release,
+        selectedPlatform: chosenPlatform,
+        selectedTrainId: chosenTrainId,
+      })
       const patch =
         action === 'ARCHIVE'
           ? { isActive: false }
@@ -318,7 +335,7 @@ export function FirmwareReleaseManager() {
             ? { isActive: true }
             : {
                 decision: action === 'PREFERRED' ? 'ALLOWED' : action,
-                ...(chosenTrainId !== (release.firmwareTrainId ?? '') ? { firmwareTrainId: chosenTrainId || null } : {}),
+                ...platformPatch,
               }
       const response = await fetch(`/api/v1/firmware-releases/${release.id}`, {
         method: 'PATCH',
@@ -403,7 +420,7 @@ export function FirmwareReleaseManager() {
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <FormField label="Platform" htmlFor="catalog-add-platform">
+            <FormField label="Software platform" htmlFor="catalog-add-platform">
               <TextInput id="catalog-add-platform" value={form.platform} readOnly />
             </FormField>
             <FormField label="Train" htmlFor="catalog-add-train" error={fieldErrors.firmwareTrainId}>
@@ -452,7 +469,7 @@ export function FirmwareReleaseManager() {
       <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)]">
           <div className="border-b border-[var(--border)] px-4 py-3">
-            <h2 className="text-sm font-semibold">Vendor / platform</h2>
+            <h2 className="text-sm font-semibold">Vendor / software platform</h2>
           </div>
           {platforms.length === 0 ? <div className="p-4 text-sm text-[var(--muted)]">No firmware platforms yet.</div> : (
             <div className="divide-y divide-[var(--border)]">
@@ -541,13 +558,18 @@ export function FirmwareReleaseManager() {
                         </div>
                         <div className="mt-3 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--surface-raised)]">
                           {group.releases.map((release) => {
-                            const matchingTrains = trains.filter(
-                              (train) =>
-                                train.isActive &&
-                                platformKey(train.vendorId, train.platform) ===
-                                  platformKey(release.vendorId, release.platform),
+                            const chosenPlatform = reviewPlatform[release.id] ?? release.platform
+                            const matchingPlatforms = firmwarePlatformOptionsForVendor(platforms, release.vendorId)
+                            const matchingTrains = firmwareTrainsForPlatform(
+                              trains,
+                              release.vendorId,
+                              chosenPlatform,
                             )
-                            const chosenTrainId = reviewTrain[release.id] ?? release.firmwareTrainId ?? ''
+                            const chosenTrainId = reviewTrainIdForPlatform({
+                              release,
+                              selectedPlatform: chosenPlatform,
+                              selectedTrainId: reviewTrain[release.id],
+                            })
                             return (
                               <div key={release.id} className={`p-3 ${release.isActive ? '' : 'opacity-60'}`}>
                                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -564,6 +586,20 @@ export function FirmwareReleaseManager() {
                                   </div>
                                   {release.decision === 'NEEDS_REVIEW' && release.isActive ? (
                                     <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <select
+                                        aria-label={`Software platform for ${release.version}`}
+                                        value={chosenPlatform}
+                                        onChange={(event) => {
+                                          setReviewPlatform({ ...reviewPlatform, [release.id]: event.target.value })
+                                          setReviewTrain({ ...reviewTrain, [release.id]: '' })
+                                        }}
+                                        className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 text-xs"
+                                        title="Choose the software platform, not the hardware/product family."
+                                      >
+                                        {matchingPlatforms.map((platform) => (
+                                          <option key={platform.key} value={platform.platform}>{platform.platform}</option>
+                                        ))}
+                                      </select>
                                       <select aria-label={`Train for ${release.version}`} value={chosenTrainId} onChange={(event) => setReviewTrain({ ...reviewTrain, [release.id]: event.target.value })} className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 text-xs">
                                         <option value="">No train</option>
                                         {matchingTrains.map((train) => <option key={train.id} value={train.id}>{train.name}</option>)}
