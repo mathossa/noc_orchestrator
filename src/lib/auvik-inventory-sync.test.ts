@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listDevices: vi.fn(),
   stageNormalized: vi.fn(),
   initializeAutomation: vi.fn(),
+  autoPublishValid: vi.fn(),
 }))
 
 vi.mock('@/lib/auvik-integration-store', () => ({
@@ -21,6 +22,10 @@ vi.mock('@/lib/importer-v2-ingestion-store', () => ({
 
 vi.mock('@/lib/importer-v2-workspace-maintenance', () => ({
   initializeImporterV2WorkspaceAutomation: mocks.initializeAutomation,
+}))
+
+vi.mock('@/lib/importer-v2-auto-publication', () => ({
+  autoPublishImporterV2SafeValidRows: mocks.autoPublishValid,
 }))
 
 import { runAuvikInventorySync } from '@/lib/auvik-inventory-sync'
@@ -99,6 +104,15 @@ describe('Auvik inventory sync orchestration', () => {
     mocks.initializeAutomation.mockResolvedValue({
       automaticDecisionsApplied: 0,
     })
+    mocks.autoPublishValid.mockResolvedValue({
+      status: 'PUBLISHED',
+      publishedLogicalDeviceCount: 2,
+      publishedRowCount: 2,
+      remainingIncludedRows: 0,
+      reconciliationRequired: false,
+      blockedRowNumbers: [],
+      error: null,
+    })
   })
 
   it('fans out tenants and stages one shared Importer v2 batch', async () => {
@@ -155,6 +169,12 @@ describe('Auvik inventory sync orchestration', () => {
       }),
     )
     expect(mocks.initializeAutomation).toHaveBeenCalledWith('batch-1')
+    expect(mocks.autoPublishValid).toHaveBeenCalledWith('batch-1')
+    expect(result.autoPublication).toMatchObject({
+      status: 'PUBLISHED',
+      publishedLogicalDeviceCount: 2,
+      reconciliationRequired: false,
+    })
     expect(result.source).toEqual({
       id: 'source-1',
       sourceAdapterId: 'auvik-api-v2:source-1',
