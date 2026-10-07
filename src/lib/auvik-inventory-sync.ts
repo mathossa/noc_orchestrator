@@ -15,6 +15,7 @@ import {
   auvikApiV2InventorySourceAdapter,
 } from '@/lib/importer-v2-auvik-api'
 import { initializeImporterV2WorkspaceAutomation } from '@/lib/importer-v2-workspace-maintenance'
+import { autoPublishImporterV2SafeValidRows } from '@/lib/importer-v2-auto-publication'
 
 export function auvikApiRuntimeImporterProfile(input: {
   sourceId: string
@@ -109,10 +110,14 @@ export async function runAuvikInventorySync(
   const automation = await initializeImporterV2WorkspaceAutomation(
     result.batch.id,
   )
+  const autoPublication = await autoPublishImporterV2SafeValidRows(
+    result.batch.id,
+  )
 
   return {
     ...result,
     automation,
+    autoPublication,
     source: {
       id: connection.id,
       sourceAdapterId: connection.sourceAdapterId,
