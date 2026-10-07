@@ -1188,6 +1188,7 @@ export function ImporterV2Inspector({
                                 {evidence.macAddress
                                   ? ` · MAC ${evidence.macAddress}${evidence.macAddressState ? ` [${evidence.macAddressState}]` : ''}`
                                   : ''}
+                                {evidence.lastSeenAt ? ` · Seen ${evidence.lastSeenAt}` : ''}
                               </p>
                             ))}
                           </div>
