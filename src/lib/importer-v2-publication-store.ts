@@ -56,6 +56,7 @@ type EffectiveSnapshot = {
   rawValues?: Record<string, string | null>
   normalizedValues?: Record<string, string | null>
   proposedCanonicalValues?: Record<string, CanonicalTarget>
+  suppressedSourceFields?: string[]
   firmware?: {
     interpreterId?: string
     interpreterVersion?: string
@@ -1347,6 +1348,7 @@ function publicationIdentifiers(row: ImporterV2PublicationQaRowInput, snapshot: 
       macAddress: snapshot.rawValues?.macAddress ?? null,
     },
     effectiveIdentifiers: identifiers(snapshot),
+    suppressedSourceFields: snapshot.suppressedSourceFields,
   })
   return importerV2PublicationIdentityFields({
     topology: importerV2TopologyFromDecisions(row.decisions),
