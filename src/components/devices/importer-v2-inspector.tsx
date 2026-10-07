@@ -1179,11 +1179,15 @@ export function ImporterV2Inspector({
                                     ? 'Canonical'
                                     : evidence.provider ?? 'Source'}
                                 </strong>
-                                {evidence.sourceId ? ` · ID ${evidence.sourceId}` : ''}
-                                {evidence.serialNumber
-                                  ? ` · Serial ${evidence.serialNumber}`
+                                {evidence.sourceId
+                                  ? ` · ID ${evidence.sourceId}${evidence.sourceIdState ? ` [${evidence.sourceIdState}]` : ''}`
                                   : ''}
-                                {evidence.macAddress ? ` · MAC ${evidence.macAddress}` : ''}
+                                {evidence.serialNumber
+                                  ? ` · Serial ${evidence.serialNumber}${evidence.serialNumberState ? ` [${evidence.serialNumberState}]` : ''}`
+                                  : ''}
+                                {evidence.macAddress
+                                  ? ` · MAC ${evidence.macAddress}${evidence.macAddressState ? ` [${evidence.macAddressState}]` : ''}`
+                                  : ''}
                               </p>
                             ))}
                           </div>
