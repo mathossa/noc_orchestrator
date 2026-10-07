@@ -8,6 +8,8 @@ export type ImporterV2WorkspaceIdentitySignal = {
 export type ImporterV2WorkspaceIdentityEvidence = {
   kind: string
   provider: string | null
+  crosswalkId: string | null
+  lastSeenAt: string | null
   sourceId: string | null
   serialNumber: string | null
   macAddress: string | null
@@ -109,6 +111,8 @@ function candidateProviderEvidence(candidate: Record<string, unknown>) {
     .map((evidence) => ({
       kind: text(evidence.kind) ?? 'UNKNOWN',
       provider: text(evidence.provider),
+      crosswalkId: text(evidence.crosswalkId),
+      lastSeenAt: text(evidence.lastSeenAt),
       sourceId: text(evidence.sourceId),
       serialNumber: text(evidence.serialNumber),
       macAddress: text(evidence.macAddress),
