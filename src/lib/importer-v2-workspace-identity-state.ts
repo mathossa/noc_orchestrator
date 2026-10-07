@@ -11,6 +11,9 @@ export type ImporterV2WorkspaceIdentityEvidence = {
   sourceId: string | null
   serialNumber: string | null
   macAddress: string | null
+  sourceIdState: string | null
+  serialNumberState: string | null
+  macAddressState: string | null
 }
 
 export type ImporterV2WorkspaceIdentityCandidate = {
@@ -109,6 +112,9 @@ function candidateProviderEvidence(candidate: Record<string, unknown>) {
       sourceId: text(evidence.sourceId),
       serialNumber: text(evidence.serialNumber),
       macAddress: text(evidence.macAddress),
+      sourceIdState: text(evidence.sourceIdState),
+      serialNumberState: text(evidence.serialNumberState),
+      macAddressState: text(evidence.macAddressState),
     }))
 }
 
