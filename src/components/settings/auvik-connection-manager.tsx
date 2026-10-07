@@ -282,10 +282,37 @@ export function AuvikConnectionManager({
         { method: 'POST' },
       )
       const result = await responseData(response)
-      setBatchId(result.batch.id)
-      setMessage(
-        `Auvik sync staged ${result.source.deviceCount.toLocaleString()} devices from ${result.source.tenantCount.toLocaleString()} tenant${result.source.tenantCount === 1 ? '' : 's'}.`,
+      const autoPublication = result.autoPublication as {
+        status: 'PUBLISHED' | 'REVIEW_REQUIRED' | 'NOTHING_TO_PUBLISH'
+        publishedLogicalDeviceCount: number
+        remainingIncludedRows: number
+        reconciliationRequired: boolean
+        error: string | null
+      }
+      setBatchId(
+        autoPublication.reconciliationRequired ? result.batch.id : null,
       )
+
+      const staged =
+        `Auvik sync staged ${result.source.deviceCount.toLocaleString()} devices from ${result.source.tenantCount.toLocaleString()} tenant${result.source.tenantCount === 1 ? '' : 's'}.`
+      if (autoPublication.status === 'PUBLISHED') {
+        const published =
+          ` Auto-published ${autoPublication.publishedLogicalDeviceCount.toLocaleString()} valid device${autoPublication.publishedLogicalDeviceCount === 1 ? '' : 's'}.`
+        const review = autoPublication.reconciliationRequired
+          ? ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} still need reconciliation.`
+          : ' No reconciliation is required.'
+        setMessage(staged + published + review)
+      } else if (autoPublication.reconciliationRequired) {
+        setMessage(
+          staged +
+            ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} need reconciliation.` +
+            (autoPublication.error
+              ? ` Automatic publication paused: ${autoPublication.error}`
+              : ''),
+        )
+      } else {
+        setMessage(staged + ' Nothing required reconciliation or publication.')
+      }
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : 'Unable to synchronize Auvik.',
