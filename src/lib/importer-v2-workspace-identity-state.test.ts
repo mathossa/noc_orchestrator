@@ -137,6 +137,76 @@ describe('Importer v2 workspace identity review state', () => {
     })
   })
 
+  it('collapses an ambiguous identity after a persisted serial ignore leaves one provider source-id match', () => {
+    const input = {
+      identityResolution: {
+        kind: 'AMBIGUOUS',
+        requiresConfirmation: true,
+        explanation:
+          'Auvik source ID supports AP01 while the duplicated serial also supports AP02.',
+        candidates: [
+          {
+            canonicalDeviceId: 'ap01',
+            confidence: 'HIGH',
+            signals: [
+              {
+                kind: 'SOURCE_ID',
+                sourceValue: 'auvik-ap01',
+                candidateValue: 'auvik-ap01',
+                status: 'AGREE',
+              },
+              {
+                kind: 'SERIAL_NUMBER',
+                sourceValue: 'CNJMK9T1SV',
+                candidateValue: null,
+                status: 'MISSING',
+              },
+            ],
+          },
+          {
+            canonicalDeviceId: 'ap02',
+            confidence: 'HIGH',
+            signals: [
+              {
+                kind: 'SOURCE_ID',
+                sourceValue: 'auvik-ap01',
+                candidateValue: 'auvik-ap02',
+                status: 'DISAGREE',
+              },
+              {
+                kind: 'SERIAL_NUMBER',
+                sourceValue: 'CNJMK9T1SV',
+                candidateValue: 'CNJMK9T1SV',
+                status: 'AGREE',
+              },
+            ],
+          },
+        ],
+      },
+      decisions: [
+        {
+          field: 'serialNumber',
+          action: 'IGNORE_FIELD',
+        },
+      ],
+    }
+
+    expect(importerV2WorkspaceIdentityNeedsReview(input)).toBe(false)
+    expect(importerV2WorkspaceIdentityReview(input)).toMatchObject({
+      kind: 'MATCH_SUGGESTED',
+      requiresConfirmation: false,
+      resolved: true,
+      selectedDecision: 'CONFIRM_MATCH',
+      selectedCanonicalDeviceId: 'ap01',
+      candidates: [
+        {
+          canonicalDeviceId: 'ap01',
+          durableEvidence: ['SOURCE_ID'],
+        },
+      ],
+    })
+  })
+
   it('keeps INVALID blocked until manual durable identity has been re-resolved against live crosswalks', () => {
     const input = {
       identityResolution: {
