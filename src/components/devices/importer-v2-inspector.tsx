@@ -1409,12 +1409,92 @@ export function ImporterV2Inspector({
                   disabled={actionBusy || !rawSourceValue}
                   onClick={previewIgnoreSource}
                 >
-                  Ignore source
+                  Ignore this import
                 </Button>
                 <Button variant="primary" disabled={!action || actionBusy} onClick={() => void requestPreview()}>
                   Preview set value
                 </Button>
               </div>
+
+              {detail && sourceId ? (
+                <div className="space-y-2 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">
+                  <div>
+                    <strong className="text-xs text-[var(--foreground)]">
+                      Future sync behavior
+                    </strong>
+                    <p className="mt-0.5 text-[10px] leading-4 text-[var(--muted)]">
+                      Save an exact Source ID rule for this device. The rule is reused on later syncs and can be disabled or removed under Import automation.
+                    </p>
+                  </div>
+
+                  {persistentRulePreview ? (
+                    <div className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
+                      <p className="font-semibold">
+                        {persistentRulePreview.kind === 'IGNORE_FIELD'
+                          ? `Ignore ${fieldLabel(actionField)} on future syncs`
+                          : 'Exclude this device on future syncs'}
+                      </p>
+                      <p className="mt-1 text-[10px] text-[var(--muted-strong)]">
+                        Exact Source ID: <span className="font-mono">{sourceId}</span>
+                      </p>
+                      <p className="mt-1 text-[10px] text-[var(--muted-strong)]">
+                        Matches {persistentRulePreview.preview.preview.matchedRowCount.toLocaleString()} staged row{persistentRulePreview.preview.preview.matchedRowCount === 1 ? '' : 's'}.
+                      </p>
+                      {persistentRulePreview.preview.preview.conflicts.length ? (
+                        <p className="mt-1 font-semibold text-[#f0a0a0]">
+                          {persistentRulePreview.preview.preview.conflicts.length} rule conflict{persistentRulePreview.preview.preview.conflicts.length === 1 ? '' : 's'} — activation is blocked.
+                        </p>
+                      ) : null}
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <Button
+                          variant="ghost"
+                          disabled={persistentRuleBusy}
+                          onClick={() => setPersistentRulePreview(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="primary"
+                          disabled={
+                            persistentRuleBusy ||
+                            persistentRulePreview.preview.preview.conflicts.length > 0
+                          }
+                          onClick={() => void applyPersistentRulePreview()}
+                        >
+                          {persistentRuleBusy ? 'Activating…' : 'Activate for future syncs'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="secondary"
+                        disabled={persistentRuleBusy || !rawSourceValue}
+                        onClick={() => void requestPersistentRulePreview('IGNORE_FIELD')}
+                      >
+                        Ignore field in future
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={persistentRuleBusy}
+                        onClick={() => void requestPersistentRulePreview('EXCLUDE_ROW')}
+                      >
+                        Exclude device in future
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={actionBusy}
+                      onClick={previewExcludeRow}
+                    >
+                      Exclude from this import only
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               {detail && targetLabel.trim() ? (
                 <div className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">
