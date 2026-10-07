@@ -30,6 +30,8 @@ export type ImporterV2IdentitySource = {
 export type ImporterV2IdentityEvidence = {
   kind: 'CANONICAL' | 'CROSSWALK'
   provider: string | null
+  crosswalkId?: string | null
+  lastSeenAt?: string | null
   sourceId: string | null
   serialNumber: string | null
   macAddress: string | null
