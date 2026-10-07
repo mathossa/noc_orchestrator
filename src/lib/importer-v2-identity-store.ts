@@ -67,6 +67,12 @@ type IdentityCandidateCrosswalk = {
   normalizedSerialNumber: string | null
   macAddress: string | null
   normalizedMacAddress: string | null
+  rawSourceId: string | null
+  rawSerialNumber: string | null
+  rawMacAddress: string | null
+  sourceIdEvidenceState: string | null
+  serialNumberEvidenceState: string | null
+  macAddressEvidenceState: string | null
 }
 
 function candidateContext(device: IdentityCandidateDevice | undefined) {
@@ -197,6 +203,12 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
           normalizedSerialNumber: true,
           macAddress: true,
           normalizedMacAddress: true,
+          rawSourceId: true,
+          rawSerialNumber: true,
+          rawMacAddress: true,
+          sourceIdEvidenceState: true,
+          serialNumberEvidenceState: true,
+          macAddressEvidenceState: true,
         },
       })
     : []
@@ -283,6 +295,12 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
             normalizedSerialNumber: true,
             macAddress: true,
             normalizedMacAddress: true,
+          rawSourceId: true,
+          rawSerialNumber: true,
+          rawMacAddress: true,
+          sourceIdEvidenceState: true,
+          serialNumberEvidenceState: true,
+          macAddressEvidenceState: true,
           },
         })
       : []
@@ -428,9 +446,19 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
             ...crosswalks.map((crosswalk) => ({
               kind: 'CROSSWALK' as const,
               provider: crosswalk.provider,
-              sourceId: crosswalk.sourceId,
-              serialNumber: crosswalk.serialNumber,
-              macAddress: crosswalk.macAddress,
+              sourceId: crosswalk.rawSourceId ?? crosswalk.sourceId,
+              serialNumber:
+                crosswalk.rawSerialNumber ?? crosswalk.serialNumber,
+              macAddress: crosswalk.rawMacAddress ?? crosswalk.macAddress,
+              sourceIdState:
+                crosswalk.sourceIdEvidenceState ??
+                (crosswalk.sourceId ? 'ACCEPTED' : null),
+              serialNumberState:
+                crosswalk.serialNumberEvidenceState ??
+                (crosswalk.serialNumber ? 'ACCEPTED' : null),
+              macAddressState:
+                crosswalk.macAddressEvidenceState ??
+                (crosswalk.macAddress ? 'ACCEPTED' : null),
             })),
           ],
           hasConflictingDurableEvidence:
@@ -557,6 +585,12 @@ export async function recordSuccessfulImporterV2Publication(
           normalizedSourceId: normalized.sourceId,
           normalizedSerialNumber: normalized.serialNumber,
           normalizedMacAddress: normalized.macAddress,
+          rawSourceId: raw.sourceId,
+          rawSerialNumber: raw.serialNumber,
+          rawMacAddress: raw.macAddress,
+          sourceIdEvidenceState: raw.sourceId ? 'ACCEPTED' : null,
+          serialNumberEvidenceState: raw.serialNumber ? 'ACCEPTED' : null,
+          macAddressEvidenceState: raw.macAddress ? 'ACCEPTED' : null,
           confirmedAt: publishedAt,
           lastSeenAt: publishedAt,
         },
@@ -566,6 +600,12 @@ export async function recordSuccessfulImporterV2Publication(
           normalizedSourceId: normalized.sourceId,
           normalizedSerialNumber: normalized.serialNumber,
           normalizedMacAddress: normalized.macAddress,
+          rawSourceId: raw.sourceId,
+          rawSerialNumber: raw.serialNumber,
+          rawMacAddress: raw.macAddress,
+          sourceIdEvidenceState: raw.sourceId ? 'ACCEPTED' : null,
+          serialNumberEvidenceState: raw.serialNumber ? 'ACCEPTED' : null,
+          macAddressEvidenceState: raw.macAddress ? 'ACCEPTED' : null,
           confirmedAt: publishedAt,
           lastSeenAt: publishedAt,
         },
