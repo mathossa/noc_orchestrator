@@ -51,6 +51,8 @@ export type ImporterV2IdentityConflictDiagnostic = {
   }
   conflicts: Array<{
     canonicalDeviceId: string
+    provider: string
+    sourceId: string | null
     name: string | null
     hostname: string | null
     serialNumber: string | null
@@ -233,15 +235,28 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
   const serialNumbers = [...new Set(rows.flatMap((row) => row.normalized.serialNumber ? [row.normalized.serialNumber] : []))]
   const macAddresses = [...new Set(rows.flatMap((row) => row.normalized.macAddress ? [row.normalized.macAddress] : []))]
   const OR = [
-    ...(sourceIds.length ? [{ normalizedSourceId: { in: sourceIds } }] : []),
-    ...(serialNumbers.length ? [{ normalizedSerialNumber: { in: serialNumbers } }] : []),
-    ...(macAddresses.length ? [{ normalizedMacAddress: { in: macAddresses } }] : []),
+    ...(sourceIds.length
+      ? [
+          {
+            provider: batch.provider,
+            normalizedSourceId: { in: sourceIds },
+          },
+        ]
+      : []),
+    ...(serialNumbers.length
+      ? [{ normalizedSerialNumber: { in: serialNumbers } }]
+      : []),
+    ...(macAddresses.length
+      ? [{ normalizedMacAddress: { in: macAddresses } }]
+      : []),
   ]
 
   const crosswalks = OR.length
     ? await prisma.importerV2DeviceCrosswalk.findMany({
-        where: { provider: batch.provider, OR },
+        where: { OR },
         select: {
+          provider: true,
+          sourceId: true,
           canonicalDeviceId: true,
           normalizedSourceId: true,
           normalizedSerialNumber: true,
@@ -262,6 +277,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
         const matchingIdentifiers: MatchingIdentifier[] = []
         if (
           row.normalized.sourceId &&
+          crosswalk.provider === batch.provider &&
           crosswalk.normalizedSourceId === row.normalized.sourceId
         ) {
           matchingIdentifiers.push({ field: 'sourceId', value: row.sourceIdentifiers.sourceId! })
@@ -330,6 +346,8 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
           const device = deviceById.get(crosswalk.canonicalDeviceId)
           return {
             canonicalDeviceId: crosswalk.canonicalDeviceId,
+            provider: crosswalk.provider,
+            sourceId: crosswalk.sourceId,
             name: device?.name ?? null,
             hostname: device?.hostname ?? null,
             serialNumber: device?.serialNumber ?? null,
@@ -379,7 +397,10 @@ export function formatImporterV2IdentityConflictMessage(
         .join(' / ')
       const model = [device.vendor, device.model].filter(Boolean).join(' ')
       const context = [location, model].filter(Boolean).join(' · ')
-      return `${identity} already belongs to canonical device “${deviceLabel}”${context ? ` (${context})` : ''}`
+      const provenance = device.sourceId
+        ? `${device.provider} Source ID “${device.sourceId}”`
+        : `${device.provider} evidence`
+      return `${identity} is also reported by ${provenance} for canonical device “${deviceLabel}”${context ? ` (${context})` : ''}`
     })
     const staged = conflict.stagedConflicts.slice(0, 3).map((other) => {
       const identity = other.matchingIdentifiers
