@@ -224,6 +224,48 @@ describe('firmware release persistence rules', () => {
     }))
   })
 
+  it('moves a reviewed release to another software platform and clears the old train', async () => {
+    mocks.releaseFindUnique.mockResolvedValue({
+      ...storedRelease,
+      firmwareTrainId: 'wrong-train',
+      platform: 'FortiGate',
+      version: '7.4.11',
+      logicalVersion: '7.4.11',
+      catalogState: 'OBSERVED',
+      policyEligibility: 'NOT_EVALUATED',
+      status: 'AVAILABLE',
+      vendor: undefined,
+      firmwareTrain: undefined,
+    })
+    mocks.releaseUpdate.mockResolvedValue({
+      ...storedRelease,
+      firmwareTrainId: null,
+      platform: 'FortiOS',
+      version: '7.4.11',
+      logicalVersion: '7.4.11',
+      catalogState: 'VERIFIED',
+      policyEligibility: 'ALLOWED',
+    })
+
+    await updateFirmwareRelease('release-1', {
+      platform: 'FortiOS',
+      firmwareTrainId: null,
+      decision: 'ALLOWED',
+    })
+
+    expect(mocks.releaseUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'release-1' },
+      data: expect.objectContaining({
+        platform: 'FortiOS',
+        firmwareTrainId: null,
+        version: '7.4.11',
+        logicalVersion: '7.4.11',
+        catalogState: 'VERIFIED',
+        policyEligibility: 'ALLOWED',
+      }),
+    }))
+  })
+
   it('supports archive-only PATCH without overwriting catalog identity or eligibility', async () => {
     mocks.releaseFindUnique.mockResolvedValue({
       ...storedRelease,
