@@ -19,6 +19,7 @@ export async function POST(request: Request, context: RouteContext) {
         evaluation: result.evaluation,
         source: result.source,
         automation: result.automation,
+        autoPublication: result.autoPublication,
       },
     })
   } catch (error) {
