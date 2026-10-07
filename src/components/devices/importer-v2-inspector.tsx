@@ -429,6 +429,15 @@ export function ImporterV2Inspector({
     })
   }
 
+  const previewIgnoreSource = () => {
+    void requestPreview({
+      type: 'IGNORE_FIELD',
+      field: actionField,
+      explanation:
+        'Ignored this source value for canonical publication and durable identity matching while retaining the raw source evidence.',
+    })
+  }
+
   const requestIdentityPreview = async (decision: IdentityDecision) => {
     if (!detail) return
     setIdentityBusy(true)
@@ -1278,9 +1287,16 @@ export function ImporterV2Inspector({
                 </label>
               ) : null}
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button variant="secondary" disabled={actionBusy} onClick={previewClear}>
                   Clear field
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={actionBusy || !rawSourceValue}
+                  onClick={previewIgnoreSource}
+                >
+                  Ignore source
                 </Button>
                 <Button variant="primary" disabled={!action || actionBusy} onClick={() => void requestPreview()}>
                   Preview set value
