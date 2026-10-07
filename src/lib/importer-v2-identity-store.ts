@@ -458,7 +458,7 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
               kind: 'CROSSWALK' as const,
               provider: crosswalk.provider,
               crosswalkId: crosswalk.id,
-              lastSeenAt: crosswalk.lastSeenAt.toISOString(),
+              lastSeenAt: crosswalk.lastSeenAt?.toISOString() ?? null,
               sourceId: crosswalk.rawSourceId ?? crosswalk.sourceId,
               serialNumber:
                 crosswalk.rawSerialNumber ?? crosswalk.serialNumber,
