@@ -15,6 +15,7 @@ const OPERATORS = new Set([
   'VERSION_MATCH',
 ])
 const SCOPES = new Set(['PROFILE', 'CUSTOMER', 'VENDOR', 'MODEL'])
+const ACTIONS = new Set(['MAP_VALUE', 'IGNORE_FIELD', 'EXCLUDE_ROW'])
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
@@ -67,13 +68,17 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
     throw new Error('wizard.rowNumber must be a positive integer.')
   }
 
+  const action =
+    typeof input.action === 'string' && ACTIONS.has(input.action)
+      ? (input.action as ImporterV2RuleWizardInput['action'])
+      : 'MAP_VALUE'
   const targets = Array.isArray(input.targets)
     ? input.targets.map(parseTarget)
     : []
   const field = validField(input.field) ? input.field : undefined
   const singleTarget = object(input.target)
 
-  if (targets.length === 0) {
+  if (action === 'MAP_VALUE' && targets.length === 0) {
     if (!field) {
       throw new Error('wizard.field must be a supported importer field.')
     }
@@ -92,6 +97,9 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
       throw new Error('wizard.target.id must be a string when supplied.')
     }
   }
+  if (action === 'IGNORE_FIELD' && !field) {
+    throw new Error('wizard.field must identify the source field to ignore.')
+  }
 
   if (input.matchField !== undefined && !validField(input.matchField)) {
     throw new Error('wizard.matchField must be a supported importer field.')
@@ -108,6 +116,7 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
 
   return {
     ...(input as unknown as ImporterV2RuleWizardInput),
+    action,
     ...(field ? { field } : {}),
     ...(targets.length ? { targets } : {}),
   }
