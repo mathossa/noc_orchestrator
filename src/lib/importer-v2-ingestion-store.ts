@@ -679,10 +679,19 @@ export async function stageImporterV2NormalizedSource(input: {
 
   const candidatesFor = await identityResolvers(provider)
   const identities = evaluation.rows.map((row) => {
+    // Saved importer rules that suppress or correct identity fields must affect
+    // identity resolution before repeat classification. Otherwise a persisted
+    // IGNORE_FIELD serial rule can still leave the staged row AMBIGUOUS even
+    // though the unusable serial is already excluded from the effective source
+    // evidence for this sync.
+    const identityValues = ruleAdjustedRawValues(
+      rows[row.rowNumber - 1],
+      preStageRuleByRow.get(row.rowNumber),
+    )
     const identifiers = {
-      sourceId: row.rawValues.sourceId,
-      serialNumber: row.rawValues.serialNumber,
-      macAddress: row.rawValues.macAddress,
+      sourceId: identityValues.sourceId,
+      serialNumber: identityValues.serialNumber,
+      macAddress: identityValues.macAddress,
     }
     return resolveImporterV2Identity(
       { provider, sourceAdapterId, identifiers, context: row.normalizedValues },
