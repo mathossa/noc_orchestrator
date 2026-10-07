@@ -34,7 +34,9 @@ test('opens the Auvik connection creation flow without exposing a fake live conn
   await expect(
     page.getByRole('heading', { name: 'Add Auvik connection', exact: true }),
   ).toBeVisible()
-  await expect(page.getByLabel('Name')).toBeVisible()
+  await expect(
+    page.getByRole('textbox', { name: 'Name', exact: true }),
+  ).toBeVisible()
   await expect(page.getByLabel('Region')).toBeVisible()
   await expect(page.getByLabel('Auvik username')).toBeVisible()
   await expect(page.getByLabel('API key')).toBeVisible()
