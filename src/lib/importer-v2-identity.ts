@@ -33,6 +33,9 @@ export type ImporterV2IdentityEvidence = {
   sourceId: string | null
   serialNumber: string | null
   macAddress: string | null
+  sourceIdState?: string | null
+  serialNumberState?: string | null
+  macAddressState?: string | null
 }
 
 export type ImporterV2IdentityCandidate = {
