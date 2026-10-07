@@ -20,7 +20,10 @@ function review(
     candidates: [
       {
         canonicalDeviceId: 'device-1',
+        matchScope: 'SAME_PROVIDER',
         confidence: 'MEDIUM',
+        providerEvidence: [],
+        evidenceConflict: false,
         explanation: 'Serial number agrees.',
         durableEvidence: ['SERIAL_NUMBER'],
         signals: [],
