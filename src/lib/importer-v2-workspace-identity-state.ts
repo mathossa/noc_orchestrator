@@ -5,11 +5,22 @@ export type ImporterV2WorkspaceIdentitySignal = {
   status: string | null
 }
 
+export type ImporterV2WorkspaceIdentityEvidence = {
+  kind: string
+  provider: string | null
+  sourceId: string | null
+  serialNumber: string | null
+  macAddress: string | null
+}
+
 export type ImporterV2WorkspaceIdentityCandidate = {
   canonicalDeviceId: string
+  matchScope: string | null
   confidence: string | null
   explanation: string | null
   durableEvidence: readonly string[]
+  providerEvidence: readonly ImporterV2WorkspaceIdentityEvidence[]
+  evidenceConflict: boolean
   signals: readonly ImporterV2WorkspaceIdentitySignal[]
   contextDifferences: readonly {
     field: string
@@ -73,16 +84,32 @@ function candidateSignals(candidate: Record<string, unknown>) {
     }))
 }
 
-function candidateEvidence(
+function candidateDurableEvidence(
   candidate: Record<string, unknown>,
   signals: readonly ImporterV2WorkspaceIdentitySignal[],
 ) {
+  // Preserve the legacy string evidence shape if an older staged batch still
+  // contains it. New cross-provider batches store structured provenance.
   const direct = stringList(candidate.evidence)
   if (direct.length) return direct
 
   return signals
     .filter((signal) => signal.status === 'AGREE')
     .map((signal) => signal.kind)
+}
+
+function candidateProviderEvidence(candidate: Record<string, unknown>) {
+  if (!Array.isArray(candidate.evidence)) return []
+  return candidate.evidence
+    .map(object)
+    .filter((evidence): evidence is Record<string, unknown> => Boolean(evidence))
+    .map((evidence) => ({
+      kind: text(evidence.kind) ?? 'UNKNOWN',
+      provider: text(evidence.provider),
+      sourceId: text(evidence.sourceId),
+      serialNumber: text(evidence.serialNumber),
+      macAddress: text(evidence.macAddress),
+    }))
 }
 
 function candidateDifferences(candidate: Record<string, unknown>) {
@@ -107,9 +134,12 @@ function candidates(value: Record<string, unknown> | null) {
       return {
         canonicalDeviceId:
           text(candidate.canonicalDeviceId) ?? text(candidate.deviceId) ?? '',
+        matchScope: text(candidate.matchScope),
         confidence: text(candidate.confidence),
         explanation: text(candidate.explanation),
-        durableEvidence: candidateEvidence(candidate, signals),
+        durableEvidence: candidateDurableEvidence(candidate, signals),
+        providerEvidence: candidateProviderEvidence(candidate),
+        evidenceConflict: candidate.evidenceConflict === true,
         signals,
         contextDifferences: candidateDifferences(candidate),
       }
