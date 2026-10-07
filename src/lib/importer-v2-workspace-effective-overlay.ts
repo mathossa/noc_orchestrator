@@ -21,6 +21,7 @@ type EvaluatedSnapshot = {
     string,
     { id?: string | null; label?: string } | null
   >
+  suppressedSourceFields?: string[]
   fields?: Record<string, Record<string, unknown>>
   issues?: ImporterV2FieldIssue[]
   firmware?: {
@@ -80,6 +81,24 @@ function targetFromDecision(decision: WorkspaceDecision) {
     }
   }
   return undefined
+}
+
+function normalizedText(value: string | null | undefined) {
+  const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  return normalized || null
+}
+
+export function importerV2WorkspaceEffectiveText(
+  snapshot: unknown,
+  field: string,
+) {
+  const evaluated = snapshot as EvaluatedSnapshot
+  const target = evaluated.proposedCanonicalValues?.[field]
+  const targetLabel = normalizedText(target?.label)
+  if (targetLabel) return targetLabel
+
+  if (evaluated.suppressedSourceFields?.includes(field)) return null
+  return normalizedText(evaluated.rawValues?.[field])
 }
 
 function decisionResolvesIssue(
@@ -205,9 +224,27 @@ export function importerV2WorkspaceEffectiveEvaluated(input: {
     ...(evaluated.proposedCanonicalValues ?? {}),
   }
   const fields = { ...(evaluated.fields ?? {}) }
+  const suppressedSourceFields = new Set<string>(
+    evaluated.suppressedSourceFields ?? [],
+  )
 
   for (const decision of input.decisions) {
     if (!decision.field || decision.action === 'EXCLUDE_ROW') continue
+
+    if (
+      decision.action === 'CLEAR_FIELD' ||
+      decision.action === 'IGNORE_FIELD'
+    ) {
+      suppressedSourceFields.add(decision.field)
+    } else if (
+      decision.action === 'SET_FIELD' ||
+      decision.action === 'LINK_FIELD' ||
+      decision.action === 'REMEMBER_EXACT' ||
+      decision.action === 'CREATE_SCOPED_RULE'
+    ) {
+      suppressedSourceFields.delete(decision.field)
+    }
+
     const target = targetFromDecision(decision)
     if (target === undefined) continue
 
@@ -263,6 +300,7 @@ export function importerV2WorkspaceEffectiveEvaluated(input: {
     evaluated: {
       ...evaluated,
       proposedCanonicalValues,
+      suppressedSourceFields: [...suppressedSourceFields],
       fields,
       issues: issueState.activeIssues,
       firmware: verifiedObservedFirmwareOverlay(evaluated, input.decisions),
