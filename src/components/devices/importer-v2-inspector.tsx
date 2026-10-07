@@ -260,11 +260,18 @@ export function ImporterV2Inspector({
   const [ruleScope, setRuleScope] = useState<'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'>('PROFILE')
   const [rulePreview, setRulePreview] = useState<GuidedRulePreview | null>(null)
   const [ruleBusy, setRuleBusy] = useState(false)
+  const [persistentRulePreview, setPersistentRulePreview] = useState<{
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW'
+    wizard: Record<string, unknown>
+    preview: GuidedRulePreview
+  } | null>(null)
+  const [persistentRuleBusy, setPersistentRuleBusy] = useState(false)
   const [hierarchyRulePreview, setHierarchyRulePreview] =
     useState<GuidedRulePreview | null>(null)
   const [hierarchyRuleBusy, setHierarchyRuleBusy] = useState(false)
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
+  const sourceId = detail?.evaluated.rawValues?.sourceId ?? null
   const ruleSourceValue = detail?.evaluated.rawValues?.[ruleMatchField] ?? null
   const proposedValue = detail?.evaluated.fields?.[actionField]?.proposedValue ?? null
   const selectedIdentityId =
@@ -436,6 +443,112 @@ export function ImporterV2Inspector({
       explanation:
         'Ignored this source value for canonical publication and durable identity matching while retaining the raw source evidence.',
     })
+  }
+
+  const previewExcludeRow = () => {
+    void requestPreview({
+      type: 'EXCLUDE_ROW',
+      explanation: 'Excluded this staged row from the current import only.',
+    })
+  }
+
+  const persistentRuleWizard = (
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW',
+  ): Record<string, unknown> | null => {
+    if (!detail || !sourceId) return null
+    const label = detail.sourceName ?? detail.hostname ?? sourceId
+    if (kind === 'IGNORE_FIELD') {
+      return {
+        rowNumber: detail.rowNumber,
+        action: 'IGNORE_FIELD',
+        field: actionField,
+        matchField: 'sourceId',
+        operator: 'NORMALIZED_EXACT',
+        matchValue: sourceId,
+        scope: 'PROFILE',
+        name: `Ignore ${fieldLabel(actionField)} for ${label}`,
+        explanation:
+          `Persistently ignore ${fieldLabel(actionField)} reported by this exact source device while retaining raw provider evidence.`,
+      }
+    }
+    return {
+      rowNumber: detail.rowNumber,
+      action: 'EXCLUDE_ROW',
+      matchField: 'sourceId',
+      operator: 'NORMALIZED_EXACT',
+      matchValue: sourceId,
+      scope: 'PROFILE',
+      name: `Exclude ${label} from future imports`,
+      explanation:
+        'Persistently exclude this exact source device from canonical inventory publication.',
+    }
+  }
+
+  const requestPersistentRulePreview = async (
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW',
+  ) => {
+    const wizard = persistentRuleWizard(kind)
+    if (!wizard) return
+    setPersistentRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'PREVIEW', wizard }),
+        },
+      )
+      const result = await responseData<GuidedRulePreview>(response)
+      setPersistentRulePreview({ kind, wizard, preview: result })
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to preview persistent source rule.',
+      )
+    } finally {
+      setPersistentRuleBusy(false)
+    }
+  }
+
+  const applyPersistentRulePreview = async () => {
+    if (!persistentRulePreview) return
+    setPersistentRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            wizard: persistentRulePreview.wizard,
+            scopeToken: persistentRulePreview.preview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const kind = persistentRulePreview.kind
+      setPersistentRulePreview(null)
+      setActionMessage(
+        kind === 'IGNORE_FIELD'
+          ? 'Persistent source-field ignore activated for future syncs.'
+          : 'Persistent device exclusion activated for future syncs.',
+      )
+      onRefresh()
+    } catch (error) {
+      setPersistentRulePreview(null)
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to activate persistent source rule.',
+      )
+    } finally {
+      setPersistentRuleBusy(false)
+    }
   }
 
   const requestIdentityPreview = async (decision: IdentityDecision) => {
