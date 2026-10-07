@@ -7,12 +7,22 @@ model ImporterV2DeviceCrosswalk {
   sourceAdapterId   String
   canonicalDeviceId String
 
+  // Effective aliases participate in identity matching. Raw observations are
+  // retained separately so an explicitly ignored value remains inspectable
+  // without being reintroduced into candidate discovery or conflict scoring.
   sourceId               String?
   normalizedSourceId     String?
   serialNumber           String?
   normalizedSerialNumber String?
   macAddress             String?
   normalizedMacAddress   String?
+
+  rawSourceId               String?
+  rawSerialNumber           String?
+  rawMacAddress             String?
+  sourceIdEvidenceState     String?
+  serialNumberEvidenceState String?
+  macAddressEvidenceState   String?
 
   confirmedAt DateTime @default(now())
   lastSeenAt   DateTime @default(now())
