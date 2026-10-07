@@ -73,6 +73,7 @@ type IdentityCandidateCrosswalk = {
   sourceIdEvidenceState: string | null
   serialNumberEvidenceState: string | null
   macAddressEvidenceState: string | null
+  lastSeenAt: Date
 }
 
 const IDENTITY_LOOKUP_CHUNK_SIZE = 4000
@@ -101,6 +102,7 @@ const identityCrosswalkSelect = {
   sourceIdEvidenceState: true,
   serialNumberEvidenceState: true,
   macAddressEvidenceState: true,
+  lastSeenAt: true,
 } as const
 
 const identityDeviceSelect = {
@@ -455,6 +457,8 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
             ...crosswalks.map((crosswalk) => ({
               kind: 'CROSSWALK' as const,
               provider: crosswalk.provider,
+              crosswalkId: crosswalk.id,
+              lastSeenAt: crosswalk.lastSeenAt.toISOString(),
               sourceId: crosswalk.rawSourceId ?? crosswalk.sourceId,
               serialNumber:
                 crosswalk.rawSerialNumber ?? crosswalk.serialNumber,
