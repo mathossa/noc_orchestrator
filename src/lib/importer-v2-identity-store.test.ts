@@ -42,21 +42,27 @@ describe('Importer v2 identity persistence', () => {
     )
   })
 
-  it('queries provider crosswalks only by normalized durable identity signals and returns canonical context', async () => {
-    mocks.findMany.mockResolvedValue([
-      {
-        id: 'crosswalk-1',
-        canonicalDeviceId: 'device-1',
-        sourceId: 'Auvik-1',
-        serialNumber: 'cn123',
-        macAddress: 'aa-bb-cc-dd-ee-ff',
-      },
-    ])
+  it('queries provider Source IDs locally while allowing serial/MAC discovery across providers', async () => {
+    const crosswalk = {
+      id: 'crosswalk-1',
+      provider: 'AUVIK',
+      canonicalDeviceId: 'device-1',
+      sourceId: 'Auvik-1',
+      normalizedSourceId: 'Auvik-1',
+      serialNumber: 'cn123',
+      normalizedSerialNumber: 'CN123',
+      macAddress: 'aa-bb-cc-dd-ee-ff',
+      normalizedMacAddress: 'AABBCCDDEEFF',
+    }
+    mocks.findMany
+      .mockResolvedValueOnce([crosswalk])
+      .mockResolvedValueOnce([crosswalk])
     mocks.deviceFindMany.mockResolvedValue([
       {
         id: 'device-1',
         name: 'SW-ZWOLLE-01',
         hostname: 'sw-zwolle-01.example',
+        serialNumber: 'CN123',
         customer: { name: 'Example customer' },
         site: {
           name: 'Zwolle',
@@ -73,7 +79,7 @@ describe('Importer v2 identity persistence', () => {
     ])
 
     const result = await findImporterV2IdentityCandidates({
-      provider: 'Auvik',
+      provider: 'AUVIK',
       sourceAdapterId: 'auvik-api-v1',
       identifiers: {
         sourceId: 'Auvik-1',
@@ -82,23 +88,25 @@ describe('Importer v2 identity persistence', () => {
       },
     })
 
-    expect(mocks.findMany).toHaveBeenCalledWith({
-      where: {
-        provider: 'Auvik',
-        OR: [
-          { normalizedSourceId: 'Auvik-1' },
-          { normalizedSerialNumber: 'CN123' },
-          { normalizedMacAddress: 'AABBCCDDEEFF' },
-        ],
-      },
-      orderBy: [{ canonicalDeviceId: 'asc' }, { id: 'asc' }],
-    })
-    expect(mocks.deviceFindMany).toHaveBeenCalledWith({
-      where: { id: { in: ['device-1'] } },
-      select: expect.any(Object),
-    })
+    expect(mocks.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: {
+          OR: [
+            {
+              provider: 'AUVIK',
+              normalizedSourceId: { in: ['Auvik-1'] },
+            },
+            { normalizedSerialNumber: { in: ['CN123'] } },
+            { normalizedMacAddress: { in: ['AABBCCDDEEFF'] } },
+          ],
+        },
+      }),
+    )
     expect(result[0]).toMatchObject({
       canonicalDeviceId: 'device-1',
+      crosswalkId: 'crosswalk-1',
+      matchScope: 'SAME_PROVIDER',
       context: {
         deviceName: 'SW-ZWOLLE-01',
         hostname: 'sw-zwolle-01.example',
@@ -111,6 +119,70 @@ describe('Importer v2 identity persistence', () => {
         model: 'CX6200-24G',
         softwarePlatform: 'AOS-CX',
       },
+    })
+  })
+
+  it('discovers AP01 from canonical serial without reviving an ignored Auvik serial', async () => {
+    mocks.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'auvik-ap01-crosswalk',
+          provider: 'AUVIK',
+          canonicalDeviceId: 'ap01',
+          sourceId: 'auvik-ap01',
+          normalizedSourceId: 'auvik-ap01',
+          serialNumber: null,
+          normalizedSerialNumber: null,
+          macAddress: null,
+          normalizedMacAddress: null,
+        },
+      ])
+    mocks.deviceFindMany.mockResolvedValue([
+      {
+        id: 'ap01',
+        name: 'AP01',
+        hostname: 'ap01.example',
+        serialNumber: 'AP01-CORRECT',
+        customer: { name: 'Customer A' },
+        site: { name: 'Site A', organizationUnit: null },
+        deviceModel: {
+          model: 'AP-515',
+          platform: 'AOS-10',
+          vendor: { name: 'Aruba' },
+          deviceType: { name: 'Access Point' },
+          family: { name: '500' },
+        },
+      },
+    ])
+
+    const result = await findImporterV2IdentityCandidates({
+      provider: 'ARUBA',
+      sourceAdapterId: 'aruba-api-v1',
+      identifiers: {
+        sourceId: 'aruba-ap01',
+        serialNumber: 'AP01-CORRECT',
+      },
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      canonicalDeviceId: 'ap01',
+      crosswalkId: null,
+      matchScope: 'CANONICAL',
+      identifiers: {
+        sourceId: null,
+        serialNumber: 'AP01-CORRECT',
+      },
+      hasConflictingDurableEvidence: false,
+      evidence: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'CROSSWALK',
+          provider: 'AUVIK',
+          sourceId: 'auvik-ap01',
+          serialNumber: null,
+        }),
+      ]),
     })
   })
 

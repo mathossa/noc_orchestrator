@@ -179,10 +179,13 @@ async function assertBulkNewIdentitiesAreUnique(
     for (const part of chunks([...fieldValues], BULK_IDENTITY_LOOKUP_CHUNK_SIZE)) {
       if (part.length === 0) continue
       const match = await tx.importerV2DeviceCrosswalk.findFirst({
-        where: {
-          provider,
-          [field]: { in: part },
-        },
+        where:
+          field === 'normalizedSourceId'
+            ? {
+                provider,
+                normalizedSourceId: { in: part },
+              }
+            : { [field]: { in: part } },
         select: { id: true },
       })
       if (match) {
@@ -452,6 +455,7 @@ async function tryPublishNewRowsBulk(input: {
         normalizedSerialNumber: row.normalizedIdentity.serialNumber,
         macAddress: row.sourceIdentifiers.macAddress,
         normalizedMacAddress: row.normalizedIdentity.macAddress,
+        ...publicationRawIdentityEvidence(row.row, row.snapshot),
         confirmedAt: input.publishedAt,
         lastSeenAt: input.publishedAt,
       })),
@@ -1356,6 +1360,34 @@ function publicationIdentifiers(row: ImporterV2PublicationQaRowInput, snapshot: 
   })
 }
 
+function publicationRawIdentityEvidence(
+  row: ImporterV2PublicationQaRowInput,
+  snapshot: EffectiveSnapshot,
+) {
+  const raw = importerV2PublicationIdentityFields({
+    topology: importerV2TopologyFromDecisions(row.decisions),
+    sourceId: snapshot.rawValues?.sourceId ?? null,
+    serialNumber: snapshot.rawValues?.serialNumber ?? null,
+    macAddress: snapshot.rawValues?.macAddress ?? null,
+  })
+  const suppressed = new Set(snapshot.suppressedSourceFields ?? [])
+  const state = (
+    field: 'sourceId' | 'serialNumber' | 'macAddress',
+    value: string | null,
+  ) => {
+    if (!value) return null
+    return suppressed.has(field) ? 'IGNORED' : 'ACCEPTED'
+  }
+  return {
+    rawSourceId: raw.sourceId,
+    rawSerialNumber: raw.serialNumber,
+    rawMacAddress: raw.macAddress,
+    sourceIdEvidenceState: state('sourceId', raw.sourceId),
+    serialNumberEvidenceState: state('serialNumber', raw.serialNumber),
+    macAddressEvidenceState: state('macAddress', raw.macAddress),
+  }
+}
+
 async function assertIdentityStillUnique(
   tx: PublicationTx,
   provider: string,
@@ -1363,17 +1395,24 @@ async function assertIdentityStillUnique(
   sourceIdentifiers: ReturnType<typeof identifiers>,
 ) {
   const normalized = normalizeImporterV2Identity(sourceIdentifiers)
-  const OR: Array<Record<string, string>> = []
-  if (normalized.sourceId) OR.push({ normalizedSourceId: normalized.sourceId })
-  if (normalized.serialNumber) OR.push({ normalizedSerialNumber: normalized.serialNumber })
-  if (normalized.macAddress) OR.push({ normalizedMacAddress: normalized.macAddress })
+  const OR = [
+    ...(normalized.sourceId
+      ? [{ provider, normalizedSourceId: normalized.sourceId }]
+      : []),
+    ...(normalized.serialNumber
+      ? [{ normalizedSerialNumber: normalized.serialNumber }]
+      : []),
+    ...(normalized.macAddress
+      ? [{ normalizedMacAddress: normalized.macAddress }]
+      : []),
+  ]
   if (OR.length === 0) {
     throw new ImporterV2PublicationConflictError(
       'Durable source identity disappeared before publication.',
     )
   }
   const matches = await tx.importerV2DeviceCrosswalk.findMany({
-    where: { provider, OR },
+    where: { OR },
     select: { canonicalDeviceId: true },
   })
   const conflicting = [...new Set(matches.map((item) => item.canonicalDeviceId))].filter(
@@ -1844,6 +1883,7 @@ async function publishRow(input: {
       normalizedSerialNumber: normalizedAfterCreate.serialNumber,
       macAddress: sourceIdentifiers.macAddress,
       normalizedMacAddress: normalizedAfterCreate.macAddress,
+      ...publicationRawIdentityEvidence(row, snapshot),
       confirmedAt: publishedAt,
       lastSeenAt: publishedAt,
     },
@@ -1855,6 +1895,7 @@ async function publishRow(input: {
       normalizedSerialNumber: normalizedAfterCreate.serialNumber,
       macAddress: sourceIdentifiers.macAddress,
       normalizedMacAddress: normalizedAfterCreate.macAddress,
+      ...publicationRawIdentityEvidence(row, snapshot),
       confirmedAt: publishedAt,
       lastSeenAt: publishedAt,
     },

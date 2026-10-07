@@ -19,12 +19,11 @@ import {
   IMPORTER_V2_CUSTOMER_BUSINESS_UNIT_SITE_TEMPLATE,
   parseImporterV2Hierarchy,
 } from '@/lib/importer-v2-hierarchy'
+import { resolveImporterV2Identity } from '@/lib/importer-v2-identity'
 import {
-  normalizeImporterV2Identity,
-  resolveImporterV2Identity,
-  type ImporterV2IdentityCandidate,
-} from '@/lib/importer-v2-identity'
-import { getLatestSuccessfulImporterV2SourceSnapshot } from '@/lib/importer-v2-identity-store'
+  buildImporterV2IdentityCandidateResolver,
+  getLatestSuccessfulImporterV2SourceSnapshot,
+} from '@/lib/importer-v2-identity-store'
 import { evaluateImporterV2DeviceType } from '@/lib/importer-v2-profile-preview'
 import { diffImporterV2RepeatImport } from '@/lib/importer-v2-repeat-diff'
 import { detectImporterV2StackGroups } from '@/lib/importer-v2-stack-topology'
@@ -340,53 +339,6 @@ async function catalogSnapshot(): Promise<{
   }
 }
 
-async function identityResolvers(provider: string) {
-  const records = await prisma.importerV2DeviceCrosswalk.findMany({
-    where: { provider },
-    orderBy: [{ canonicalDeviceId: 'asc' }, { id: 'asc' }],
-    select: {
-      id: true,
-      canonicalDeviceId: true,
-      sourceId: true,
-      serialNumber: true,
-      macAddress: true,
-    },
-  })
-  const sourceIds = new Map<string, Set<number>>()
-  const serials = new Map<string, Set<number>>()
-  const macs = new Map<string, Set<number>>()
-  const add = (map: Map<string, Set<number>>, key: string | null, index: number) => {
-    if (!key) return
-    const indexes = map.get(key) ?? new Set<number>()
-    indexes.add(index)
-    map.set(key, indexes)
-  }
-  records.forEach((record, index) => {
-    const normalized = normalizeImporterV2Identity(record)
-    add(sourceIds, normalized.sourceId, index)
-    add(serials, normalized.serialNumber, index)
-    add(macs, normalized.macAddress, index)
-  })
-
-  return (identifiers: { sourceId?: string | null; serialNumber?: string | null; macAddress?: string | null }) => {
-    const normalized = normalizeImporterV2Identity(identifiers)
-    const indexes = new Set<number>()
-    for (const index of sourceIds.get(normalized.sourceId ?? '') ?? []) indexes.add(index)
-    for (const index of serials.get(normalized.serialNumber ?? '') ?? []) indexes.add(index)
-    for (const index of macs.get(normalized.macAddress ?? '') ?? []) indexes.add(index)
-    return [...indexes].map((index): ImporterV2IdentityCandidate => ({
-      canonicalDeviceId: records[index].canonicalDeviceId,
-      crosswalkId: records[index].id,
-      identifiers: {
-        sourceId: records[index].sourceId,
-        serialNumber: records[index].serialNumber,
-        macAddress: records[index].macAddress,
-      },
-    }))
-  }
-}
-
-
 async function canonicalValuesForDevices(deviceIds: readonly string[]) {
   const uniqueIds = [...new Set(deviceIds)]
   if (uniqueIds.length === 0) {
@@ -677,9 +629,8 @@ export async function stageImporterV2NormalizedSource(input: {
     ),
   )
 
-  const candidatesFor = await identityResolvers(provider)
   const stagedRowsByNumber = new Map(rows.map((row) => [row.rowNumber, row]))
-  const identities = evaluation.rows.map((row) => {
+  const identityInputs = evaluation.rows.map((row) => {
     // Saved importer rules that suppress or correct identity fields must affect
     // identity resolution before repeat classification. Otherwise a persisted
     // IGNORE_FIELD serial rule can still leave the staged row AMBIGUOUS even
@@ -689,20 +640,35 @@ export async function stageImporterV2NormalizedSource(input: {
     if (!stagedRow) {
       throw new Error(`Staged row ${row.rowNumber} disappeared before identity resolution.`)
     }
-    const identityValues = ruleAdjustedRawValues(
-      stagedRow,
-      preStageRuleByRow.get(row.rowNumber),
-    )
-    const identifiers = {
-      sourceId: identityValues.sourceId,
-      serialNumber: identityValues.serialNumber,
-      macAddress: identityValues.macAddress,
+    const ruleEvaluation = preStageRuleByRow.get(row.rowNumber)
+    const identityValues = ruleAdjustedRawValues(stagedRow, ruleEvaluation)
+    return {
+      row,
+      ruleEvaluation,
+      identifiers: {
+        sourceId: identityValues.sourceId,
+        serialNumber: identityValues.serialNumber,
+        macAddress: identityValues.macAddress,
+      },
     }
-    return resolveImporterV2Identity(
-      { provider, sourceAdapterId, identifiers, context: row.normalizedValues },
-      candidatesFor(identifiers),
-    )
   })
+  const candidatesFor = await buildImporterV2IdentityCandidateResolver({
+    provider,
+    identifiers: identityInputs.map((input) => input.identifiers),
+  })
+  const identities = identityInputs.map(({ row, ruleEvaluation, identifiers }) =>
+    resolveImporterV2Identity(
+      {
+        provider,
+        sourceAdapterId,
+        identifiers,
+        // Use evaluated/canonicalized context for cross-provider compatibility
+        // checks. Context supports a durable match but never replaces serial/MAC.
+        context: ruleAdjustedEffectiveValues(row, ruleEvaluation),
+      },
+      candidatesFor(identifiers),
+    ),
+  )
 
   const latest = await getLatestSuccessfulImporterV2SourceSnapshot({ provider, sourceAdapterId })
   const matchedCanonicalDeviceIds = identities.flatMap((identity) =>

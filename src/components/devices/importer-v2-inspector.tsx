@@ -1158,13 +1158,41 @@ export function ImporterV2Inspector({
                               className={
                                 signal.status === 'AGREE'
                                   ? 'font-semibold text-[var(--muted-strong)]'
-                                  : 'font-semibold text-[#f0a0a0]'
+                                  : signal.status === 'DISAGREE'
+                                    ? 'font-semibold text-[#f0a0a0]'
+                                    : 'font-semibold text-[var(--muted)]'
                               }
                             >
                               {identitySignalState(signal.status)}
                             </span>
                           </p>
                         ))}
+                        {candidate.providerEvidence.length ? (
+                          <div className="mt-2 border-t border-[var(--border)] pt-2">
+                            {candidate.providerEvidence.map((evidence, index) => (
+                              <p
+                                key={`${evidence.kind}-${evidence.provider ?? 'canonical'}-${index}`}
+                                className="mt-1 text-[10px] leading-4 text-[var(--muted-strong)]"
+                              >
+                                <strong>
+                                  {evidence.kind === 'CANONICAL'
+                                    ? 'Canonical'
+                                    : evidence.provider ?? 'Source'}
+                                </strong>
+                                {evidence.sourceId
+                                  ? ` · ID ${evidence.sourceId}${evidence.sourceIdState ? ` [${evidence.sourceIdState}]` : ''}`
+                                  : ''}
+                                {evidence.serialNumber
+                                  ? ` · Serial ${evidence.serialNumber}${evidence.serialNumberState ? ` [${evidence.serialNumberState}]` : ''}`
+                                  : ''}
+                                {evidence.macAddress
+                                  ? ` · MAC ${evidence.macAddress}${evidence.macAddressState ? ` [${evidence.macAddressState}]` : ''}`
+                                  : ''}
+                                {evidence.lastSeenAt ? ` · Seen ${evidence.lastSeenAt}` : ''}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>

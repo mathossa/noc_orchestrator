@@ -20,7 +20,10 @@ function review(
     candidates: [
       {
         canonicalDeviceId: 'device-1',
+        matchScope: 'SAME_PROVIDER',
         confidence: 'MEDIUM',
+        providerEvidence: [],
+        evidenceConflict: false,
         explanation: 'Serial number agrees.',
         durableEvidence: ['SERIAL_NUMBER'],
         signals: [],
@@ -51,7 +54,10 @@ describe('Importer v2 bulk identity verification policy', () => {
             ...review().candidates,
             {
               canonicalDeviceId: 'device-2',
+              matchScope: 'SAME_PROVIDER',
               confidence: 'MEDIUM',
+              providerEvidence: [],
+              evidenceConflict: false,
               explanation: 'MAC address points elsewhere.',
               durableEvidence: ['MAC_ADDRESS'],
               signals: [],
