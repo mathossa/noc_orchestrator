@@ -28,7 +28,10 @@ import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
 } from '@/lib/importer-v2-stack-topology'
-import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
+import {
+  importerV2WorkspaceEffectiveEvaluated,
+  importerV2WorkspaceEffectiveText,
+} from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
 export class ImporterV2PublicationConflictError extends Error {
@@ -871,7 +874,7 @@ function targetId(snapshot: EffectiveSnapshot, field: string) {
 }
 
 function effectiveText(snapshot: EffectiveSnapshot, field: string) {
-  return targetLabel(snapshot, field) ?? text(snapshot.rawValues?.[field])
+  return importerV2WorkspaceEffectiveText(snapshot, field)
 }
 
 function proposalContext(
