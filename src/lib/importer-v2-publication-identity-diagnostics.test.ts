@@ -8,6 +8,10 @@ import {
   findImporterV2StagedIdentityCollisions,
   formatImporterV2IdentityConflictMessage,
 } from '@/lib/importer-v2-publication-identity-diagnostics'
+import {
+  importerV2WorkspaceEffectiveEvaluated,
+  importerV2WorkspaceEffectiveText,
+} from '@/lib/importer-v2-workspace-effective-overlay'
 
 function row(input: {
   rowNumber: number
@@ -55,6 +59,57 @@ describe('Importer v2 publication identity diagnostics', () => {
       { field: 'serialNumber', value: 'ser-001' },
     ])
     expect(collisions.has(9)).toBe(false)
+  })
+
+  it('allows distinct Auvik APs to keep separate source IDs when a duplicated serial is explicitly ignored', () => {
+    const effectiveAp = (sourceId: string) =>
+      importerV2WorkspaceEffectiveEvaluated({
+        evaluated: {
+          rawValues: {
+            sourceId,
+            serialNumber: 'CNJMK9T1SV',
+            macAddress: null,
+          },
+          proposedCanonicalValues: {
+            sourceId: { id: null, label: sourceId },
+            serialNumber: { id: null, label: 'CNJMK9T1SV' },
+            macAddress: null,
+          },
+          issues: [],
+        },
+        inclusion: 'INCLUDED',
+        decisions: [
+          {
+            field: 'serialNumber',
+            action: 'IGNORE_FIELD',
+            explanation:
+              'Auvik reports the same serial on two distinct AP-303 devices.',
+          },
+        ],
+      }).evaluated
+
+    const ap01 = effectiveAp('auvik-ap01')
+    const ap02 = effectiveAp('auvik-ap02')
+
+    expect(ap01.rawValues?.serialNumber).toBe('CNJMK9T1SV')
+    expect(ap02.rawValues?.serialNumber).toBe('CNJMK9T1SV')
+
+    const collisions = findImporterV2StagedIdentityCollisions([
+      row({
+        rowNumber: 1,
+        name: '7811KK44-AP01',
+        sourceId: importerV2WorkspaceEffectiveText(ap01, 'sourceId'),
+        serialNumber: importerV2WorkspaceEffectiveText(ap01, 'serialNumber'),
+      }),
+      row({
+        rowNumber: 3,
+        name: '7811KK44-AP02',
+        sourceId: importerV2WorkspaceEffectiveText(ap02, 'sourceId'),
+        serialNumber: importerV2WorkspaceEffectiveText(ap02, 'serialNumber'),
+      }),
+    ])
+
+    expect(collisions.size).toBe(0)
   })
 
   it('formats staged row numbers and device names instead of a generic collision message', () => {
