@@ -207,39 +207,46 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
   // Canonical serial is intentionally part of cross-provider discovery. Load
   // serial-bearing devices once and index them in memory; at the target 10k+
   // scale this is bounded per batch rather than per staged row.
-  const devices: IdentityCandidateDevice[] = await prisma.device.findMany({
-    where:
-      crosswalkCandidateIds.length > 0
-        ? {
-            OR: [
-              { id: { in: crosswalkCandidateIds } },
-              { serialNumber: { not: null } },
-            ],
-          }
-        : { serialNumber: { not: null } },
-    select: {
-      id: true,
-      name: true,
-      hostname: true,
-      serialNumber: true,
-      customer: { select: { name: true } },
-      site: {
+  const deviceWhere =
+    crosswalkCandidateIds.length > 0 && serialNumbers.length > 0
+      ? {
+          OR: [
+            { id: { in: crosswalkCandidateIds } },
+            { serialNumber: { not: null } },
+          ],
+        }
+      : crosswalkCandidateIds.length > 0
+        ? { id: { in: crosswalkCandidateIds } }
+        : serialNumbers.length > 0
+          ? { serialNumber: { not: null } }
+          : null
+  const devices: IdentityCandidateDevice[] = deviceWhere
+    ? await prisma.device.findMany({
+        where: deviceWhere,
         select: {
+          id: true,
           name: true,
-          organizationUnit: { select: { name: true } },
+          hostname: true,
+          serialNumber: true,
+          customer: { select: { name: true } },
+          site: {
+            select: {
+              name: true,
+              organizationUnit: { select: { name: true } },
+            },
+          },
+          deviceModel: {
+            select: {
+              model: true,
+              platform: true,
+              vendor: { select: { name: true } },
+              deviceType: { select: { name: true } },
+              family: { select: { name: true } },
+            },
+          },
         },
-      },
-      deviceModel: {
-        select: {
-          model: true,
-          platform: true,
-          vendor: { select: { name: true } },
-          deviceType: { select: { name: true } },
-          family: { select: { name: true } },
-        },
-      },
-    },
-  })
+      })
+    : []
   const devicesById = new Map(devices.map((device) => [device.id, device]))
 
   const canonicalSerials = new Map<string, Set<string>>()
