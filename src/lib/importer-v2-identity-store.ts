@@ -75,6 +75,57 @@ type IdentityCandidateCrosswalk = {
   macAddressEvidenceState: string | null
 }
 
+const IDENTITY_LOOKUP_CHUNK_SIZE = 4000
+
+function chunks<T>(items: readonly T[], size = IDENTITY_LOOKUP_CHUNK_SIZE) {
+  const result: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size))
+  }
+  return result
+}
+
+const identityCrosswalkSelect = {
+  id: true,
+  provider: true,
+  canonicalDeviceId: true,
+  sourceId: true,
+  normalizedSourceId: true,
+  serialNumber: true,
+  normalizedSerialNumber: true,
+  macAddress: true,
+  normalizedMacAddress: true,
+  rawSourceId: true,
+  rawSerialNumber: true,
+  rawMacAddress: true,
+  sourceIdEvidenceState: true,
+  serialNumberEvidenceState: true,
+  macAddressEvidenceState: true,
+} as const
+
+const identityDeviceSelect = {
+  id: true,
+  name: true,
+  hostname: true,
+  serialNumber: true,
+  customer: { select: { name: true } },
+  site: {
+    select: {
+      name: true,
+      organizationUnit: { select: { name: true } },
+    },
+  },
+  deviceModel: {
+    select: {
+      model: true,
+      platform: true,
+      vendor: { select: { name: true } },
+      deviceType: { select: { name: true } },
+      family: { select: { name: true } },
+    },
+  },
+} as const
+
 function candidateContext(device: IdentityCandidateDevice | undefined) {
   if (!device) return undefined
   return {
@@ -172,95 +223,67 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
     ),
   ]
 
-  const OR = [
-    ...(sourceIds.length
-      ? [
-          {
-            provider: input.provider,
-            normalizedSourceId: { in: sourceIds },
-          },
-        ]
-      : []),
-    ...(serialNumbers.length
-      ? [{ normalizedSerialNumber: { in: serialNumbers } }]
-      : []),
-    ...(macAddresses.length
-      ? [{ normalizedMacAddress: { in: macAddresses } }]
-      : []),
-  ]
-
-  const matchingCrosswalks: IdentityCandidateCrosswalk[] = OR.length
-    ? await prisma.importerV2DeviceCrosswalk.findMany({
-        where: { OR },
-        orderBy: [{ canonicalDeviceId: 'asc' }, { provider: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          provider: true,
-          canonicalDeviceId: true,
-          sourceId: true,
-          normalizedSourceId: true,
-          serialNumber: true,
-          normalizedSerialNumber: true,
-          macAddress: true,
-          normalizedMacAddress: true,
-          rawSourceId: true,
-          rawSerialNumber: true,
-          rawMacAddress: true,
-          sourceIdEvidenceState: true,
-          serialNumberEvidenceState: true,
-          macAddressEvidenceState: true,
-        },
-      })
-    : []
+  const matchingCrosswalksById = new Map<string, IdentityCandidateCrosswalk>()
+  const maxLookupSize = Math.max(
+    sourceIds.length,
+    serialNumbers.length,
+    macAddresses.length,
+  )
+  for (let offset = 0; offset < maxLookupSize; offset += IDENTITY_LOOKUP_CHUNK_SIZE) {
+    const sourceIdPart = sourceIds.slice(offset, offset + IDENTITY_LOOKUP_CHUNK_SIZE)
+    const serialPart = serialNumbers.slice(offset, offset + IDENTITY_LOOKUP_CHUNK_SIZE)
+    const macPart = macAddresses.slice(offset, offset + IDENTITY_LOOKUP_CHUNK_SIZE)
+    const OR = [
+      ...(sourceIdPart.length
+        ? [
+            {
+              provider: input.provider,
+              normalizedSourceId: { in: sourceIdPart },
+            },
+          ]
+        : []),
+      ...(serialPart.length
+        ? [{ normalizedSerialNumber: { in: serialPart } }]
+        : []),
+      ...(macPart.length
+        ? [{ normalizedMacAddress: { in: macPart } }]
+        : []),
+    ]
+    if (OR.length === 0) continue
+    const records = await prisma.importerV2DeviceCrosswalk.findMany({
+      where: { OR },
+      orderBy: [{ canonicalDeviceId: 'asc' }, { provider: 'asc' }, { id: 'asc' }],
+      select: identityCrosswalkSelect,
+    })
+    for (const record of records) matchingCrosswalksById.set(record.id, record)
+  }
+  const matchingCrosswalks = [...matchingCrosswalksById.values()]
 
   const crosswalkCandidateIds = [
     ...new Set(matchingCrosswalks.map((record) => record.canonicalDeviceId)),
   ]
   // Canonical serial is intentionally part of cross-provider discovery. Load
-  // serial-bearing devices once and index them in memory; at the target 10k+
-  // scale this is bounded per batch rather than per staged row.
-  const deviceWhere =
-    crosswalkCandidateIds.length > 0 && serialNumbers.length > 0
-      ? {
-          OR: [
-            { id: { in: crosswalkCandidateIds } },
-            { serialNumber: { not: null } },
-          ],
-        }
-      : crosswalkCandidateIds.length > 0
-        ? { id: { in: crosswalkCandidateIds } }
-        : serialNumbers.length > 0
-          ? { serialNumber: { not: null } }
-          : null
-  const devices: IdentityCandidateDevice[] = deviceWhere
-    ? await prisma.device.findMany({
-        where: deviceWhere,
-        select: {
-          id: true,
-          name: true,
-          hostname: true,
-          serialNumber: true,
-          customer: { select: { name: true } },
-          site: {
-            select: {
-              name: true,
-              organizationUnit: { select: { name: true } },
-            },
-          },
-          deviceModel: {
-            select: {
-              model: true,
-              platform: true,
-              vendor: { select: { name: true } },
-              deviceType: { select: { name: true } },
-              family: { select: { name: true } },
-            },
-          },
-        },
-      })
-    : []
-  const devicesById = new Map(devices.map((device) => [device.id, device]))
-
+  // serial-bearing devices once when serial evidence exists, then fetch any
+  // source-ID/MAC-only candidate contexts by ID in bounded chunks.
+  const devicesById = new Map<string, IdentityCandidateDevice>()
+  if (serialNumbers.length > 0) {
+    const serialDevices: IdentityCandidateDevice[] = await prisma.device.findMany({
+      where: { serialNumber: { not: null } },
+      select: identityDeviceSelect,
+    })
+    for (const device of serialDevices) devicesById.set(device.id, device)
+  }
+  const missingContextIds = crosswalkCandidateIds.filter(
+    (id) => !devicesById.has(id),
+  )
+  for (const part of chunks(missingContextIds)) {
+    const contextDevices: IdentityCandidateDevice[] = await prisma.device.findMany({
+      where: { id: { in: part } },
+      select: identityDeviceSelect,
+    })
+    for (const device of contextDevices) devicesById.set(device.id, device)
+  }
+  const devices = [...devicesById.values()]
   const canonicalSerials = new Map<string, Set<string>>()
   for (const device of devices) {
     const serial = normalizeImporterV2Identity({
@@ -276,34 +299,20 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
     }
   }
 
-  const allCrosswalks: IdentityCandidateCrosswalk[] =
-    candidateDeviceIds.size > 0
-      ? await prisma.importerV2DeviceCrosswalk.findMany({
-          where: { canonicalDeviceId: { in: [...candidateDeviceIds] } },
-          orderBy: [
-            { canonicalDeviceId: 'asc' },
-            { provider: 'asc' },
-            { id: 'asc' },
-          ],
-          select: {
-            id: true,
-            provider: true,
-            canonicalDeviceId: true,
-            sourceId: true,
-            normalizedSourceId: true,
-            serialNumber: true,
-            normalizedSerialNumber: true,
-            macAddress: true,
-            normalizedMacAddress: true,
-          rawSourceId: true,
-          rawSerialNumber: true,
-          rawMacAddress: true,
-          sourceIdEvidenceState: true,
-          serialNumberEvidenceState: true,
-          macAddressEvidenceState: true,
-          },
-        })
-      : []
+  const allCrosswalksById = new Map<string, IdentityCandidateCrosswalk>()
+  for (const part of chunks([...candidateDeviceIds])) {
+    const records = await prisma.importerV2DeviceCrosswalk.findMany({
+      where: { canonicalDeviceId: { in: part } },
+      orderBy: [
+        { canonicalDeviceId: 'asc' },
+        { provider: 'asc' },
+        { id: 'asc' },
+      ],
+      select: identityCrosswalkSelect,
+    })
+    for (const record of records) allCrosswalksById.set(record.id, record)
+  }
+  const allCrosswalks = [...allCrosswalksById.values()]
 
   const crosswalksByDevice = new Map<string, IdentityCandidateCrosswalk[]>()
   const providerSourceIds = new Map<string, Set<string>>()
