@@ -28,7 +28,8 @@ export type ImporterV2RuleWizardTarget = {
 
 export type ImporterV2RuleWizardInput = {
   rowNumber: number
-  /** Backward-compatible single-field target. */
+  action?: 'MAP_VALUE' | 'IGNORE_FIELD' | 'EXCLUDE_ROW'
+  /** Backward-compatible single-field target or field for IGNORE_FIELD. */
   field?: ImporterV2Field
   /** Source field that the condition evaluates. Defaults to `field` for old clients. */
   matchField?: ImporterV2Field
@@ -96,10 +97,14 @@ function ruleScope(input: {
     profileIds: [input.batch.profileId],
     providers: [input.batch.provider],
     sourceAdapterIds: [input.batch.sourceAdapterId],
-    // `sourceFields` in the current rule matcher constrains action fields. Keep
-    // this bound to the field being written; the condition itself carries the
-    // independent source/match field.
-    sourceFields: [...input.targetFields],
+    ...(input.targetFields.length
+      ? {
+          // `sourceFields` in the current rule matcher constrains action fields.
+          // Keep this bound to the field being written; the condition itself
+          // carries the independent source/match field.
+          sourceFields: [...input.targetFields],
+        }
+      : {}),
   }
   if (input.scope === 'CUSTOMER' && clean(input.rowValues.customer)) {
     scope.customers = [clean(input.rowValues.customer)!]
@@ -144,22 +149,41 @@ function candidateRule(input: {
   rowValues: Partial<Record<ImporterV2Field, string | null>>
   wizard: ImporterV2RuleWizardInput
 }): ImporterV2RuleDefinition {
+  const action = input.wizard.action ?? 'MAP_VALUE'
   const matchValue = clean(input.wizard.matchValue)
-  const targets = wizardTargets(input.wizard)
-  const matchField = input.wizard.matchField ?? input.wizard.field ?? targets[0]?.field
+  const targets = action === 'MAP_VALUE' ? wizardTargets(input.wizard) : []
+  const matchField =
+    input.wizard.matchField ??
+    input.wizard.field ??
+    targets[0]?.field
   if (!matchField) throw new Error('Choose a source field to match.')
   if (!matchValue) throw new Error('Enter a source pattern to match.')
-  if (targets.length === 0)
-    throw new Error('Choose at least one field/value for this automation.')
-  if (targets.some((entry) => !clean(entry.target.label)))
-    throw new Error('Every automation target requires a value.')
-  if (new Set(targets.map((entry) => entry.field)).size !== targets.length)
-    throw new Error('An automation may set each target field only once.')
   if (matchValue.length > 160)
     throw new Error('Rule patterns are limited to 160 characters.')
 
+  if (action === 'MAP_VALUE') {
+    if (targets.length === 0)
+      throw new Error('Choose at least one field/value for this automation.')
+    if (targets.some((entry) => !clean(entry.target.label)))
+      throw new Error('Every automation target requires a value.')
+    if (new Set(targets.map((entry) => entry.field)).size !== targets.length)
+      throw new Error('An automation may set each target field only once.')
+  }
+  if (action === 'IGNORE_FIELD' && !input.wizard.field) {
+    throw new Error('Choose the source field to ignore.')
+  }
+
+  const targetFields =
+    action === 'MAP_VALUE'
+      ? targets.map((entry) => entry.field)
+      : action === 'IGNORE_FIELD' && input.wizard.field
+        ? [input.wizard.field]
+        : []
+
   const identity = hash({
+    action,
     targets,
+    field: input.wizard.field ?? null,
     matchField,
     operator: input.wizard.operator,
     matchValue,
@@ -167,16 +191,21 @@ function candidateRule(input: {
     profileId: input.batch.profileId,
   }).slice(0, 16)
 
-  const targetSummary = targets
-    .map((entry) => `${entry.field}=${entry.target.label}`)
-    .join(', ')
+  const actionSummary =
+    action === 'MAP_VALUE'
+      ? targets
+          .map((entry) => `${entry.field}=${entry.target.label}`)
+          .join(', ')
+      : action === 'IGNORE_FIELD'
+        ? `ignore ${input.wizard.field}`
+        : 'exclude row'
 
   return {
     id: `wizard-${identity}`,
     version: 1,
     name:
       clean(input.wizard.name) ??
-      `${matchField}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue} → ${targetSummary}`,
+      `${matchField}: ${input.wizard.operator.toLocaleLowerCase()} ${matchValue} → ${actionSummary}`,
     description:
       clean(input.wizard.explanation) ??
       'Created from the Importer v2 guided automation wizard.',
@@ -186,7 +215,7 @@ function candidateRule(input: {
       batch: input.batch,
       rowValues: input.rowValues,
       scope: input.wizard.scope,
-      targetFields: targets.map((entry) => entry.field),
+      targetFields,
     }),
     when: {
       kind: 'CONDITION',
@@ -194,14 +223,31 @@ function candidateRule(input: {
       operator: input.wizard.operator,
       value: matchValue,
     },
-    actions: targets.map((entry) => ({
-      type: 'MAP_VALUE' as const,
-      field: entry.field,
-      target: {
-        id: entry.target.id,
-        label: clean(entry.target.label)!,
-      },
-    })),
+    actions:
+      action === 'MAP_VALUE'
+        ? targets.map((entry) => ({
+            type: 'MAP_VALUE' as const,
+            field: entry.field,
+            target: {
+              id: entry.target.id,
+              label: clean(entry.target.label)!,
+            },
+          }))
+        : action === 'IGNORE_FIELD'
+          ? [
+              {
+                type: 'IGNORE_FIELD' as const,
+                field: input.wizard.field!,
+              },
+            ]
+          : [
+              {
+                type: 'EXCLUDE_ROW' as const,
+                reason:
+                  clean(input.wizard.explanation) ??
+                  'Persistently excluded from this importer source.',
+              },
+            ],
   }
 }
 
