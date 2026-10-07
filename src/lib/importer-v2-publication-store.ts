@@ -1937,6 +1937,11 @@ export async function publishImporterV2Batch(input: {
   qaFingerprint: string
   idempotencyKey: string
   approvedProposalKeys: readonly string[]
+  /**
+   * Optional explicit subset of rows already eligible for the selected mode.
+   * Used by trusted automation to publish only rows that need no human approval.
+   */
+  rowNumbers?: readonly number[]
   actorUserId?: string | null
 }): Promise<ImporterV2PublicationResult> {
   const idempotencyKey = text(input.idempotencyKey)
@@ -1984,7 +1989,24 @@ export async function publishImporterV2Batch(input: {
             'The staged QA snapshot changed after review. Reload QA before publishing.',
           )
         }
-        const rowNumbers = selectImporterV2PublicationRows(qa, input.mode)
+        const eligibleRowNumbers = selectImporterV2PublicationRows(qa, input.mode)
+        const eligibleRows = new Set(eligibleRowNumbers)
+        const rowNumbers = input.rowNumbers
+          ? [...new Set(input.rowNumbers)].sort((left, right) => left - right)
+          : eligibleRowNumbers
+
+        if (rowNumbers.length === 0) {
+          throw new ImporterV2PublicationValidationError(
+            'No unpublished rows were selected for publication.',
+          )
+        }
+        const ineligible = rowNumbers.filter((rowNumber) => !eligibleRows.has(rowNumber))
+        if (ineligible.length > 0) {
+          throw new ImporterV2PublicationValidationError(
+            `Selected row(s) are not eligible for ${input.mode}: ${ineligible.join(', ')}.`,
+          )
+        }
+
         const approvals = new Set(input.approvedProposalKeys)
         const requiredProposalKeys = publicationProposalsRequiredForRows(qa, rowNumbers)
           .map((proposal) => proposal.key)
