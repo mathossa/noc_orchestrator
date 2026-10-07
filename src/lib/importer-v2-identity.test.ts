@@ -241,6 +241,161 @@ describe('Importer v2 stable device identity', () => {
     expect(result.options).toEqual([])
   })
 
+  it('never treats equal Source ID text from another provider as identity agreement', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'ARUBA',
+        sourceAdapterId: 'aruba-api-v1',
+        identifiers: { sourceId: '123' },
+      },
+      [
+        {
+          canonicalDeviceId: 'device-auvik',
+          matchScope: 'CROSS_PROVIDER',
+          identifiers: { sourceId: '123' },
+          evidence: [
+            {
+              kind: 'CROSSWALK',
+              provider: 'AUVIK',
+              sourceId: '123',
+              serialNumber: null,
+              macAddress: null,
+            },
+          ],
+        },
+      ],
+    )
+
+    expect(result.kind).toBe('NEW')
+    expect(result.candidates).toEqual([])
+  })
+
+  it('automatically converges when a new provider agrees on serial and MAC', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'ARUBA',
+        sourceAdapterId: 'aruba-api-v1',
+        identifiers: {
+          sourceId: 'aruba-1',
+          serialNumber: 'SERIAL1',
+          macAddress: '00:11:22:33:44:55',
+        },
+      },
+      [
+        {
+          canonicalDeviceId: 'device-1',
+          matchScope: 'CROSS_PROVIDER',
+          identifiers: {
+            serialNumber: 'SERIAL1',
+            macAddress: '00:11:22:33:44:55',
+          },
+        },
+      ],
+    )
+
+    expect(result).toMatchObject({
+      kind: 'MATCH_SUGGESTED',
+      requiresConfirmation: false,
+    })
+    expect(result.candidates[0]).toMatchObject({
+      canonicalDeviceId: 'device-1',
+      confidence: 'HIGH',
+      matchScope: 'CROSS_PROVIDER',
+    })
+    expect(
+      result.candidates[0]?.signals.find((signal) => signal.kind === 'SOURCE_ID'),
+    ).toMatchObject({ status: 'MISSING', candidateValue: null })
+  })
+
+  it('accepts a unique canonical serial with compatible vendor/model context', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'ARUBA',
+        sourceAdapterId: 'aruba-api-v1',
+        identifiers: { serialNumber: 'AP01-CORRECT' },
+        context: {
+          vendor: 'Aruba',
+          model: 'AP-515',
+          site: 'Zwolle',
+        },
+      },
+      [
+        {
+          canonicalDeviceId: 'ap01',
+          matchScope: 'CANONICAL',
+          identifiers: { serialNumber: 'AP01-CORRECT' },
+          context: {
+            vendor: 'Aruba',
+            model: 'AP-515',
+            site: 'Zwolle',
+          },
+        },
+      ],
+    )
+
+    expect(result).toMatchObject({
+      kind: 'MATCH_SUGGESTED',
+      requiresConfirmation: false,
+    })
+    expect(result.candidates[0]?.confidence).toBe('HIGH')
+  })
+
+  it('requires review when serial and MAC point to different canonical devices', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'ARUBA',
+        sourceAdapterId: 'aruba-api-v1',
+        identifiers: {
+          serialNumber: 'SERIAL-A',
+          macAddress: '00:11:22:33:44:55',
+        },
+      },
+      [
+        {
+          canonicalDeviceId: 'device-a',
+          matchScope: 'CROSS_PROVIDER',
+          identifiers: { serialNumber: 'SERIAL-A' },
+        },
+        {
+          canonicalDeviceId: 'device-b',
+          matchScope: 'CROSS_PROVIDER',
+          identifiers: { macAddress: '00:11:22:33:44:55' },
+        },
+      ],
+    )
+
+    expect(result.kind).toBe('AMBIGUOUS')
+    expect(result.requiresConfirmation).toBe(true)
+    expect(result.candidates.map((candidate) => candidate.canonicalDeviceId)).toEqual([
+      'device-a',
+      'device-b',
+    ])
+  })
+
+  it('requires review when retained provider evidence conflicts with a canonical serial match', () => {
+    const result = resolveImporterV2Identity(
+      {
+        provider: 'ARUBA',
+        sourceAdapterId: 'aruba-api-v1',
+        identifiers: { serialNumber: 'AP01-CORRECT' },
+        context: { vendor: 'Aruba', model: 'AP-515' },
+      },
+      [
+        {
+          canonicalDeviceId: 'ap01',
+          matchScope: 'CANONICAL',
+          identifiers: { serialNumber: 'AP01-CORRECT' },
+          context: { vendor: 'Aruba', model: 'AP-515' },
+          hasConflictingDurableEvidence: true,
+        },
+      ],
+    )
+
+    expect(result.kind).toBe('AMBIGUOUS')
+    expect(result.requiresConfirmation).toBe(true)
+    expect(result.candidates[0]?.evidenceConflict).toBe(true)
+  })
+
   it('normalizes source ID, serial, and common MAC formats deterministically', () => {
     expect(
       normalizeImporterV2Identity({
