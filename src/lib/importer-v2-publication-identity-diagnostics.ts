@@ -5,7 +5,10 @@ import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
 } from '@/lib/importer-v2-stack-topology'
-import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
+import {
+  importerV2WorkspaceEffectiveEvaluated,
+  importerV2WorkspaceEffectiveText,
+} from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
 type CanonicalTarget = { id?: string | null; label?: string } | null
@@ -78,10 +81,7 @@ function clean(value: string | null | undefined) {
 }
 
 function effectiveText(snapshot: EffectiveSnapshot, field: ImporterV2Field) {
-  return (
-    clean(snapshot.proposedCanonicalValues?.[field]?.label) ??
-    clean(snapshot.rawValues?.[field])
-  )
+  return importerV2WorkspaceEffectiveText(snapshot, field)
 }
 
 function chosenDeviceId(input: {

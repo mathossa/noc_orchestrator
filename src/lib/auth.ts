@@ -53,7 +53,10 @@ export const auth = betterAuth({
   advanced: {
     database: {
       generateId: 'uuid',
-      joins: true,
+      // Keep Better Auth's Prisma joins disabled while using custom model names.
+      // With modelName = AuthAccount, Better Auth 1.7.2 derives an
+      // `authaccounts` User relation, while our canonical Prisma relation is
+      // named `accounts`. Separate queries avoid that invalid relation lookup.
     },
   },
 })

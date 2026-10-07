@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   importerV2WorkspaceDirectOverlay,
   importerV2WorkspaceEffectiveEvaluated,
+  importerV2WorkspaceEffectiveText,
   importerV2WorkspaceIssueState,
   importerV2WorkspacePreviewChangeReason,
 } from '@/lib/importer-v2-workspace-effective-overlay'
@@ -96,6 +97,41 @@ describe('Importer v2 effective reconciliation overlay', () => {
     })
     expect(result.evaluated.issues).toEqual([firmwareWarning])
     expect(result.resolvedIssues).toEqual([modelError])
+  })
+
+  it('keeps ignored durable identity as raw evidence but removes it from effective publication identity', () => {
+    const result = importerV2WorkspaceEffectiveEvaluated({
+      evaluated: {
+        rawValues: {
+          sourceId: 'auvik-device-ap01',
+          serialNumber: 'CNJMK9T1SV',
+        },
+        proposedCanonicalValues: {
+          sourceId: { id: null, label: 'auvik-device-ap01' },
+          serialNumber: { id: null, label: 'CNJMK9T1SV' },
+        },
+        issues: [],
+      },
+      inclusion: 'INCLUDED',
+      decisions: [
+        {
+          field: 'serialNumber',
+          action: 'IGNORE_FIELD',
+          explanation:
+            'Auvik reports this serial on multiple distinct APs; keep it only as raw evidence.',
+        },
+      ],
+    })
+
+    expect(result.evaluated.rawValues?.serialNumber).toBe('CNJMK9T1SV')
+    expect(result.evaluated.proposedCanonicalValues?.serialNumber).toBeNull()
+    expect(result.evaluated.suppressedSourceFields).toContain('serialNumber')
+    expect(
+      importerV2WorkspaceEffectiveText(result.evaluated, 'serialNumber'),
+    ).toBeNull()
+    expect(
+      importerV2WorkspaceEffectiveText(result.evaluated, 'sourceId'),
+    ).toBe('auvik-device-ap01')
   })
 
   it('acknowledges only optional missing source firmware/platform warnings without inventing values', () => {

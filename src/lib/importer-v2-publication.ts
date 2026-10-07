@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
 import type { ImporterV2Field, ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
 import { importerV2TopologyFromDecisions } from '@/lib/importer-v2-stack-topology'
-import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
+import {
+  importerV2WorkspaceEffectiveEvaluated,
+  importerV2WorkspaceEffectiveText,
+} from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 
 export type ImporterV2PublicationMode = 'ALL_RESOLVED' | 'VALID_ONLY'
@@ -229,10 +232,7 @@ function targetLabel(value: CanonicalTarget) {
 }
 
 function effectiveText(snapshot: EvaluatedSnapshot, field: ImporterV2Field) {
-  return (
-    targetLabel(snapshot.proposedCanonicalValues?.[field] ?? null) ??
-    normalized(snapshot.rawValues?.[field])
-  )
+  return importerV2WorkspaceEffectiveText(snapshot, field)
 }
 
 function proposalContext(

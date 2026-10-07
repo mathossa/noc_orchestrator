@@ -260,11 +260,18 @@ export function ImporterV2Inspector({
   const [ruleScope, setRuleScope] = useState<'PROFILE' | 'CUSTOMER' | 'VENDOR' | 'MODEL'>('PROFILE')
   const [rulePreview, setRulePreview] = useState<GuidedRulePreview | null>(null)
   const [ruleBusy, setRuleBusy] = useState(false)
+  const [persistentRulePreview, setPersistentRulePreview] = useState<{
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW'
+    wizard: Record<string, unknown>
+    preview: GuidedRulePreview
+  } | null>(null)
+  const [persistentRuleBusy, setPersistentRuleBusy] = useState(false)
   const [hierarchyRulePreview, setHierarchyRulePreview] =
     useState<GuidedRulePreview | null>(null)
   const [hierarchyRuleBusy, setHierarchyRuleBusy] = useState(false)
 
   const rawSourceValue = detail?.evaluated.rawValues?.[actionField] ?? null
+  const sourceId = detail?.evaluated.rawValues?.sourceId ?? null
   const ruleSourceValue = detail?.evaluated.rawValues?.[ruleMatchField] ?? null
   const proposedValue = detail?.evaluated.fields?.[actionField]?.proposedValue ?? null
   const selectedIdentityId =
@@ -427,6 +434,121 @@ export function ImporterV2Inspector({
       field: actionField,
       explanation: 'Cleared this staged field from the importer inspector.',
     })
+  }
+
+  const previewIgnoreSource = () => {
+    void requestPreview({
+      type: 'IGNORE_FIELD',
+      field: actionField,
+      explanation:
+        'Ignored this source value for canonical publication and durable identity matching while retaining the raw source evidence.',
+    })
+  }
+
+  const previewExcludeRow = () => {
+    void requestPreview({
+      type: 'EXCLUDE_ROW',
+      explanation: 'Excluded this staged row from the current import only.',
+    })
+  }
+
+  const persistentRuleWizard = (
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW',
+  ): Record<string, unknown> | null => {
+    if (!detail || !sourceId) return null
+    const label = detail.sourceName ?? detail.hostname ?? sourceId
+    if (kind === 'IGNORE_FIELD') {
+      return {
+        rowNumber: detail.rowNumber,
+        action: 'IGNORE_FIELD',
+        field: actionField,
+        matchField: 'sourceId',
+        operator: 'NORMALIZED_EXACT',
+        matchValue: sourceId,
+        scope: 'PROFILE',
+        name: `Ignore ${fieldLabel(actionField)} for ${label}`,
+        explanation:
+          `Persistently ignore ${fieldLabel(actionField)} reported by this exact source device while retaining raw provider evidence.`,
+      }
+    }
+    return {
+      rowNumber: detail.rowNumber,
+      action: 'EXCLUDE_ROW',
+      matchField: 'sourceId',
+      operator: 'NORMALIZED_EXACT',
+      matchValue: sourceId,
+      scope: 'PROFILE',
+      name: `Exclude ${label} from future imports`,
+      explanation:
+        'Persistently exclude this exact source device from canonical inventory publication.',
+    }
+  }
+
+  const requestPersistentRulePreview = async (
+    kind: 'IGNORE_FIELD' | 'EXCLUDE_ROW',
+  ) => {
+    const wizard = persistentRuleWizard(kind)
+    if (!wizard) return
+    setPersistentRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'PREVIEW', wizard }),
+        },
+      )
+      const result = await responseData<GuidedRulePreview>(response)
+      setPersistentRulePreview({ kind, wizard, preview: result })
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to preview persistent source rule.',
+      )
+    } finally {
+      setPersistentRuleBusy(false)
+    }
+  }
+
+  const applyPersistentRulePreview = async () => {
+    if (!persistentRulePreview) return
+    setPersistentRuleBusy(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/rules`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            wizard: persistentRulePreview.wizard,
+            scopeToken: persistentRulePreview.preview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const kind = persistentRulePreview.kind
+      setPersistentRulePreview(null)
+      setActionMessage(
+        kind === 'IGNORE_FIELD'
+          ? 'Persistent source-field ignore activated for future syncs.'
+          : 'Persistent device exclusion activated for future syncs.',
+      )
+      onRefresh()
+    } catch (error) {
+      setPersistentRulePreview(null)
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to activate persistent source rule.',
+      )
+    } finally {
+      setPersistentRuleBusy(false)
+    }
   }
 
   const requestIdentityPreview = async (decision: IdentityDecision) => {
@@ -1278,14 +1400,101 @@ export function ImporterV2Inspector({
                 </label>
               ) : null}
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button variant="secondary" disabled={actionBusy} onClick={previewClear}>
                   Clear field
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={actionBusy || !rawSourceValue}
+                  onClick={previewIgnoreSource}
+                >
+                  Ignore this import
                 </Button>
                 <Button variant="primary" disabled={!action || actionBusy} onClick={() => void requestPreview()}>
                   Preview set value
                 </Button>
               </div>
+
+              {detail && sourceId ? (
+                <div className="space-y-2 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">
+                  <div>
+                    <strong className="text-xs text-[var(--foreground)]">
+                      Future sync behavior
+                    </strong>
+                    <p className="mt-0.5 text-[10px] leading-4 text-[var(--muted)]">
+                      Save an exact Source ID rule for this device. The rule is reused on later syncs and can be disabled or removed under Import automation.
+                    </p>
+                  </div>
+
+                  {persistentRulePreview ? (
+                    <div className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-2 text-xs">
+                      <p className="font-semibold">
+                        {persistentRulePreview.kind === 'IGNORE_FIELD'
+                          ? `Ignore ${fieldLabel(actionField)} on future syncs`
+                          : 'Exclude this device on future syncs'}
+                      </p>
+                      <p className="mt-1 text-[10px] text-[var(--muted-strong)]">
+                        Exact Source ID: <span className="font-mono">{sourceId}</span>
+                      </p>
+                      <p className="mt-1 text-[10px] text-[var(--muted-strong)]">
+                        Matches {persistentRulePreview.preview.preview.matchedRowCount.toLocaleString()} staged row{persistentRulePreview.preview.preview.matchedRowCount === 1 ? '' : 's'}.
+                      </p>
+                      {persistentRulePreview.preview.preview.conflicts.length ? (
+                        <p className="mt-1 font-semibold text-[#f0a0a0]">
+                          {persistentRulePreview.preview.preview.conflicts.length} rule conflict{persistentRulePreview.preview.preview.conflicts.length === 1 ? '' : 's'} — activation is blocked.
+                        </p>
+                      ) : null}
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <Button
+                          variant="ghost"
+                          disabled={persistentRuleBusy}
+                          onClick={() => setPersistentRulePreview(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="primary"
+                          disabled={
+                            persistentRuleBusy ||
+                            persistentRulePreview.preview.preview.conflicts.length > 0
+                          }
+                          onClick={() => void applyPersistentRulePreview()}
+                        >
+                          {persistentRuleBusy ? 'Activating…' : 'Activate for future syncs'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="secondary"
+                        disabled={persistentRuleBusy || !rawSourceValue}
+                        onClick={() => void requestPersistentRulePreview('IGNORE_FIELD')}
+                      >
+                        Ignore field in future
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={persistentRuleBusy}
+                        onClick={() => void requestPersistentRulePreview('EXCLUDE_ROW')}
+                      >
+                        Exclude device in future
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={actionBusy}
+                      onClick={previewExcludeRow}
+                    >
+                      Exclude from this import only
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               {detail && targetLabel.trim() ? (
                 <div className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-2">

@@ -84,6 +84,28 @@ describe('Importer v2 stable device identity', () => {
     })
   })
 
+  it('does not restore an explicitly ignored raw serial into the durable crosswalk', () => {
+    expect(
+      importerV2SourceIdentityForCrosswalk({
+        rawIdentifiers: {
+          sourceId: 'auvik-ap01',
+          serialNumber: 'CNJMK9T1SV',
+          macAddress: null,
+        },
+        effectiveIdentifiers: {
+          sourceId: 'auvik-ap01',
+          serialNumber: null,
+          macAddress: null,
+        },
+        suppressedSourceFields: ['serialNumber'],
+      }),
+    ).toEqual({
+      sourceId: 'auvik-ap01',
+      serialNumber: null,
+      macAddress: null,
+    })
+  })
+
   it('proposes a valid unmatched durable identity as a new device without row-by-row confirmation', () => {
     const result = resolveImporterV2Identity(
       {

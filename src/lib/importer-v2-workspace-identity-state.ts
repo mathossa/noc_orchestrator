@@ -117,6 +117,81 @@ function candidates(value: Record<string, unknown> | null) {
     .filter((candidate) => candidate.canonicalDeviceId)
 }
 
+const IDENTITY_SIGNAL_FOR_FIELD: Record<string, string> = {
+  sourceId: 'SOURCE_ID',
+  serialNumber: 'SERIAL_NUMBER',
+  macAddress: 'MAC_ADDRESS',
+}
+
+function ignoredIdentitySignals(decisions: readonly WorkspaceDecision[]) {
+  const ignored = new Set<string>()
+  for (const decision of decisions) {
+    if (!decision.field) continue
+    const signal = IDENTITY_SIGNAL_FOR_FIELD[decision.field]
+    if (!signal) continue
+
+    if (decision.action === 'IGNORE_FIELD' || decision.action === 'CLEAR_FIELD') {
+      ignored.add(signal)
+      continue
+    }
+
+    if (
+      decision.action === 'SET_FIELD' ||
+      decision.action === 'LINK_FIELD' ||
+      decision.action === 'REMEMBER_EXACT' ||
+      decision.action === 'CREATE_SCOPED_RULE'
+    ) {
+      ignored.delete(signal)
+    }
+  }
+  return ignored
+}
+
+function candidatesAfterIgnoredIdentityFields(
+  sourceCandidates: readonly ImporterV2WorkspaceIdentityCandidate[],
+  decisions: readonly WorkspaceDecision[],
+) {
+  const ignoredSignals = ignoredIdentitySignals(decisions)
+  if (ignoredSignals.size === 0) return sourceCandidates
+
+  return sourceCandidates
+    .map((candidate) => {
+      if (candidate.signals.length === 0) return candidate
+
+      const signals = candidate.signals.filter(
+        (signal) => !ignoredSignals.has(signal.kind),
+      )
+      const durableEvidence = candidate.durableEvidence.filter(
+        (evidence) => !ignoredSignals.has(evidence),
+      )
+
+      return {
+        ...candidate,
+        signals,
+        durableEvidence,
+      }
+    })
+    .filter((candidate) => {
+      if (candidate.signals.length === 0) return false
+      return candidate.signals.some((signal) => signal.status === 'AGREE')
+    })
+}
+
+function effectiveIdentityKind(
+  sourceKind: string | null,
+  originalCandidateCount: number,
+  candidates: readonly ImporterV2WorkspaceIdentityCandidate[],
+) {
+  if (
+    sourceKind === 'AMBIGUOUS' &&
+    originalCandidateCount > 1 &&
+    candidates.length === 1
+  ) {
+    return 'MATCH_SUGGESTED'
+  }
+  return sourceKind
+}
+
 function latestIdentityDecision(
   decisions: readonly WorkspaceDecision[],
 ): {
@@ -207,17 +282,25 @@ export function importerV2WorkspaceIdentityReview(input: {
   if (!source) return null
 
   const normalizedCandidates = candidates(source)
-  const sourceKind = text(source.kind) ?? text(source.status)
+  const effectiveCandidates = candidatesAfterIgnoredIdentityFields(
+    normalizedCandidates,
+    input.decisions ?? [],
+  )
+  const sourceKind = effectiveIdentityKind(
+    text(source.kind) ?? text(source.status),
+    normalizedCandidates.length,
+    effectiveCandidates,
+  )
   const explicitDecision = explicitDecisionStillApplies({
     decision: latestIdentityDecision(input.decisions ?? []),
     sourceKind,
-    candidates: normalizedCandidates,
+    candidates: effectiveCandidates,
   })
   const automaticDecision = explicitDecision
     ? null
     : automaticIdentityDecision({
         sourceKind,
-        candidates: normalizedCandidates,
+        candidates: effectiveCandidates,
       })
   const decision = explicitDecision ?? automaticDecision
   const requiresConfirmation =
@@ -233,7 +316,7 @@ export function importerV2WorkspaceIdentityReview(input: {
     selectedDecision: decision?.kind ?? null,
     selectedCanonicalDeviceId: decision?.canonicalDeviceId ?? null,
     explanation: text(source.explanation),
-    candidates: normalizedCandidates,
+    candidates: effectiveCandidates,
     options: stringList(source.options),
   }
 }

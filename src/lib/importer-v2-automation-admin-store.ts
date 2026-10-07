@@ -60,13 +60,23 @@ function ruleCount(value: unknown) {
 }
 
 export async function getImporterV2AutomationAdminData(): Promise<ImporterV2AutomationAdminData> {
-  const [profiles, books, mappings] = await Promise.all([
+  const [profiles, apiSources, books, mappings] = await Promise.all([
     prisma.importerV2SourceProfile.findMany({
       orderBy: [{ provider: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
         name: true,
         version: true,
+        provider: true,
+        sourceAdapterId: true,
+      },
+    }),
+    prisma.inventorySource.findMany({
+      where: { adapterType: 'auvik-api-v2' },
+      orderBy: [{ provider: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
         provider: true,
         sourceAdapterId: true,
       },
@@ -152,9 +162,18 @@ export async function getImporterV2AutomationAdminData(): Promise<ImporterV2Auto
     }))
 
   return {
-    profiles: profiles.map((profile) => ({
-      ...profile,
-    })),
+    profiles: [
+      ...profiles.map((profile) => ({
+        ...profile,
+      })),
+      ...apiSources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        version: 'auvik-api-v2-profile-v1',
+        provider: source.provider,
+        sourceAdapterId: source.sourceAdapterId,
+      })),
+    ],
     ruleBooks,
     exactMappings,
   }
