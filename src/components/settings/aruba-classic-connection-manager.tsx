@@ -132,7 +132,16 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
     const types=result.source
     const switches=`switches: ${types.fetchedByType?.SWITCH??0} fetched / ${types.selectedByType?.SWITCH??0} selected / ${types.excludedByType?.SWITCH??0} excluded`
     const aps=`APs: ${types.fetchedByType?.AP??0} fetched / ${types.selectedByType?.AP??0} selected`
-    setMessage(`Aruba Classic: ${aps}; ${switches}. Total ${result.source.deviceCount} staged from ${result.source.selectedSiteCount} selected sites; ${result.source.excludedFromScopeCount} excluded by site selection; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.${publication.error ? ` Publication review required: ${publication.error}` : ''}`)
+    const recovery=types.switchSiteRecovery
+    const recovered=recovery?.recoveredSwitchCount??0
+    const stackReview=types.stackMembersHeldForReview??0
+    const switchEvidenceNote=recovery?.attempted
+      ? `Verified switch-site API: ${recovery.serverFilterVerified?'passed':'failed'}, ${recovered} switches site-matched, ${recovery.ambiguousSwitchCount??0} ambiguous.`
+      : 'No switch site fallback needed.'
+    const stackNote=stackReview>0
+      ? ` ${stackReview} physical stack members require topology review before individual device publication.`
+      : ''
+    setMessage(`Aruba Classic: ${aps}; ${switches}. ${switchEvidenceNote}${stackNote} Total ${result.source.deviceCount} staged from ${result.source.selectedSiteCount} selected sites; ${result.source.excludedFromScopeCount} excluded by site selection; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.${publication.error ? ` Publication review required: ${publication.error}` : ''}`)
   })
   const changeSite=(name:string,partial:Partial<Site>)=>setSites(current=>current.map(site=>site.siteName===name?{...site,...partial}:site))
   const enabledSites=connection.configuration.sites.filter(site=>site.enabled).length
