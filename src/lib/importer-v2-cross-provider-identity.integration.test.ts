@@ -347,7 +347,7 @@ describe('Importer v2 cross-provider identity integration', () => {
         sourceId: `auvik-${suffix}`,
         normalizedSourceId: `auvik-${suffix}`,
         serialNumber: device.serialNumber,
-        normalizedSerialNumber: device.serialNumber,
+        normalizedSerialNumber: device.serialNumber?.toUpperCase(),
         macAddress,
         normalizedMacAddress: 'AABBCCDDEE01',
         rawSourceId: `auvik-${suffix}`,

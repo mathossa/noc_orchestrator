@@ -1,4 +1,3 @@
-import { runMerakiInventorySync } from '../lib/meraki-inventory-sync.js'
 import type { JobName, JobPayloadMap, JobResultMap } from './registry.js'
 
 export interface JobHandlerContext<N extends JobName> {
@@ -29,6 +28,7 @@ export function createDefaultJobHandlers(): JobHandlers {
           `No scheduled inventory sync handler exists for ${payload.provider}/${payload.adapterType}.`,
         )
       }
+      const { runMerakiInventorySync } = await import('../lib/meraki-inventory-sync.js')
       const result = await runMerakiInventorySync(payload.sourceId, {
         trigger: 'SCHEDULED',
       })
