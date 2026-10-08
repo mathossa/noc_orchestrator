@@ -7,6 +7,10 @@ on:
     branches:
       - issue/116-aruba-central-inventory
 
+concurrency:
+  group: issue-116-aruba-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
