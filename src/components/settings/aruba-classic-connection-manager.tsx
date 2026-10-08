@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
-type Site={siteName:string;enabled:boolean;site:string|null}
+type Site={siteId?:string|null;siteName:string;enabled:boolean;site:string|null}
 type Connection={
   id:string;name:string;enabled:boolean;sourceAdapterId:string
   configuration:{version:1;variant:'CLASSIC';baseUrl:string;customer:string|null;businessUnit:string|null;sites:readonly Site[]}
@@ -73,7 +73,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       return [
         ...current.filter(site=>!found.some(candidate=>candidate.name.toLowerCase()===site.siteName.toLowerCase())),
         ...found.map(site=>previous.get(site.name.toLowerCase())??{
-          siteName:site.name,enabled:false,site:site.name,
+          siteId:site.id,siteName:site.name,enabled:false,site:site.name,
         }),
       ]
     })
