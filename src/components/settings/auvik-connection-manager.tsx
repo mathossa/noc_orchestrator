@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
   id: string
@@ -18,6 +19,7 @@ type Connection = {
     region: string
     tenants: readonly {
       tenantId: string
+      enabled?: boolean
       tenantName?: string | null
       customer?: string | null
       businessUnit?: string | null
@@ -42,6 +44,7 @@ type DiscoveredTenant = {
 }
 
 type TenantEditor = {
+  enabled: boolean
   tenantId: string
   tenantName: string
   customer: string
@@ -53,6 +56,7 @@ function editorTenant(
   tenant?: Connection['configuration']['tenants'][number],
 ): TenantEditor {
   return {
+    enabled: tenant?.enabled !== false,
     tenantId: tenant?.tenantId ?? '',
     tenantName: tenant?.tenantName ?? '',
     customer: tenant?.customer ?? '',
@@ -71,8 +75,10 @@ async function responseData(response: Response) {
 
 export function AuvikConnectionManager({
   initialConnection,
+  initialSyncRuns,
 }: {
   initialConnection: Connection
+  initialSyncRuns: InventorySourceSyncRun[]
 }) {
   const router = useRouter()
   const [connection, setConnection] = useState(initialConnection)
@@ -88,6 +94,7 @@ export function AuvikConnectionManager({
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
+  const [syncRuns, setSyncRuns] = useState<InventorySourceSyncRun[]>(initialSyncRuns)
   const [discoveredTenants, setDiscoveredTenants] = useState<
     DiscoveredTenant[]
   >([])
@@ -258,6 +265,7 @@ export function AuvikConnectionManager({
     setTenants((current) => {
       if (current.some((entry) => entry.tenantId === tenant.id)) return current
       const replacement = editorTenant({
+        enabled: false,
         tenantId: tenant.id,
         tenantName: tenant.domainPrefix,
       })
@@ -282,6 +290,12 @@ export function AuvikConnectionManager({
         { method: 'POST' },
       )
       const result = await responseData(response)
+      if (result.syncRun) {
+        setSyncRuns((current) => [
+          { ...result.syncRun, startedAt: new Date(result.syncRun.startedAt).toISOString(), finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null },
+          ...current,
+        ].slice(0, 20))
+      }
       const autoPublication = result.autoPublication as {
         status: 'PUBLISHED' | 'REVIEW_REQUIRED' | 'NOTHING_TO_PUBLISH'
         publishedLogicalDeviceCount: number
@@ -321,6 +335,8 @@ export function AuvikConnectionManager({
       setBusy(null)
     }
   }
+
+  const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
 
   const testTone =
     connection.connectionTest.status === 'SUCCESS'
@@ -390,7 +406,7 @@ export function AuvikConnectionManager({
                 busy !== null ||
                 !connection.enabled ||
                 connection.connectionTest.status !== 'SUCCESS' ||
-                connection.configuration.tenants.length === 0
+                !hasEnabledScope
               }
               onClick={() => void syncNow()}
             >
@@ -509,6 +525,10 @@ export function AuvikConnectionManager({
               key={index}
               className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4"
             >
+              <label className="mb-3 flex items-center gap-2 text-xs font-semibold">
+                <input type="checkbox" checked={tenant.enabled} disabled={!tenant.tenantId} onChange={(event) => setTenants((current) => current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))} aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`} />
+                Enable tenant for synchronization
+              </label>
               <div className="grid gap-3 lg:grid-cols-5">
                 {(
                   [
@@ -556,6 +576,15 @@ export function AuvikConnectionManager({
           </div>
         </div>
       </section>
+
+      <InventorySourceSchedulePanel
+        provider="auvik"
+        sourceId={connection.id}
+        enabled={connection.enabled}
+        connectionTestPassed={connection.connectionTest.status === 'SUCCESS'}
+        hasEnabledScope={hasEnabledScope}
+        syncRuns={syncRuns}
+      />
 
       {message ? (
         <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-4 py-3 text-sm">
