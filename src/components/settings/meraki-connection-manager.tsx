@@ -178,7 +178,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
       const publication = result.autoPublication
       setBatchId(publication.reconciliationRequired ? result.batch.id : null)
       if (result.syncRun) setSyncRuns((current) => [{ ...result.syncRun, startedAt: new Date(result.syncRun.startedAt).toISOString(), finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null }, ...current].slice(0, 20))
-      setMessage(`Meraki sync staged ${result.source.deviceCount.toLocaleString()} devices; auto-published ${publication.publishedLogicalDeviceCount.toLocaleString()}; ${publication.remainingIncludedRows.toLocaleString()} rows need review.${result.source.partial ? ` ${result.source.failures.length} organization(s) failed, so this was a partial run.` : ''}`)
+      setMessage(`Meraki sync staged ${result.source.deviceCount.toLocaleString()} devices; auto-published ${publication.publishedLogicalDeviceCount.toLocaleString()}; ${publication.remainingIncludedRows.toLocaleString()} rows need review.${result.source.partial ? ` ${result.source.failures.length} organization(s) failed, so this was a partial run.` : ''}${result.source.availabilityFailures?.length ? ` Availability unavailable for ${result.source.availabilityFailures.length} organization(s); their status is shown as Unknown.` : ''}`)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to synchronize Meraki inventory.') }
     finally { setBusy(null) }
   }
