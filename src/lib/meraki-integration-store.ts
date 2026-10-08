@@ -82,12 +82,13 @@ function testMetadata(value: unknown) {
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {}
+  const status: 'SUCCESS' | 'FAILED' | 'UNTESTED' =
+    metadata.lastConnectionTestStatus === 'SUCCESS' ||
+    metadata.lastConnectionTestStatus === 'FAILED'
+      ? metadata.lastConnectionTestStatus
+      : 'UNTESTED'
   return {
-    status:
-      metadata.lastConnectionTestStatus === 'SUCCESS' ||
-      metadata.lastConnectionTestStatus === 'FAILED'
-        ? metadata.lastConnectionTestStatus
-        : ('UNTESTED' as const),
+    status,
     testedAt:
       typeof metadata.lastConnectionTestAt === 'string'
         ? metadata.lastConnectionTestAt
