@@ -350,9 +350,9 @@ export function AuvikConnectionManager({
           </div>
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Tenant scope</div>
+          <div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Enabled tenants</div>
           <div className="mt-1 text-2xl font-semibold">
-            {connection.configuration.tenants.length}
+            {connection.configuration.tenants.filter((tenant) => tenant.enabled !== false).length}
           </div>
         </div>
       </div>
