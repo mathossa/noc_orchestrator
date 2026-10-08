@@ -118,7 +118,7 @@ describe('Classic Central shared inventory sync',()=>{
         configuration:{...record.connection.configuration,sites:record.connection.configuration.sites.map((s:{siteName:string})=>({...s,enabled:false}))},
       },
     })
-    await expect(runClassicCentralInventorySync('source-1')).rejects.toThrow('Enable at least one')
+    await expect(runClassicCentralInventorySync('source-1')).rejects.toThrow('Select and save at least one Aruba Central site')
     expect(mocks.listDevices).not.toHaveBeenCalled()
   })
 
