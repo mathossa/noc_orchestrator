@@ -1,4 +1,7 @@
-import { listMerakiOrganizationDevices } from '@/lib/meraki-api-client'
+import {
+  listMerakiOrganizationDevices,
+  listMerakiOrganizationDeviceAvailabilities,
+} from '@/lib/meraki-api-client'
 import {
   getMerakiInventoryConnectionCredentials,
   type MerakiInventoryConnectionConfiguration,
@@ -43,15 +46,23 @@ export function merakiApiRuntimeImporterProfile(input: {
   }
 }
 
-function configuredOrganizations(
+export function configuredMerakiOrganizations(
   configuration: MerakiInventoryConnectionConfiguration,
 ) {
-  if (configuration.organizations.length === 0) {
-    throw new Error(
-      'Configure at least one Meraki organization before synchronizing inventory.',
-    )
+  const scopes = configuration.organizations
+    .filter((organization) => organization.enabled !== false)
+    .map((organization) => ({
+      ...organization,
+      networks: organization.networks.filter((network) => network.enabled !== false),
+      // Preserve a zero-network legacy organization as an all-networks scope.
+      hasExplicitNetworkScopes: organization.networks.length > 0,
+    }))
+    .filter((organization) => !organization.hasExplicitNetworkScopes || organization.networks.length > 0)
+
+  if (scopes.length === 0) {
+    throw new Error('Enable at least one Meraki organization and network before synchronizing inventory.')
   }
-  return configuration.organizations
+  return scopes
 }
 
 async function runMerakiInventorySyncCore(
@@ -74,9 +85,10 @@ async function runMerakiInventorySyncCore(
     )
   }
 
-  const scopes = configuredOrganizations(connection.configuration)
+  const scopes = configuredMerakiOrganizations(connection.configuration)
   const organizations = []
   const failures: Array<{ organizationId: string; error: string }> = []
+  const availabilityFailures: Array<{ organizationId: string; error: string }> = []
 
   for (const context of scopes) {
     try {
@@ -92,7 +104,26 @@ async function runMerakiInventorySyncCore(
         allowedNetworkIds.size === 0
           ? fetched
           : fetched.filter((device) => allowedNetworkIds.has(device.networkId))
-      organizations.push({ context, devices })
+      // Availability is optional observed evidence. Lack of telemetry access
+      // must never block inventory sync or masquerade as 'online'.
+      let availabilities
+      let availabilityObservedAt: string | null = null
+      try {
+        availabilities = await listMerakiOrganizationDeviceAvailabilities({
+          environment: connection.configuration.environment,
+          credentials,
+          organizationId: context.organizationId,
+          fetchImpl: options.fetchImpl,
+          signal: options.signal,
+        })
+        availabilityObservedAt = new Date().toISOString()
+      } catch (error) {
+        availabilityFailures.push({
+          organizationId: context.organizationId,
+          error: error instanceof Error ? error.message : 'Meraki availability lookup failed.',
+        })
+      }
+      organizations.push({ context, devices, availabilities, availabilityObservedAt })
     } catch (error) {
       failures.push({
         organizationId: context.organizationId,
@@ -151,6 +182,7 @@ async function runMerakiInventorySyncCore(
       deviceCount: normalized.rows.length,
       partial: failures.length > 0,
       failures,
+      availabilityFailures,
     },
   }
 }
@@ -182,7 +214,12 @@ export async function runMerakiInventorySync(
       metadata: {
         organizationCount: result.source.organizationCount,
         configuredOrganizationCount: result.source.configuredOrganizationCount,
-      },
+        availabilityFailures: result.source.availabilityFailures,
+        // Scheduled runs are unattended. Rows without enough reliable evidence
+        // stay unpublished; operators can inspect them later without blocking jobs.
+        unattended: options.trigger === 'SCHEDULED',
+        skippedForReview: result.autoPublication.remainingIncludedRows ?? 0,
+      }
     })
     return { ...result, syncRun }
   } catch (error) {
