@@ -8,6 +8,7 @@ import {
 import {
   refreshClassicCentralAccessToken,
   listClassicCentralSites,
+  listClassicCentralDevices,
   type ClassicCentralClientCredentials,
   type ClassicCentralTokens,
 } from '@/lib/aruba-classic-central-api-client'
@@ -31,6 +32,7 @@ export type ClassicCentralSiteScope = {
 
 export type ClassicCentralConnectionConfiguration = {
   version: 1
+  scopeMode: 'SELECTED_SITES' | 'ALL_DEVICES'
   variant: 'CLASSIC'
   baseUrl: string
   customer: string | null
@@ -47,8 +49,13 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
   customer?: string | null
   businessUnit?: string | null
   sites?: readonly ClassicCentralSiteScope[]
+  scopeMode?: 'SELECTED_SITES' | 'ALL_DEVICES'
 }): ClassicCentralConnectionConfiguration {
   const baseUrl = arubaCentralApiBaseUrl({ variant: 'CLASSIC', baseUrl: clean(input.baseUrl) }).origin
+  const scopeMode = input.scopeMode ?? 'SELECTED_SITES'
+  if (scopeMode !== 'SELECTED_SITES' && scopeMode !== 'ALL_DEVICES') {
+    throw new Error('Unsupported Classic Central inventory scope mode.')
+  }
   const sites = (input.sites ?? []).map((scope) => {
     const siteName = clean(scope.siteName)
     if (!siteName) throw new Error('Each Classic Central site must have a name.')
@@ -63,7 +70,7 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
     throw new Error('Duplicate Classic Central site scope.')
   }
   return {
-    version: 1, variant: 'CLASSIC', baseUrl,
+    version: 1, variant: 'CLASSIC', baseUrl, scopeMode,
     customer: clean(input.customer) || null,
     businessUnit: clean(input.businessUnit) || null,
     sites,
@@ -77,6 +84,7 @@ function parseConfiguration(value: unknown) {
   return normalizeClassicCentralConnectionConfiguration({
     baseUrl: item.baseUrl, customer: item.customer, businessUnit: item.businessUnit,
     sites: Array.isArray(item.sites) ? item.sites : [],
+    scopeMode: item.scopeMode,
   })
 }
 function validateCredentials(value: StoredClassicCentralCredentials) {
@@ -125,6 +133,7 @@ export async function createClassicCentralConnection(input: {
   customer?: string | null
   businessUnit?: string | null
   sites?: readonly ClassicCentralSiteScope[]
+  scopeMode?: 'SELECTED_SITES' | 'ALL_DEVICES'
   credentials: StoredClassicCentralCredentials
 }) {
   const name = clean(input.name)
@@ -175,6 +184,7 @@ export async function updateClassicCentralConnection(input: {
   sourceId: string; name?: string; baseUrl?: string
   customer?: string | null; businessUnit?: string | null
   sites?: readonly ClassicCentralSiteScope[]; enabled?: boolean
+  scopeMode?: 'SELECTED_SITES' | 'ALL_DEVICES'
   credentials?: StoredClassicCentralCredentials
 }) {
   const existing = await getClassicCentralConnection(input.sourceId)
@@ -184,6 +194,7 @@ export async function updateClassicCentralConnection(input: {
     customer: input.customer === undefined ? existing.configuration.customer : input.customer,
     businessUnit: input.businessUnit === undefined ? existing.configuration.businessUnit : input.businessUnit,
     sites: input.sites ?? existing.configuration.sites,
+    scopeMode: input.scopeMode ?? existing.configuration.scopeMode,
   })
   const name = input.name === undefined ? existing.name : clean(input.name)
   if (!name) throw new Error('Aruba connection name is required.')
@@ -296,5 +307,72 @@ export async function testClassicCentralConnection(
       data:{metadata:{connectionType:'ARUBA_CENTRAL_CLASSIC',lastConnectionTestStatus:'FAILED',lastConnectionTestAt:testedAt,lastConnectionTestHttpStatus:status}},
     })
     throw error
+  }
+}
+
+/** Optional non-MSP discovery: one Classic Central account belongs to one customer.
+ * Do not reinterpret Aruba groups as physical sites; when the site catalog is
+ * empty, the monitoring observations can still contain genuine site names.
+ * This only fetches on an explicit operator request, never every scheduled sync.
+ */
+export async function discoverClassicCentralSites(
+  sourceId: string,
+  options: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {},
+) {
+  await testClassicCentralConnection(sourceId, options)
+  const { connection, credentials } = await getClassicCentralConnectionCredentials(sourceId)
+  const catalog = await listClassicCentralSites({
+    configuration: connection.configuration,
+    accessToken: credentials.accessToken,
+    fetchImpl: options.fetchImpl,
+    signal: options.signal,
+  })
+  if (catalog.length > 0) {
+    return {
+      sites: catalog.map(site => ({ ...site, origin: 'SITE_CATALOG' as const })),
+      catalogCount: catalog.length,
+      observedDeviceCount: null,
+      unassignedDeviceCount: null,
+      observedGroupCount: null,
+    }
+  }
+
+  const observations = await listClassicCentralDevices({
+    configuration: connection.configuration,
+    accessToken: credentials.accessToken,
+    refresh: await classicCentralRefreshContext(sourceId, credentials),
+    fetchImpl: options.fetchImpl,
+    signal: options.signal,
+  })
+  const found = new Map<string, { id: string | null; name: string; origin: 'DEVICE_EVIDENCE' }>()
+  const groups = new Set<string>()
+  let unassignedDeviceCount = 0
+  for (const observation of observations) {
+    const item = observation.raw
+    const name = [item.site, item.site_name, item.siteName]
+      .find(value => typeof value === 'string' && value.trim())
+    if (typeof name !== 'string') {
+      unassignedDeviceCount += 1
+    } else {
+      const normalized = clean(name)
+      const siteId = item.site_id ?? item.siteId
+      if (normalized && !found.has(normalized.toLocaleLowerCase('en-US'))) {
+        found.set(normalized.toLocaleLowerCase('en-US'), {
+          id: typeof siteId === 'string' || typeof siteId === 'number' ? String(siteId) : null,
+          name: normalized,
+          origin: 'DEVICE_EVIDENCE',
+        })
+      }
+    }
+    const group = [item.group_name, item.group, item.ap_group, item.device_group]
+      .find(value => typeof value === 'string' && value.trim())
+    if (typeof group === 'string') groups.add(clean(group))
+  }
+  return {
+    sites: [...found.values()].sort((a,b) => a.name.localeCompare(b.name)),
+    catalogCount: 0,
+    observedDeviceCount: observations.length,
+    unassignedDeviceCount,
+    observedGroupCount: groups.size,
   }
 }
