@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import {
-  listClassicCentralDevices,
-  type ClassicCentralDeviceObservation,
-} from '@/lib/aruba-classic-central-api-client'
+import { listClassicCentralDevices } from '@/lib/aruba-classic-central-api-client'
 import { getClassicCentralConnectionCredentials, classicCentralRefreshContext } from '@/lib/aruba-classic-integration-store'
 import { filterClassicCentralDevicesBySelectedSites } from '@/lib/aruba-classic-site-scope'
 
