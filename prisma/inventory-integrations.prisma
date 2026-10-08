@@ -15,6 +15,7 @@ model InventorySource {
 
   profileLinks InventorySyncProfileSource[]
   secret       InventorySourceSecret?
+  syncRuns     InventorySyncRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -72,4 +73,34 @@ model InventorySourceSecret {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+
+/// Durable audit/history record for one manual or scheduled inventory synchronization.
+/// Provider adapters never own a separate run-history model.
+model InventorySyncRun {
+  id        String @id @default(uuid())
+  sourceId  String
+  trigger   String
+  status    String @default("RUNNING")
+
+  batchId             String?
+  fetchedCount         Int @default(0)
+  stagedCount          Int @default(0)
+  autoPublishedCount   Int @default(0)
+  reviewRequiredCount  Int @default(0)
+  ignoredCount         Int @default(0)
+  errorCount           Int @default(0)
+  failureSummary       Json?
+  errorMessage         String?
+  metadata             Json?
+
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  source InventorySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, startedAt])
+  @@index([sourceId, status])
+  @@index([status, startedAt])
 }

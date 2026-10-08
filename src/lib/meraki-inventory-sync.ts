@@ -16,6 +16,12 @@ import {
 } from '@/lib/importer-v2-meraki-api'
 import { initializeImporterV2WorkspaceAutomation } from '@/lib/importer-v2-workspace-maintenance'
 import { autoPublishImporterV2SafeValidRows } from '@/lib/importer-v2-auto-publication'
+import {
+  beginInventorySyncRun,
+  completeInventorySyncRun,
+  failInventorySyncRun,
+  type InventorySyncTrigger,
+} from '@/lib/inventory-sync-run-store'
 
 export function merakiApiRuntimeImporterProfile(input: {
   sourceId: string
@@ -48,7 +54,7 @@ function configuredOrganizations(
   return configuration.organizations
 }
 
-export async function runMerakiInventorySync(
+async function runMerakiInventorySyncCore(
   sourceId: string,
   options: {
     fetchImpl?: typeof fetch
@@ -146,5 +152,41 @@ export async function runMerakiInventorySync(
       partial: failures.length > 0,
       failures,
     },
+  }
+}
+
+
+export async function runMerakiInventorySync(
+  sourceId: string,
+  options: {
+    fetchImpl?: typeof fetch
+    signal?: AbortSignal
+    trigger?: InventorySyncTrigger
+  } = {},
+) {
+  const run = await beginInventorySyncRun(sourceId, options.trigger ?? 'MANUAL')
+  try {
+    const result = await runMerakiInventorySyncCore(sourceId, options)
+    const syncRun = await completeInventorySyncRun({
+      runId: run.id,
+      status: result.source.partial ? 'PARTIAL' : 'SUCCEEDED',
+      batchId: result.batch.id,
+      fetchedCount: result.source.deviceCount,
+      stagedCount: result.source.deviceCount,
+      autoPublishedCount:
+        result.autoPublication.publishedLogicalDeviceCount ?? 0,
+      reviewRequiredCount:
+        result.autoPublication.remainingIncludedRows ?? 0,
+      errorCount: result.source.failures.length,
+      failureSummary: result.source.failures,
+      metadata: {
+        organizationCount: result.source.organizationCount,
+        configuredOrganizationCount: result.source.configuredOrganizationCount,
+      },
+    })
+    return { ...result, syncRun }
+  } catch (error) {
+    await failInventorySyncRun(run.id, error)
+    throw error
   }
 }

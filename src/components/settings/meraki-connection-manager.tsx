@@ -16,6 +16,7 @@ type Connection = {
 }
 type OrgEditor = { organizationId: string; organizationName: string; customer: string; businessUnit: string; networks: Array<{ networkId: string; networkName: string; site: string }> }
 type DiscoveredOrganization = { id: string; name: string; url: string | null }
+type SyncRun = { id: string; trigger: string; status: string; batchId: string | null; fetchedCount: number; stagedCount: number; autoPublishedCount: number; reviewRequiredCount: number; ignoredCount: number; errorCount: number; errorMessage: string | null; startedAt: string; finishedAt: string | null }
 type DiscoveredNetwork = { id: string; organizationId: string; name: string; productTypes: string[]; tags: string[]; timeZone: string | null }
 const editor = (scope?: OrganizationScope): OrgEditor => ({
   organizationId: scope?.organizationId ?? '', organizationName: scope?.organizationName ?? '',
@@ -27,7 +28,7 @@ async function responseData(response: Response) {
   if (!response.ok) throw new Error(body?.error?.message ?? 'Request failed.')
   return body.data
 }
-export function MerakiConnectionManager({ initialConnection }: { initialConnection: Connection }) {
+export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: { initialConnection: Connection; initialSyncRuns: SyncRun[] }) {
   const router = useRouter()
   const [connection, setConnection] = useState(initialConnection)
   const [name, setName] = useState(connection.name)
@@ -39,6 +40,7 @@ export function MerakiConnectionManager({ initialConnection }: { initialConnecti
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
+  const [syncRuns, setSyncRuns] = useState(initialSyncRuns)
 
   const save = async () => {
     setBusy('save'); setMessage(null)
@@ -99,6 +101,7 @@ export function MerakiConnectionManager({ initialConnection }: { initialConnecti
       const result = await responseData(await fetch(`/api/v1/inventory-sources/meraki/${connection.id}/sync`, { method: 'POST' }))
       const publication = result.autoPublication
       setBatchId(publication.reconciliationRequired ? result.batch.id : null)
+      if (result.syncRun) setSyncRuns((current) => [{ ...result.syncRun, startedAt: new Date(result.syncRun.startedAt).toISOString(), finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null }, ...current].slice(0, 20))
       setMessage(`Meraki sync staged ${result.source.deviceCount.toLocaleString()} devices; auto-published ${publication.publishedLogicalDeviceCount.toLocaleString()}; ${publication.remainingIncludedRows.toLocaleString()} rows need review.${result.source.partial ? ` ${result.source.failures.length} organization(s) failed, so this was a partial run.` : ''}`)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to synchronize Meraki inventory.') }
     finally { setBusy(null) }
@@ -140,6 +143,17 @@ export function MerakiConnectionManager({ initialConnection }: { initialConnecti
           {org.networks.length > 0 ? <div className="mt-4 space-y-2">{org.networks.map((network) => <div key={network.networkId} className="grid gap-2 md:grid-cols-2 md:items-end"><div className="text-xs"><div className="font-semibold">{network.networkName || network.networkId}</div><div className="font-mono text-[var(--muted)]">{network.networkId}</div></div><label className="space-y-1 text-xs"><span className="font-semibold">Site mapping</span><input value={network.site} placeholder={network.networkName || 'Canonical site'} onChange={(e) => updateSite(org.organizationId, network.networkId, e.target.value)} className="h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm" /></label></div>)}</div> : <p className="mt-3 text-xs text-[var(--muted)]">No network filter means all networks in this organization are included.</p>}
         </div>)}
         <div className="flex justify-end"><Button variant="primary" disabled={busy !== null} onClick={() => void save()}>{busy === 'save' ? 'Saving…' : 'Save settings'}</Button></div>
+      </div>
+    </section>
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+      <div className="border-b border-[var(--border)] px-5 py-4"><h2 className="font-semibold">Sync history</h2><p className="mt-1 text-sm text-[var(--muted)]">Durable manual/scheduled run records. Provider failures remain visible instead of being reported as a full success.</p></div>
+      <div className="divide-y divide-[var(--border)]">
+        {syncRuns.length === 0 ? <div className="px-5 py-6 text-sm text-[var(--muted)]">No sync runs yet.</div> : syncRuns.map((run) => <div key={run.id} className="grid gap-2 px-5 py-3 text-sm md:grid-cols-[140px_110px_1fr_auto] md:items-center">
+          <div><StatusBadge tone={run.status === 'SUCCEEDED' ? 'success' : run.status === 'FAILED' ? 'danger' : run.status === 'PARTIAL' ? 'warning' : 'info'}>{run.status}</StatusBadge></div>
+          <div className="text-xs text-[var(--muted)]">{run.trigger}</div>
+          <div><span className="font-semibold">{run.stagedCount}</span> staged · <span className="font-semibold">{run.autoPublishedCount}</span> published · <span className="font-semibold">{run.reviewRequiredCount}</span> review · <span className="font-semibold">{run.errorCount}</span> errors{run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}</div>
+          <div className="text-xs text-[var(--muted)]">{new Date(run.startedAt).toLocaleString()}</div>
+        </div>)}
       </div>
     </section>
     {message ? <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-4 py-3 text-sm">{message}{batchId ? <> <Link href={`/devices/import/${batchId}`} className="font-semibold text-[var(--accent-light)] hover:underline">Open reconciliation batch</Link></> : null}</div> : null}

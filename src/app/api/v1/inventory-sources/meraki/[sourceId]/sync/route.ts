@@ -10,7 +10,7 @@ export async function POST(request: Request, context: RouteContext) {
     const result = await runMerakiInventorySync(sourceId)
     return NextResponse.json({ data: {
       batch: result.batch, profile: result.profile, evaluation: result.evaluation,
-      source: result.source, automation: result.automation, autoPublication: result.autoPublication,
+      source: result.source, automation: result.automation, autoPublication: result.autoPublication, syncRun: result.syncRun,
     } })
   } catch (error) {
     if (error instanceof AdminAccessError) return NextResponse.json({ error: { code: 'ACCESS_DENIED', message: error.message } }, { status: error.status })
