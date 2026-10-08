@@ -53,3 +53,10 @@ jobs:
         run: |
           npm run prisma:deploy
           npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
+      - name: Verify Next.js production build
+        env:
+          DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
+          BETTER_AUTH_SECRET: ci-only-meraki-build-secret-not-for-production
+          BETTER_AUTH_URL: http://localhost:3000
+          INVENTORY_SOURCE_SECRET_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: npm run build
