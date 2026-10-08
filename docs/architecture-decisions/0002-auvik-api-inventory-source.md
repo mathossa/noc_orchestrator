@@ -75,11 +75,35 @@ A third-party generated Go client (`github.com/stellaraf/go-auvik`,
 BSD-3-Clause-Clear) was inspected only as a schema reference for tenant
 attributes; it is not copied or linked into the runtime.
 
+## Aligned integration lifecycle (Issue #115 follow-up)
+
+Auvik and Meraki now reuse one provider-neutral pg-boss `inventory.sync` job,
+the `InventorySyncRun` ledger, the schedule API implementation, and the same
+Schedule/Sync history UI component. The worker dispatches by the validated
+provider/adapter pair to the existing source-specific sync service; it does
+not create a second inventory parser or publication pipeline.
+
+- Manual and scheduled syncs use the same Auvik execution function and persist
+  counts, trigger, outcome, reconciliation count and any failed tenant IDs.
+- New tenants discovered by **Sync tenants & sites** are kept in the saved
+  connection scope but default to disabled. Enabled flags and mappings survive
+  rediscovery. Existing pre-upgrade scopes remain enabled for compatibility.
+- Tenant failures are isolated. If any succeed, only successful tenants are
+  staged and the run is PARTIAL with `isFullInventoryExport=false`; this
+  must never imply devices in failed tenants disappeared. All-failed syncs
+  fail and publish nothing.
+- Unattended work auto-publishes only canonical-safe rows. Ambiguous or
+  conflicting records are not auto-confirmed, and cannot hold a scheduled
+  run open awaiting interactive reconciliation. They remain staged for review.
+- A source-level run lock prevents overlapping execution through the shared
+  run history store. Different sources may have independent cron schedules.
+- Removing/disabling an Auvik tenant scope changes only future sync input:
+  canonical devices are not removed.
+
+No new npm dependency or database migration was introduced for this alignment.
+
 ## Follow-up slices
 
-- durable sync run history;
-- editable pg-boss schedule;
 - persisted/per-run ignore controls;
-- overlap prevention/idempotent job execution;
-- multi-source evidence/precedence UX;
-- richer tenant-to-canonical hierarchy mapping workflow.
+- richer tenant-to-canonical hierarchy mapping workflow;
+- multi-source evidence/precedence UX.
