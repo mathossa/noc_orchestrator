@@ -53,7 +53,12 @@ jobs:
         run: |
           npm run prisma:deploy
           npx prisma migrate diff --from-config-datasource --to-schema prisma --script > /tmp/schema-diff.sql
-          if test -s /tmp/schema-diff.sql; then
+          if grep -Ev '^[[:space:]]*(--.*)?
+            cat /tmp/schema-diff.sql
+            echo "Prisma schema differs from applied migrations."
+            exit 1
+          fi
+ /tmp/schema-diff.sql | grep -q '[^[:space:]]'; then
             cat /tmp/schema-diff.sql
             echo "Prisma schema differs from applied migrations."
             exit 1
