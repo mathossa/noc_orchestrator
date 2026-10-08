@@ -21,6 +21,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] {
     }
     return {
       enabled: item.enabled === undefined ? undefined : item.enabled === true,
+      networksDiscovered: item.networksDiscovered === true,
       organizationId: item.organizationId,
       organizationName: optionalString(item.organizationName),
       customer: optionalString(item.customer),
