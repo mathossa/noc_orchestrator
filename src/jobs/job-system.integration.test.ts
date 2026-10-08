@@ -232,6 +232,48 @@ describe('pg-boss PostgreSQL background-job foundation', () => {
       await system.unschedule('example.some-job', scheduleKey)
     })
 
+    it('saves independent recurring inventory schedules with pg-boss-compatible keys', async () => {
+      const system = await start()
+      const firstSourceId = randomUUID()
+      const secondSourceId = randomUUID()
+
+      try {
+        for (const sourceId of [firstSourceId, secondSourceId]) {
+          const key = `inventory-source-${sourceId}`
+          await system.scheduleRecurring(
+            'inventory.sync',
+            '0 3 * * *',
+            {
+              version: 1,
+              sourceId,
+              provider: 'MERAKI',
+              adapterType: 'meraki-dashboard-api-v1',
+            },
+            {
+              key,
+              timezone: 'Europe/Amsterdam',
+              missed: 'skip',
+              correlationKey: `inventory-sync-${sourceId}`,
+            },
+          )
+          expect(await system.getSchedule('inventory.sync', key)).toMatchObject({
+            name: 'inventory.sync',
+            key,
+          })
+        }
+
+        await system.unschedule('inventory.sync', `inventory-source-${firstSourceId}`)
+        expect(await system.getSchedule('inventory.sync', `inventory-source-${firstSourceId}`)).toBeNull()
+        expect(await system.getSchedule('inventory.sync', `inventory-source-${secondSourceId}`))
+          .not.toBeNull()
+      } finally {
+        await system.unschedule('inventory.sync', `inventory-source-${firstSourceId}`)
+          .catch(() => undefined)
+        await system.unschedule('inventory.sync', `inventory-source-${secondSourceId}`)
+          .catch(() => undefined)
+      }
+    })
+
     it('waits for active work during graceful worker shutdown', async () => {
       const system = await start()
       let release!: () => void
