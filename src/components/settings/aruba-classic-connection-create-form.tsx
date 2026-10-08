@@ -41,7 +41,7 @@ export function ArubaClassicConnectionCreateForm() {
   return <div className="space-y-5">
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
       <h2 className="font-semibold">Classic Central connection</h2>
-      <p className="mt-2 text-sm text-[var(--muted)]">Generate an API application and tokens in Classic Central's API Gateway. This form stores all tokens encrypted server-side; credentials are never returned to the browser. New Central uses different credentials.</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">Generate an API application and tokens in Classic Central API Gateway. This form stores all tokens encrypted server-side; credentials are never returned to the browser. New Central uses different credentials.</p>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {fields.map(field=><label key={field.label} className="space-y-1 text-sm">
           <span className="font-semibold">{field.label}</span>
