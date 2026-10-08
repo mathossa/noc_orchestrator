@@ -21,6 +21,8 @@ import { ARUBA_CENTRAL_PROVIDER } from '@/lib/importer-v2-aruba-central'
 import { ARUBA_CLASSIC_CENTRAL_ADAPTER_TYPE } from '@/lib/aruba-classic-central-api-client'
 
 export type ClassicCentralSiteScope = {
+  /** Stable site ID from Central (Classic API usually reports a number). */
+  siteId?: string | null
   siteName: string
   enabled: boolean
   site: string | null
@@ -50,6 +52,7 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
     const siteName = clean(scope.siteName)
     if (!siteName) throw new Error('Each Classic Central site must have a name.')
     return {
+      siteId: clean(scope.siteId) || null,
       siteName,
       enabled: scope.enabled === true,
       site: clean(scope.site) || null,
