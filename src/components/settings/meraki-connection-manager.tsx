@@ -194,7 +194,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
     <div className="grid gap-4 md:grid-cols-3">
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Connection</div><div className="mt-2"><StatusBadge tone={connection.enabled ? 'success' : 'neutral'}>{connection.enabled ? 'Enabled' : 'Disabled'}</StatusBadge></div></div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Connection test</div><div className="mt-2"><StatusBadge tone={tone}>{connection.connectionTest.status}</StatusBadge></div></div>
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Organization scope</div><div className="mt-1 text-2xl font-semibold">{connection.configuration.organizations.length}</div></div>
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Enabled organizations</div><div className="mt-1 text-2xl font-semibold">{connection.configuration.organizations.filter((org) => org.enabled !== false && (org.networks.length === 0 ? !org.networksDiscovered : org.networks.some((network) => network.enabled !== false))).length}</div></div>
     </div>
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Connection settings</h2><p className="mt-1 text-sm text-[var(--muted)]">Changing environment or credential invalidates the previous test. Saved API keys are never loaded back into this form.</p></div>
@@ -239,7 +239,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
     </section>
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="font-semibold">Schedule</h2><p className="mt-1 text-sm text-[var(--muted)]">Uses the shared pg-boss inventory-sync queue. Manual and scheduled runs call the same sync execution service.</p></div>
+        <div><h2 className="font-semibold">Schedule</h2><p className="mt-1 text-sm text-[var(--muted)]">Scheduled syncs auto-publish safe changes and skip uncertain records without blocking the next run. Skipped records remain auditable; no scheduled job requires manual approval.</p></div>
         <StatusBadge tone={schedule?.enabled ? 'success' : 'neutral'}>{schedule?.enabled ? 'Enabled' : 'Disabled'}</StatusBadge>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -260,7 +260,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
         {syncRuns.length === 0 ? <div className="px-5 py-6 text-sm text-[var(--muted)]">No sync runs yet.</div> : syncRuns.map((run) => <div key={run.id} className="grid gap-2 px-5 py-3 text-sm md:grid-cols-[140px_110px_1fr_auto] md:items-center">
           <div><StatusBadge tone={run.status === 'SUCCEEDED' ? 'success' : run.status === 'FAILED' ? 'danger' : run.status === 'PARTIAL' ? 'warning' : 'info'}>{run.status}</StatusBadge></div>
           <div className="text-xs text-[var(--muted)]">{run.trigger}</div>
-          <div><span className="font-semibold">{run.stagedCount}</span> staged · <span className="font-semibold">{run.autoPublishedCount}</span> published · <span className="font-semibold">{run.reviewRequiredCount}</span> review · <span className="font-semibold">{run.errorCount}</span> errors{run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}</div>
+          <div><span className="font-semibold">{run.stagedCount}</span> staged · <span className="font-semibold">{run.autoPublishedCount}</span> published · <span className="font-semibold">{run.reviewRequiredCount}</span> {run.trigger === 'SCHEDULED' ? 'skipped (unattended)' : 'review'} · <span className="font-semibold">{run.errorCount}</span> errors{run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}</div>
           <div className="text-xs text-[var(--muted)]">{new Date(run.startedAt).toLocaleString()}</div>
         </div>)}
       </div>
