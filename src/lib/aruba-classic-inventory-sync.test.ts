@@ -170,4 +170,26 @@ describe('Classic Central shared inventory sync',()=>{
     }))
   })
 
+  it('keeps Classic switch observations with Central site IDs in the importer', async () => {
+    mocks.listDevices.mockResolvedValueOnce([
+      {kind:'SWITCH',raw:{
+        serial:'CN90HKZ1DM',name:'SiteA-Gateway-SW',
+        site:'HQ',site_id:12,model:'Aruba2930F-8G-PoE+-2SFP+ Switch(JL258A)',
+        firmware_version:'16.10.0017',status:'Up',
+      }},
+    ])
+    const result=await runClassicCentralInventorySync('source-1')
+    expect(result.source).toMatchObject({
+      fetchedByType:{AP:0,SWITCH:1,GATEWAY:0},
+      selectedByType:{AP:0,SWITCH:1,GATEWAY:0},
+      excludedByType:{AP:0,SWITCH:0,GATEWAY:0},
+    })
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      rows:[expect.objectContaining({rawValues:expect.objectContaining({
+        deviceType:'Switch',sourceId:'CN90HKZ1DM',
+        site:'Main Site',currentFirmware:'16.10.0017',
+      })})],
+    }))
+  })
+
 })
