@@ -14,7 +14,8 @@ export default async function MerakiConnectionPage({ params }: { params: Promise
   return <div className="space-y-6">
     <PageHeader eyebrow="Settings · Integrations · Cisco Meraki" title={connection.name}
       description="Cisco Meraki Dashboard observed inventory source. Syncs stage through shared hierarchy, identity reconciliation and Importer v2 publication."
-      actions={<IntegrationSetupHelpLink provider="meraki" />}
+      alignActionsTop
+        actions={<IntegrationSetupHelpLink provider="meraki" />}
       breadcrumbs={[{ label: 'Settings', href: '/settings' }, { label: 'Integrations', href: '/settings/integrations' }, { label: connection.name }]}
       meta={<><StatusBadge tone={connection.enabled ? 'success' : 'neutral'}>{connection.enabled ? 'Enabled' : 'Disabled'}</StatusBadge><span>{connection.configuration.environment}</span><span>{connection.configuration.organizations.length} organization scope(s)</span></>} />
     <MerakiConnectionManager initialConnection={connection} initialSyncRuns={syncRuns.map((run) => ({ ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null }))} />
