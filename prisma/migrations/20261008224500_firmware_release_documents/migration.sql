@@ -9,7 +9,7 @@ CREATE TABLE "FirmwareReleaseDocument" (
     "match" TEXT NOT NULL DEFAULT 'EXACT_VERSION',
     "verifiedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "FirmwareReleaseDocument_pkey" PRIMARY KEY ("id")
 );
 
