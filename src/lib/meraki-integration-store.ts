@@ -55,6 +55,7 @@ function normalizeConfiguration(input: {
     environment: normalizeEnvironment(input.environment),
     organizations: (input.organizations ?? []).map((organization) => ({
       enabled: organization.enabled !== false,
+      networksDiscovered: organization.networksDiscovered === true,
       organizationId: clean(organization.organizationId),
       organizationName: clean(organization.organizationName) || null,
       customer: clean(organization.customer) || null,
