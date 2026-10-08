@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   merakiDashboardInventorySourceAdapter,
+  configuredMerakiOrganizations,
   merakiDeviceToNormalizedInventoryRow,
   merakiProductTypeToDeviceType,
 } from '@/lib/importer-v2-meraki-api'
@@ -45,6 +46,66 @@ describe('Meraki -> Importer v2 normalization', () => {
       organization: { id: 'org-1' },
       network: { id: 'N1' },
     })
+  })
+
+  it('retains online/dormant/offline availability evidence separately from firmware interpretation', async () => {
+    const normalized = await merakiDashboardInventorySourceAdapter.loadAndNormalize({
+      source: {
+        provider: 'MERAKI', adapterType: 'meraki-dashboard-api-v1',
+        sourceAdapterId: 'meraki:test', name: 'Meraki', enabled: true, configuration: {},
+      },
+      input: {
+        organizations: [{
+          context,
+          devices: [
+            { networkId: 'N1', serial: 'Q-ONLINE', model: 'CW9162I', firmware: 'wireless-32-2-4' },
+            { networkId: 'N1', serial: 'Q-DORMANT', model: 'CW9162I', firmware: 'Not running configured version' },
+            { networkId: 'N1', serial: 'Q-OFFLINE', model: 'CW9162I' },
+          ],
+          availabilities: [
+            { serial: 'Q-ONLINE', status: 'online' },
+            { serial: 'Q-DORMANT', status: 'dormant' },
+            { serial: 'Q-OFFLINE', status: 'offline' },
+          ],
+          availabilityObservedAt: '2026-10-08T20:00:00.000Z',
+        }],
+      },
+    })
+    expect(normalized.rows.map((row) =>
+      (row.sourceEvidence?.availability as { status?: string } | null)?.status,
+    )).toEqual(['online', 'dormant', 'offline'])
+    expect(normalized.rows[0].rawValues.firmwareVersion).toBe('wireless-32-2-4')
+    expect(normalized.rows[1].rawValues.firmwareVersion).toBe('Not running configured version')
+    expect(normalized.rows[1].sourceEvidence?.availability).toEqual({
+      status: 'dormant', observedAt: '2026-10-08T20:00:00.000Z',
+    })
+  })
+
+  it('never infers online when Meraki provides no availability evidence', () => {
+    const row = merakiDeviceToNormalizedInventoryRow(
+      { networkId: 'N1', serial: 'Q-UNKNOWN', model: 'MR36' }, context, 1,
+    )
+    expect(row.sourceEvidence?.availability).toBeNull()
+  })
+
+  it('syncs only enabled organizations and networks, preserving legacy all-network scope', () => {
+    const scopes = configuredMerakiOrganizations({
+      organizations: [
+        { ...context, enabled: false },
+        { ...context, organizationId: 'org-2', enabled: true, networks: [
+          { networkId: 'N-A', enabled: false },
+          { networkId: 'N-B', enabled: true },
+        ] },
+        { ...context, organizationId: 'org-3', enabled: true, networks: [], networksDiscovered: true },
+        { ...context, organizationId: 'legacy', enabled: true, networks: [] },
+      ],
+    })
+    expect(scopes.map((scope) => scope.organizationId)).toEqual(['org-2', 'legacy'])
+    expect(scopes[0].networks.map((network) => network.networkId)).toEqual(['N-B'])
+    expect(scopes[1].networks).toEqual([])
+    expect(() => configuredMerakiOrganizations({
+      organizations: [{ ...context, enabled: true, networksDiscovered: true, networks: [] }],
+    })).toThrow('Enable at least one')
   })
 
   it('normalizes only supported canonical device families', () => {
