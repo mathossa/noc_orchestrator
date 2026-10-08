@@ -59,17 +59,24 @@ describe('inventory sync scheduling', () => {
       '0 3 * * *',
       expect.objectContaining({ sourceId: 'source-1', provider: 'MERAKI' }),
       expect.objectContaining({
-        key: 'inventory-source:source-1',
+        key: 'inventory-source-source-1',
+        correlationKey: 'inventory-sync-source-1',
         timezone: 'Europe/Amsterdam',
       }),
     )
+  })
+
+  it('uses a valid pg-boss schedule key when reading an existing schedule', async () => {
+    mocks.getSchedule.mockResolvedValue(null)
+    await getInventorySyncScheduleStatus('source-1')
+    expect(mocks.getSchedule).toHaveBeenCalledWith('inventory.sync', 'inventory-source-source-1')
   })
 
   it('can disable and inspect the schedule without redeployment', async () => {
     await configureInventorySyncSchedule({ sourceId: 'source-1', enabled: false })
     expect(mocks.unschedule).toHaveBeenCalledWith(
       'inventory.sync',
-      'inventory-source:source-1',
+      'inventory-source-source-1',
     )
     mocks.getSchedule.mockResolvedValue(null)
     await expect(getInventorySyncScheduleStatus('source-1')).resolves.toMatchObject({
