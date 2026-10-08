@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { DeviceExceptions } from '@/components/firmware/device-exceptions'
+import { ReleaseDocumentationLinks } from '@/components/firmware/release-documentation-links'
 import { Button, ButtonLink } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { TextArea } from '@/components/ui/form-controls'
@@ -743,6 +744,21 @@ function FirmwareTab({ device }: { device: DeviceDetailRecord }) {
             />
           </DetailList>
         </PanelCard>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <div>
+          <p className="mb-2 text-xs font-semibold text-[var(--muted)]">Running release documentation</p>
+          <ReleaseDocumentationLinks releaseId={device.currentFirmwareRelease?.id} />
+        </div>
+        {desired?.id && desired.id === device.currentFirmwareRelease?.id ? (
+          <p className="self-center text-sm text-[var(--muted)]">Preferred release is the same as the running release; references above apply to both.</p>
+        ) : (
+          <div>
+            <p className="mb-2 text-xs font-semibold text-[var(--muted)]">Preferred release documentation</p>
+            <ReleaseDocumentationLinks releaseId={desired?.id} />
+          </div>
+        )}
       </div>
 
       <PanelCard title="Firmware details">
