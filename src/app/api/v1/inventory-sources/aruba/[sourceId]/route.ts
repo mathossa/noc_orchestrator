@@ -22,6 +22,9 @@ export async function PATCH(request:Request,context:Context){
         return {siteId:typeof value.siteId==='string'?value.siteId:null,siteName:value.siteName,enabled:value.enabled,site:typeof value.site==='string'?value.site:null}
       }):(()=>{throw new Error('sites must be an array.')})()
     )
+    if (body.scopeMode !== undefined && body.scopeMode !== 'SELECTED_SITES') {
+      throw new Error('Aruba Classic synchronization is limited to explicitly selected sites.')
+    }
     const data=await updateClassicCentralConnection({
       sourceId,
       name:typeof body.name==='string'?body.name:undefined,
@@ -29,7 +32,7 @@ export async function PATCH(request:Request,context:Context){
       customer:typeof body.customer==='string'?body.customer:undefined,
       businessUnit:typeof body.businessUnit==='string'?body.businessUnit:undefined,
       sites,
-      scopeMode:body.scopeMode==='SELECTED_SITES'||body.scopeMode==='ALL_DEVICES'?body.scopeMode:undefined,
+      scopeMode:body.scopeMode==='SELECTED_SITES'?'SELECTED_SITES':undefined,
       enabled:typeof body.enabled==='boolean'?body.enabled:undefined,
       credentials:replacesCredentials?{
         clientId:body.clientId as string,clientSecret:body.clientSecret as string,
