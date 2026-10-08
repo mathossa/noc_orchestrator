@@ -29,7 +29,7 @@ test('opens the generic integrations foundation from Settings', async ({ page })
     '/settings/integrations/meraki/new',
   )
   await expect(
-    page.getByRole('link', { name: 'Add connection', exact: true }),
+    page.locator('a[href="/settings/integrations/auvik/new"]').filter({ hasText: 'Add connection' }),
   ).toHaveAttribute('href', '/settings/integrations/auvik/new')
 })
 
