@@ -29,6 +29,7 @@ export async function PATCH(request:Request,context:Context){
       customer:typeof body.customer==='string'?body.customer:undefined,
       businessUnit:typeof body.businessUnit==='string'?body.businessUnit:undefined,
       sites,
+      scopeMode:body.scopeMode==='SELECTED_SITES'||body.scopeMode==='ALL_DEVICES'?body.scopeMode:undefined,
       enabled:typeof body.enabled==='boolean'?body.enabled:undefined,
       credentials:replacesCredentials?{
         clientId:body.clientId as string,clientSecret:body.clientSecret as string,
