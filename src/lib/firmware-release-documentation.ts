@@ -155,6 +155,10 @@ export function mergeFirmwareDocumentLinks(
   stored: FirmwareDocumentLink[],
   suggested: FirmwareDocumentLink[],
 ): FirmwareDocumentLink[] {
-  const urls = new Set(stored.map((item) => item.url.replace(/\/$/, '').toLowerCase()))
-  return [...stored, ...suggested.filter((item) => !urls.has(item.url.replace(/\/$/, '').toLowerCase()))]
+  const unique = new Map<string, FirmwareDocumentLink>()
+  for (const item of [...stored, ...suggested]) {
+    const key = item.url.replace(/\/$/, '').toLowerCase()
+    if (!unique.has(key)) unique.set(key, item)
+  }
+  return [...unique.values()]
 }
