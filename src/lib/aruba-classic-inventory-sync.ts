@@ -43,8 +43,9 @@ export async function runClassicCentralInventorySync(
       throw new Error('Enable and successfully test the Classic Central connection before syncing.')
     }
     const enabledSites=connection.configuration.sites.filter((site)=>site.enabled)
-    if (enabledSites.length===0) {
-      throw new Error('Enable at least one Classic Central site before syncing.')
+    const allDevices=connection.configuration.scopeMode==='ALL_DEVICES'
+    if (!allDevices && enabledSites.length===0) {
+      throw new Error('Enable at least one Classic Central site, or explicitly choose all tenant devices, before syncing.')
     }
     const refresh=await classicCentralRefreshContext(sourceId,credentials)
     const fetched=await listClassicCentralDevices({
@@ -57,13 +58,13 @@ export async function runClassicCentralInventorySync(
     // All-device listing and explicit scope filtering avoid assuming all
     // Central sites belong to one customer. Never treat a subset as a full export.
     const selected=new Map(enabledSites.map((site)=>[site.siteName.toLowerCase(),site]))
-    const devices=fetched.filter((device)=>{
+    const devices=allDevices?fetched:fetched.filter((device)=>{
       const raw=device.raw
       const site=[raw.site,raw.site_name,raw.siteName]
         .find((value)=>typeof value==='string'&&value.trim())
       return typeof site==='string'&&selected.has(site.trim().toLowerCase())
     })
-    const sitesByName=Object.fromEntries(enabledSites.flatMap((scope)=>
+    const sitesByName=Object.fromEntries((allDevices?connection.configuration.sites:enabledSites).flatMap((scope)=>
       scope.site ? [[scope.siteName,scope.site]] : []))
     const source=normalizeInventorySourceDefinition({
       id:connection.id,provider:ARUBA_CENTRAL_PROVIDER,
@@ -101,6 +102,7 @@ export async function runClassicCentralInventorySync(
       autoPublishedCount:autoPublication.publishedLogicalDeviceCount??0,
       reviewRequiredCount:autoPublication.remainingIncludedRows??0,
       metadata:{
+        scopeMode:connection.configuration.scopeMode,
         selectedSiteCount:enabledSites.length,
         excludedFromScopeCount:fetched.length-devices.length,
         unattended:options.trigger==='SCHEDULED',
@@ -112,7 +114,7 @@ export async function runClassicCentralInventorySync(
       source:{
         id:sourceId,sourceAdapterId:connection.sourceAdapterId,
         deviceCount:devices.length,observedDeviceCount:fetched.length,
-        selectedSiteCount:enabledSites.length,partial:false,
+        selectedSiteCount:enabledSites.length,scopeMode:connection.configuration.scopeMode,partial:false,
       },
     }
   } catch(error) {
