@@ -1,10 +1,10 @@
 'use client'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { formatAmsterdamTimestamp } from '@/lib/format-amsterdam-timestamp'
+import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type NetworkScope = { enabled?: boolean; networkId: string; networkName?: string | null; site?: string | null }
 type OrganizationScope = { enabled?: boolean; networksDiscovered?: boolean; organizationId: string; organizationName?: string | null; customer?: string | null; businessUnit?: string | null; networks: readonly NetworkScope[] }
@@ -17,8 +17,7 @@ type Connection = {
 }
 type OrgEditor = { enabled: boolean; networksDiscovered: boolean; organizationId: string; organizationName: string; customer: string; businessUnit: string; networks: Array<{ enabled: boolean; networkId: string; networkName: string; site: string }> }
 type DiscoveredOrganization = { id: string; name: string; url: string | null }
-type ScheduleStatus = { enabled: boolean; expression: string | null; timezone: string | null; nextRunAt: string | null; lastJobId: string | null }
-type SyncRun = { id: string; trigger: string; status: string; batchId: string | null; fetchedCount: number; stagedCount: number; autoPublishedCount: number; reviewRequiredCount: number; ignoredCount: number; errorCount: number; errorMessage: string | null; startedAt: string; finishedAt: string | null }
+type SyncRun = InventorySourceSyncRun
 type DiscoveredNetwork = { id: string; organizationId: string; name: string; productTypes: string[]; tags: string[]; timeZone: string | null }
 const editor = (scope?: OrganizationScope): OrgEditor => ({
   enabled: scope?.enabled !== false, networksDiscovered: scope?.networksDiscovered === true,
@@ -42,44 +41,6 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [syncRuns, setSyncRuns] = useState(initialSyncRuns)
-  const [schedule, setSchedule] = useState<ScheduleStatus | null>(null)
-  const [scheduleExpression, setScheduleExpression] = useState('0 3 * * *')
-  const [scheduleTimezone, setScheduleTimezone] = useState('Europe/Amsterdam')
-
-  useEffect(() => {
-    let active = true
-    void fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`)
-      .then(responseData)
-      .then((value: ScheduleStatus) => {
-        if (!active) return
-        setSchedule(value)
-        if (value.expression) setScheduleExpression(value.expression)
-        if (value.timezone) setScheduleTimezone(value.timezone)
-      })
-      .catch(() => undefined)
-    return () => { active = false }
-  }, [connection.id])
-
-  const saveSchedule = async (enabled: boolean) => {
-    setBusy('schedule'); setMessage(null)
-    try {
-      const response = await fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          enabled,
-          expression: scheduleExpression,
-          timezone: scheduleTimezone,
-        }),
-      })
-      const next = await responseData(response) as ScheduleStatus
-      setSchedule(next)
-      setMessage(enabled ? 'Inventory sync schedule saved.' : 'Inventory sync schedule disabled.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to update sync schedule.')
-    } finally { setBusy(null) }
-  }
-
   const save = async () => {
     setBusy('save'); setMessage(null)
     try {
@@ -243,34 +204,14 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
         <div className="flex justify-end"><Button variant="primary" disabled={busy !== null} onClick={() => void save()}>{busy === 'save' ? 'Saving…' : 'Save settings'}</Button></div>
       </div>
     </section>
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="font-semibold">Schedule</h2><p className="mt-1 text-sm text-[var(--muted)]">Scheduled syncs auto-publish safe changes and skip uncertain records without blocking the next run. Skipped records remain auditable; no scheduled job requires manual approval.</p></div>
-        <StatusBadge tone={schedule?.enabled ? 'success' : 'neutral'}>{schedule?.enabled ? 'Enabled' : 'Disabled'}</StatusBadge>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <label className="space-y-1 text-sm"><span className="font-semibold">Recurring expression</span><input value={scheduleExpression} onChange={(e) => setScheduleExpression(e.target.value)} placeholder="0 3 * * *" className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 font-mono" /></label>
-        <label className="space-y-1 text-sm"><span className="font-semibold">Timezone</span><input value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 font-mono" /></label>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
-        <span>Next run: {schedule?.nextRunAt ? formatAmsterdamTimestamp(schedule.nextRunAt) : '—'}</span>
-        <div className="flex gap-2">
-          {schedule?.enabled ? <Button disabled={busy !== null} onClick={() => void saveSchedule(false)}>Disable schedule</Button> : null}
-          <Button variant="primary" disabled={busy !== null || !connection.enabled || !hasEnabledScope || connection.connectionTest.status !== 'SUCCESS'} onClick={() => void saveSchedule(true)}>{busy === 'schedule' ? 'Saving…' : 'Save schedule'}</Button>
-        </div>
-      </div>
-    </section>
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      <div className="border-b border-[var(--border)] px-5 py-4"><h2 className="font-semibold">Sync history</h2><p className="mt-1 text-sm text-[var(--muted)]">Durable manual/scheduled run records. Provider failures remain visible instead of being reported as a full success.</p></div>
-      <div className="divide-y divide-[var(--border)]">
-        {syncRuns.length === 0 ? <div className="px-5 py-6 text-sm text-[var(--muted)]">No sync runs yet.</div> : syncRuns.map((run) => <div key={run.id} className="grid gap-2 px-5 py-3 text-sm md:grid-cols-[140px_110px_1fr_auto] md:items-center">
-          <div><StatusBadge tone={run.status === 'SUCCEEDED' ? 'success' : run.status === 'FAILED' ? 'danger' : run.status === 'PARTIAL' ? 'warning' : 'info'}>{run.status}</StatusBadge></div>
-          <div className="text-xs text-[var(--muted)]">{run.trigger}</div>
-          <div><span className="font-semibold">{run.stagedCount}</span> staged · <span className="font-semibold">{run.autoPublishedCount}</span> published · <span className="font-semibold">{run.reviewRequiredCount}</span> {run.trigger === 'SCHEDULED' ? 'skipped (unattended)' : 'review'} · <span className="font-semibold">{run.errorCount}</span> errors{run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}</div>
-          <div className="text-xs text-[var(--muted)]">{formatAmsterdamTimestamp(run.startedAt)}</div>
-        </div>)}
-      </div>
-    </section>
+    <InventorySourceSchedulePanel
+      provider="meraki"
+      sourceId={connection.id}
+      enabled={connection.enabled}
+      connectionTestPassed={connection.connectionTest.status === 'SUCCESS'}
+      hasEnabledScope={hasEnabledScope}
+      syncRuns={syncRuns}
+    />
     {message ? <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-4 py-3 text-sm">{message}{batchId ? <> <Link href={`/devices/import/${batchId}`} className="font-semibold text-[var(--accent-light)] hover:underline">Open reconciliation batch</Link></> : null}</div> : null}
     <div className="text-xs text-[var(--muted)]">Source adapter: <span className="font-mono">{connection.sourceAdapterId}</span></div>
   </div>
