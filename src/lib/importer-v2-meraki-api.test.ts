@@ -54,6 +54,45 @@ describe('Meraki -> Importer v2 normalization', () => {
     expect(merakiProductTypeToDeviceType('camera')).toBe('camera')
   })
 
+  it('cannot express desired firmware, exception, approval or work-plan ownership fields', () => {
+    const row = merakiDeviceToNormalizedInventoryRow(
+      {
+        networkId: 'N1',
+        serial: 'Q-OWNERSHIP',
+        model: 'MX75',
+        productType: 'appliance',
+        firmware: 'wired-18-211-2',
+      },
+      context,
+      1,
+    )
+    expect(Object.keys(row.rawValues).sort()).toEqual(
+      expect.arrayContaining([
+        'currentFirmware',
+        'deviceName',
+        'deviceType',
+        'firmwareVersion',
+        'model',
+        'serialNumber',
+        'sourceId',
+        'vendor',
+      ]),
+    )
+    for (const forbidden of [
+      'desiredFirmware',
+      'preferredFirmware',
+      'minimumFirmware',
+      'firmwareException',
+      'approval',
+      'maintenanceWindow',
+      'workPlan',
+      'lifecycle',
+      'eolDecision',
+    ]) {
+      expect(row.rawValues).not.toHaveProperty(forbidden)
+    }
+  })
+
   it('produces shared normalized source rows without a custom publication path', async () => {
     const normalized = await merakiDashboardInventorySourceAdapter.loadAndNormalize({
       source: {

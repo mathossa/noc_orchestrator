@@ -48,7 +48,8 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
 
   useEffect(() => {
     let active = true
-    void responseData(fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`))
+    void fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`)
+      .then(responseData)
       .then((value: ScheduleStatus) => {
         if (!active) return
         setSchedule(value)

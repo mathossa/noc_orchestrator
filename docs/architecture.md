@@ -70,7 +70,9 @@ XLSX is the first functional adapter. Its existing workbook parsing, source/prof
 
 `InventorySource` stores non-secret source configuration/metadata. `InventorySyncProfile` composes one or more sources through a join model so a future logical "Network Inventory" view can contain Auvik, Meraki, Aruba or other sources without assuming that one canonical Device has only one external observation. Source precedence and multi-source conflict resolution are deliberately separate follow-up work.
 
-PR #119 can plug its existing Auvik Device API v2 normalization into this seam by wrapping the already-normalized rows in the generic inventory source adapter contract, keeping `provider = AUVIK` and assigning the API connection its own `sourceAdapterId`. It should then call the shared normalized-source staging function rather than adding an Auvik-specific reconciliation or publication path.
+Auvik Device API v2 and Cisco Meraki Dashboard API v1 both use this seam. Auvik keeps `provider = AUVIK`; Meraki uses `provider = MERAKI` and treats the Meraki serial as provider device identity. Both assign each saved connection its own `sourceAdapterId` and call the shared normalized-source staging function rather than adding provider-specific reconciliation or publication.
+
+Issue #115 also adds provider-neutral `InventorySyncRun` history and the `inventory.sync` pg-boss job. Manual and recurring Meraki synchronization call the same application service; pg-boss transports schedule triggers only. See [ADR 0003](architecture-decisions/0003-meraki-dashboard-inventory-source.md).
 
 ## Reuse-first architecture
 

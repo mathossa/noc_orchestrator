@@ -1,0 +1,37 @@
+name: Issue 115 Meraki adapter validation
+
+on:
+  push:
+    branches:
+      - issue/115-meraki-dashboard-inventory
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'prisma/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/issue-115-meraki-adapter-validation.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run worker:build
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts
+      - name: Verify Prisma schema drift
+        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma --script > /tmp/schema-diff.sql && test ! -s /tmp/schema-diff.sql

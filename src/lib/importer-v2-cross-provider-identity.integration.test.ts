@@ -276,7 +276,7 @@ describe('Importer v2 cross-provider identity integration', () => {
     const isolatedIdentifiers = { sourceId: '123' }
     const isolatedCandidates =
       await identityStore.buildImporterV2IdentityCandidateResolver({
-        provider: 'ARUBA',
+        provider: 'MERAKI',
         identifiers: [isolatedIdentifiers],
       })
     expect(isolatedCandidates(isolatedIdentifiers)).toEqual([])
@@ -292,8 +292,8 @@ describe('Importer v2 cross-provider identity integration', () => {
     })
     const splitResolution = identity.resolveImporterV2Identity(
       {
-        provider: 'ARUBA',
-        sourceAdapterId: 'aruba-central-api-v1',
+        provider: 'MERAKI',
+        sourceAdapterId: 'meraki-dashboard-api-v1:test',
         identifiers: splitIdentifiers,
       },
       splitCandidates(splitIdentifiers),
@@ -305,4 +305,152 @@ describe('Importer v2 cross-provider identity integration', () => {
       [deviceA.id, deviceB.id].sort(),
     )
   }, 120000)
+
+  it('converges first Meraki observation with an existing Auvik device and reuses the Meraki crosswalk on repeat sync', async () => {
+    const suffix = randomUUID().slice(0, 8)
+    const customer = await db.customer.create({
+      data: { code: `MER-${suffix}`, name: `Meraki Cross Provider ${suffix}` },
+    })
+    const site = await db.site.create({
+      data: { customerId: customer.id, name: 'Meraki Site' },
+    })
+    const vendor = await db.vendor.create({
+      data: { code: `CISCO-${suffix}`, name: `Cisco ${suffix}` },
+    })
+    const deviceType = await db.deviceType.create({
+      data: { code: `AP-MER-${suffix}`, name: `Access Point ${suffix}` },
+    })
+    const model = await db.deviceModel.create({
+      data: {
+        vendorId: vendor.id,
+        deviceTypeId: deviceType.id,
+        model: `MR36-${suffix}`,
+        platform: 'Meraki MR',
+      },
+    })
+    const device = await db.device.create({
+      data: {
+        customerId: customer.id,
+        siteId: site.id,
+        deviceModelId: model.id,
+        name: 'AP01',
+        serialNumber: `Q2XX-${suffix}`,
+      },
+    })
+    const macAddress = 'aa:bb:cc:dd:ee:01'
+
+    await db.importerV2DeviceCrosswalk.create({
+      data: {
+        provider: 'AUVIK',
+        sourceAdapterId: 'auvik-api-v2:source',
+        canonicalDeviceId: device.id,
+        sourceId: `auvik-${suffix}`,
+        normalizedSourceId: `auvik-${suffix}`,
+        serialNumber: device.serialNumber,
+        normalizedSerialNumber: device.serialNumber,
+        macAddress,
+        normalizedMacAddress: 'AABBCCDDEE01',
+        rawSourceId: `auvik-${suffix}`,
+        rawSerialNumber: device.serialNumber,
+        rawMacAddress: macAddress,
+        sourceIdEvidenceState: 'ACCEPTED',
+        serialNumberEvidenceState: 'ACCEPTED',
+        macAddressEvidenceState: 'ACCEPTED',
+      },
+    })
+
+    const merakiIdentifiers = {
+      sourceId: device.serialNumber!,
+      serialNumber: device.serialNumber!,
+      macAddress,
+    }
+    const firstCandidates =
+      await identityStore.buildImporterV2IdentityCandidateResolver({
+        provider: 'MERAKI',
+        identifiers: [merakiIdentifiers],
+      })
+    const first = identity.resolveImporterV2Identity(
+      {
+        provider: 'MERAKI',
+        sourceAdapterId: 'meraki-dashboard-api-v1:source',
+        identifiers: merakiIdentifiers,
+        context: {
+          customer: customer.name,
+          site: site.name,
+          vendor: vendor.name,
+          model: model.model,
+          deviceType: deviceType.name,
+        },
+      },
+      firstCandidates(merakiIdentifiers),
+    )
+
+    expect(first).toMatchObject({
+      kind: 'MATCH_SUGGESTED',
+      requiresConfirmation: false,
+    })
+    expect(first.candidates[0]).toMatchObject({
+      canonicalDeviceId: device.id,
+      matchScope: 'CANONICAL',
+      confidence: 'HIGH',
+      evidenceConflict: false,
+    })
+
+    await identityStore.recordSuccessfulImporterV2Publication({
+      provider: 'MERAKI',
+      sourceAdapterId: 'meraki-dashboard-api-v1:source',
+      profileVersion: '1',
+      evaluationFingerprint: `meraki-first-${suffix}`,
+      isFullInventoryExport: true,
+      rows: [
+        {
+          rowNumber: 1,
+          canonicalDeviceId: device.id,
+          sourceRecordKey: device.serialNumber!,
+          rowFingerprint: `meraki-${suffix}`,
+          identifiers: merakiIdentifiers,
+          values: {
+            customer: customer.name,
+            site: site.name,
+            vendor: vendor.name,
+            model: model.model,
+            deviceType: deviceType.name,
+            deviceName: 'AP01',
+          },
+        },
+      ],
+    })
+
+    expect(await db.device.count({ where: { id: device.id } })).toBe(1)
+    expect(
+      await db.importerV2DeviceCrosswalk.findMany({
+        where: { canonicalDeviceId: device.id },
+        select: { provider: true, sourceId: true },
+        orderBy: { provider: 'asc' },
+      }),
+    ).toEqual([
+      { provider: 'AUVIK', sourceId: `auvik-${suffix}` },
+      { provider: 'MERAKI', sourceId: device.serialNumber },
+    ])
+
+    const repeatCandidates =
+      await identityStore.buildImporterV2IdentityCandidateResolver({
+        provider: 'MERAKI',
+        identifiers: [merakiIdentifiers],
+      })
+    const repeat = identity.resolveImporterV2Identity(
+      {
+        provider: 'MERAKI',
+        sourceAdapterId: 'meraki-dashboard-api-v1:source',
+        identifiers: merakiIdentifiers,
+      },
+      repeatCandidates(merakiIdentifiers),
+    )
+    expect(repeat.candidates[0]).toMatchObject({
+      canonicalDeviceId: device.id,
+      matchScope: 'SAME_PROVIDER',
+      confidence: 'HIGH',
+    })
+  }, 120000)
+
 })
