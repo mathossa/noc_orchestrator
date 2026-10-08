@@ -38,6 +38,7 @@ endorsement, or a claim that an upgrade path is safe.
 |---|---|---|---|
 | Fortinet FortiOS | https://docs.fortinet.com/document/fortigate/7.6.4/fortios-release-notes | Official URL path by exact X.Y.Z version; not verified for arbitrary versions | Version-derived link |
 | Fortinet FortiSwitchOS | https://docs.fortinet.com/document/fortiswitch/7.4.6/fortiswitchos-release-notes | Exact X.Y.Z path; do not reuse FortiOS path | Version-derived link |
+| HPE Aruba AOS-S | https://arubanetworking.hpe.com/techdocs/AOS-Switch-RN/Content/home.htm | Switch series/image family (e.g. 2530/2930, WC/YA/YB) | Platform index |
 | HPE Aruba AOS-CX | https://arubanetworking.hpe.com/techdocs/AOS-CX/Consolidated_RNs/Portal_Home/Content/cx-home.htm | Model/switch series and train must be selected | Platform index |
 | HPE Aruba AOS-8 | https://arubanetworking.hpe.com/techdocs/ArubaDocPortal/content/new-portal/aos8.html | Controller AOS-8 documentation family | Platform index |
 | HPE Aruba Instant AOS-8 | https://support.hpe.com/hpesc/public/docDisplay?docId=sd00007106en_us | Distinct Instant release-notes family | Platform index |
@@ -45,7 +46,7 @@ endorsement, or a claim that an upgrade path is safe.
 | HPE Networking Instant On | https://instant-on.hpe.com/techdocs/en/content/whats_new/release-notes.htm | AP/cloud and switches have different firmware | Platform index |
 | Cisco IOS XE 17 / 26 | https://www.cisco.com/c/en/us/support/ios-nx-os-software/ios-xe-17/products-release-notes-list.html | Release family and **device model**; do not infer one document from version alone | Release family index |
 | Cisco Meraki MR/MS/MX | https://documentation.meraki.com/Platform_Management/Product_Information/Compatibility_and_Firmware | Product-family release notes; no guessed individual deep links | Portal index |
-| Juniper Junos OS | https://techlibrary.juniper.net/documentation/product/us/en/junos-os/ | Product/model and exact Junos train | Platform index |
+| Juniper Junos OS | https://www.juniper.net/documentation/product/us/en/junos-os#cat=release_notes | Exact **non-service** Junos R release when syntactically unambiguous (e.g. 24.2R2); otherwise fall back to catalog | Exact-version suggested link / platform index |
 | MikroTik RouterOS | https://mikrotik.com/download/changelogs | Select exact version and channel | Changelog index |
 | Other vendors | Manually maintained typed URL | Never fabricate an unverified deep link | Manual |
 
@@ -62,8 +63,8 @@ A first-party Meraki API **beta** provides a stronger route to exact match:
    structured provider metadata. Only attach exact-version documentation when
    the source identifier is unambiguous. Do not attach a generic MR changelog to
    MS or MX.
-4. Use encrypted credentials and allowed organizations from Meraki integration
-   #115 after it merges; no credentials or API requests should be duplicated by
+4. Use encrypted credentials and allowed organizations from merged Meraki inventory integration
+   #115 after bringing this PR branch up to the new main; no credentials or API requests should be duplicated by
    this issue's core docs model. No manual reconciliation in scheduled jobs.
 5. This API is marked **BETA** by Cisco; support capability detection, skipped/
    unsupported organizations and retry/backoff. If no stable public release
@@ -111,9 +112,9 @@ A scheduled job should:
    External SSRF and outbound egress limits must be accounted for before any
    remote link validation is implemented.
 
-This is deliberately **not** included in the current first slice: the
-integration adapter branches are not merged and no vendor API entitlement has
-yet been verified. A portal index is a helpful link, not full per-release
+This is deliberately **not** included in the current first slice: the Aruba integration branch is still in progress, Meraki's live inventory
+adapter only recently merged, and the Meraki documentation BETA API tenant
+entitlement has not yet been verified. A portal index is a helpful link, not full per-release
 auto-discovery.
 
 ## Checks for reviewers
