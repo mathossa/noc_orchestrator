@@ -134,7 +134,7 @@ async function merakiGet(input: {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        Authorization: \`Bearer \${apiKey}\`,
+        Authorization: `Bearer ${apiKey}`,
       },
       redirect: 'error',
       signal: input.signal,
@@ -146,7 +146,7 @@ async function merakiGet(input: {
     const retryable = response.status === 429 || response.status >= 500
     if (!retryable || attempt >= maxAttempts) {
       throw new MerakiApiError(
-        \`Meraki Dashboard API request failed with HTTP \${response.status}.\`,
+        `Meraki Dashboard API request failed with HTTP ${response.status}.`,
         response.status,
         retryable,
         retryAfter,
@@ -172,14 +172,14 @@ async function jsonArray<T>(
     payload = await response.json()
   } catch {
     throw new MerakiApiError(
-      \`Meraki returned invalid JSON for \${label}.\`,
+      `Meraki returned invalid JSON for ${label}.`,
       502,
       false,
     )
   }
   if (!Array.isArray(payload)) {
     throw new MerakiApiError(
-      \`Meraki returned an invalid \${label} response.\`,
+      `Meraki returned an invalid ${label} response.`,
       502,
       false,
     )
@@ -204,7 +204,7 @@ async function paginatedGet<T>(input: {
   for (let page = 1; url; page += 1) {
     if (page > maxPages) {
       throw new MerakiApiError(
-        \`Meraki \${input.label} pagination exceeded the configured \${maxPages}-page safety limit.\`,
+        `Meraki ${input.label} pagination exceeded the configured ${maxPages}-page safety limit.`,
         502,
         false,
       )
@@ -254,7 +254,7 @@ export async function listMerakiOrganizationNetworks(input: {
   const baseUrl = merakiApiBaseUrl(input.environment)
   const organizationId = encodeURIComponent(clean(input.organizationId))
   if (!organizationId) throw new Error('Meraki organization ID is required.')
-  const url = new URL(\`organizations/\${organizationId}/networks\`, baseUrl)
+  const url = new URL(`organizations/${organizationId}/networks`, baseUrl)
   url.searchParams.set('perPage', String(MERAKI_PAGE_SIZE))
   return paginatedGet<MerakiNetwork>({
     url,
@@ -278,7 +278,7 @@ export async function listMerakiOrganizationDevices(input: {
   const baseUrl = merakiApiBaseUrl(input.environment)
   const organizationId = encodeURIComponent(clean(input.organizationId))
   if (!organizationId) throw new Error('Meraki organization ID is required.')
-  const url = new URL(\`organizations/\${organizationId}/devices\`, baseUrl)
+  const url = new URL(`organizations/${organizationId}/devices`, baseUrl)
   url.searchParams.set('perPage', String(MERAKI_PAGE_SIZE))
   return paginatedGet<MerakiDevice>({
     url,

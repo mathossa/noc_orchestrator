@@ -106,9 +106,9 @@ async function runMerakiInventorySyncCore(
 
   if (organizations.length === 0 && failures.length > 0) {
     throw new Error(
-      \`Meraki inventory failed for all configured organizations: \${failures
+      `Meraki inventory failed for all configured organizations: ${failures
         .map((failure) => failure.organizationId)
-        .join(', ')}.\`,
+        .join(', ')}.`,
     )
   }
 

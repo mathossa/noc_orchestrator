@@ -112,7 +112,7 @@ function assertMerakiSource(source: InventorySourceDefinition) {
   }
   if (source.adapterType !== MERAKI_DASHBOARD_API_ADAPTER_TYPE) {
     throw new Error(
-      \`Meraki API adapter requires adapter type \${MERAKI_DASHBOARD_API_ADAPTER_TYPE}.\`,
+      `Meraki API adapter requires adapter type ${MERAKI_DASHBOARD_API_ADAPTER_TYPE}.`,
     )
   }
 }

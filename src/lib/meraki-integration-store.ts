@@ -139,7 +139,7 @@ export async function createMerakiInventoryConnection(input: {
   if (!apiKey) throw new Error('Meraki API key is required.')
   const configuration = normalizeConfiguration(input)
   const sourceId = randomUUID()
-  const sourceAdapterId = \`\${MERAKI_DASHBOARD_API_ADAPTER_TYPE}:\${sourceId}\`
+  const sourceAdapterId = `${MERAKI_DASHBOARD_API_ADAPTER_TYPE}:${sourceId}`
   const envelope = encryptInventorySourceSecret(sourceId, { apiKey })
 
   const record = await prisma.$transaction(async (tx) => {
