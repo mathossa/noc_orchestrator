@@ -3,8 +3,12 @@
 Issue: [#130](https://github.com/mathossa/noc_orchestrator/issues/130)
 
 Engineers can open provider-specific API credential provisioning instructions from
-the `?` on the **Integrations** overview, **Add connection**, or a saved
-connection detail page. The help is rendered inside the application at:
+the right-aligned `?` on the **Integrations** overview, **Add connection**, or a saved
+connection detail page. The help opens **in a side panel, without navigation**:
+unsaved configuration fields remain mounted and unchanged, and Close/Back to
+connection returns to the current form. A visual setup sequence introduces the
+steps; troubleshooting and the vendor's official screenshot guides are expandable.
+The same instructions remain bookmarkable at:
 
 - `/settings/integrations/help/auvik`
 - `/settings/integrations/help/meraki`
@@ -21,10 +25,15 @@ store or display actual secrets.
 2. Add a typed guide to `src/lib/integration-setup-guides.ts`; put checked
    official links and a review date in its `sources` / `reviewedOn` fields.
    The content is the single source for the in-app help screen.
-3. Add `<IntegrationSetupHelpLink provider="..."/>` in its new-connection,
-   saved-connection and Integrations overview views. This builds a labelled
-   keyboard-operable `?` link to the guide without new dependencies.
+3. Add `<IntegrationSetupHelpLink provider="..." />` in its new-connection,
+   saved-connection and Integrations overview views. Place the icon at the right
+   of the row's actions to keep alignment independent of provider-name length.
+   The labelled `?` opens the existing accessible native `Modal` drawer without
+   navigation; the bookmarkable help URL reuses the same content component.
+   Do not turn the help control back into a link that loses unsaved form values.
 4. Add Playwright smoke coverage for the help entry points and essential steps.
+   Verify the entered username/API key/environment survives both Close and Escape,
+   and keyboard focus returns to the help trigger.
 5. Update these instructions when the vendor changes its UI, required roles,
    API authentication or credential-rotation procedure.
 
