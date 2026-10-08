@@ -64,22 +64,22 @@ export const integrationSetupGuides = {
       'Meraki Dashboard API keys belong to a Dashboard administrator identity and inherit that identity\'s permissions. Prefer a dedicated integration administrator with read-only access to only the organizations and networks needed.',
     requirements: [
       'An organization administrator able to enable Dashboard API access and invite a dedicated administrator.',
-      'A dedicated Meraki Dashboard login with read-only access to the organizations/networks you want to import.',
+      'A dedicated non-SAML/SSO Meraki Dashboard administrator login with read-only access to the organizations/networks you want to import. SAML users cannot generate personal API keys.',
       'The correct Dashboard API environment (Global, Canada, China, India or FedRAMP).',
     ],
     sections: [
       {
         title: '1. Enable API access and create the account',
         steps: [
-          'In Meraki Dashboard, ensure Dashboard API access is enabled for each target organization (Organization > Settings > Dashboard API access, where available).',
-          'Invite a dedicated Dashboard administrator for the required organization(s) and grant read-only organization or appropriately scoped network access. Do not grant full admin only for this read-only inventory integration.',
+          'In Meraki Dashboard, verify Dashboard API access for each target organization. Cisco currently enables it by default; older configurations may show a switch under Organization > Settings.',
+          'Under Organization > Administrators (sometimes Organization > Configure > Administrators), select Add admin. Invite a dedicated non-SAML administrator and assign read-only organization or appropriately scoped network access. Do not grant full admin only for inventory.',
           'Sign in as that dedicated administrator to manage its personal API keys. A different user cannot safely create a personal API key on behalf of this identity.',
         ],
       },
       {
         title: '2. Generate the API key',
         steps: [
-          'In Dashboard, open Organization > API & Webhooks > API keys and access, and generate a new personal API key for the dedicated administrator.',
+          'In Dashboard, open Organization > API & Webhooks > API keys and access (sometimes shown as Organization > Configure > API & Webhooks), and generate a personal API key for the dedicated administrator.',
           'Copy the secret when it is displayed and store it securely. Meraki API keys inherit the administrator\'s accessible organizations and role permissions.',
           'In NOC Orchestrator open Add Meraki connection, choose the matching API environment and paste the key into Dashboard API key.',
         ],
@@ -97,12 +97,13 @@ export const integrationSetupGuides = {
       '401 Unauthorized: regenerate/verify the key and API environment; the Dashboard v1 adapter authenticates with Authorization: Bearer, not a pasted username/password.',
       '403 Forbidden or missing organizations: verify the dedicated administrator has access to the requested organization and sufficient read permissions.',
       'Empty scopes: first confirm organization API access is enabled, then use Sync organizations & sites and explicitly enable intended networks.',
-      'If the administrator is removed or the key is revoked, update the connection with a new key and retest; changes to privileges take effect for the key owner.',
+      'For rotation, generate a second key if the account has a free key slot (Meraki allows two valid keys per identity), update the connection, retest and then revoke the old key. Removing the administrator or revoking the active key breaks subsequent API syncs.',
     ],
     sources: [
       { label: 'Cisco Meraki – Dashboard API authorization and API-key creation', url: 'https://developer.cisco.com/meraki/api-v1/authorization/' },
       { label: 'Cisco Meraki – getting started and regional API endpoints', url: 'https://developer.cisco.com/meraki/api-v1/getting-started/' },
-      { label: 'Cisco Meraki – enable Dashboard API access', url: 'https://developer.cisco.com/meraki/build/meraki-postman-collection-getting-started/getting-started/' },
+      { label: 'Cisco Meraki – API setup, SSO limits and key generation', url: 'https://documentation.meraki.com/Platform_Management/Dashboard_Administration/Operate_and_Maintain/How-Tos/How_to_Use_the_Cisco_Meraki_Dashboard_API' },
+      { label: 'Cisco Meraki – managing administrators and permissions', url: 'https://documentation.meraki.com/Platform_Management/Dashboard_Administration/Operate_and_Maintain/Managing_Dashboard_Access/Managing_Dashboard_Administrators_and_Permissions' },
     ],
     addConnectionHref: '/settings/integrations/meraki/new',
   },
