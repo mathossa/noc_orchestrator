@@ -84,6 +84,9 @@ describe('Classic Central shared inventory sync',()=>{
     }))
     expect(result.source).toMatchObject({
       deviceCount:1,observedDeviceCount:3,selectedSiteCount:1,partial:false,
+      fetchedByType:{AP:2,SWITCH:1,GATEWAY:0},
+      selectedByType:{AP:1,SWITCH:0,GATEWAY:0},
+      excludedByType:{AP:1,SWITCH:1,GATEWAY:0},
     })
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
       fetchedCount:3,stagedCount:1,autoPublishedCount:1,reviewRequiredCount:0,
