@@ -6,6 +6,15 @@ const mocks = vi.hoisted(() => ({
   stageNormalized: vi.fn(),
   initializeAutomation: vi.fn(),
   autoPublishValid: vi.fn(),
+  beginRun: vi.fn(),
+  completeRun: vi.fn(),
+  failRun: vi.fn(),
+}))
+
+vi.mock('@/lib/inventory-sync-run-store', () => ({
+  beginInventorySyncRun: mocks.beginRun,
+  completeInventorySyncRun: mocks.completeRun,
+  failInventorySyncRun: mocks.failRun,
 }))
 
 vi.mock('@/lib/meraki-integration-store', () => ({
@@ -29,6 +38,8 @@ import { runMerakiInventorySync } from '@/lib/meraki-inventory-sync'
 describe('Meraki inventory sync orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.beginRun.mockResolvedValue({ id: 'run-1' })
+    mocks.completeRun.mockResolvedValue({ id: 'run-1', status: 'SUCCEEDED' })
     mocks.getConnectionCredentials.mockResolvedValue({
       connection: {
         id: 'source-1',
