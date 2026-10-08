@@ -21,6 +21,7 @@ export type MerakiNetworkScope = {
 
 export type MerakiOrganizationScope = {
   enabled?: boolean
+  networksDiscovered?: boolean
   organizationId: string
   organizationName?: string | null
   customer?: string | null
