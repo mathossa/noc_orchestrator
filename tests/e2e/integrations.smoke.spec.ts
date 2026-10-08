@@ -25,11 +25,11 @@ test('opens the generic integrations foundation from Settings', async ({ page })
   ).toBeVisible()
   await expect(page.getByText('Cisco Meraki Dashboard', { exact: true })).toBeVisible()
   await expect(
-    page.getByRole('link', { name: 'API setup help for Auvik Network Management' }),
-  ).toHaveAttribute('href', '/settings/integrations/help/auvik')
+    page.getByRole('button', { name: 'API setup help for Auvik Network Management' }),
+  ).toBeVisible()
   await expect(
-    page.getByRole('link', { name: 'API setup help for Cisco Meraki Dashboard' }),
-  ).toHaveAttribute('href', '/settings/integrations/help/meraki')
+    page.getByRole('button', { name: 'API setup help for Cisco Meraki Dashboard' }),
+  ).toBeVisible()
   await expect(page.getByRole('link', { name: 'Add Meraki connection' })).toHaveAttribute(
     'href',
     '/settings/integrations/meraki/new',
@@ -83,29 +83,63 @@ test('opens the Cisco Meraki connection creation flow', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Save Meraki connection' })).toBeVisible()
 })
 
-test('opens Auvik API user setup from the integration overview and creation form', async ({ page }) => {
-  await page.goto('/settings/integrations')
-  await page.getByRole('link', { name: 'API setup help for Auvik Network Management' }).click()
+test('opens contextual Auvik help without navigation or losing unsaved credentials', async ({ page }) => {
+  await page.goto('/settings/integrations/auvik/new')
+  await page.getByLabel('Auvik username').fill('svc-noc@example.invalid')
+  await page.getByLabel('API key').fill('test-only-not-a-real-secret')
+  await page.getByLabel('Region').fill('eu1')
 
-  await expect(page.getByRole('heading', { name: 'API setup: Auvik Network Management' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '1. Create the API account' })).toBeVisible()
-  await expect(page.getByText(/API Access Only role or a more restricted custom API role/)).toBeVisible()
-  await expect(page.getByRole('link', { name: /Auvik – user profile and API key management/ }))
+  await page.getByRole('button', { name: 'API setup help for Auvik Network Management' }).click()
+  const guide = page.getByRole('dialog', { name: 'API setup: Auvik Network Management' })
+  await expect(guide).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/integrations\/auvik\/new$/)
+  await expect(guide.getByRole('heading', { name: '1. Create the API account' })).toBeVisible()
+  await expect(guide.getByText(/API Access Only role or a more restricted custom API role/)).toBeVisible()
+
+  await guide.getByText('Official vendor guides and screenshots').click()
+  await expect(guide.getByRole('link', { name: /Auvik – user profile and API key management/ }))
     .toHaveAttribute('href', 'https://support.auvik.com/hc/en-us/articles/204309114-How-do-I-update-my-user-profile')
+  await guide.getByRole('button', { name: 'Back to connection' }).click()
+  await expect(guide).toHaveCount(0)
 
-  await page.getByRole('link', { name: 'Add connection', exact: true }).click()
-  await expect(page.getByRole('link', { name: 'API setup help for Auvik Network Management' }))
-    .toHaveAttribute('href', '/settings/integrations/help/auvik')
+  await expect(page.getByLabel('Auvik username')).toHaveValue('svc-noc@example.invalid')
+  await expect(page.getByLabel('API key')).toHaveValue('test-only-not-a-real-secret')
+  await expect(page.getByLabel('Region')).toHaveValue('eu1')
 })
 
-test('opens Meraki API user setup from the creation form', async ({ page }) => {
+test('opens Meraki API help in place and restores focus on Escape', async ({ page }) => {
   await page.goto('/settings/integrations/meraki/new')
-  await page.getByRole('link', { name: 'API setup help for Cisco Meraki Dashboard' }).click()
+  await page.getByLabel('Dashboard API key').fill('dummy-meraki-value')
+  const help = page.getByRole('button', { name: 'API setup help for Cisco Meraki Dashboard' })
+  await help.focus()
+  await page.keyboard.press('Enter')
 
+  const guide = page.getByRole('dialog', { name: 'API setup: Cisco Meraki Dashboard' })
+  await expect(guide).toBeVisible()
+  await expect(guide.getByRole('heading', { name: '1. Enable API access and create the account' })).toBeVisible()
+  await expect(guide.getByText(/read-only organization or appropriately scoped network access/)).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(guide).toHaveCount(0)
+  await expect(page).toHaveURL(/\/settings\/integrations\/meraki\/new$/)
+  await expect(page.getByLabel('Dashboard API key')).toHaveValue('dummy-meraki-value')
+  await expect(help).toBeFocused()
+})
+
+test('shows fixed help actions on the integrations overview', async ({ page }) => {
+  await page.goto('/settings/integrations')
+  await page.getByRole('button', { name: 'API setup help for Auvik Network Management' }).click()
+  const guide = page.getByRole('dialog', { name: 'API setup: Auvik Network Management' })
+  await expect(guide.getByLabel('API connection setup sequence')).toBeVisible()
+  await guide.getByRole('button', { name: 'Close API setup: Auvik Network Management' }).click()
+  await expect(guide).toHaveCount(0)
+  await expect(page).toHaveURL(/\/settings\/integrations$/)
+})
+
+test('supports a bookmarkable full Meraki guide', async ({ page }) => {
+  await page.goto('/settings/integrations/help/meraki')
   await expect(page.getByRole('heading', { name: 'API setup: Cisco Meraki Dashboard' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '1. Enable API access and create the account' })).toBeVisible()
-  await expect(page.getByText(/read-only organization or appropriately scoped network access/)).toBeVisible()
-  await expect(page.getByText(/Authorization: Bearer/)).toBeVisible()
-  await expect(page.getByRole('link', { name: /Cisco Meraki – Dashboard API authorization/ }))
-    .toHaveAttribute('href', 'https://developer.cisco.com/meraki/api-v1/authorization/')
+  await expect(page.getByRole('heading', { name: '2. Generate the API key' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Add connection', exact: true }))
+    .toHaveAttribute('href', '/settings/integrations/meraki/new')
 })
