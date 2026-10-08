@@ -15,6 +15,7 @@ Vendor documentation reviewed during implementation:
 - Organizations: `GET /organizations`
 - Organization networks: `GET /organizations/{organizationId}/networks`
 - Organization devices: `GET /organizations/{organizationId}/devices`
+- Device availability: `GET /organizations/{organizationId}/devices/availabilities` (the supported replacement for the deprecated `/devices/statuses` endpoint)
 
 The network-scoped devices endpoint is deprecated in the current documentation, so
 the adapter uses the organization-level bulk endpoint and applies configured network
@@ -61,8 +62,14 @@ payloads.
 
 ## Scope and hierarchy
 
-Accessible organizations are discovered after the connection test. Stable
-organization IDs and network IDs are persisted. Display names are context only.
+Accessible organizations and their networks are fetched only when an engineer clicks
+**Sync organizations & sites**. Stable IDs, display names, mappings and per-organization/
+per-network enabled flags are saved in the existing integration configuration.
+Newly discovered organizations/networks default to disabled. Existing selections
+survive refresh, and removing a scope from settings does not delete canonical devices.
+Legacy saved organizations without an explicit network list retain their all-network
+scope until refreshed. A newly discovered organization with zero networks never
+implicitly enables all networks. Display names are context only.
 
 An organization may propose Customer / optional Business Unit context and a network
 may propose Site context, but canonical hierarchy resolution remains in Importer v2.
@@ -96,7 +103,9 @@ Organization devices are fetched in bulk and normalized where the API supplies t
 - organization and network IDs/names;
 - LAN/management IP;
 - firmware evidence;
-- tags/details as diagnostic raw source evidence.
+- tags/details as diagnostic raw source evidence;
+- separate device availability (`online`, `alerting`, `offline`, `dormant`) with an
+  observation timestamp when the availability endpoint is accessible.
 
 Known product types map to the existing vocabulary:
 
@@ -106,6 +115,12 @@ Known product types map to the existing vocabulary:
 
 Unsupported product types are not coerced into those categories; their raw type is
 left reviewable.
+
+Availability is retained on staged Importer v2 source evidence and shown separately
+from importer row status in the reconciliation table/Inspector. A missing availability
+response stays unknown, and failure to retrieve availability does not block inventory
+or invent `online` status. This is lightweight source evidence, not NMS polling or
+firmware compliance.
 
 Firmware is preserved as observed evidence and passes through the existing firmware
 interpreter/catalog review. The adapter never creates preferred/minimum/desired
@@ -135,6 +150,13 @@ Manual and scheduled syncs call the same `runMerakiInventorySync` service.
 - source-level run acquisition rejects overlapping active executions.
 - schedule expression and timezone can be edited without redeployment.
 - the UI shows next scheduled time plus durable run counts/history.
+- scheduled runs publish only safe, already-resolved rows. All unresolved, ambiguous,
+  catalog-approval, or firmware-review rows are **skipped**, counted in the run, and
+  retained as auditable staged evidence; no human confirmation is needed for the job
+  to finish or for the next scheduled run to execute.
+- canonical inventory is never silently merged, overwritten or deleted to avoid an
+  unattended reconciliation. A later safe sync can reconcile automatically after
+  source evidence or explicit mapping changes.
 
 The worker build rewrites the repository's existing `@/...` TypeScript aliases in
 emitted worker JavaScript so the worker can reuse normal application services rather
