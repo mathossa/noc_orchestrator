@@ -57,6 +57,8 @@ export type ClassicCentralListInput = {
   signal?: AbortSignal
   maxPagesPerType?: number
   requestPolicy?: RequestPolicy
+  /** API-supported server-side site filter, available only for switches. */
+  switchSite?: string
 }
 
 const INVENTORY_ENDPOINTS: ReadonlyArray<{
@@ -180,7 +182,10 @@ Promise<ClassicCentralDeviceObservation[]> {
   let currentAccessToken = accessToken
   let currentRefreshToken = input.refresh?.refreshToken ?? null
 
-  for (const endpoint of INVENTORY_ENDPOINTS) {
+  const endpoints = input.switchSite
+    ? INVENTORY_ENDPOINTS.filter((endpoint) => endpoint.kind === 'SWITCH')
+    : INVENTORY_ENDPOINTS
+  for (const endpoint of endpoints) {
     let completed = false
     for (let page = 0; page < maxPages; page += 1) {
       const offset = page * ARUBA_CLASSIC_CENTRAL_PAGE_SIZE
@@ -190,6 +195,9 @@ Promise<ClassicCentralDeviceObservation[]> {
       url.searchParams.set('calculate_total', 'true')
       url.searchParams.set('fields', endpoint.fields)
       url.searchParams.set('sort', '+serial')
+      if (input.switchSite) {
+        url.searchParams.set('site', required(input.switchSite, 'switch site'))
+      }
 
       const requestPage = () =>
         requestWithRetry({
