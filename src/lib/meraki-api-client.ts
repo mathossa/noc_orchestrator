@@ -28,6 +28,12 @@ export type MerakiNetwork = {
   url?: string | null
 }
 
+export type MerakiDeviceAvailability = {
+  serial: string
+  status: 'online' | 'offline' | 'alerting' | 'dormant'
+  network?: { id?: string | null } | null
+}
+
 export type MerakiDevice = {
   name?: string | null
   networkId: string
@@ -264,6 +270,30 @@ export async function listMerakiOrganizationNetworks(input: {
     signal: input.signal,
     requestPolicy: input.requestPolicy,
     label: 'organization networks',
+  })
+}
+
+export async function listMerakiOrganizationDeviceAvailabilities(input: {
+  environment: MerakiApiEnvironment
+  credentials: MerakiApiCredentials
+  organizationId: string
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  requestPolicy?: MerakiApiRequestPolicy
+}) {
+  const baseUrl = merakiApiBaseUrl(input.environment)
+  const organizationId = encodeURIComponent(clean(input.organizationId))
+  if (!organizationId) throw new Error('Meraki organization ID is required.')
+  const url = new URL(`organizations/${organizationId}/devices/availabilities`, baseUrl)
+  url.searchParams.set('perPage', String(MERAKI_PAGE_SIZE))
+  return paginatedGet<MerakiDeviceAvailability>({
+    url,
+    baseUrl,
+    credentials: input.credentials,
+    fetchImpl: input.fetchImpl ?? fetch,
+    signal: input.signal,
+    requestPolicy: input.requestPolicy,
+    label: 'device availabilities',
   })
 }
 
