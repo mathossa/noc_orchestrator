@@ -231,10 +231,12 @@ export async function updateMerakiInventoryConnection(input: {
     throw new Error('Save changed Meraki credentials/environment, test the connection, then enable synchronization.')
   }
 
-  const envelope = input.credentials
-    ? encryptInventorySourceSecret(input.sourceId, {
-        apiKey: clean(input.credentials.apiKey),
-      })
+  const replacementApiKey = input.credentials ? clean(input.credentials.apiKey) : null
+  if (input.credentials && !replacementApiKey) {
+    throw new Error('Meraki API key is required.')
+  }
+  const envelope = replacementApiKey
+    ? encryptInventorySourceSecret(input.sourceId, { apiKey: replacementApiKey })
     : null
 
   const record = await prisma.$transaction(async (tx) => {
