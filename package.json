@@ -12,6 +12,7 @@
     "build": "next build",
     "start": "next start",
     "worker:build": "tsc -p tsconfig.worker.json && node scripts/rewrite-worker-imports.mjs",
+    "worker:smoke": "node --env-file-if-exists=.env scripts/verify-worker-runtime.mjs",
     "worker": "npm run worker:build && node --env-file-if-exists=.env .worker-dist/scripts/background-worker.js",
     "jobs:demo": "npm run worker:build && node --env-file-if-exists=.env .worker-dist/scripts/job-demo.js",
     "lint": "eslint",
