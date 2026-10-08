@@ -24,6 +24,7 @@ export default async function AuvikConnectionPage({
         eyebrow="Settings · Integrations · Auvik"
         title={connection.name}
         description="Auvik Network Management Device API v2 inventory source. Syncs stage observed state through the shared Importer v2 reconciliation and publication path."
+        alignActionsTop
         actions={<IntegrationSetupHelpLink provider="auvik" />}
         breadcrumbs={[
           { label: 'Settings', href: '/settings' },
