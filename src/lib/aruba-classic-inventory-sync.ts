@@ -1,4 +1,8 @@
-import { listClassicCentralDevices } from '@/lib/aruba-classic-central-api-client'
+import {
+  listClassicCentralDevices,
+  type ClassicCentralDeviceKind,
+  type ClassicCentralDeviceObservation,
+} from '@/lib/aruba-classic-central-api-client'
 import { filterClassicCentralDevicesBySelectedSites } from '@/lib/aruba-classic-site-scope'
 import {
   classicCentralRefreshContext,
@@ -21,6 +25,16 @@ import {
   failInventorySyncRun,
   type InventorySyncTrigger,
 } from '@/lib/inventory-sync-run-store'
+
+export type ArubaClassicDeviceKindCounts = Record<ClassicCentralDeviceKind, number>
+
+export function countClassicCentralDeviceKinds(
+  rows: readonly ClassicCentralDeviceObservation[],
+): ArubaClassicDeviceKindCounts {
+  const totals: ArubaClassicDeviceKindCounts = { AP: 0, SWITCH: 0, GATEWAY: 0 }
+  for (const row of rows) totals[row.kind] += 1
+  return totals
+}
 
 export function classicCentralRuntimeImporterProfile(sourceId:string):ImporterV2NormalizedSourceProfile {
   return {
@@ -66,6 +80,13 @@ export async function runClassicCentralInventorySync(
       fetched,connection.configuration.sites,
     )
     const devices=selection.devices
+    const fetchedByType=countClassicCentralDeviceKinds(fetched)
+    const selectedByType=countClassicCentralDeviceKinds(devices)
+    const excludedByType: ArubaClassicDeviceKindCounts = {
+      AP:fetchedByType.AP-selectedByType.AP,
+      SWITCH:fetchedByType.SWITCH-selectedByType.SWITCH,
+      GATEWAY:fetchedByType.GATEWAY-selectedByType.GATEWAY,
+    }
     const sitesByName=Object.fromEntries(enabledSites.flatMap(scope=>
       scope.site ? [[scope.siteName,scope.site]] : []))
     const source=normalizeInventorySourceDefinition({
@@ -109,6 +130,9 @@ export async function runClassicCentralInventorySync(
         excludedFromScopeCount:selection.excludedCount,
         unassignedSiteCount:selection.withoutSiteCount,
         conflictingSiteCount:selection.conflictedSiteCount,
+        fetchedByType,
+        selectedByType,
+        excludedByType,
         unattended:options.trigger==='SCHEDULED',
         skippedForReview:autoPublication.remainingIncludedRows??0,
       },
@@ -122,6 +146,9 @@ export async function runClassicCentralInventorySync(
         excludedFromScopeCount:selection.excludedCount,
         unassignedSiteCount:selection.withoutSiteCount,
         conflictingSiteCount:selection.conflictedSiteCount,
+        fetchedByType,
+        selectedByType,
+        excludedByType,
         partial:false,
       },
     }
