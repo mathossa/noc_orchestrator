@@ -52,6 +52,12 @@ export function IntegrationSetupGuideContent({
         <figcaption className="text-xs leading-5 text-[var(--muted)]">
           Illustrated vendor menu path, not a screenshot. Copy the generated key into
           NOC Orchestrator, then Test connection and choose the intended sites.
+          {' '}
+          <a href={provider === 'auvik' ? guide.sources[0].url : guide.sources[2].url}
+            target="_blank" rel="noopener noreferrer"
+            className="font-semibold text-[var(--accent-light)] hover:underline">
+            See official screenshots (opens in new tab)
+          </a>
         </figcaption>
       </figure>
 
@@ -62,13 +68,16 @@ export function IntegrationSetupGuideContent({
         </ul>
       </section>
 
-      {guide.sections.map((section) => (
-        <section key={section.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-          <h2 className="font-semibold text-[var(--foreground)]">{section.title}</h2>
+      {guide.sections.map((section, index) => (
+        <details key={section.title} open={index === 0}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+          <summary className="cursor-pointer font-semibold text-[var(--foreground)]">
+            <h2 className="inline font-semibold">{section.title}</h2>
+          </summary>
           <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm leading-6 text-[var(--muted-strong)]">
             {section.steps.map((step) => <li key={step}>{step}</li>)}
           </ol>
-        </section>
+        </details>
       ))}
 
       <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
