@@ -250,3 +250,69 @@ Promise<ClassicCentralDeviceObservation[]> {
   }
   return records
 }
+
+/**
+ * Explicit, operator-triggered site discovery. Site lists are not polled
+ * implicitly on every inventory sync, so user-enabled mapping is durable.
+ */
+export async function listClassicCentralSites(input: {
+  configuration: ArubaCentralClassicConfiguration
+  accessToken: string
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  requestPolicy?: RequestPolicy
+  maxPages?: number
+}): Promise<Array<{ id: string | null; name: string }>> {
+  const baseUrl = arubaCentralApiBaseUrl(input.configuration)
+  const maxPages = input.maxPages ?? 100
+  if (!Number.isInteger(maxPages) || maxPages < 1) {
+    throw new Error('Classic Central maxPages must be positive.')
+  }
+  const sites: Array<{ id: string | null; name: string }> = []
+  const seen = new Set<string>()
+  for (let page = 0; page < maxPages; page++) {
+    const url = new URL('/central/v2/sites', baseUrl)
+    url.searchParams.set('offset', String(page * ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
+    url.searchParams.set('limit', String(ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
+    const response = await requestWithRetry({
+      url,
+      fetchImpl: input.fetchImpl ?? fetch,
+      init: {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${input.accessToken}`,
+        },
+        signal: input.signal,
+      },
+      requestPolicy: input.requestPolicy,
+    })
+    const payload = await jsonObject(response)
+    if (!Array.isArray(payload.sites)) {
+      throw new ArubaCentralApiError(
+        'Classic Central returned an invalid sites list.', 502, false,
+      )
+    }
+    for (const item of payload.sites) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new ArubaCentralApiError('Classic Central returned an invalid site.', 502, false)
+      }
+      const record = item as Record<string, unknown>
+      const name = record.site_name ?? record.name
+      if (typeof name !== 'string' || !name.trim()) {
+        throw new ArubaCentralApiError('Classic Central site has no name.', 502, false)
+      }
+      const normalizedName = name.normalize('NFKC').trim()
+      if (!seen.has(normalizedName.toLowerCase())) {
+        sites.push({
+          name: normalizedName,
+          id: typeof record.site_id === 'string' ? record.site_id :
+            typeof record.id === 'string' ? record.id : null,
+        })
+        seen.add(normalizedName.toLowerCase())
+      }
+    }
+    if (payload.sites.length < ARUBA_CLASSIC_CENTRAL_PAGE_SIZE) return sites
+  }
+  throw new ArubaCentralApiError('Classic Central sites exceeded the page safety limit.',502,false)
+}
