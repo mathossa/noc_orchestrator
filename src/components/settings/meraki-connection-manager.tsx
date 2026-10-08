@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { formatAmsterdamTimestamp } from '@/lib/format-amsterdam-timestamp'
 
 type NetworkScope = { enabled?: boolean; networkId: string; networkName?: string | null; site?: string | null }
 type OrganizationScope = { enabled?: boolean; networksDiscovered?: boolean; organizationId: string; organizationName?: string | null; customer?: string | null; businessUnit?: string | null; networks: readonly NetworkScope[] }
@@ -252,7 +253,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
         <label className="space-y-1 text-sm"><span className="font-semibold">Timezone</span><input value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 font-mono" /></label>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
-        <span>Next run: {schedule?.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : '—'}</span>
+        <span>Next run: {schedule?.nextRunAt ? formatAmsterdamTimestamp(schedule.nextRunAt) : '—'}</span>
         <div className="flex gap-2">
           {schedule?.enabled ? <Button disabled={busy !== null} onClick={() => void saveSchedule(false)}>Disable schedule</Button> : null}
           <Button variant="primary" disabled={busy !== null || !connection.enabled || !hasEnabledScope || connection.connectionTest.status !== 'SUCCESS'} onClick={() => void saveSchedule(true)}>{busy === 'schedule' ? 'Saving…' : 'Save schedule'}</Button>
@@ -266,7 +267,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
           <div><StatusBadge tone={run.status === 'SUCCEEDED' ? 'success' : run.status === 'FAILED' ? 'danger' : run.status === 'PARTIAL' ? 'warning' : 'info'}>{run.status}</StatusBadge></div>
           <div className="text-xs text-[var(--muted)]">{run.trigger}</div>
           <div><span className="font-semibold">{run.stagedCount}</span> staged · <span className="font-semibold">{run.autoPublishedCount}</span> published · <span className="font-semibold">{run.reviewRequiredCount}</span> {run.trigger === 'SCHEDULED' ? 'skipped (unattended)' : 'review'} · <span className="font-semibold">{run.errorCount}</span> errors{run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}</div>
-          <div className="text-xs text-[var(--muted)]">{new Date(run.startedAt).toLocaleString()}</div>
+          <div className="text-xs text-[var(--muted)]">{formatAmsterdamTimestamp(run.startedAt)}</div>
         </div>)}
       </div>
     </section>
