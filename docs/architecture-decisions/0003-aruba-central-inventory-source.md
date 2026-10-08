@@ -103,3 +103,35 @@ Classic official API gateway hosts include the EU-1
 `eu-apigw.central.arubanetworks.com` and EU-Central2
 `apigw-eucentral2.central.arubanetworks.com` origins, not the new
 `de1.api.central.arubanetworks.com`/etc. gateway format.
+
+
+## Classic Central single-customer tenant scoping
+
+A Classic Central connection represents **one customer Central account**. The
+integration never assumes an MSP account or discovers MSP customers. The
+connection's `customer` selects the NOC hierarchy destination. Many physical
+Central sites may exist under the single connected account.
+
+On-demand `Discover Central sites` reads `GET /central/v2/sites` first. If
+that endpoint returns zero sites, it reads Classic AP/switch/gateway monitoring
+once and collects only real `site`/`site_name` fields. Configuration
+`group`/`ap_group` values remain diagnostic evidence, **never implicitly
+converted into physical sites**. Discovery returns non-sensitive counts of
+sites, observed devices, unassigned devices and groups, so a zero-result UI
+is actionable. Previously selected/mapped sites are preserved across
+rediscovery. New sites start disabled until the operator saves.
+
+Two explicit inventory scopes exist and are persisted per connection:
+
+- `SELECTED_SITES` (default/backward-compatible): fetch tenant inventory and
+  stage only devices whose observed Central site belongs to an enabled scope.
+- `ALL_DEVICES` (opt-in): stage **all** devices from this customer tenant,
+  including devices without a Central site. Existing site mapping is applied
+  where available; unresolved devices remain subject to Importer v2 identity
+  and hierarchy review, and safe auto-publication rules stay authoritative.
+
+Both are deliberately non-full exports. Turning off a site or switching modes
+does **not** remove devices from the NOC canonical inventory. Actual Aruba
+site assignments must be managed in Aruba Central, not inferred from
+configuration groups. MSP `TenantID` dispatch is outside this single-customer
+connection scope.
