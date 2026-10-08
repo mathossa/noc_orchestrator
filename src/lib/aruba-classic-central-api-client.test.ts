@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { arubaCentralApiBaseUrl, ArubaCentralApiError } from '@/lib/aruba-central-api-client'
 import {
   listClassicCentralDevices,
+  listClassicCentralSites,
   refreshClassicCentralAccessToken,
 } from '@/lib/aruba-classic-central-api-client'
 
@@ -69,4 +70,28 @@ describe('Aruba Classic Central client', () => {
     await expect(listClassicCentralDevices({configuration,accessToken:'A1',fetchImpl}))
       .rejects.toBeInstanceOf(ArubaCentralApiError)
   })
+
+  it('returns an empty site catalog without fabricating a site or group',async()=>{
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({count:0,total:0,sites:[]}))
+    await expect(listClassicCentralSites({
+      configuration,accessToken:'TEST_ACCESS',fetchImpl,
+    })).resolves.toEqual([])
+  })
+
+  it('preserves numeric Aruba site IDs and uses the documented Central response shape',async()=>{
+    const fetchImpl: typeof fetch = async (url) => {
+      const location=new URL(String(url))
+      expect(location.pathname).toBe('/central/v2/sites')
+      expect(location.searchParams.get('offset')).toBe('0')
+      return new Response(JSON.stringify({
+        count:2,total:2,
+        sites:[{site_id:12,site_name:'HQ'},{site_id:38,site_name:'Branch'}],
+      }))
+    }
+    await expect(listClassicCentralSites({
+      configuration,accessToken:'TEST_ACCESS',fetchImpl,
+    })).resolves.toEqual([{id:'12',name:'HQ'},{id:'38',name:'Branch'}])
+  })
+
 })
