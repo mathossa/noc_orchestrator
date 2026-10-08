@@ -20,6 +20,16 @@ export type ImporterV2AutoPublicationResult = {
   error: string | null
 }
 
+function isDeviceCustomerNameCollision(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const failure = error as { code?: unknown; meta?: { target?: unknown } }
+  if (failure.code !== 'P2002') return false
+  const target = failure.meta?.target
+  if (typeof target === 'string') return target === 'Device_customerId_name_key'
+  return Array.isArray(target) &&
+    target.includes('customerId') && target.includes('name')
+}
+
 function sorted(values: Iterable<number>) {
   return [...new Set(values)].sort((left, right) => left - right)
 }
@@ -135,6 +145,7 @@ export async function autoPublishImporterV2SafeValidRows(
     }
   } catch (error) {
     if (
+      isDeviceCustomerNameCollision(error) ||
       error instanceof ImporterV2PublicationConflictError ||
       error instanceof ImporterV2PublicationValidationError
     ) {
@@ -149,7 +160,9 @@ export async function autoPublishImporterV2SafeValidRows(
         remainingIncludedRows,
         reconciliationRequired: remainingIncludedRows > 0,
         blockedRowNumbers: sorted(blocked),
-        error: error.message,
+        error: isDeviceCustomerNameCollision(error)
+          ? 'A device with the same name already exists within this customer. Confirm canonical identity or rename the device before publication.'
+          : error instanceof Error ? error.message : 'Publication needs review.',
       }
     }
     throw error
