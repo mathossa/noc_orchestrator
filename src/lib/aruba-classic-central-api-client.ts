@@ -63,10 +63,11 @@ const INVENTORY_ENDPOINTS: ReadonlyArray<{
   kind: ClassicCentralDeviceKind
   path: string
   collection: string
+  fields: string
 }> = [
-  { kind: 'AP', path: '/monitoring/v2/aps', collection: 'aps' },
-  { kind: 'SWITCH', path: '/monitoring/v1/switches', collection: 'switches' },
-  { kind: 'GATEWAY', path: '/monitoring/v1/gateways', collection: 'gateways' },
+  { kind: 'AP', path: '/monitoring/v2/aps', collection: 'aps', fields: 'status,ip_address,model,firmware_version,site,ap_group' },
+  { kind: 'SWITCH', path: '/monitoring/v1/switches', collection: 'switches', fields: 'status,macaddr,model,ip_address,firmware_version,site' },
+  { kind: 'GATEWAY', path: '/monitoring/v1/gateways', collection: 'gateways', fields: 'status,ip_address,model,firmware_version' },
 ]
 
 function required(value: string, field: string) {
@@ -184,6 +185,8 @@ Promise<ClassicCentralDeviceObservation[]> {
       url.searchParams.set('offset', String(offset))
       url.searchParams.set('limit', String(ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
       url.searchParams.set('calculate_total', 'true')
+      url.searchParams.set('fields', endpoint.fields)
+      url.searchParams.set('sort', '+serial')
 
       const requestPage = () =>
         requestWithRetry({
