@@ -29,7 +29,7 @@ export const integrationSetupGuides = {
         title: '2. Generate the key',
         steps: [
           'Sign in as the dedicated Auvik user. Open the username menu in the side navigation and go to the user profile.',
-          'Select Generate API Key, copy the complete key when shown and store it securely. The full key is only displayed at generation time.',
+          'Select Generate API Key, copy the complete key when shown and store it securely. The full key is only displayed at generation time. Regenerating a key immediately invalidates the previous one, so update NOC Orchestrator before its next sync.',
           'In NOC Orchestrator select Add Auvik connection; enter the service user email in Auvik username, paste its API key, and enter the correct Region.',
         ],
       },
@@ -79,7 +79,7 @@ export const integrationSetupGuides = {
       {
         title: '2. Generate the API key',
         steps: [
-          'In Dashboard, open Organization > API & Webhooks > API keys and access (sometimes shown as Organization > Configure > API & Webhooks), and generate a personal API key for the dedicated administrator.',
+          'In Dashboard, open Organization > Configure > API & Webhooks > API keys and access and select Generate API Key. Alternatively, open the avatar menu > My Profile > API Access to generate the personal API key. Cisco’s official guide includes screenshots of both paths.',
           'Copy the secret when it is displayed and store it securely. Meraki API keys inherit the administrator\'s accessible organizations and role permissions.',
           'In NOC Orchestrator open Add Meraki connection, choose the matching API environment and paste the key into Dashboard API key.',
         ],
@@ -94,7 +94,7 @@ export const integrationSetupGuides = {
       },
     ],
     troubleshooting: [
-      '401 Unauthorized: regenerate/verify the key and API environment; the Dashboard v1 adapter authenticates with Authorization: Bearer, not a pasted username/password.',
+      '401 Unauthorized or 404 Not Found: verify the key and regional environment; Cisco documents that a missing/incorrect key may return 404 rather than 403. The Dashboard v1 adapter authenticates with Authorization: Bearer, not a username/password.',
       '403 Forbidden or missing organizations: verify the dedicated administrator has access to the requested organization and sufficient read permissions.',
       'Empty scopes: first confirm organization API access is enabled, then use Sync organizations & sites and explicitly enable intended networks.',
       'For rotation, generate a second key if the account has a free key slot (Meraki allows two valid keys per identity), update the connection, retest and then revoke the old key. Removing the administrator or revoking the active key breaks subsequent API syncs.',
