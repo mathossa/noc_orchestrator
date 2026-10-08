@@ -224,7 +224,9 @@ export async function updateMerakiInventoryConnection(input: {
   const name = input.name === undefined ? existing.name : clean(input.name)
   if (!name) throw new Error('Meraki connection name is required.')
 
-  const changesIdentity = input.environment !== undefined || Boolean(input.credentials)
+  const changesIdentity =
+    configuration.environment !== existing.configuration.environment ||
+    Boolean(input.credentials)
   if (input.enabled === true && existing.connectionTest.status !== 'SUCCESS' && !changesIdentity) {
     throw new Error('Test the Meraki connection successfully before enabling synchronization.')
   }
