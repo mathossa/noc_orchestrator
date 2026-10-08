@@ -7,7 +7,7 @@ import {
   normalizeInventoryProvider,
   normalizedInventorySource,
 } from '@/lib/inventory-source-adapter'
-import type { MerakiDevice } from '@/lib/meraki-api-client'
+import type { MerakiDevice, MerakiDeviceAvailability } from '@/lib/meraki-api-client'
 
 export const MERAKI_API_PROVIDER = 'MERAKI'
 export const MERAKI_DASHBOARD_API_ADAPTER_TYPE = 'meraki-dashboard-api-v1'
@@ -31,6 +31,8 @@ export type MerakiOrganizationScope = {
 export type MerakiOrganizationInventory = {
   context: MerakiOrganizationScope
   devices: readonly MerakiDevice[]
+  availabilities?: readonly MerakiDeviceAvailability[]
+  availabilityObservedAt?: string | null
 }
 
 export type MerakiApiAdapterInput = {
@@ -67,6 +69,8 @@ export function merakiDeviceToNormalizedInventoryRow(
   device: MerakiDevice,
   context: MerakiOrganizationScope,
   rowNumber: number,
+  availability?: MerakiDeviceAvailability | null,
+  availabilityObservedAt?: string | null,
 ): NormalizedInventorySourceRow {
   const network = networkContext(context, device.networkId)
   const organizationName = clean(context.organizationName)
@@ -104,6 +108,9 @@ export function merakiDeviceToNormalizedInventoryRow(
         name: networkName,
       },
       device: structuredClone(device),
+      availability: availability
+        ? { status: availability.status, observedAt: availabilityObservedAt ?? null }
+        : null,
     },
   }
 }
@@ -126,16 +133,21 @@ export const merakiDashboardInventorySourceAdapter: InventorySourceAdapter<Merak
     loadAndNormalize({ source, input }) {
       assertMerakiSource(source)
       let rowNumber = 0
-      const rows = input.organizations.flatMap((organization) =>
-        organization.devices.map((device) => {
+      const rows = input.organizations.flatMap((organization) => {
+        const availabilityBySerial = new Map(
+          (organization.availabilities ?? []).map((entry) => [entry.serial, entry]),
+        )
+        return organization.devices.map((device) => {
           rowNumber += 1
           return merakiDeviceToNormalizedInventoryRow(
             device,
             organization.context,
             rowNumber,
+            availabilityBySerial.get(device.serial) ?? null,
+            organization.availabilityObservedAt,
           )
-        }),
-      )
+        })
+      })
 
       return normalizedInventorySource({
         source,
