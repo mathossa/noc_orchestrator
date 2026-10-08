@@ -121,17 +121,27 @@ sites, observed devices, unassigned devices and groups, so a zero-result UI
 is actionable. Previously selected/mapped sites are preserved across
 rediscovery. New sites start disabled until the operator saves.
 
-Two explicit inventory scopes exist and are persisted per connection:
+Classic inventory synchronization now exclusively uses a persisted
+**Customer → enabled physical sites** allowlist. The earlier `ALL_DEVICES`
+mode was retired after a real-tenant test demonstrated that it imported
+out-of-scope sites. Legacy stored `ALL_DEVICES` configurations are read as
+`SELECTED_SITES` and new requests to restore the bypass are rejected.
+Regardless of configuration version, the runtime itself filters by the
+saved selected-site allowlist.
 
-- `SELECTED_SITES` (default/backward-compatible): fetch tenant inventory and
-  stage only devices whose observed Central site belongs to an enabled scope.
-- `ALL_DEVICES` (opt-in): stage **all** devices from this customer tenant,
-  including devices without a Central site. Existing site mapping is applied
-  where available; unresolved devices remain subject to Importer v2 identity
-  and hierarchy review, and safe auto-publication rules stay authoritative.
+The sync requires a nonempty target NOC customer and at least one enabled
+site. Site matches use the stable Classic `site_id` where reported, falling
+back to normalized names only if identifiers are absent or do not conflict.
+Devices at excluded, unknown, or unassigned sites are **not staged** and
+cannot auto-publish through this run. Aruba groups are not considered sites.
+Scope-conflict and exclusion counts are added to the sync result/history.
 
-Both are deliberately non-full exports. Turning off a site or switching modes
-does **not** remove devices from the NOC canonical inventory. Actual Aruba
-site assignments must be managed in Aruba Central, not inferred from
-configuration groups. MSP `TenantID` dispatch is outside this single-customer
-connection scope.
+Unsaved customer/site changes block manual sync until saved, preventing a
+run with an old selection the operator has just edited.
+
+All selected-site snapshots are non-full exports. Turning off a site
+does **not** remove devices from the NOC canonical inventory. Previously
+published devices outside the scope of this connection require a separate
+operator review before any cleanup; never delete records shared with other
+providers automatically. MSP `TenantID` dispatch remains outside this
+single-customer connection scope.
