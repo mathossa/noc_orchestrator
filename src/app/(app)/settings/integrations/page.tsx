@@ -1,4 +1,5 @@
 import { ButtonLink } from '@/components/ui/button'
+import { IntegrationSetupHelpLink } from '@/components/settings/integration-setup-help-link'
 import {
   DataTable,
   type DataTableColumn,
@@ -193,6 +194,7 @@ export default async function IntegrationsPage() {
               <div className="font-semibold text-[var(--foreground)]">
                 Auvik Network Management
               </div>
+              <IntegrationSetupHelpLink provider="auvik" />
               <StatusBadge tone="success">Device API v2</StatusBadge>
             </div>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--muted)]">
@@ -222,7 +224,7 @@ export default async function IntegrationsPage() {
         </div>
         <div className="grid gap-4 border-t border-[var(--border)] px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
           <div>
-            <div className="flex flex-wrap items-center gap-2"><div className="font-semibold text-[var(--foreground)]">Cisco Meraki Dashboard</div><StatusBadge tone="success">API v1</StatusBadge></div>
+            <div className="flex flex-wrap items-center gap-2"><div className="font-semibold text-[var(--foreground)]">Cisco Meraki Dashboard</div><IntegrationSetupHelpLink provider="meraki" /><StatusBadge tone="success">API v1</StatusBadge></div>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--muted)]">Encrypted Dashboard API connection, organization/network scope and shared cross-provider reconciliation through Importer v2.</p>
             {merakiConnections.length > 0 ? <div className="mt-2 text-xs text-[var(--muted-strong)]">{merakiConnections.length} configured connection{merakiConnections.length === 1 ? '' : 's'}</div> : null}
           </div>
