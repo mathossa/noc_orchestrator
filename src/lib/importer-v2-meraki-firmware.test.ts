@@ -73,4 +73,71 @@ describe('Importer v2 Meraki firmware evaluation', () => {
       label: 'Meraki MR',
     })
   })
+  it.each([
+    ['wireless-32-2-4', 'Meraki MR', '32.2.4', 'Meraki CW9162I', 'Access Point'],
+    ['switch-17-2-2', 'Meraki MS', '17.2.2', 'MS130-24P', 'Switch'],
+    ['wired-18-211-2', 'Meraki MX', '18.211.2', 'MX75', 'Firewall'],
+  ])(
+    'recognizes Dashboard firmware slug %s without rewriting source evidence',
+    (firmwareSlug, platform, version, model, deviceType) => {
+      const base = input()
+      const evaluated = evaluateImporterV2WithFirmware({
+        ...base,
+        catalog: {
+          ...base.catalog,
+          values: {
+            ...base.catalog.values,
+            model: [{ id: 'matching-model', label: model }],
+            deviceType: [{ id: 'matching-type', label: deviceType }],
+          },
+        },
+        rows: [
+          {
+            ...base.rows[0],
+            rawValues: {
+              ...base.rows[0].rawValues,
+              model,
+              deviceType,
+              firmwareVersion: firmwareSlug,
+              softwareVersion: null,
+            },
+          },
+        ],
+      }).rows[0]
+
+      expect(evaluated.firmware.rawEvidence.firmwareVersion).toBe(firmwareSlug)
+      expect(evaluated.firmware.rawEvidence.softwareVersion).toBeNull()
+      expect(evaluated.firmware.runningVersion).toBe(version)
+      expect(evaluated.firmware.proposedSoftwarePlatform).toBe(platform)
+      expect(evaluated.firmware.platformEvidence).toBe('VERSION_EVIDENCE')
+      expect(evaluated.firmware.compatibility.status).toBe('COMPATIBLE')
+      expect(evaluated.firmware.warnings).toEqual([])
+      expect(evaluated.proposedCanonicalValues.currentFirmware?.label).toBe(version)
+      expect(evaluated.proposedCanonicalValues.softwarePlatform?.label).toBe(platform)
+    },
+  )
+
+  it('does not treat Meraki-shaped slugs from unrelated vendors as proven firmware', () => {
+    const base = input()
+    const evaluated = evaluateImporterV2WithFirmware({
+      ...base,
+      profile: { ...base.profile, provider: 'OTHER' },
+      rows: [
+        {
+          ...base.rows[0],
+          rawValues: {
+            ...base.rows[0].rawValues,
+            vendor: 'Other Networks',
+            model: 'Unrelated Device',
+            firmwareVersion: 'wireless-32-2-4',
+            softwareVersion: null,
+          },
+        },
+      ],
+    }).rows[0]
+
+    expect(evaluated.firmware.runningVersion).toBeNull()
+    expect(evaluated.firmware.proposedSoftwarePlatform).toBeNull()
+  })
+
 })
