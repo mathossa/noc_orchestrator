@@ -1,0 +1,31 @@
+# Scoped validation while Issue #116 is in its own development branch.
+# Copy of the existing Issue #114 adapter validation workflow.
+name: Issue 116 Aruba adapter validation
+
+on:
+  push:
+    branches:
+      - issue/116-aruba-central-inventory
+
+concurrency:
+  group: issue-116-aruba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts

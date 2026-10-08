@@ -31,6 +31,9 @@ export function createDefaultJobHandlers(): JobHandlers {
       } else if (payload.provider === 'AUVIK' && payload.adapterType === 'auvik-api-v2') {
         const { runAuvikInventorySync } = await import('@/lib/auvik-inventory-sync')
         result = await runAuvikInventorySync(payload.sourceId, { trigger: 'SCHEDULED' })
+      } else if (payload.provider === 'ARUBA' && payload.adapterType === 'aruba-central-classic') {
+        const { runClassicCentralInventorySync } = await import('@/lib/aruba-classic-inventory-sync')
+        result = await runClassicCentralInventorySync(payload.sourceId, { trigger: 'SCHEDULED' })
       } else {
         throw new Error(
           `No scheduled inventory sync handler exists for ${payload.provider}/${payload.adapterType}.`,

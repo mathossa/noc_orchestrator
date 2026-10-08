@@ -404,6 +404,40 @@ async function tryPublishNewRowsBulk(input: {
     }
   }
 
+  // A different durable identity can still propose a name already owned
+  // by a canonical device. The DB unique key is (customerId, name), not
+  // (customerId, siteId, name); never auto-merge on a naming collision.
+  const proposedNames = new Set<string>()
+  for (const row of prepared) {
+    const key = JSON.stringify([row.customerId, row.name])
+    if (proposedNames.has(key)) {
+      throw new ImporterV2PublicationConflictError(
+        `Multiple new devices in this import would have customer/name “${row.name}”. Resolve the names or identities before publication.`,
+      )
+    }
+    proposedNames.add(key)
+  }
+  if (prepared.length) {
+    const current = await input.tx.device.findMany({
+      where: {
+        customerId: { in: [...new Set(prepared.map(row => row.customerId))] },
+        name: { in: [...new Set(prepared.map(row => row.name))] },
+      },
+      select: { customerId: true, name: true },
+    })
+    const owned = new Set(current.map(device =>
+      JSON.stringify([device.customerId, device.name]),
+    ))
+    const collision = prepared.find(row =>
+      owned.has(JSON.stringify([row.customerId, row.name])),
+    )
+    if (collision) {
+      throw new ImporterV2PublicationConflictError(
+        `Device name “${collision.name}” already exists for this customer. Confirm the canonical identity instead of creating another device.`,
+      )
+    }
+  }
+
   await assertBulkNewIdentitiesAreUnique(input.tx, input.batch.provider, prepared)
 
   for (const part of chunks(prepared, BULK_PUBLICATION_CHUNK_SIZE)) {
@@ -1820,6 +1854,18 @@ async function publishRow(input: {
     )
     await tx.device.update({ where: { id: canonicalDeviceId }, data })
   } else {
+    // The customer/name uniqueness rule is a collision guard, not proof that
+    // two observations represent the same device. Fail with a reviewable
+    // conflict rather than surfacing a raw Prisma P2002 database exception.
+    const alreadyNamed = await tx.device.findFirst({
+      where: { customerId, name },
+      select: { id: true },
+    })
+    if (alreadyNamed) {
+      throw new ImporterV2PublicationConflictError(
+        `Row ${row.rowNumber}: device name “${name}” already exists for this customer. Confirm the existing canonical device or correct the staged name; do not merge by name automatically.`,
+      )
+    }
     const createdDevice = await tx.device.create({
       data: {
         customerId,
