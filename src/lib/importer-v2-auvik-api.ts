@@ -13,6 +13,7 @@ export const AUVIK_API_PROVIDER = 'AUVIK'
 export const AUVIK_API_V2_ADAPTER_TYPE = 'auvik-api-v2'
 
 export type AuvikImporterV2TenantContext = {
+  enabled?: boolean
   tenantId: string
   tenantName?: string | null
   customer?: string | null

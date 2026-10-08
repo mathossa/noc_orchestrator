@@ -6,6 +6,15 @@ const mocks = vi.hoisted(() => ({
   stageNormalized: vi.fn(),
   initializeAutomation: vi.fn(),
   autoPublishValid: vi.fn(),
+  beginRun: vi.fn(),
+  completeRun: vi.fn(),
+  failRun: vi.fn(),
+}))
+
+vi.mock('@/lib/inventory-sync-run-store', () => ({
+  beginInventorySyncRun: mocks.beginRun,
+  completeInventorySyncRun: mocks.completeRun,
+  failInventorySyncRun: mocks.failRun,
 }))
 
 vi.mock('@/lib/auvik-integration-store', () => ({
@@ -33,6 +42,8 @@ import { runAuvikInventorySync } from '@/lib/auvik-inventory-sync'
 describe('Auvik inventory sync orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.beginRun.mockResolvedValue({ id: 'run-1' })
+    mocks.completeRun.mockResolvedValue({ id: 'run-1', status: 'SUCCEEDED', trigger: 'MANUAL' })
     mocks.getConnectionCredentials.mockResolvedValue({
       connection: {
         id: 'source-1',
@@ -175,12 +186,68 @@ describe('Auvik inventory sync orchestration', () => {
       publishedLogicalDeviceCount: 2,
       reconciliationRequired: false,
     })
-    expect(result.source).toEqual({
+    expect(result.source).toMatchObject({
       id: 'source-1',
       sourceAdapterId: 'auvik-api-v2:source-1',
       tenantCount: 2,
+      configuredTenantCount: 2,
       deviceCount: 2,
+      partial: false,
+      failures: [],
     })
+    expect(mocks.beginRun).toHaveBeenCalledWith('source-1', 'MANUAL')
+    expect(mocks.completeRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: 'run-1', status: 'SUCCEEDED', autoPublishedCount: 2,
+    }))
+  })
+
+  it('skips disabled tenants and records a scheduled unattended run without human confirmation', async () => {
+    const existing = await mocks.getConnectionCredentials()
+    mocks.getConnectionCredentials.mockResolvedValueOnce({
+      ...existing,
+      connection: {
+        ...existing.connection,
+        configuration: {
+          ...existing.connection.configuration,
+          tenants: [
+            { tenantId: 'tenant-a', enabled: true, customer: 'Customer A', site: 'Site A' },
+            { tenantId: 'tenant-b', enabled: false, customer: 'Customer B', site: 'Site B' },
+          ],
+        },
+      },
+    })
+    const result = await runAuvikInventorySync('source-1', { trigger: 'SCHEDULED' })
+    expect(mocks.listDevices).toHaveBeenCalledTimes(1)
+    expect(mocks.listDevices).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a' }))
+    expect(mocks.beginRun).toHaveBeenCalledWith('source-1', 'SCHEDULED')
+    expect(mocks.completeRun).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'SUCCEEDED',
+      metadata: expect.objectContaining({ unattended: true, tenantCount: 1 }),
+    }))
+    expect(result.source.tenantCount).toBe(1)
+  })
+
+  it('stages successful tenants only and marks a partial run as a non-full export', async () => {
+    mocks.listDevices.mockRejectedValueOnce(new Error('Auvik API request failed with HTTP 503.'))
+    const result = await runAuvikInventorySync('source-1', { trigger: 'SCHEDULED' })
+    expect(result.source).toMatchObject({ partial: true, tenantCount: 1 })
+    expect(result.source.failures).toEqual([
+      { tenantId: 'tenant-a', error: 'Auvik API request failed with HTTP 503.' },
+    ])
+    expect(mocks.stageNormalized).toHaveBeenCalledWith(expect.objectContaining({
+      isFullInventoryExport: false,
+    }))
+    expect(mocks.completeRun).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'PARTIAL', errorCount: 1,
+    }))
+  })
+
+  it('marks unsuccessful runs failed rather than publishing incomplete information', async () => {
+    mocks.listDevices.mockRejectedValue(new Error('Auvik unavailable'))
+    await expect(runAuvikInventorySync('source-1', { trigger: 'SCHEDULED' }))
+      .rejects.toThrow('Auvik inventory failed for all enabled tenants')
+    expect(mocks.stageNormalized).not.toHaveBeenCalled()
+    expect(mocks.failRun).toHaveBeenCalledWith('run-1', expect.any(Error))
   })
 
   it('refuses sync until the connection is tested and enabled', async () => {

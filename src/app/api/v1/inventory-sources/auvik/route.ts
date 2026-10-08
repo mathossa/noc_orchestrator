@@ -24,6 +24,7 @@ function tenantScopes(value: unknown): AuvikInventoryTenantScope[] {
       throw new Error('Each tenant scope requires tenantId.')
     }
     return {
+      enabled: item.enabled === undefined ? undefined : item.enabled === true,
       tenantId: item.tenantId,
       tenantName: optionalString(item.tenantName),
       customer: optionalString(item.customer),

@@ -1,39 +1,37 @@
 import type { QueueOptions } from 'pg-boss'
 
-export const JOB_NAMES = ['example.some-job'] as const
-
+export const JOB_NAMES = ['example.some-job', 'inventory.sync'] as const
 export type JobName = (typeof JOB_NAMES)[number]
 
-export interface ExampleSomeJobPayload {
-  version: 1
-  marker: string
-}
+export interface ExampleSomeJobPayload { version: 1; marker: string }
+export interface ExampleSomeJobResult { version: 1; marker: string; handledAt: string }
 
-export interface ExampleSomeJobResult {
+export interface InventorySyncJobPayload {
   version: 1
-  marker: string
-  handledAt: string
+  sourceId: string
+  provider: string
+  adapterType: string
+}
+export interface InventorySyncJobResult {
+  version: 1
+  sourceId: string
+  provider: string
+  runId: string
+  status: 'SUCCEEDED' | 'PARTIAL'
 }
 
 export interface JobPayloadMap {
   'example.some-job': ExampleSomeJobPayload
+  'inventory.sync': InventorySyncJobPayload
 }
-
 export interface JobResultMap {
   'example.some-job': ExampleSomeJobResult
+  'inventory.sync': InventorySyncJobResult
 }
-
 export interface JobDefinition {
-  queue: QueueOptions & {
-    policy: 'exclusive'
-  }
+  queue: QueueOptions & { policy: 'exclusive' }
 }
 
-/**
- * Queue configuration is infrastructure policy only. A registered pg-boss job is
- * never authorization for a firmware/device change. Future execution work must
- * continue through the explicit approval and safety model owned by issue #82.
- */
 export const JOB_DEFINITIONS: Record<JobName, JobDefinition> = {
   'example.some-job': {
     queue: {
@@ -44,6 +42,17 @@ export const JOB_DEFINITIONS: Record<JobName, JobDefinition> = {
       expireInSeconds: 60,
       retentionSeconds: 14 * 24 * 60 * 60,
       deleteAfterSeconds: 7 * 24 * 60 * 60,
+    },
+  },
+  'inventory.sync': {
+    queue: {
+      policy: 'exclusive',
+      retryLimit: 2,
+      retryDelay: 30,
+      retryBackoff: true,
+      expireInSeconds: 60 * 60,
+      retentionSeconds: 30 * 24 * 60 * 60,
+      deleteAfterSeconds: 14 * 24 * 60 * 60,
     },
   },
 }
@@ -58,26 +67,33 @@ export function parseJobPayload<N extends JobName>(
 ): JobPayloadMap[N] {
   switch (name) {
     case 'example.some-job': {
+      if (!isRecord(value) || value.version !== 1 || !isNonEmptyString(value.marker)) {
+        throw new Error('Invalid payload for example.some-job')
+      }
+      return { version: 1, marker: value.marker } as JobPayloadMap[N]
+    }
+    case 'inventory.sync': {
       if (
         !isRecord(value) ||
         value.version !== 1 ||
-        !isNonEmptyString(value.marker)
+        !isNonEmptyString(value.sourceId) ||
+        !isNonEmptyString(value.provider) ||
+        !isNonEmptyString(value.adapterType)
       ) {
-        throw new Error('Invalid payload for example.some-job')
+        throw new Error('Invalid payload for inventory.sync')
       }
-
       return {
         version: 1,
-        marker: value.marker,
+        sourceId: value.sourceId,
+        provider: value.provider,
+        adapterType: value.adapterType,
       } as JobPayloadMap[N]
     }
   }
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }

@@ -784,6 +784,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
                   <th className="px-2 py-2">Select</th>
                   <th className="px-2 py-2">Row / status</th>
                   <th className="px-2 py-2">Device</th>
+                  {data?.batch.provider === 'MERAKI' ? <th className="px-2 py-2">Meraki availability</th> : null}
                   <th className="px-2 py-2">Customer → Subdomain → Site</th>
                   <th className="px-2 py-2">Type</th>
                   <th className="px-2 py-2">Source model</th>
@@ -807,7 +808,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
                 ) : null}
                 {!loading && data?.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="p-6 text-center text-sm text-[var(--muted)]">
+                    <td colSpan={data?.batch.provider === 'MERAKI' ? 15 : 14} className="p-6 text-center text-sm text-[var(--muted)]">
                       No rows match the current filters.
                     </td>
                   </tr>
@@ -871,6 +872,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
                           {display(row.hostname)}
                         </span>
                       </td>
+                      {data?.batch.provider === 'MERAKI' ? <td className="px-2 py-2 align-top">{row.availabilityStatus ? <span className="font-semibold capitalize">{row.availabilityStatus}</span> : <span className="text-[var(--muted)]">Unknown</span>}</td> : null}
                       <td className="px-2 py-2 align-top text-[var(--muted-strong)]">
                         {display(row.customer)} → {display(row.businessUnit)} → {display(row.site)}
                       </td>

@@ -53,6 +53,7 @@ function normalizeTenantScope(
   const tenantId = clean(value.tenantId)
   if (!tenantId) throw new Error('Every Auvik tenant scope requires a tenant ID.')
   return {
+    enabled: value.enabled !== false,
     tenantId,
     tenantName: clean(value.tenantName),
     customer: clean(value.customer),
@@ -91,6 +92,7 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
         }
         const item = tenant as Record<string, unknown>
         return normalizeTenantScope({
+          enabled: item.enabled !== false,
           tenantId: typeof item.tenantId === 'string' ? item.tenantId : '',
           tenantName:
             typeof item.tenantName === 'string' ? item.tenantName : null,
@@ -304,7 +306,7 @@ export async function updateAuvikInventoryConnection(input: {
     : null
 
   const changesConnectionIdentity =
-    input.region !== undefined || Boolean(input.credentials)
+    configuration.region !== existing.configuration.region || Boolean(input.credentials)
   if (
     input.enabled === true &&
     existing.connectionTest.status !== 'SUCCESS' &&

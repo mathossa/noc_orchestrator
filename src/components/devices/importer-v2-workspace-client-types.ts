@@ -6,6 +6,7 @@ export type WorkspaceRow = {
   inclusion: string
   statuses: string[]
   primaryStatus: string
+  availabilityStatus?: string | null
   repeatClassification: string | null
   issueCount: number
   hasErrors: boolean
@@ -63,6 +64,7 @@ export type EvaluatedField = {
 export type RowDetail = WorkspaceRow & {
   evaluated: {
     rawValues?: Record<string, string | null>
+    sourceEvidence?: { availability?: { status?: string; observedAt?: string | null } | null }
     proposedCanonicalValues?: Record<
       string,
       { id: string | null; label: string } | null

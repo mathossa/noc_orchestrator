@@ -20,6 +20,7 @@ export async function POST(request: Request, context: RouteContext) {
         source: result.source,
         automation: result.automation,
         autoPublication: result.autoPublication,
+        syncRun: result.syncRun,
       },
     })
   } catch (error) {

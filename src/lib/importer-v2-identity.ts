@@ -256,22 +256,42 @@ function comparableContext(value: string | null | undefined) {
   return normalizeText(value)?.toLocaleLowerCase('en-US') ?? null
 }
 
+// Cisco and Meraki inventory sources use different display names for the same
+// manufacturer and hardware model. These aliases are *context only*: durable
+// serial/MAC evidence is still required for an identity candidate.
+function comparableHardwareVendor(value: string | null | undefined) {
+  const normalized = comparableContext(value)
+  if (
+    normalized === 'cisco' ||
+    normalized === 'cisco systems' ||
+    normalized === 'cisco meraki' ||
+    normalized === 'meraki'
+  ) {
+    return 'cisco'
+  }
+  return normalized
+}
+
+function comparableCiscoModel(value: string) {
+  return value.replace(/^(?:(?:cisco\s+)?meraki|cisco)\s+/, '')
+}
+
 function compatibleHardwareContext(
   source: ImporterV2IdentityContext | undefined,
   candidate: ImporterV2IdentityContext | undefined,
 ) {
-  const sourceVendor = comparableContext(source?.vendor)
+  const sourceVendor = comparableHardwareVendor(source?.vendor)
+  const candidateVendor = comparableHardwareVendor(candidate?.vendor)
   const sourceModel = comparableContext(source?.model)
-  const candidateVendor = comparableContext(candidate?.vendor)
   const candidateModel = comparableContext(candidate?.model)
-  return Boolean(
-    sourceVendor &&
-      sourceModel &&
-      candidateVendor &&
-      candidateModel &&
-      sourceVendor === candidateVendor &&
-      sourceModel === candidateModel,
-  )
+  if (!sourceVendor || !candidateVendor || !sourceModel || !candidateModel) {
+    return false
+  }
+  if (sourceVendor !== candidateVendor) return false
+  if (sourceVendor === 'cisco') {
+    return comparableCiscoModel(sourceModel) === comparableCiscoModel(candidateModel)
+  }
+  return sourceModel === candidateModel
 }
 
 function candidateConfidence(

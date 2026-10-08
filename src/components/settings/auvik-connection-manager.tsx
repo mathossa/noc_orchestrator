@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
   id: string
@@ -18,6 +19,7 @@ type Connection = {
     region: string
     tenants: readonly {
       tenantId: string
+      enabled?: boolean
       tenantName?: string | null
       customer?: string | null
       businessUnit?: string | null
@@ -42,6 +44,7 @@ type DiscoveredTenant = {
 }
 
 type TenantEditor = {
+  enabled: boolean
   tenantId: string
   tenantName: string
   customer: string
@@ -53,6 +56,7 @@ function editorTenant(
   tenant?: Connection['configuration']['tenants'][number],
 ): TenantEditor {
   return {
+    enabled: tenant?.enabled !== false,
     tenantId: tenant?.tenantId ?? '',
     tenantName: tenant?.tenantName ?? '',
     customer: tenant?.customer ?? '',
@@ -71,8 +75,10 @@ async function responseData(response: Response) {
 
 export function AuvikConnectionManager({
   initialConnection,
+  initialSyncRuns,
 }: {
   initialConnection: Connection
+  initialSyncRuns: InventorySourceSyncRun[]
 }) {
   const router = useRouter()
   const [connection, setConnection] = useState(initialConnection)
@@ -88,9 +94,7 @@ export function AuvikConnectionManager({
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
-  const [discoveredTenants, setDiscoveredTenants] = useState<
-    DiscoveredTenant[]
-  >([])
+  const [syncRuns, setSyncRuns] = useState<InventorySourceSyncRun[]>(initialSyncRuns)
 
   const updateTenant = (
     index: number,
@@ -230,7 +234,7 @@ export function AuvikConnectionManager({
     }
   }
 
-  const discoverTenants = async () => {
+  const syncTenantsAndSites = async () => {
     setBusy('discover')
     setMessage(null)
     try {
@@ -238,38 +242,27 @@ export function AuvikConnectionManager({
         `/api/v1/inventory-sources/auvik/${connection.id}/tenants`,
         { method: 'POST' },
       )
-      const result = (await responseData(response)) as DiscoveredTenant[]
-      setDiscoveredTenants(result)
-      setMessage(
-        `Discovered ${result.length.toLocaleString()} accessible Auvik tenant${result.length === 1 ? '' : 's'}.`,
-      )
+      const discovered = (await responseData(response)) as DiscoveredTenant[]
+      setTenants((current) => {
+        const existing = new Map(current.filter((tenant) => tenant.tenantId).map((tenant) => [tenant.tenantId, tenant]))
+        return [
+          ...current.filter((tenant) => tenant.tenantId && !discovered.some((candidate) => candidate.id === tenant.tenantId)),
+          ...discovered.map((tenant) => {
+            const saved = existing.get(tenant.id)
+            return saved ?? editorTenant({
+              tenantId: tenant.id,
+              tenantName: tenant.domainPrefix,
+              enabled: false,
+            })
+          }),
+        ]
+      })
+      setMessage(`Discovered ${discovered.length} Auvik tenants. Review enabled locations and save settings; newly discovered tenants start disabled.`)
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to discover Auvik tenants.',
-      )
+      setMessage(error instanceof Error ? error.message : 'Unable to sync Auvik tenants.')
     } finally {
       setBusy(null)
     }
-  }
-
-  const addDiscoveredTenant = (tenant: DiscoveredTenant) => {
-    setTenants((current) => {
-      if (current.some((entry) => entry.tenantId === tenant.id)) return current
-      const replacement = editorTenant({
-        tenantId: tenant.id,
-        tenantName: tenant.domainPrefix,
-      })
-      const onlyEmpty =
-        current.length === 1 &&
-        !current[0].tenantId &&
-        !current[0].tenantName &&
-        !current[0].customer &&
-        !current[0].businessUnit &&
-        !current[0].site
-      return onlyEmpty ? [replacement] : [...current, replacement]
-    })
   }
 
   const syncNow = async () => {
@@ -282,6 +275,12 @@ export function AuvikConnectionManager({
         { method: 'POST' },
       )
       const result = await responseData(response)
+      if (result.syncRun) {
+        setSyncRuns((current) => [
+          { ...result.syncRun, startedAt: new Date(result.syncRun.startedAt).toISOString(), finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null },
+          ...current,
+        ].slice(0, 20))
+      }
       const autoPublication = result.autoPublication as {
         status: 'PUBLISHED' | 'REVIEW_REQUIRED' | 'NOTHING_TO_PUBLISH'
         publishedLogicalDeviceCount: number
@@ -295,23 +294,26 @@ export function AuvikConnectionManager({
 
       const staged =
         `Auvik sync staged ${result.source.deviceCount.toLocaleString()} devices from ${result.source.tenantCount.toLocaleString()} tenant${result.source.tenantCount === 1 ? '' : 's'}.`
+      const partialNotice = result.source.partial
+        ? ` ${result.source.failures.length} tenant(s) failed; successful tenant data was staged as a partial export.`
+        : ''
       if (autoPublication.status === 'PUBLISHED') {
         const published =
           ` Auto-published ${autoPublication.publishedLogicalDeviceCount.toLocaleString()} valid device${autoPublication.publishedLogicalDeviceCount === 1 ? '' : 's'}.`
         const review = autoPublication.reconciliationRequired
           ? ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} still need reconciliation.`
           : ' No reconciliation is required.'
-        setMessage(staged + published + review)
+        setMessage(staged + published + review + partialNotice)
       } else if (autoPublication.reconciliationRequired) {
         setMessage(
           staged +
             ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} need reconciliation.` +
             (autoPublication.error
               ? ` Automatic publication paused: ${autoPublication.error}`
-              : ''),
+              : '') + partialNotice,
         )
       } else {
-        setMessage(staged + ' Nothing required reconciliation or publication.')
+        setMessage(staged + ' Nothing required reconciliation or publication.' + partialNotice)
       }
     } catch (error) {
       setMessage(
@@ -321,6 +323,8 @@ export function AuvikConnectionManager({
       setBusy(null)
     }
   }
+
+  const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
 
   const testTone =
     connection.connectionTest.status === 'SUCCESS'
@@ -349,9 +353,9 @@ export function AuvikConnectionManager({
           </div>
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Tenant scope</div>
+          <div className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Enabled tenants</div>
           <div className="mt-1 text-2xl font-semibold">
-            {connection.configuration.tenants.length}
+            {connection.configuration.tenants.filter((tenant) => tenant.enabled !== false).length}
           </div>
         </div>
       </div>
@@ -390,7 +394,7 @@ export function AuvikConnectionManager({
                 busy !== null ||
                 !connection.enabled ||
                 connection.connectionTest.status !== 'SUCCESS' ||
-                connection.configuration.tenants.length === 0
+                !hasEnabledScope
               }
               onClick={() => void syncNow()}
             >
@@ -463,9 +467,9 @@ export function AuvikConnectionManager({
                 busy !== null ||
                 connection.connectionTest.status !== 'SUCCESS'
               }
-              onClick={() => void discoverTenants()}
+              onClick={() => void syncTenantsAndSites()}
             >
-              {busy === 'discover' ? 'Discovering…' : 'Discover tenants'}
+              {busy === 'discover' ? 'Syncing tenants…' : 'Sync tenants & sites'}
             </Button>
             <Button onClick={() => setTenants((current) => [...current, editorTenant()])}>
               Add manually
@@ -473,42 +477,15 @@ export function AuvikConnectionManager({
           </div>
         </div>
         <div className="space-y-3 p-5">
-          {discoveredTenants.length > 0 ? (
-            <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--accent-light)]">
-                Discovered tenants
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {discoveredTenants.map((tenant) => {
-                  const configured = tenants.some(
-                    (entry) => entry.tenantId === tenant.id,
-                  )
-                  return (
-                    <button
-                      key={tenant.id}
-                      type="button"
-                      disabled={configured}
-                      onClick={() => addDiscoveredTenant(tenant)}
-                      className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-left text-xs disabled:opacity-50"
-                    >
-                      <strong>{tenant.domainPrefix}</strong>
-                      <span className="ml-2 text-[var(--muted)]">
-                        {tenant.tenantType ?? 'tenant'} · {tenant.id}
-                      </span>
-                      {configured ? (
-                        <span className="ml-2 text-[var(--success)]">Configured</span>
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
           {tenants.map((tenant, index) => (
             <div
               key={index}
               className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4"
             >
+              <label className="mb-3 flex items-center gap-2 text-xs font-semibold">
+                <input type="checkbox" checked={tenant.enabled} disabled={!tenant.tenantId} onChange={(event) => setTenants((current) => current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))} aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`} />
+                Enable tenant for synchronization
+              </label>
               <div className="grid gap-3 lg:grid-cols-5">
                 {(
                   [
@@ -529,8 +506,7 @@ export function AuvikConnectionManager({
                   </label>
                 ))}
               </div>
-              {tenants.length > 1 ? (
-                <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex justify-end">
                   <Button
                     variant="ghost"
                     onClick={() =>
@@ -542,7 +518,6 @@ export function AuvikConnectionManager({
                     Remove tenant
                   </Button>
                 </div>
-              ) : null}
             </div>
           ))}
           <div className="flex justify-end">
@@ -556,6 +531,15 @@ export function AuvikConnectionManager({
           </div>
         </div>
       </section>
+
+      <InventorySourceSchedulePanel
+        provider="auvik"
+        sourceId={connection.id}
+        enabled={connection.enabled}
+        connectionTestPassed={connection.connectionTest.status === 'SUCCESS'}
+        hasEnabledScope={hasEnabledScope}
+        syncRuns={syncRuns}
+      />
 
       {message ? (
         <div className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-4 py-3 text-sm">

@@ -235,8 +235,21 @@ function isPlaceholder(
   return placeholders.some((placeholder) => key(placeholder) === valueKey)
 }
 
-function extractVersion(value: string | null) {
+function extractVersion(
+  value: string | null,
+  evidence?: ImporterV2FirmwareEvidence,
+) {
   if (!value) return null
+
+  // Meraki Dashboard represents release components with hyphens (for example
+  // wireless-32-2-4). Only interpret this vendor-specific format with Cisco or
+  // Meraki identity evidence; retain the original string in rawEvidence.
+  if (evidence && (isVendor(evidence, 'meraki') || isVendor(evidence, 'cisco'))) {
+    const dashboardVersion = value.match(
+      /^(?:wireless|switch|wired)-(\d+(?:-\d+){1,3})$/i,
+    )
+    if (dashboardVersion?.[1]) return dashboardVersion[1].replaceAll('-', '.')
+  }
 
   const arubaCode = value.match(/\b([A-Z]{2}\.\d{2}\.\d{2}\.\d{4})\b/i)
   if (arubaCode?.[1]) return arubaCode[1].toUpperCase()
@@ -515,8 +528,8 @@ export function interpretImporterV2Firmware(
   const softwarePlaceholder = Boolean(
     rawSoftware && isPlaceholder(rawSoftware, context),
   )
-  const firmwareVersion = firmwarePlaceholder ? null : extractVersion(rawFirmware)
-  const softwareVersion = softwarePlaceholder ? null : extractVersion(rawSoftware)
+  const firmwareVersion = firmwarePlaceholder ? null : extractVersion(rawFirmware, evidence)
+  const softwareVersion = softwarePlaceholder ? null : extractVersion(rawSoftware, evidence)
   const warnings: ImporterV2FirmwareWarning[] = []
 
   if (rawFirmware && firmwarePlaceholder) {

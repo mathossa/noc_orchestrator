@@ -26,6 +26,11 @@ function key(value: string | null | undefined) {
 function merakiFirmwareFamily(value: string | null | undefined) {
   const normalized = clean(value)
   if (!normalized) return null
+  const dashboardSlug = /^(wireless|switch|wired)-\d+(?:-\d+){1,3}$/i.exec(normalized)
+  if (dashboardSlug) {
+    const family: Record<string, string> = { wireless: 'MR', switch: 'MS', wired: 'MX' }
+    return family[dashboardSlug[1].toLocaleLowerCase('en-US')] ?? null
+  }
   const match = /^(?:Cisco\s+Meraki\s+|Meraki\s+)?(MR|MS|MX|MV|MG|MT)\s+(?=\d)/i.exec(normalized)
   return match?.[1]?.toUpperCase() ?? null
 }

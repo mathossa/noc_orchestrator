@@ -10,7 +10,7 @@ import {
   createDefaultJobHandlers,
   type JobHandler,
   type JobHandlers,
-} from './handlers.js'
+} from '@/jobs/handlers'
 import {
   JOB_DEFINITIONS,
   JOB_NAMES,
@@ -18,7 +18,7 @@ import {
   type JobName,
   type JobPayloadMap,
   type JobResultMap,
-} from './registry.js'
+} from '@/jobs/registry'
 
 export interface JobSystemOptions {
   databaseUrl?: string
@@ -170,7 +170,7 @@ export class JobSystem {
     options: WorkerOptions = {},
   ): Promise<void> {
     for (const name of JOB_NAMES) {
-      await this.registerWorker(name, handlers[name], options)
+      await this.registerWorker(name, handlers[name] as JobHandler<typeof name>, options)
     }
   }
 
@@ -216,6 +216,13 @@ export class JobSystem {
     key?: string,
   ): Promise<Schedule | null> {
     return this.boss.getSchedule(name, key)
+  }
+
+  previewRecurring(expression: string, timezone?: string): Date[] {
+    return this.boss.previewSchedule(
+      expression,
+      timezone ? { tz: timezone } : undefined,
+    )
   }
 
   async unschedule<N extends JobName>(name: N, key?: string): Promise<void> {

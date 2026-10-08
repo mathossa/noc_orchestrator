@@ -1,0 +1,66 @@
+name: Issue 115 Meraki adapter validation
+
+on:
+  push:
+    branches:
+      - issue/115-meraki-dashboard-inventory
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'prisma/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/issue-115-meraki-adapter-validation.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: noc_orchestrator_schema_check
+          POSTGRES_USER: noc_orchestrator
+          POSTGRES_PASSWORD: schema_check_only
+        ports:
+          - 5439:5432
+        options: >-
+          --health-cmd "pg_isready -U noc_orchestrator -d noc_orchestrator_schema_check"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run worker:build
+      - name: Verify compiled worker runtime imports
+        env:
+          DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
+        run: npm run worker:smoke
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts
+      - name: Verify Prisma migration and schema parity
+        env:
+          DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
+        run: |
+          npm run prisma:deploy
+          npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
+      - name: Verify Next.js production build
+        env:
+          DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
+          BETTER_AUTH_SECRET: ci-only-meraki-build-secret-not-for-production
+          BETTER_AUTH_URL: http://localhost:3000
+          INVENTORY_SOURCE_SECRET_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: npm run build

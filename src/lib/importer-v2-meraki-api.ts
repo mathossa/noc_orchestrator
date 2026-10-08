@@ -1,0 +1,188 @@
+import type {
+  InventorySourceAdapter,
+  InventorySourceDefinition,
+  NormalizedInventorySourceRow,
+} from '@/lib/inventory-source-adapter'
+import {
+  normalizeInventoryProvider,
+  normalizedInventorySource,
+} from '@/lib/inventory-source-adapter'
+import type { MerakiDevice, MerakiDeviceAvailability } from '@/lib/meraki-api-client'
+
+export const MERAKI_API_PROVIDER = 'MERAKI'
+export const MERAKI_DASHBOARD_API_ADAPTER_TYPE = 'meraki-dashboard-api-v1'
+
+export type MerakiNetworkScope = {
+  enabled?: boolean
+  networkId: string
+  networkName?: string | null
+  site?: string | null
+}
+
+export type MerakiOrganizationScope = {
+  enabled?: boolean
+  networksDiscovered?: boolean
+  organizationId: string
+  organizationName?: string | null
+  customer?: string | null
+  businessUnit?: string | null
+  networks: readonly MerakiNetworkScope[]
+}
+
+export type MerakiOrganizationInventory = {
+  context: MerakiOrganizationScope
+  devices: readonly MerakiDevice[]
+  availabilities?: readonly MerakiDeviceAvailability[]
+  availabilityObservedAt?: string | null
+}
+
+export type MerakiApiAdapterInput = {
+  organizations: readonly MerakiOrganizationInventory[]
+}
+
+function clean(value: unknown) {
+  if (typeof value !== 'string') return null
+  const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  return normalized || null
+}
+
+export function merakiProductTypeToDeviceType(productType: unknown) {
+  switch (clean(productType)?.toLocaleLowerCase('en-US')) {
+    case 'switch':
+      return 'Switch'
+    case 'wireless':
+      return 'Access Point'
+    case 'appliance':
+      return 'Firewall'
+    default:
+      return clean(productType)
+  }
+}
+
+/**
+ * Saved discovery entries are inert until explicitly enabled. Legacy Meraki
+ * connections with no discovered networks retain their previous all-network
+ * meaning; a newly discovered empty network list never grants broad scope.
+ */
+export function configuredMerakiOrganizations(input: {
+  organizations: readonly MerakiOrganizationScope[]
+}) {
+  const scopes = input.organizations
+    .filter((organization) => organization.enabled !== false)
+    .map((organization) => ({
+      ...organization,
+      networks: organization.networks.filter((network) => network.enabled !== false),
+      hasExplicitNetworkScopes:
+        organization.networksDiscovered === true || organization.networks.length > 0,
+    }))
+    .filter((organization) =>
+      !organization.hasExplicitNetworkScopes || organization.networks.length > 0,
+    )
+
+  if (scopes.length === 0) {
+    throw new Error('Enable at least one Meraki organization and network before synchronizing inventory.')
+  }
+  return scopes
+}
+
+function networkContext(
+  scope: MerakiOrganizationScope,
+  networkId: string,
+) {
+  return scope.networks.find((network) => network.networkId === networkId) ?? null
+}
+
+export function merakiDeviceToNormalizedInventoryRow(
+  device: MerakiDevice,
+  context: MerakiOrganizationScope,
+  rowNumber: number,
+  availability?: MerakiDeviceAvailability | null,
+  availabilityObservedAt?: string | null,
+): NormalizedInventorySourceRow {
+  const network = networkContext(context, device.networkId)
+  const organizationName = clean(context.organizationName)
+  const networkName = clean(network?.networkName)
+  const serial = clean(device.serial)
+
+  return {
+    rowNumber,
+    sourceRecordKey: serial,
+    rawValues: {
+      customer: clean(context.customer) ?? organizationName,
+      businessUnit: clean(context.businessUnit),
+      site: clean(network?.site) ?? networkName,
+      deviceName: clean(device.name) ?? serial,
+      hostname: clean(device.name),
+      sourceId: serial,
+      serialNumber: serial,
+      macAddress: clean(device.mac),
+      vendor: 'Cisco',
+      model: clean(device.model),
+      deviceType: merakiProductTypeToDeviceType(device.productType),
+      managementAddress: clean(device.lanIp),
+      currentFirmware: clean(device.firmware),
+      firmwareVersion: clean(device.firmware),
+      softwareVersion: null,
+    },
+    sourceEvidence: {
+      provider: MERAKI_API_PROVIDER,
+      organization: {
+        id: context.organizationId,
+        name: organizationName,
+      },
+      network: {
+        id: device.networkId,
+        name: networkName,
+      },
+      device: structuredClone(device),
+      availability: availability
+        ? { status: availability.status, observedAt: availabilityObservedAt ?? null }
+        : null,
+    },
+  }
+}
+
+function assertMerakiSource(source: InventorySourceDefinition) {
+  if (normalizeInventoryProvider(source.provider) !== MERAKI_API_PROVIDER) {
+    throw new Error('Meraki API adapter requires provider MERAKI.')
+  }
+  if (source.adapterType !== MERAKI_DASHBOARD_API_ADAPTER_TYPE) {
+    throw new Error(
+      `Meraki API adapter requires adapter type ${MERAKI_DASHBOARD_API_ADAPTER_TYPE}.`,
+    )
+  }
+}
+
+export const merakiDashboardInventorySourceAdapter: InventorySourceAdapter<MerakiApiAdapterInput> =
+  {
+    adapterType: MERAKI_DASHBOARD_API_ADAPTER_TYPE,
+
+    loadAndNormalize({ source, input }) {
+      assertMerakiSource(source)
+      let rowNumber = 0
+      const rows = input.organizations.flatMap((organization) => {
+        const availabilityBySerial = new Map(
+          (organization.availabilities ?? []).map((entry) => [entry.serial, entry]),
+        )
+        return organization.devices.map((device) => {
+          rowNumber += 1
+          return merakiDeviceToNormalizedInventoryRow(
+            device,
+            organization.context,
+            rowNumber,
+            availabilityBySerial.get(device.serial) ?? null,
+            organization.availabilityObservedAt,
+          )
+        })
+      })
+
+      return normalizedInventorySource({
+        source,
+        rows,
+        metadata: {
+          organizationCount: input.organizations.length,
+          deviceCount: rows.length,
+        },
+      })
+    },
+  }

@@ -3,6 +3,7 @@ import { AuvikConnectionManager } from '@/components/settings/auvik-connection-m
 import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
+import { listInventorySyncRuns } from '@/lib/inventory-sync-run-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +15,7 @@ export default async function AuvikConnectionPage({
   const { sourceId } = await params
   const connection = await getAuvikInventoryConnection(sourceId)
   if (!connection) notFound()
+  const syncRuns = await listInventorySyncRuns(sourceId)
 
   return (
     <div className="space-y-6">
@@ -36,7 +38,7 @@ export default async function AuvikConnectionPage({
           </>
         }
       />
-      <AuvikConnectionManager initialConnection={connection} />
+      <AuvikConnectionManager initialConnection={connection} initialSyncRuns={syncRuns.map((run) => ({ ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null }))} />
     </div>
   )
 }

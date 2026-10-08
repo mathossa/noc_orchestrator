@@ -305,6 +305,16 @@ async function groupRows(
   }
 }
 
+function providerAvailability(evaluated: unknown): string | null {
+  const source = evaluated && typeof evaluated === 'object' && !Array.isArray(evaluated)
+    ? (evaluated as { sourceEvidence?: { availability?: { status?: unknown } } }).sourceEvidence
+    : null
+  const status = source?.availability?.status
+  return status === 'online' || status === 'offline' || status === 'alerting' || status === 'dormant'
+    ? status
+    : null
+}
+
 export async function queryImporterV2Workspace(
   batchId: string,
   query: ImporterV2WorkspaceQuery,
@@ -347,6 +357,7 @@ export async function queryImporterV2Workspace(
         rawSoftwareVersion: true,
         interpretedFirmware: true,
         confidence: true,
+        evaluated: true,
       },
     }),
     query.groupBy ? groupRows(where, query.groupBy) : Promise.resolve([]),
@@ -370,7 +381,10 @@ export async function queryImporterV2Workspace(
     pageSize: query.pageSize,
     total,
     pageCount: Math.max(1, Math.ceil(total / query.pageSize)),
-    rows,
+    rows: rows.map(({ evaluated, ...row }) => ({
+      ...row,
+      availabilityStatus: providerAvailability(evaluated),
+    })),
     groups,
     summary: { errorCount, warningCount },
   }

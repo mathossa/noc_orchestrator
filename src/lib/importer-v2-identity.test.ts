@@ -340,6 +340,79 @@ describe('Importer v2 stable device identity', () => {
     expect(result.candidates[0]?.confidence).toBe('HIGH')
   })
 
+  it.each([
+    ['CW9162I', 'Meraki CW9162I', 'Cisco', 'Cisco'],
+    ['MS130-24P', 'Cisco Meraki MS130-24P', 'Cisco', 'Cisco Meraki'],
+    ['Meraki CW9162I', 'CW9162I', 'Cisco Meraki', 'Cisco Systems'],
+  ])(
+    'auto-matches a unique confirmed serial across Meraki model labels: %s / %s',
+    (sourceModel, canonicalModel, sourceVendor, canonicalVendor) => {
+      const result = resolveImporterV2Identity(
+        {
+          provider: 'MERAKI',
+          sourceAdapterId: 'meraki-dashboard-api-v1:source',
+          identifiers: {
+            sourceId: 'Q5AA-TEST-1234',
+            serialNumber: 'Q5AA-TEST-1234',
+          },
+          context: { vendor: sourceVendor, model: sourceModel },
+        },
+        [
+          {
+            canonicalDeviceId: 'existing-auvik-device',
+            matchScope: 'CROSS_PROVIDER',
+            identifiers: { serialNumber: 'Q5AA-TEST-1234' },
+            context: { vendor: canonicalVendor, model: canonicalModel },
+          },
+        ],
+      )
+
+      expect(result).toMatchObject({
+        kind: 'MATCH_SUGGESTED',
+        requiresConfirmation: false,
+        candidates: [
+          {
+            canonicalDeviceId: 'existing-auvik-device',
+            matchScope: 'CROSS_PROVIDER',
+            confidence: 'HIGH',
+            evidenceConflict: false,
+          },
+        ],
+      })
+    },
+  )
+
+  it.each([
+    ['MS130-24P', 'MS130-48P', 'Cisco', 'Cisco'],
+    ['CW9162I', 'CW9162I', 'Cisco', 'Other Networks'],
+  ])(
+    'keeps unique serial evidence reviewable when hardware context differs',
+    (sourceModel, canonicalModel, sourceVendor, canonicalVendor) => {
+      const result = resolveImporterV2Identity(
+        {
+          provider: 'MERAKI',
+          sourceAdapterId: 'meraki-dashboard-api-v1:source',
+          identifiers: { serialNumber: 'Q5AA-TEST-1234' },
+          context: { vendor: sourceVendor, model: sourceModel },
+        },
+        [
+          {
+            canonicalDeviceId: 'possible-device',
+            matchScope: 'CROSS_PROVIDER',
+            identifiers: { serialNumber: 'Q5AA-TEST-1234' },
+            context: { vendor: canonicalVendor, model: canonicalModel },
+          },
+        ],
+      )
+
+      expect(result).toMatchObject({
+        kind: 'MATCH_SUGGESTED',
+        requiresConfirmation: true,
+        candidates: [{ confidence: 'MEDIUM' }],
+      })
+    },
+  )
+
   it('requires review when serial and MAC point to different canonical devices', () => {
     const result = resolveImporterV2Identity(
       {

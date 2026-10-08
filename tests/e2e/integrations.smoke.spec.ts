@@ -23,8 +23,13 @@ test('opens the generic integrations foundation from Settings', async ({ page })
   await expect(
     page.getByText('Auvik Network Management', { exact: true }),
   ).toBeVisible()
+  await expect(page.getByText('Cisco Meraki Dashboard', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Add Meraki connection' })).toHaveAttribute(
+    'href',
+    '/settings/integrations/meraki/new',
+  )
   await expect(
-    page.getByRole('link', { name: 'Add connection', exact: true }),
+    page.locator('a[href="/settings/integrations/auvik/new"]').filter({ hasText: 'Add connection' }),
   ).toHaveAttribute('href', '/settings/integrations/auvik/new')
 })
 
@@ -60,4 +65,14 @@ test('opens saved importer rules and exact mappings management', async ({ page }
   await expect(
     page.getByText(/Saved importer decisions are versioned/),
   ).toBeVisible()
+})
+
+
+test('opens the Cisco Meraki connection creation flow', async ({ page }) => {
+  await page.goto('/settings/integrations/meraki/new')
+  await expect(page.getByRole('heading', { name: 'Add Cisco Meraki connection', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible()
+  await expect(page.getByLabel('API environment')).toBeVisible()
+  await expect(page.getByLabel('Dashboard API key')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save Meraki connection' })).toBeVisible()
 })
