@@ -801,7 +801,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
               <tbody className="divide-y divide-[var(--border)]">
                 {loading && !data ? (
                   <tr>
-                    <td colSpan={data?.batch.provider === 'MERAKI' ? 15 : 14} className="p-6 text-center text-sm text-[var(--muted)]">
+                    <td colSpan={14} className="p-6 text-center text-sm text-[var(--muted)]">
                       Loading staged devices…
                     </td>
                   </tr>
