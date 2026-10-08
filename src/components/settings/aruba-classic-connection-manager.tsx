@@ -108,8 +108,14 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
   })
   const changeSite=(name:string,partial:Partial<Site>)=>setSites(current=>current.map(site=>site.siteName===name?{...site,...partial}:site))
   const enabledSites=connection.configuration.sites.filter(site=>site.enabled).length
+  // Source sync always runs with persisted config, not unsaved editor state.
+  // Avoid silently importing from the previous site selection.
+  const unsavedScopeChanges=
+    JSON.stringify(sites)!==JSON.stringify(connection.configuration.sites) ||
+    customer!==(connection.configuration.customer??'') ||
+    businessUnit!==(connection.configuration.businessUnit??'')
   const hasScope=enabledSites>0
-  const canSync=connection.enabled&&connection.connectionTest.status==='SUCCESS'&&hasScope
+  const canSync=connection.enabled&&connection.connectionTest.status==='SUCCESS'&&hasScope&&!unsavedScopeChanges
   return <div className="space-y-5">
     <div className="grid gap-4 md:grid-cols-3">
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -132,7 +138,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy!==null} onClick={()=>void test()}>Test connection</Button>
-          <Button disabled={busy!==null||(!connection.enabled&&(connection.connectionTest.status!=='SUCCESS'||!hasScope||!connection.configuration.customer))} onClick={()=>void enable(!connection.enabled)}>{connection.enabled?'Disable':'Enable'}</Button>
+          <Button disabled={busy!==null||unsavedScopeChanges||(!connection.enabled&&(connection.connectionTest.status!=='SUCCESS'||!hasScope||!connection.configuration.customer))} onClick={()=>void enable(!connection.enabled)}>{connection.enabled?'Disable':'Enable'}</Button>
           <Button variant="primary" disabled={busy!==null||!canSync} onClick={()=>void sync()}>{busy==='sync'?'Syncing…':'Sync now'}</Button>
         </div>
       </div>
@@ -170,6 +176,9 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
           Only checked and saved sites under this customer are imported. Devices
           without a selected site are excluded, including during scheduled sync.
         </p>
+        {unsavedScopeChanges?<p role="status" className="text-sm text-[var(--warning)]">
+          Site or customer mapping changes are not saved. Click Save settings before enabling sync or running Sync now.
+        </p>:null}
         {discoveryMessage?<p role="status" className="text-sm text-[var(--muted-strong)]">{discoveryMessage}</p>:null}
         {sites.length===0?<p className="text-sm text-[var(--muted)]">No Central sites found yet. Assign physical sites under this customer in Aruba Central, then discover and enable them before syncing.</p>:null}
         {sites.map(site=><div key={site.siteName} className="grid gap-3 rounded-md border border-[var(--border)] p-3 md:grid-cols-[auto_1fr_1fr] md:items-center">
@@ -192,6 +201,6 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
     {reviewBatchId?<Link href={`/devices/import/${reviewBatchId}`} className="text-sm text-[var(--accent-light)] hover:underline">Inspect devices needing review</Link>:null}
     <InventorySourceSchedulePanel provider="aruba" sourceId={connection.id} enabled={connection.enabled}
       connectionTestPassed={connection.connectionTest.status==='SUCCESS'}
-      hasEnabledScope={hasScope} syncRuns={syncRuns}/>
+      hasEnabledScope={hasScope&&!unsavedScopeChanges} syncRuns={syncRuns}/>
   </div>
 }
