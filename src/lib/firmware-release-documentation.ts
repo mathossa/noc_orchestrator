@@ -86,7 +86,12 @@ export function suggestFirmwareDocuments(release: FirmwareDocumentRelease): Firm
       return [link('RELEASE_NOTES', 'AOS-10 consolidated release notes',
         'https://arubanetworking.hpe.com/techdocs/AOS_10.x_RN_WebHelp/Content/Home.htm', 'HPE Aruba Networking', 'PLATFORM_INDEX')]
     }
-    if (/aos-?8|arubaos-?8|instant-os-?8/.test(platform)) {
+    if (/instant-os-?8|instant-aos-?8/.test(platform)) {
+      return [link('RELEASE_NOTES', 'HPE Aruba Instant AOS-8 release notes',
+        'https://support.hpe.com/hpesc/public/docDisplay?docId=sd00007106en_us',
+        'HPE Aruba Networking', 'PLATFORM_INDEX')]
+    }
+    if (/aos-?8|arubaos-?8/.test(platform)) {
       return [link('RELEASE_NOTES', 'AOS-8 release notes',
         'https://arubanetworking.hpe.com/techdocs/ArubaDocPortal/content/new-portal/aos8.html', 'HPE Aruba Networking', 'PLATFORM_INDEX')]
     }
@@ -104,8 +109,29 @@ export function suggestFirmwareDocuments(release: FirmwareDocumentRelease): Firm
   }
 
   if (/cisco/.test(vendor)) {
+    const iosXe = /ios-xe|iosxe/.test(platform)
+    const major = /^v?(17|26)\./.exec(normalizedVersion)?.[1]
+    if (iosXe && major) {
+      return [link('RELEASE_NOTES', `Cisco IOS XE ${major} release notes (choose device model and train)`,
+        `https://www.cisco.com/c/en/us/support/ios-nx-os-software/ios-xe-${major}/products-release-notes-list.html`,
+        'Cisco', 'PLATFORM_INDEX')]
+    }
     return [link('OTHER', 'Cisco product documentation and release notes (select model and train)',
       'https://www.cisco.com/c/en/us/support/index.html', 'Cisco', 'PLATFORM_INDEX')]
+  }
+
+  if (/juniper/.test(vendor)) {
+    if (/junos/.test(platform)) {
+      return [link('RELEASE_NOTES', 'Junos OS release notes (select product and release)',
+        'https://techlibrary.juniper.net/documentation/product/us/en/junos-os/',
+        'Juniper Networks', 'PLATFORM_INDEX')]
+    }
+    return []
+  }
+
+  if (/mikrotik/.test(vendor) && /router-?os/.test(platform)) {
+    return [link('RELEASE_NOTES', 'RouterOS changelogs (select exact version)',
+      'https://mikrotik.com/download/changelogs', 'MikroTik', 'PLATFORM_INDEX')]
   }
 
   // Unsupported vendors are not silently assigned a guessed link. Typed
