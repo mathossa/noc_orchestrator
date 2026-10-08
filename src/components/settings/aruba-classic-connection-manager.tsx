@@ -104,7 +104,10 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
         finishedAt:run.finishedAt?new Date(run.finishedAt).toISOString():null,
       },...current].slice(0,20))
     }
-    setMessage(`Aruba Classic staged ${result.source.deviceCount} devices from ${result.source.selectedSiteCount} selected sites; ${result.source.excludedFromScopeCount} outside the site selection were excluded; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.`)
+    const types=result.source
+    const switches=`switches: ${types.fetchedByType?.SWITCH??0} fetched / ${types.selectedByType?.SWITCH??0} selected / ${types.excludedByType?.SWITCH??0} excluded`
+    const aps=`APs: ${types.fetchedByType?.AP??0} fetched / ${types.selectedByType?.AP??0} selected`
+    setMessage(`Aruba Classic: ${aps}; ${switches}. Total ${result.source.deviceCount} staged from ${result.source.selectedSiteCount} selected sites; ${result.source.excludedFromScopeCount} excluded by site selection; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.${publication.error ? ` Publication review required: ${publication.error}` : ''}`)
   })
   const changeSite=(name:string,partial:Partial<Site>)=>setSites(current=>current.map(site=>site.siteName===name?{...site,...partial}:site))
   const enabledSites=connection.configuration.sites.filter(site=>site.enabled).length
