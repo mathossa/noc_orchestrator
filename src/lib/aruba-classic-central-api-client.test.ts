@@ -94,4 +94,35 @@ describe('Aruba Classic Central client', () => {
     })).resolves.toEqual([{id:'12',name:'HQ'},{id:'38',name:'Branch'}])
   })
 
+  it('keeps Classic AOS-S switches when the gateway endpoint responds with mcs', async () => {
+    const fetchImpl: typeof fetch = async (request) => {
+      const url = new URL(String(request))
+      if (url.pathname.endsWith('/aps')) return new Response(JSON.stringify({aps:[]}))
+      if (url.pathname.endsWith('/switches')) {
+        expect(url.searchParams.get('fields')).toContain('site')
+        return new Response(JSON.stringify({
+          count:1,
+          switches:[{
+            serial:'CN90HKZ1DM',name:'SiteA-Gateway-SW',
+            switch_type:'AOS-S',site:'HQ',site_id:155,
+            model:'Aruba2930F-8G-PoE+-2SFP+ Switch(JL258A)',
+            firmware_version:'16.10.0017',
+            status:'Up',
+          }],
+        }))
+      }
+      return new Response(JSON.stringify({count:0,mcs:[]}))
+    }
+    const devices=await listClassicCentralDevices({
+      configuration,accessToken:'TEST_ACCESS',fetchImpl,
+    })
+    expect(devices).toEqual([{
+      kind:'SWITCH',
+      raw:expect.objectContaining({
+        serial:'CN90HKZ1DM',site:'HQ',site_id:155,
+        firmware_version:'16.10.0017',
+      }),
+    }])
+  })
+
 })
