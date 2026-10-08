@@ -13,21 +13,47 @@ export function IntegrationSetupGuideContent({
   provider: IntegrationSetupProvider
 }) {
   const guide = integrationSetupGuides[provider]
+  const vendorPath = provider === 'auvik'
+    ? ['Manage users', 'API access role', 'User profile', 'Generate API key']
+    : ['Administrators', 'Read-only role', 'API & Webhooks', 'Generate API key']
 
   return (
     <div className="space-y-5">
       <p className="text-sm leading-6 text-[var(--muted-strong)]">{guide.intro}</p>
 
-      <div aria-label="API connection setup sequence" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {['Account', 'API key', 'NOC connection', 'Test & sync'].map((label, index) => (
-          <div key={label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-3">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] text-xs font-bold text-[var(--accent-light)]">
-              {index + 1}
-            </span>
-            <div className="mt-2 text-xs font-semibold text-[var(--foreground)]">{label}</div>
-          </div>
-        ))}
-      </div>
+      <figure aria-label="API connection setup sequence" className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+        <svg
+          viewBox="0 0 680 134"
+          role="img"
+          aria-label={`Illustrated ${guide.title} menu path: ${vendorPath.join(' then ')}`}
+          className="h-auto w-full"
+        >
+          {vendorPath.map((label, index) => {
+            const x = 12 + index * 169
+            return (
+              <g key={label}>
+                <rect x={x} y={16} width={145} height={96} rx={9}
+                  stroke="var(--border-strong)" strokeWidth={1.5} fill="var(--surface)" />
+                <circle cx={x + 24} cy={39} r={12} stroke="var(--accent)"
+                  fill="var(--accent-soft)" />
+                <text x={x + 24} y={43} textAnchor="middle" fontSize={12}
+                  fontWeight={700} fill="var(--accent-light)">{index + 1}</text>
+                <text x={x + 72} y={73} fontSize={12} textAnchor="middle"
+                  fontWeight={600} fill="var(--foreground)">{label}</text>
+                {index < 3 ? (
+                  <path d={`M${x + 150} 64 h13 m-5 -4 5 4 -5 4`}
+                    stroke="var(--accent-light)" strokeWidth={2}
+                    fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                ) : null}
+              </g>
+            )
+          })}
+        </svg>
+        <figcaption className="text-xs leading-5 text-[var(--muted)]">
+          Illustrated vendor menu path, not a screenshot. Copy the generated key into
+          NOC Orchestrator, then Test connection and choose the intended sites.
+        </figcaption>
+      </figure>
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <h2 className="text-sm font-semibold text-[var(--foreground)]">You will need</h2>
