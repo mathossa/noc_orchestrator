@@ -145,3 +145,40 @@ published devices outside the scope of this connection require a separate
 operator review before any cleanup; never delete records shared with other
 providers automatically. MSP `TenantID` dispatch remains outside this
 single-customer connection scope.
+
+## Verified Classic switch site membership fallback
+
+A real Classic customer tenant returned 21 switches with NO `site` or
+`site_id` fields in its unfiltered `GET /monitoring/v1/switches`
+payload. The selected physical site "Unica - Bodegraven" (Central ID 128)
+returned **8 switches** when queried with `?site=Unica%20-%20Bodegraven`.
+An impossible-site negative-control query returned zero devices. These
+8 were stack members and must not be silently created as eight separate
+logical stacks.
+
+The sync now recovers site-less switch evidence using strict requirements:
+
+1. The candidate switch has no site name/ID in the unfiltered response
+   and a unique, nonempty serial in that **same** complete response.
+2. Only persisted, enabled sites of the connected customer are queried.
+   An impossible-site query must return zero switches, or the fallback
+   is disabled (site-filter may be ignored).
+3. The selected-site query returns the same unique serial as the full
+   inventory. Filtered-only records and records without serials are
+   not added. Conflicting site fields, duplicate serials in a filtered
+   response, and claims from more than one selected site are rejected.
+4. Only then is the selected Central site name/ID attached to the staged
+   observation. The original unfiltered absence and the proven
+   `VERIFIED_CLASSIC_SWITCH_SITE_QUERY` evidence source are retained.
+   The existing customer/site allowlist still runs after enrichment;
+   no customer-wide bypass is possible.
+5. Physical observations with an explicit `stack_id` are staged but
+   **excluded from unattended auto-publication** via the shared Importer v2
+   auto-publication blocker. They remain in review until the logical
+   stack/member topology is confirmed. Other safe APs and standalone
+   switches can still publish normally.
+
+Both manual and scheduled sync use the same checks. Synced run metadata
+shows switch observations fetched/selected/excluded, verified site-query
+recovery and stack members awaiting topology review. Out-of-scope devices
+must not be imported solely because Central reports them.
