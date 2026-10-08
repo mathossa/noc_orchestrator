@@ -192,4 +192,88 @@ describe('Classic Central shared inventory sync',()=>{
     }))
   })
 
+  it('recovers selected stack members from the verified Classic site filter and excludes other 13 switches',async()=>{
+    const connection=await mocks.credentials()
+    mocks.credentials.mockResolvedValue({
+      ...connection,
+      connection:{
+        ...connection.connection,
+        configuration:{
+          ...connection.connection.configuration,
+          sites:[
+            {siteId:'128',siteName:'Unica - Bodegraven',enabled:true,site:'Main Site'},
+            {siteId:'129',siteName:'Other',enabled:false,site:'Other'},
+          ],
+        },
+      },
+    })
+    const eight=Array.from({length:8},(_,i)=>({
+      kind:'SWITCH',
+      raw:{
+        serial:`CX${i+1}`,stack_id:`STACK-${Math.floor(i/3)+1}`,
+        model:'6200',firmware_version:'10.13.1000',
+      },
+    }))
+    const thirteen=Array.from({length:13},(_,i)=>({
+      kind:'SWITCH',raw:{serial:`OTHER${i}`},
+    }))
+    mocks.listDevices.mockImplementation(async(input:{switchSite?:string})=>{
+      if(!input.switchSite)return [
+        {kind:'AP',raw:{serial:'AP01',site:'Unica - Bodegraven'}},
+        ...eight,...thirteen,
+      ]
+      if(input.switchSite==='Unica - Bodegraven')return eight
+      return []
+    })
+    mocks.publish.mockResolvedValueOnce({
+      publishedLogicalDeviceCount:1,
+      remainingIncludedRows:8,
+      reconciliationRequired:true,
+    })
+    const result=await runClassicCentralInventorySync('source-1')
+    expect(result.source).toMatchObject({
+      deviceCount:9,observedDeviceCount:22,
+      selectedByType:{AP:1,SWITCH:8,GATEWAY:0},
+      excludedByType:{AP:0,SWITCH:13,GATEWAY:0},
+      stackMembersHeldForReview:8,
+      switchSiteRecovery:{serverFilterVerified:true,recoveredSwitchCount:8},
+    })
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      isFullInventoryExport:false,
+      rows:expect.arrayContaining([
+        expect.objectContaining({rawValues:expect.objectContaining({
+          sourceId:'CX1',deviceType:'Switch',site:'Main Site',
+          currentFirmware:'10.13.1000',
+        }),sourceEvidence:expect.objectContaining({device:expect.objectContaining({
+          raw:expect.objectContaining({
+            centralSiteEvidenceSource:'VERIFIED_CLASSIC_SWITCH_SITE_QUERY',
+          }),
+        })})}),
+      ]),
+    }))
+    const staged=mocks.stage.mock.calls[0][0].rows
+    expect(staged).toHaveLength(9)
+    expect(staged.find((row:{rawValues:{sourceId:string}})=>row.rawValues.sourceId==='OTHER0'))
+      .toBeUndefined()
+    expect(mocks.publish).toHaveBeenCalledWith('batch-1',{
+      additionalBlockedRowNumbers:[2,3,4,5,6,7,8,9],
+    })
+  })
+
+  it('does not assign a site or import site-less switches when negative control fails',async()=>{
+    mocks.listDevices.mockImplementation(async(input:{switchSite?:string})=>{
+      const fetched=[
+        {kind:'AP',raw:{serial:'AP01',site:'HQ'}},
+        {kind:'SWITCH',raw:{serial:'SW01',stack_id:'STACK-1'}},
+      ]
+      return input.switchSite?fetched.filter(row=>row.kind==='SWITCH'):fetched
+    })
+    const result=await runClassicCentralInventorySync('source-1')
+    expect(result.source).toMatchObject({
+      selectedByType:{AP:1,SWITCH:0,GATEWAY:0},
+      switchSiteRecovery:{attempted:true,serverFilterVerified:false,recoveredSwitchCount:0},
+    })
+    expect(mocks.stage.mock.calls[0][0].rows).toHaveLength(1)
+  })
+
 })
