@@ -273,7 +273,7 @@ function comparableHardwareVendor(value: string | null | undefined) {
 }
 
 function comparableCiscoModel(value: string) {
-  return value.replace(/^(?:(?:cisco\\s+)?meraki|cisco)\\s+/, '')
+  return value.replace(/^(?:(?:cisco\s+)?meraki|cisco)\s+/, '')
 }
 
 function compatibleHardwareContext(
