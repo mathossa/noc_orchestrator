@@ -19,7 +19,7 @@ export async function PATCH(request:Request,context:Context){
         if(!value||typeof value!=='object'||typeof value.siteName!=='string'||typeof value.enabled!=='boolean'){
           throw new Error('Each site requires siteName and enabled.')
         }
-        return {siteName:value.siteName,enabled:value.enabled,site:typeof value.site==='string'?value.site:null}
+        return {siteId:typeof value.siteId==='string'?value.siteId:null,siteName:value.siteName,enabled:value.enabled,site:typeof value.site==='string'?value.site:null}
       }):(()=>{throw new Error('sites must be an array.')})()
     )
     const data=await updateClassicCentralConnection({
