@@ -277,6 +277,7 @@ export async function listClassicCentralSites(input: {
     const url = new URL('/central/v2/sites', baseUrl)
     url.searchParams.set('offset', String(page * ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
     url.searchParams.set('limit', String(ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
+    url.searchParams.set('calculate_total', 'true')
     const response = await requestWithRetry({
       url,
       fetchImpl: input.fetchImpl ?? fetch,
