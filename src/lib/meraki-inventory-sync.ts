@@ -55,7 +55,7 @@ export function configuredMerakiOrganizations(
       ...organization,
       networks: organization.networks.filter((network) => network.enabled !== false),
       // Preserve a zero-network legacy organization as an all-networks scope.
-      hasExplicitNetworkScopes: organization.networks.length > 0,
+      hasExplicitNetworkScopes: organization.networksDiscovered === true || organization.networks.length > 0,
     }))
     .filter((organization) => !organization.hasExplicitNetworkScopes || organization.networks.length > 0)
 
