@@ -71,4 +71,39 @@ describe('firmware documentation discovery', () => {
     expect(mergeFirmwareDocumentLinks([{ ...refs[0], id: 'manual', origin: 'MANUAL' }], refs))
       .toHaveLength(1)
   })
+  it('keeps one link when a legacy field duplicates a curated URL', () => {
+    const suggested = suggestFirmwareDocuments({
+      vendor: { code: 'FORTINET', name: 'Fortinet' },
+      platform: 'FortiOS', version: '7.6.4',
+    })[0]
+    const url = suggested.url
+    const curated = { ...suggested, id: 'maintained', origin: 'MANUAL' as const }
+    const legacy = { ...suggested, id: 'legacy', origin: 'LEGACY' as const, url: url + '/' }
+    const merged = mergeFirmwareDocumentLinks([curated, legacy], [suggested])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('maintained')
+  })
+
+  it('routes IOS XE 17 to the Cisco version family, not a guessed switch model', () => {
+    const result = suggestFirmwareDocuments({
+      vendor: { code: 'CISCO', name: 'Cisco Systems' },
+      platform: 'IOS-XE', version: '17.15.5',
+    })
+    expect(result[0].match).toBe('PLATFORM_INDEX')
+    expect(result[0].url).toContain('/ios-xe-17/products-release-notes-list.html')
+  })
+
+  it('supports other known vendors only with platform-level documentation', () => {
+    const juniper = suggestFirmwareDocuments({
+      vendor: { code: 'JUNIPER', name: 'Juniper Networks' },
+      platform: 'Junos', version: '23.4R2',
+    })
+    const mikrotik = suggestFirmwareDocuments({
+      vendor: { code: 'MKT', name: 'MikroTik' },
+      platform: 'RouterOS', version: '7.23',
+    })
+    expect(juniper[0].match).toBe('PLATFORM_INDEX')
+    expect(mikrotik[0].match).toBe('PLATFORM_INDEX')
+  })
+
 })
