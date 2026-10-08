@@ -52,14 +52,4 @@ jobs:
           DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
         run: |
           npm run prisma:deploy
-          npx prisma migrate diff --from-config-datasource --to-schema prisma --script > /tmp/schema-diff.sql
-          if grep -Ev '^[[:space:]]*(--.*)?
-            cat /tmp/schema-diff.sql
-            echo "Prisma schema differs from applied migrations."
-            exit 1
-          fi
- /tmp/schema-diff.sql | grep -q '[^[:space:]]'; then
-            cat /tmp/schema-diff.sql
-            echo "Prisma schema differs from applied migrations."
-            exit 1
-          fi
+          npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
