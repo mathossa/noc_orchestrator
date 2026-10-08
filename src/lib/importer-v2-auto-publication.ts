@@ -1,4 +1,5 @@
 import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
+import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import {
   findImporterV2PublicationIdentityConflicts,
 } from '@/lib/importer-v2-publication-identity-diagnostics'
@@ -68,10 +69,16 @@ export async function autoPublishImporterV2SafeValidRows(
     ...qa.publication.allResolvedCandidateRows,
     ...qa.publication.unresolvedRows.map((row) => row.rowNumber),
   ])
-  const identityConflicts = await findImporterV2PublicationIdentityConflicts({
-    batchId,
-    rowNumbers: identityScope,
-  })
+  const [identityConflicts, nameConflicts] = await Promise.all([
+    findImporterV2PublicationIdentityConflicts({
+      batchId,
+      rowNumbers: identityScope,
+    }),
+    findImporterV2PublicationNameConflicts({
+      batchId,
+      rowNumbers: candidates,
+    }),
+  ])
   const identityBlocked = new Set(
     identityConflicts.flatMap((conflict) => [
       conflict.rowNumber,
@@ -86,6 +93,7 @@ export async function autoPublishImporterV2SafeValidRows(
     ...approvalBlocked,
     ...identityBlocked,
     ...qaIdentityBlocked,
+    ...nameConflicts,
   ])
   const safeRows = candidates.filter((rowNumber) => !blocked.has(rowNumber))
 
