@@ -9,6 +9,7 @@ export default function NewAuvikConnectionPage() {
         eyebrow="Settings · Integrations"
         title="Add Auvik connection"
         description="Create an Auvik Network Management inventory source. Credentials remain server-side; observed inventory will flow through Importer v2."
+        alignActionsTop
         actions={<IntegrationSetupHelpLink provider="auvik" />}
         breadcrumbs={[
           { label: 'Settings', href: '/settings' },
