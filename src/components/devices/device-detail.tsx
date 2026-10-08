@@ -756,7 +756,7 @@ function FirmwareTab({ device }: { device: DeviceDetailRecord }) {
         ) : (
           <div>
             <p className="mb-2 text-xs font-semibold text-[var(--muted)]">Preferred release documentation</p>
-            <ReleaseDocumentationLinks releaseId={desired?.id} />
+            <ReleaseDocumentationLinks releaseId={desired?.id ?? device.firmwareCompliance.preferredTarget?.id} />
           </div>
         )}
       </div>
