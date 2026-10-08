@@ -163,4 +163,16 @@ describe('Importer v2 safe automatic publication', () => {
     })
   })
 
+  it('returns actionable review instead of exposing a Prisma unique-key stack trace', async () => {
+    mocks.publish.mockRejectedValue(Object.assign(new Error('Invalid tx.device.create()'), {
+      code: 'P2002',
+      meta: { target: 'Device_customerId_name_key' },
+    }))
+    const result = await autoPublishImporterV2SafeValidRows('batch-1')
+    expect(result.status).toBe('REVIEW_REQUIRED')
+    expect(result.error).toContain('same name')
+    expect(result.error).not.toContain('tx.device.create')
+    expect(result.reconciliationRequired).toBe(true)
+  })
+
 })
