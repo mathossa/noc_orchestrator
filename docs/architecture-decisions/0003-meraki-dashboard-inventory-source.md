@@ -167,7 +167,7 @@ than copying sync logic.
 A maintained Cisco/Meraki TypeScript helper,
 `@cisco-meraki/dashboard-api-tools`, was evaluated. Cisco also documents Python as
 the preferred Dashboard SDK. No SDK dependency was added here because this adapter
-needs only three read-only bulk GET surfaces and the repository already has a
+needs only four read-only bulk GET surfaces and the repository already has a
 well-tested native-`fetch` provider-client pattern from Auvik. Adding another
 runtime dependency would not materially simplify identity, hierarchy, importer,
 scheduling, or ownership behavior.
