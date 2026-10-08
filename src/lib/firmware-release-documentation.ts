@@ -78,6 +78,11 @@ export function suggestFirmwareDocuments(release: FirmwareDocumentRelease): Firm
   }
 
   if (/\b(aruba|hpe|hewlett.packard)\b/.test(vendor)) {
+    if (/aos-s|aos-switch|arubaos-switch/.test(platform)) {
+      return [link('RELEASE_NOTES', 'AOS-S release notes (select switch series and version)',
+        'https://arubanetworking.hpe.com/techdocs/AOS-Switch-RN/Content/home.htm',
+        'HPE Aruba Networking', 'PLATFORM_INDEX')]
+    }
     if (/aos-cx|arubaos-cx/.test(platform)) {
       return [link('RELEASE_NOTES', 'AOS-CX consolidated release notes (select switch series)',
         'https://arubanetworking.hpe.com/techdocs/AOS-CX/Consolidated_RNs/Portal_Home/Content/cx-home.htm', 'HPE Aruba Networking', 'PLATFORM_INDEX')]
