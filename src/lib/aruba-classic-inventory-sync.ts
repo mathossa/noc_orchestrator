@@ -4,6 +4,7 @@ import {
   type ClassicCentralDeviceObservation,
 } from '@/lib/aruba-classic-central-api-client'
 import { filterClassicCentralDevicesBySelectedSites } from '@/lib/aruba-classic-site-scope'
+import { recoverClassicSwitchSitesFromVerifiedQueries } from '@/lib/aruba-classic-switch-site-recovery'
 import {
   classicCentralRefreshContext,
   getClassicCentralConnectionCredentials,
@@ -76,8 +77,25 @@ export async function runClassicCentralInventorySync(
       fetchImpl:options.fetchImpl,
       signal:options.signal,
     })
+    const recovery=await recoverClassicSwitchSitesFromVerifiedQueries({
+      observations:fetched,
+      selectedSites:connection.configuration.sites,
+      // Every probe uses the newest encrypted token, because a prior request
+      // can have rotated the Classic refresh token on HTTP 401.
+      readSwitchesForSite:async (siteName:string)=>{
+        const latest=await getClassicCentralConnectionCredentials(sourceId)
+        return listClassicCentralDevices({
+          configuration:latest.connection.configuration,
+          accessToken:latest.credentials.accessToken,
+          refresh:await classicCentralRefreshContext(sourceId,latest.credentials),
+          switchSite:siteName,
+          fetchImpl:options.fetchImpl,
+          signal:options.signal,
+        })
+      },
+    })
     const selection=filterClassicCentralDevicesBySelectedSites(
-      fetched,connection.configuration.sites,
+      recovery.observations,connection.configuration.sites,
     )
     const devices=selection.devices
     const fetchedByType=countClassicCentralDeviceKinds(fetched)
@@ -133,6 +151,14 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
+        switchSiteRecovery:{
+          attempted:recovery.attempted,
+          serverFilterVerified:recovery.serverFilterVerified,
+          recoveredSwitchCount:recovery.recoveredSwitchCount,
+          ambiguousSwitchCount:recovery.ambiguousSwitchCount,
+          queriedSiteCount:recovery.queriedSiteCount,
+          unmatchedQueryRowCount:recovery.unmatchedQueryRowCount,
+        },
         unattended:options.trigger==='SCHEDULED',
         skippedForReview:autoPublication.remainingIncludedRows??0,
       },
@@ -149,6 +175,14 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
+        switchSiteRecovery:{
+          attempted:recovery.attempted,
+          serverFilterVerified:recovery.serverFilterVerified,
+          recoveredSwitchCount:recovery.recoveredSwitchCount,
+          ambiguousSwitchCount:recovery.ambiguousSwitchCount,
+          queriedSiteCount:recovery.queriedSiteCount,
+          unmatchedQueryRowCount:recovery.unmatchedQueryRowCount,
+        },
         partial:false,
       },
     }
