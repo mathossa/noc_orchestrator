@@ -188,6 +188,7 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
+        stackMembersHeldForReview:stackMemberReviewRowNumbers.length,
         switchSiteRecovery:{
           attempted:recovery.attempted,
           serverFilterVerified:recovery.serverFilterVerified,
