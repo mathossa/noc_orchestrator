@@ -18,6 +18,20 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: noc_orchestrator_schema_check
+          POSTGRES_USER: noc_orchestrator
+          POSTGRES_PASSWORD: schema_check_only
+        ports:
+          - 5439:5432
+        options: >-
+          --health-cmd "pg_isready -U noc_orchestrator -d noc_orchestrator_schema_check"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,5 +47,14 @@ jobs:
       - run: npm run test:integration
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e -- tests/e2e/integrations.smoke.spec.ts
-      - name: Verify Prisma schema drift
-        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma --script > /tmp/schema-diff.sql && test ! -s /tmp/schema-diff.sql
+      - name: Verify Prisma migration and schema parity
+        env:
+          DATABASE_URL: postgresql://noc_orchestrator:schema_check_only@127.0.0.1:5439/noc_orchestrator_schema_check
+        run: |
+          npm run prisma:deploy
+          npx prisma migrate diff --from-config-datasource --to-schema prisma --script > /tmp/schema-diff.sql
+          if test -s /tmp/schema-diff.sql; then
+            cat /tmp/schema-diff.sql
+            echo "Prisma schema differs from applied migrations."
+            exit 1
+          fi
