@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   listMerakiOrganizationDevices,
+  listMerakiOrganizationDeviceAvailabilities,
   listMerakiOrganizationNetworks,
   listMerakiOrganizations,
   MerakiApiError,
@@ -74,6 +75,22 @@ describe('Meraki Dashboard API client', () => {
       fetchImpl,
     })
     expect(networks[0]).toMatchObject({ id: 'N1', name: 'Site 1' })
+  })
+
+  it('reads the current device-availability endpoint with separate pagination', async () => {
+    const requested: string[] = []
+    const fetchImpl: typeof fetch = async (input) => {
+      requested.push(String(input))
+      return new Response(JSON.stringify([
+        { serial: 'Q-1', network: { id: 'N1' }, status: 'dormant' },
+        { serial: 'Q-2', network: { id: 'N1' }, status: 'offline' },
+      ]), { status: 200 })
+    }
+    const values = await listMerakiOrganizationDeviceAvailabilities({
+      environment: 'global', organizationId: 'org-1', credentials, fetchImpl,
+    })
+    expect(requested).toEqual(['https://api.meraki.com/api/v1/organizations/org-1/devices/availabilities?perPage=1000'])
+    expect(values.map((value) => value.status)).toEqual(['dormant', 'offline'])
   })
 
   it('respects Retry-After for 429 with bounded retry', async () => {
