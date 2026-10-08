@@ -15,6 +15,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] | undefin
     const item = object(entry)
     if (!item || typeof item.organizationId !== 'string') throw new Error('Each organization scope requires organizationId.')
     return {
+      enabled: item.enabled === undefined ? undefined : item.enabled === true,
       organizationId: item.organizationId,
       organizationName: optionalString(item.organizationName),
       customer: optionalString(item.customer),
@@ -22,7 +23,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] | undefin
       networks: Array.isArray(item.networks) ? item.networks.map((network) => {
         const item = object(network)
         if (!item || typeof item.networkId !== 'string') throw new Error('Each Meraki network scope requires networkId.')
-        return { networkId: item.networkId, networkName: optionalString(item.networkName), site: optionalString(item.site) }
+        return { enabled: item.enabled === undefined ? undefined : item.enabled === true, networkId: item.networkId, networkName: optionalString(item.networkName), site: optionalString(item.site) }
       }) : [],
     }
   })
