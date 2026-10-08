@@ -125,4 +125,19 @@ describe('Aruba Classic Central client', () => {
     }])
   })
 
+  it('queries only switches when an explicit API site filter is supplied', async()=>{
+    const requested:string[]=[]
+    const fetchImpl:typeof fetch=async input=>{
+      const url=new URL(String(input))
+      requested.push(url.pathname)
+      expect(url.searchParams.get('site')).toBe('HQ')
+      return new Response(JSON.stringify({switches:[{serial:'SW-1',site:'HQ'}],count:1}))
+    }
+    const rows=await listClassicCentralDevices({
+      configuration,accessToken:'TEST_ACCESS',switchSite:'HQ',fetchImpl,
+    })
+    expect(rows).toEqual([{kind:'SWITCH',raw:{serial:'SW-1',site:'HQ'}}])
+    expect(requested).toEqual(['/monitoring/v1/switches'])
+  })
+
 })
