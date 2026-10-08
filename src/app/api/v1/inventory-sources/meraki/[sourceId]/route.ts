@@ -16,6 +16,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] | undefin
     if (!item || typeof item.organizationId !== 'string') throw new Error('Each organization scope requires organizationId.')
     return {
       enabled: item.enabled === undefined ? undefined : item.enabled === true,
+      networksDiscovered: item.networksDiscovered === true,
       organizationId: item.organizationId,
       organizationName: optionalString(item.organizationName),
       customer: optionalString(item.customer),
