@@ -27,6 +27,18 @@ describe('firmware documentation discovery', () => {
     expect(suggestFirmwareDocuments({ vendor, platform: 'FortiAP', version: '7.4.6' })).toEqual([])
   })
 
+  it('recognizes real Meraki inventory identity: Cisco vendor plus Meraki MR platform', () => {
+    const docs = suggestFirmwareDocuments({
+      vendor: { code: 'CISCO', name: 'Cisco Systems' },
+      platform: 'Meraki MR',
+      version: '32.2.4',
+    })
+    expect(docs).toHaveLength(1)
+    expect(docs[0]).toMatchObject({
+      source: 'Cisco Meraki', type: 'RELEASE_NOTES', match: 'PLATFORM_INDEX',
+    })
+  })
+
   it('never misrepresents an Aruba model-dependent portal as exact release documentation', () => {
     const docs = suggestFirmwareDocuments({
       vendor: { code: 'ARUBA', name: 'HPE Aruba Networking' },
