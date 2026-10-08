@@ -309,8 +309,10 @@ export async function listClassicCentralSites(input: {
       if (!seen.has(normalizedName.toLowerCase())) {
         sites.push({
           name: normalizedName,
-          id: typeof record.site_id === 'string' ? record.site_id :
-            typeof record.id === 'string' ? record.id : null,
+          id: typeof record.site_id === 'string' || typeof record.site_id === 'number'
+            ? String(record.site_id)
+            : typeof record.id === 'string' || typeof record.id === 'number'
+              ? String(record.id) : null,
         })
         seen.add(normalizedName.toLowerCase())
       }
