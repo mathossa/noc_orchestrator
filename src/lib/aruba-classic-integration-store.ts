@@ -33,7 +33,7 @@ export type ClassicCentralSiteScope = {
 
 export type ClassicCentralConnectionConfiguration = {
   version: 1
-  scopeMode: 'SELECTED_SITES' | 'ALL_DEVICES'
+  scopeMode: 'SELECTED_SITES'
   variant: 'CLASSIC'
   baseUrl: string
   customer: string | null
@@ -53,9 +53,10 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
   scopeMode?: 'SELECTED_SITES' | 'ALL_DEVICES'
 }): ClassicCentralConnectionConfiguration {
   const baseUrl = arubaCentralApiBaseUrl({ variant: 'CLASSIC', baseUrl: clean(input.baseUrl) }).origin
-  const scopeMode = input.scopeMode ?? 'SELECTED_SITES'
-  if (scopeMode !== 'SELECTED_SITES' && scopeMode !== 'ALL_DEVICES') {
-    throw new Error('Unsupported Classic Central inventory scope mode.')
+  // Legacy ALL_DEVICES configurations are read as selected-only, but
+  // new requests may not re-enable whole-tenant publication.
+  if (input.scopeMode && input.scopeMode !== 'SELECTED_SITES') {
+    throw new Error('Aruba Classic inventory must use explicitly selected sites.')
   }
   const sites = (input.sites ?? []).map((scope) => {
     const siteName = clean(scope.siteName)
@@ -71,7 +72,7 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
     throw new Error('Duplicate Classic Central site scope.')
   }
   return {
-    version: 1, variant: 'CLASSIC', baseUrl, scopeMode,
+    version: 1, variant: 'CLASSIC', baseUrl, scopeMode: 'SELECTED_SITES',
     customer: clean(input.customer) || null,
     businessUnit: clean(input.businessUnit) || null,
     sites,
@@ -85,7 +86,7 @@ function parseConfiguration(value: unknown) {
   return normalizeClassicCentralConnectionConfiguration({
     baseUrl: item.baseUrl, customer: item.customer, businessUnit: item.businessUnit,
     sites: Array.isArray(item.sites) ? item.sites : [],
-    scopeMode: item.scopeMode,
+    scopeMode: item.scopeMode === 'ALL_DEVICES' ? undefined : item.scopeMode,
   })
 }
 function validateCredentials(value: StoredClassicCentralCredentials) {
@@ -199,6 +200,13 @@ export async function updateClassicCentralConnection(input: {
   })
   const name = input.name === undefined ? existing.name : clean(input.name)
   if (!name) throw new Error('Aruba connection name is required.')
+  const willEnable = input.enabled ?? existing.enabled
+  if (willEnable && !config.customer) {
+    throw new Error('Choose a customer for this Classic Central connection before enabling sync.')
+  }
+  if (willEnable && !config.sites.some((site) => site.enabled)) {
+    throw new Error('Select and save at least one Classic Central site before enabling sync.')
+  }
   const identityChanged = config.baseUrl !== existing.configuration.baseUrl || Boolean(input.credentials)
   if (input.enabled === true && (identityChanged || existing.connectionTest.status !== 'SUCCESS')) {
     throw new Error('Save credentials/gateway and pass a new connection test before enabling sync.')
