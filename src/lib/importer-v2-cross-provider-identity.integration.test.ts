@@ -391,7 +391,7 @@ describe('Importer v2 cross-provider identity integration', () => {
     })
     expect(first.candidates[0]).toMatchObject({
       canonicalDeviceId: device.id,
-      matchScope: 'CANONICAL',
+      matchScope: 'CROSS_PROVIDER',
       confidence: 'HIGH',
       evidenceConflict: false,
     })
