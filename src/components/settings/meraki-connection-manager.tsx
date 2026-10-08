@@ -189,6 +189,11 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
   const removeOrganization = (organizationId: string) => setOrganizations((current) => current.filter((org) => org.organizationId !== organizationId))
   const removeNetwork = (organizationId: string, networkId: string) => setOrganizations((current) => current.map((org) => org.organizationId === organizationId ? { ...org, networksDiscovered: true, networks: org.networks.filter((network) => network.networkId !== networkId) } : org))
   const tone = connection.connectionTest.status === 'SUCCESS' ? 'success' : connection.connectionTest.status === 'FAILED' ? 'danger' : 'neutral'
+  const hasEnabledScope = connection.configuration.organizations.some((org) =>
+    org.enabled !== false && (org.networks.length === 0
+      ? !org.networksDiscovered
+      : org.networks.some((network) => network.enabled !== false)),
+  )
 
   return <div className="space-y-5">
     <div className="grid gap-4 md:grid-cols-3">
@@ -201,7 +206,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy !== null} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test connection'}</Button>
           <Button variant={connection.enabled ? 'secondary' : 'primary'} disabled={busy !== null || (!connection.enabled && connection.connectionTest.status !== 'SUCCESS')} onClick={() => void toggle(!connection.enabled)}>{busy === 'enable' ? 'Updating…' : connection.enabled ? 'Disable' : 'Enable'}</Button>
-          <Button variant="primary" disabled={busy !== null || !connection.enabled || connection.connectionTest.status !== 'SUCCESS' || connection.configuration.organizations.length === 0} onClick={() => void syncNow()}>{busy === 'sync' ? 'Syncing…' : 'Sync now'}</Button>
+          <Button variant="primary" disabled={busy !== null || !connection.enabled || connection.connectionTest.status !== 'SUCCESS' || !hasEnabledScope} onClick={() => void syncNow()}>{busy === 'sync' ? 'Syncing…' : 'Sync now'}</Button>
         </div>
       </div>
       <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -250,7 +255,7 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
         <span>Next run: {schedule?.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : '—'}</span>
         <div className="flex gap-2">
           {schedule?.enabled ? <Button disabled={busy !== null} onClick={() => void saveSchedule(false)}>Disable schedule</Button> : null}
-          <Button variant="primary" disabled={busy !== null || !connection.enabled || connection.connectionTest.status !== 'SUCCESS'} onClick={() => void saveSchedule(true)}>{busy === 'schedule' ? 'Saving…' : 'Save schedule'}</Button>
+          <Button variant="primary" disabled={busy !== null || !connection.enabled || !hasEnabledScope || connection.connectionTest.status !== 'SUCCESS'} onClick={() => void saveSchedule(true)}>{busy === 'schedule' ? 'Saving…' : 'Save schedule'}</Button>
         </div>
       </div>
     </section>
