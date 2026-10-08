@@ -175,4 +175,23 @@ describe('Importer v2 safe automatic publication', () => {
     expect(result.reconciliationRequired).toBe(true)
   })
 
+  it('leaves adapter-declared physical stack members for review while publishing safe APs',async()=>{
+    mocks.publish.mockResolvedValue({
+      publishedLogicalDeviceCount:1,
+      publishedRowCount:1,
+      remainingIncludedRows:3,
+    })
+    const result=await autoPublishImporterV2SafeValidRows('batch-1',{
+      additionalBlockedRowNumbers:[2,3],
+    })
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      rowNumbers:[1],
+    }))
+    expect(result).toMatchObject({
+      publishedLogicalDeviceCount:1,
+      blockedRowNumbers:[2,3],
+      reconciliationRequired:true,
+    })
+  })
+
 })
