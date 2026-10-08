@@ -503,7 +503,7 @@ export function AuvikConnectionManager({
                   </label>
                 ))}
               </div>
-              {tenants.length > 1 ? (
+              {(
                 <div className="mt-3 flex justify-end">
                   <Button
                     variant="ghost"
@@ -516,7 +516,7 @@ export function AuvikConnectionManager({
                     Remove tenant
                   </Button>
                 </div>
-              ) : null}
+              )}
             </div>
           ))}
           <div className="flex justify-end">
