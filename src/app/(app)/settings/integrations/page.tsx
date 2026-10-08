@@ -11,6 +11,7 @@ import {
 } from '@/lib/inventory-integrations-store'
 import { listAuvikInventoryConnections } from '@/lib/auvik-integration-store'
 import { listMerakiInventoryConnections } from '@/lib/meraki-integration-store'
+import { listClassicCentralConnections } from '@/lib/aruba-classic-integration-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,9 +39,9 @@ const sourceColumns: Array<DataTableColumn<SourceRow>> = [
     render: (row) => (
       <div className="min-w-[180px]">
         <div className="font-semibold text-[var(--foreground)]">
-          {(row.adapterType === 'auvik-api-v2' || row.adapterType === 'meraki-dashboard-api-v1') ? (
+          {(row.adapterType === 'auvik-api-v2' || row.adapterType === 'meraki-dashboard-api-v1' || row.adapterType === 'aruba-central-classic') ? (
             <a
-              href={row.adapterType === 'auvik-api-v2' ? `/settings/integrations/auvik/${row.id}` : `/settings/integrations/meraki/${row.id}`}
+              href={row.adapterType === 'auvik-api-v2' ? `/settings/integrations/auvik/${row.id}` : row.adapterType === 'aruba-central-classic' ? `/settings/integrations/aruba/${row.id}` : `/settings/integrations/meraki/${row.id}`}
               className="text-[var(--accent-light)] hover:underline"
             >
               {row.name}
@@ -104,11 +105,12 @@ const profileColumns: Array<DataTableColumn<ProfileRow>> = [
 ]
 
 export default async function IntegrationsPage() {
-  const [sources, profiles, auvikConnections, merakiConnections] = await Promise.all([
+  const [sources, profiles, auvikConnections, merakiConnections, arubaConnections] = await Promise.all([
     listInventorySources(),
     listInventorySyncProfiles(),
     listAuvikInventoryConnections(),
     listMerakiInventoryConnections(),
+    listClassicCentralConnections(),
   ])
   const profileNamesBySource = new Map<string, string[]>()
   for (const profile of profiles) {
@@ -154,6 +156,9 @@ export default async function IntegrationsPage() {
             <ButtonLink href="/settings/integrations/meraki/new">
               Add Meraki connection
             </ButtonLink>
+            <ButtonLink href="/settings/integrations/aruba/new">
+              Add Aruba connection
+            </ButtonLink>
             <ButtonLink href="/settings/integrations/import-automation">
               Manage import automation
             </ButtonLink>
@@ -171,7 +176,7 @@ export default async function IntegrationsPage() {
               Inventory adapters
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              XLSX, Auvik Device API v2 and Cisco Meraki Dashboard all feed the shared Importer v2 pipeline.
+              XLSX, Auvik, Cisco Meraki and HPE Aruba Classic Central feed the shared Importer v2 pipeline.
             </p>
           </div>
           <StatusBadge tone="success">Supported</StatusBadge>
@@ -227,6 +232,22 @@ export default async function IntegrationsPage() {
             {merakiConnections.length > 0 ? <div className="mt-2 text-xs text-[var(--muted-strong)]">{merakiConnections.length} configured connection{merakiConnections.length === 1 ? '' : 's'}</div> : null}
           </div>
           <div className="flex flex-wrap gap-2">{merakiConnections[0] ? <ButtonLink href={`/settings/integrations/meraki/${merakiConnections[0].id}`}>Open Meraki</ButtonLink> : null}<ButtonLink href="/settings/integrations/meraki/new" variant="primary">Add connection</ButtonLink></div>
+        </div>
+        <div className="grid gap-4 border-t border-[var(--border)] px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="font-semibold text-[var(--foreground)]">HPE Aruba Networking Central</div>
+              <StatusBadge tone="success">Classic Central</StatusBadge>
+            </div>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--muted)]">
+              Secure Classic OAuth connection, on-demand site discovery, selected inventory scope, shared importer, automatic reconciliation and scheduled sync.
+            </p>
+            {arubaConnections.length > 0 ? <p className="mt-2 text-xs text-[var(--muted-strong)]">{arubaConnections.length} configured connection{arubaConnections.length === 1 ? '' : 's'}</p> : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {arubaConnections[0] ? <ButtonLink href={`/settings/integrations/aruba/${arubaConnections[0].id}`}>Open Aruba</ButtonLink> : null}
+            <ButtonLink href="/settings/integrations/aruba/new" variant="primary">Add connection</ButtonLink>
+          </div>
         </div>
       </section>
 
