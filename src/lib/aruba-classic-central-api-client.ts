@@ -325,3 +325,103 @@ export async function listClassicCentralSites(input: {
   }
   throw new ArubaCentralApiError('Classic Central sites exceeded the page safety limit.',502,false)
 }
+
+export type ClassicCentralSwitchStack = Record<string, unknown>
+
+/**
+ * Classic Central exposes LOGICAL switch stacks separately from physical
+ * switches. Never infer a physical site, model or member serial from a stack
+ * name, location or configuration group.
+ *
+ * Collection reference:
+ * https://developer.arubanetworks.com/central/reference/apiexternal_controllerget_switch_stacks
+ */
+export async function listClassicCentralSwitchStacks(
+  input: ClassicCentralListInput,
+): Promise<ClassicCentralSwitchStack[]> {
+  const baseUrl = arubaCentralApiBaseUrl(input.configuration)
+  const fetchImpl = input.fetchImpl ?? fetch
+  const maxPages = input.maxPagesPerType ?? 100
+  if (!Number.isInteger(maxPages) || maxPages < 1) {
+    throw new Error('Classic Central maxPagesPerType must be positive.')
+  }
+  let accessToken = required(input.accessToken, 'access token')
+  let refreshToken = input.refresh?.refreshToken ?? null
+  const all: ClassicCentralSwitchStack[] = []
+  const seen = new Set<string>()
+
+  for (let page = 0; page < maxPages; page++) {
+    const url = new URL('/monitoring/v1/switch_stacks', baseUrl)
+    url.searchParams.set('offset', String(page * ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
+    url.searchParams.set('limit', String(ARUBA_CLASSIC_CENTRAL_PAGE_SIZE))
+
+    const requestPage = () => requestWithRetry({
+      url,
+      fetchImpl,
+      init: {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+        signal: input.signal,
+      },
+      requestPolicy: input.requestPolicy,
+    })
+
+    let response: Response
+    try {
+      response = await requestPage()
+    } catch (error) {
+      if (!(error instanceof ArubaCentralApiError) || error.status !== 401 ||
+        !input.refresh || !refreshToken) throw error
+      const rotated = await refreshClassicCentralAccessToken({
+        configuration: input.configuration,
+        credentials: input.refresh.credentials,
+        refreshToken,
+        fetchImpl,
+        signal: input.signal,
+        requestPolicy: input.requestPolicy,
+      })
+      await input.refresh.onTokensRotated(rotated)
+      accessToken = rotated.accessToken
+      refreshToken = rotated.refreshToken
+      response = await requestPage()
+    }
+
+    const payload = await jsonObject(response)
+    if (!Array.isArray(payload.stacks)) {
+      throw new ArubaCentralApiError(
+        'Classic Central returned an invalid switch stacks list.', 502, false,
+      )
+    }
+    const total = payload.total
+    if (total !== undefined && (!Number.isSafeInteger(total) || (total as number) < 0)) {
+      throw new ArubaCentralApiError(
+        'Classic Central returned an invalid switch stacks total.', 502, false,
+      )
+    }
+    for (const entry of payload.stacks) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new ArubaCentralApiError(
+          'Classic Central returned a malformed switch stack.', 502, false,
+        )
+      }
+      const record = entry as Record<string, unknown>
+      const id = typeof record.id === 'string' ? record.id.trim() : null
+      if (!id) {
+        throw new ArubaCentralApiError(
+          'Classic Central switch stack is missing its durable stack ID.', 502, false,
+        )
+      }
+      if (seen.has(id)) throw new ArubaCentralApiError(
+        'Classic Central returned a duplicate switch stack ID.', 502, false,
+      )
+      seen.add(id)
+      all.push(record)
+    }
+    if (payload.stacks.length < ARUBA_CLASSIC_CENTRAL_PAGE_SIZE ||
+      (typeof total === 'number' &&
+        all.length >= total)) return all
+  }
+  throw new ArubaCentralApiError(
+    'Classic Central switch stack pagination exceeded its safety limit.', 502, false,
+  )
+}
