@@ -46,6 +46,14 @@ describe('firmware documentation discovery', () => {
     expect(docs[0].match).toBe('PLATFORM_INDEX')
   })
 
+  it('falls back to the official Junos release index for service-build and unknown formats', () => {
+    const result = suggestFirmwareDocuments({
+      vendor: { code: 'JUNIPER', name: 'Juniper Networks' },
+      platform: 'Junos', version: '24.2R2-S1',
+    })
+    expect(result[0].match).toBe('PLATFORM_INDEX')
+  })
+
   it('does not manufacture links for unknown suppliers or versions', () => {
     expect(suggestFirmwareDocuments({
       vendor: { code: 'OTHER', name: 'Other Vendor' },
@@ -102,7 +110,8 @@ describe('firmware documentation discovery', () => {
       vendor: { code: 'MKT', name: 'MikroTik' },
       platform: 'RouterOS', version: '7.23',
     })
-    expect(juniper[0].match).toBe('PLATFORM_INDEX')
+    expect(juniper[0].match).toBe('EXACT_VERSION')
+    expect(juniper[0].url).toBe('https://www.juniper.net/documentation/us/en/software/junos/release-notes/23.4/junos-release-notes-23.4r2/index.html')
     expect(mikrotik[0].match).toBe('PLATFORM_INDEX')
   })
 
