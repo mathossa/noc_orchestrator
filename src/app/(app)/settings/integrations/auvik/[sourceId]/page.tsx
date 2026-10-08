@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { AuvikConnectionManager } from '@/components/settings/auvik-connection-manager'
+import { IntegrationSetupHelpLink } from '@/components/settings/integration-setup-help-link'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
@@ -23,6 +24,7 @@ export default async function AuvikConnectionPage({
         eyebrow="Settings · Integrations · Auvik"
         title={connection.name}
         description="Auvik Network Management Device API v2 inventory source. Syncs stage observed state through the shared Importer v2 reconciliation and publication path."
+        actions={<IntegrationSetupHelpLink provider="auvik" />}
         breadcrumbs={[
           { label: 'Settings', href: '/settings' },
           { label: 'Integrations', href: '/settings/integrations' },
