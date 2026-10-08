@@ -126,12 +126,20 @@ export function suggestFirmwareDocuments(release: FirmwareDocumentRelease): Firm
   }
 
   if (/juniper/.test(vendor)) {
-    if (/junos/.test(platform)) {
-      return [link('RELEASE_NOTES', 'Junos OS release notes (select product and release)',
-        'https://techlibrary.juniper.net/documentation/product/us/en/junos-os/',
-        'Juniper Networks', 'PLATFORM_INDEX')]
+    if (!/junos/.test(platform)) return []
+    // The public Junos release-notes URL is version-scoped. Service releases,
+    // Junos Evolved, and unmatched forms must not be guessed from this pattern.
+    const junos = /^(\d{2}\.\d)R(\d+)$/i.exec(normalizedVersion)
+    if (junos) {
+      const train = junos[1]
+      const exact = `${train}r${junos[2]}`
+      return [link('RELEASE_NOTES', `Junos OS ${normalizedVersion} release notes`,
+        `https://www.juniper.net/documentation/us/en/software/junos/release-notes/${train}/junos-release-notes-${exact}/index.html`,
+        'Juniper Networks', 'EXACT_VERSION')]
     }
-    return []
+    return [link('RELEASE_NOTES', 'Junos OS release notes (select product and release)',
+      'https://www.juniper.net/documentation/product/us/en/junos-os#cat=release_notes',
+      'Juniper Networks', 'PLATFORM_INDEX')]
   }
 
   if (/mikrotik/.test(vendor) && /router-?os/.test(platform)) {
