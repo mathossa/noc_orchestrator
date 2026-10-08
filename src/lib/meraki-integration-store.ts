@@ -54,11 +54,13 @@ function normalizeConfiguration(input: {
     version: 1,
     environment: normalizeEnvironment(input.environment),
     organizations: (input.organizations ?? []).map((organization) => ({
+      enabled: organization.enabled !== false,
       organizationId: clean(organization.organizationId),
       organizationName: clean(organization.organizationName) || null,
       customer: clean(organization.customer) || null,
       businessUnit: clean(organization.businessUnit) || null,
       networks: organization.networks.map((network) => ({
+        enabled: network.enabled !== false,
         networkId: clean(network.networkId),
         networkName: clean(network.networkName) || null,
         site: clean(network.site) || null,
