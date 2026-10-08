@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireAdminRequest } from '@/lib/api-admin'
 import { documentationApiError } from '../../documentation-api-error'
 import { createReleaseDocumentation, listReleaseDocumentation } from '@/lib/firmware-release-documentation-store'
 
@@ -15,6 +16,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
+    await requireAdminRequest(request)
     const { id } = await params
     const data = await createReleaseDocumentation(id, await request.json())
     return NextResponse.json({ data }, { status: 201 })
