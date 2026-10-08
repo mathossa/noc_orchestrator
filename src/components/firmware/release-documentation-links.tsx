@@ -120,7 +120,7 @@ export function ReleaseDocumentationLinks({
   return (
     <section aria-label="Firmware documentation" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Documentation{visiblePayload?.release ? ` · ${payload.release.version}` : ''}</h3>
+        <h3 className="text-sm font-semibold">Documentation{visiblePayload?.release ? ` · ${visiblePayload.release.version}` : ''}</h3>
         {editable ? (
           <Button type="button" variant="secondary" onClick={() => {
             setShowForm((current) => !current)
