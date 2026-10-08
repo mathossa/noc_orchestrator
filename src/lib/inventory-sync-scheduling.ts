@@ -4,7 +4,8 @@ import { JobSystem } from '@/jobs/job-system'
 const INVENTORY_SYNC_JOB = 'inventory.sync' as const
 
 function scheduleKey(sourceId: string) {
-  return `inventory-source:${sourceId}`
+  // pg-boss schedule keys do not permit ':' (only [A-Za-z0-9_./-]).
+  return `inventory-source-${sourceId}`
 }
 
 async function withJobSystem<T>(callback: (system: JobSystem) => Promise<T>) {
@@ -108,7 +109,7 @@ export async function configureInventorySyncSchedule(input: {
         key,
         timezone,
         missed: 'skip',
-        correlationKey: `inventory-sync:${source.id}`,
+        correlationKey: `inventory-sync-${source.id}`,
       },
     )
 
