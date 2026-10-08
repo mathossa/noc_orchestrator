@@ -503,8 +503,7 @@ export function AuvikConnectionManager({
                   </label>
                 ))}
               </div>
-              {(
-                <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex justify-end">
                   <Button
                     variant="ghost"
                     onClick={() =>
@@ -516,7 +515,6 @@ export function AuvikConnectionManager({
                     Remove tenant
                   </Button>
                 </div>
-              )}
             </div>
           ))}
           <div className="flex justify-end">
