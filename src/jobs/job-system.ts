@@ -170,7 +170,7 @@ export class JobSystem {
     options: WorkerOptions = {},
   ): Promise<void> {
     for (const name of JOB_NAMES) {
-      await this.registerWorker(name, handlers[name], options)
+      await this.registerWorker(name, handlers[name] as JobHandler<typeof name>, options)
     }
   }
 
