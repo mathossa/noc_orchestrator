@@ -115,6 +115,16 @@ export async function runClassicCentralInventorySync(
       configuration:connection.configuration,
       metadata:{connectionType:'ARUBA_CENTRAL_CLASSIC'},
     })
+    const stackMemberReviewRowNumbers=devices.flatMap((device,index)=>{
+      // AOS-CX VSX/stack members are physical observations, not separate
+      // logical managed stacks. Keep them in review until stack parent/member
+      // topology can be confirmed; do not silently create 8 devices for 3 stacks.
+      const stackId=device.raw.stack_id
+      return device.kind==='SWITCH' &&
+        (typeof stackId==='string'&&stackId.trim() ||
+          typeof stackId==='number'&&Number.isSafeInteger(stackId))
+        ? [index+1] : []
+    })
     const normalized=await arubaClassicCentralInventorySourceAdapter.loadAndNormalize({
       source,
       input:{
@@ -136,7 +146,9 @@ export async function runClassicCentralInventorySync(
       isFullInventoryExport:false,
     })
     const automation=await initializeImporterV2WorkspaceAutomation(staged.batch.id)
-    const autoPublication=await autoPublishImporterV2SafeValidRows(staged.batch.id)
+    const autoPublication=await autoPublishImporterV2SafeValidRows(staged.batch.id,{
+      additionalBlockedRowNumbers:stackMemberReviewRowNumbers,
+    })
     const syncRun=await completeInventorySyncRun({
       runId:run.id,status:'SUCCEEDED',batchId:staged.batch.id,
       fetchedCount:fetched.length,stagedCount:devices.length,
@@ -151,6 +163,7 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
+        stackMembersHeldForReview:stackMemberReviewRowNumbers.length,
         switchSiteRecovery:{
           attempted:recovery.attempted,
           serverFilterVerified:recovery.serverFilterVerified,
