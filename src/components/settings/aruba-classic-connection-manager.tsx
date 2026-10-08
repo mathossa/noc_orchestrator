@@ -7,6 +7,23 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Site={siteId?:string|null;siteName:string;enabled:boolean;site:string|null}
+type SwitchSiteDiagnostics = {
+  fetchedSwitchCount:number
+  selectedByCurrentFilter:number
+  excludedByCurrentFilter:number
+  missingSiteEvidenceCount:number
+  contradictoryEvidenceCount:number
+  savedSelectedSites:Array<{siteName:string;siteId:string|null}>
+  observedSwitchSites:Array<{
+    siteName:string|null;siteId:string|null;count:number;stackedCount:number
+  }>
+  siteQueryHonored:boolean
+  siteChecks:Array<{
+    siteName:string;siteId:string|null;switchCount:number
+    overlapWithUnfiltered:number;missingSiteEvidenceCount:number
+    contradictoryEvidenceCount:number
+  }>
+}
 type Connection={
   id:string;name:string;enabled:boolean;sourceAdapterId:string
   configuration:{version:1;variant:'CLASSIC';baseUrl:string;scopeMode:'SELECTED_SITES';customer:string|null;businessUnit:string|null;sites:readonly Site[]}
@@ -35,6 +52,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
   const [busy,setBusy]=useState<string|null>(null)
   const [message,setMessage]=useState<string|null>(null)
   const [discoveryMessage,setDiscoveryMessage]=useState<string|null>(null)
+  const [switchDiagnostics,setSwitchDiagnostics]=useState<SwitchSiteDiagnostics|null>(null)
   const [reviewBatchId,setReviewBatchId]=useState<string|null>(null)
   const [syncRuns,setSyncRuns]=useState(initialSyncRuns)
   const endpoint=`/api/v1/inventory-sources/aruba/${connection.id}`
@@ -92,6 +110,13 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
     setDiscoveryMessage(evidenceMessage)
     setMessage(`Found ${found.length} sites. New sites are disabled; review the selection and save. ${found.length===0?'Confirm devices have physical sites assigned in the customer tenant in Aruba Central.':''}`)
     router.refresh()
+  })
+  const diagnoseSwitchSites=()=>perform('switch-diagnostics',async()=>{
+    const diagnosis=await responseData(await fetch(
+      `${endpoint}/switch-site-diagnostics`,{method:'POST'},
+    )) as SwitchSiteDiagnostics
+    setSwitchDiagnostics(diagnosis)
+    setMessage('Read-only switch site diagnostics completed. No devices were imported or changed.')
   })
   const sync=()=>perform('sync',async()=>{
     const result=await responseData(await fetch(`${endpoint}/sync`,{method:'POST'}))
@@ -198,6 +223,47 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       </div>
       <div className="flex justify-end border-t border-[var(--border)] p-5">
         <Button variant="primary" disabled={busy!==null} onClick={()=>void save()}>{busy==='save'?'Saving…':'Save settings & site selection'}</Button>
+      </div>
+      <div className="border-t border-[var(--border)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Switch site diagnostics</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">Check why Classic switches are outside the saved site selection. Read-only: no staging or publication.</p>
+          </div>
+          <Button disabled={busy!==null||!hasScope||unsavedScopeChanges}
+            onClick={()=>void diagnoseSwitchSites()}>
+            {busy==='switch-diagnostics'?'Checking…':'Diagnose switch sites'}
+          </Button>
+        </div>
+        {switchDiagnostics?<div className="mt-4 space-y-3 text-sm">
+          <p><strong>Switches:</strong> {switchDiagnostics.fetchedSwitchCount} fetched;
+            {' '}{switchDiagnostics.selectedByCurrentFilter} matched saved site selection;
+            {' '}{switchDiagnostics.excludedByCurrentFilter} excluded.
+            {' '}{switchDiagnostics.missingSiteEvidenceCount} without site fields;
+            {' '}{switchDiagnostics.contradictoryEvidenceCount} with conflicting site identifiers.</p>
+          <p><strong>Aruba server-side site filter:</strong>
+            {' '}{switchDiagnostics.siteQueryHonored?'Negative control passed':'Not reliable (site filter returned devices for an impossible site)'}</p>
+          <div>
+            <h4 className="font-semibold">Observed site fields on switches</h4>
+            {switchDiagnostics.observedSwitchSites.map((entry,index)=>
+              <p key={index} className="ml-2 text-[var(--muted-strong)]">
+                {entry.siteName??'(site name absent)'} · ID {entry.siteId??'(absent)'} · {entry.count} switches · {entry.stackedCount} stack members
+              </p>)}
+          </div>
+          <div>
+            <h4 className="font-semibold">Saved selected sites (API site-filter check)</h4>
+            {switchDiagnostics.savedSelectedSites.map(site=>{
+              const result=switchDiagnostics.siteChecks.find(check=>check.siteName===site.siteName)
+              return <p key={site.siteName} className="ml-2 text-[var(--muted-strong)]">
+                {site.siteName} · ID {site.siteId??'(absent)'} ·
+                {' '}{result?`${result.switchCount} switches returned, ${result.overlapWithUnfiltered} also in unfiltered API, ${result.missingSiteEvidenceCount} missing site fields, ${result.contradictoryEvidenceCount} contradictory`:'site-filter probe unavailable'}
+              </p>
+            })}
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            If a site query finds switches but the response omits site fields, we need a verified site-query fallback. No names or groups are assumed to prove site membership.
+          </p>
+        </div>:null}
       </div>
     </section>
     {message?<p role="status" className="text-sm text-[var(--muted-strong)]">{message}</p>:null}
