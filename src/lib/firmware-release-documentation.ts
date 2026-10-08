@@ -107,7 +107,9 @@ export function suggestFirmwareDocuments(release: FirmwareDocumentRelease): Firm
     return []
   }
 
-  if (/meraki/.test(vendor)) {
+  // The Meraki inventory adapter often maps devices to a Cisco vendor while
+  // the canonical software platform is "Meraki MR/MS/MX" (#115).
+  if (/meraki/.test(vendor) || (/cisco/.test(vendor) && /^meraki-(mr|ms|mx|mv|mg|mt)(?:$|-)/.test(platform))) {
     return [link('RELEASE_NOTES', 'Meraki firmware changelog (select firmware version in Dashboard)',
       'https://documentation.meraki.com/Platform_Management/Product_Information/Compatibility_and_Firmware',
       'Cisco Meraki', 'PLATFORM_INDEX')]
