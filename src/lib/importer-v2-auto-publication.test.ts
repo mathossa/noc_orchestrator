@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getQa: vi.fn(),
   publish: vi.fn(),
   findIdentityConflicts: vi.fn(),
+  findNameConflicts: vi.fn(),
 }))
 
 vi.mock('@/lib/importer-v2-publication-store', () => {
@@ -16,6 +17,10 @@ vi.mock('@/lib/importer-v2-publication-store', () => {
     ImporterV2PublicationValidationError,
   }
 })
+
+vi.mock('@/lib/importer-v2-publication-name-conflicts', () => ({
+  findImporterV2PublicationNameConflicts: mocks.findNameConflicts,
+}))
 
 vi.mock('@/lib/importer-v2-publication-identity-diagnostics', () => ({
   findImporterV2PublicationIdentityConflicts: mocks.findIdentityConflicts,
@@ -50,6 +55,7 @@ describe('Importer v2 safe automatic publication', () => {
     vi.clearAllMocks()
     mocks.getQa.mockResolvedValue(qa())
     mocks.findIdentityConflicts.mockResolvedValue([])
+    mocks.findNameConflicts.mockResolvedValue([])
     mocks.publish.mockResolvedValue({
       publishedLogicalDeviceCount: 3,
       publishedRowCount: 3,
@@ -134,4 +140,27 @@ describe('Importer v2 safe automatic publication', () => {
     )
     expect(result.blockedRowNumbers).toEqual([1, 4])
   })
+  it('leaves new device-name collisions in review and still publishes safe rows', async () => {
+    mocks.findNameConflicts.mockResolvedValue([2])
+    mocks.publish.mockResolvedValue({
+      publishedLogicalDeviceCount: 2,
+      publishedRowCount: 2,
+      remainingIncludedRows: 2,
+    })
+    const result = await autoPublishImporterV2SafeValidRows('batch-1')
+    expect(mocks.findNameConflicts).toHaveBeenCalledWith({
+      batchId: 'batch-1',
+      rowNumbers: [1, 2, 3],
+    })
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      rowNumbers: [1, 3],
+    }))
+    expect(result).toMatchObject({
+      publishedLogicalDeviceCount: 2,
+      remainingIncludedRows: 2,
+      reconciliationRequired: true,
+      blockedRowNumbers: [2],
+    })
+  })
+
 })
