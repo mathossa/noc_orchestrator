@@ -1089,6 +1089,7 @@ export function ImporterV2Inspector({
           detail ? (
             <div className="space-y-4">
               <section>
+                {detail.evaluated.sourceEvidence?.availability ? <p className="mb-3 rounded border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs">Meraki availability: <strong className="capitalize">{detail.evaluated.sourceEvidence.availability.status ?? 'Unknown'}</strong>{detail.evaluated.sourceEvidence.availability.observedAt ? <span className="ml-2 text-[var(--muted)]">Observed {new Date(detail.evaluated.sourceEvidence.availability.observedAt).toLocaleString()}</span> : null}</p> : null}
                 <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
                   Proposals and proof
                 </h3>
