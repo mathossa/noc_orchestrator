@@ -373,6 +373,7 @@ model FirmwareRelease {
   minimumForPolicies  FirmwarePolicy[]           @relation("PolicyMinimumFirmware")
   maximumForPolicies  FirmwarePolicy[]           @relation("PolicyMaximumFirmware")
   lifecycleTargets    FirmwareLifecycleRecord[]  @relation("LifecycleTargetFirmware")
+  documentation       FirmwareReleaseDocument[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -388,6 +389,27 @@ model FirmwareRelease {
   @@index([status])
   @@index([source])
   @@index([isActive])
+}
+
+// Reusable, typed external documentation owned by an exact catalog release.
+// Automatic provider suggestions are resolved on read, not written as fact.
+model FirmwareReleaseDocument {
+  id                String   @id @default(uuid())
+  firmwareReleaseId String
+  type              String
+  title             String
+  url               String
+  source            String
+  notes             String?
+  match             String   @default("EXACT_VERSION")
+  verifiedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  firmwareRelease FirmwareRelease @relation(fields: [firmwareReleaseId], references: [id], onDelete: Cascade)
+
+  @@unique([firmwareReleaseId, url])
+  @@index([firmwareReleaseId, type])
 }
 
 model Device {

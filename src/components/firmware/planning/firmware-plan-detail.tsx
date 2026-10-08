@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { ReleaseDocumentationLinks } from '@/components/firmware/release-documentation-links'
 import {
   FormField,
   TextArea,
@@ -165,6 +166,20 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
     () => (detail ? groupPlanTargets(detail.targets) : []),
     [detail],
   )
+  const documentedTargets = useMemo(() => {
+    const unique = new Map<string, { version: string; platform: string }>()
+    for (const item of detail?.targets ?? []) {
+      const target = item.snapshot
+      if (!unique.has(target.targetFirmwareReleaseId)) {
+        unique.set(target.targetFirmwareReleaseId, {
+          version: target.targetVersion,
+          platform: target.targetPlatform,
+        })
+      }
+    }
+    return [...unique.entries()].map(([id, value]) => ({ id, ...value }))
+  }, [detail])
+
   const attentionTargets = useMemo(
     () =>
       (detail?.targets ?? []).filter(
@@ -569,6 +584,20 @@ export function FirmwarePlanDetail({ planId }: { planId: string }) {
                   </table>
                 </div>
               </details>
+            </div>
+          ))}
+        </div>
+      </PlanningSection>
+
+      <PlanningSection
+        title="Release documentation"
+        description="Official and manually maintained links for each immutable target release. References are current/live metadata, not part of the historical plan snapshot; automatically suggested links may need verification."
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          {documentedTargets.map((target) => (
+            <div key={target.id}>
+              <p className="mb-2 text-xs text-[var(--muted)]">{target.platform} · {target.version}</p>
+              <ReleaseDocumentationLinks releaseId={target.id} />
             </div>
           ))}
         </div>
