@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -16,6 +16,7 @@ type Connection = {
 }
 type OrgEditor = { organizationId: string; organizationName: string; customer: string; businessUnit: string; networks: Array<{ networkId: string; networkName: string; site: string }> }
 type DiscoveredOrganization = { id: string; name: string; url: string | null }
+type ScheduleStatus = { enabled: boolean; expression: string | null; timezone: string | null; nextRunAt: string | null; lastJobId: string | null }
 type SyncRun = { id: string; trigger: string; status: string; batchId: string | null; fetchedCount: number; stagedCount: number; autoPublishedCount: number; reviewRequiredCount: number; ignoredCount: number; errorCount: number; errorMessage: string | null; startedAt: string; finishedAt: string | null }
 type DiscoveredNetwork = { id: string; organizationId: string; name: string; productTypes: string[]; tags: string[]; timeZone: string | null }
 const editor = (scope?: OrganizationScope): OrgEditor => ({
@@ -41,6 +42,42 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [syncRuns, setSyncRuns] = useState(initialSyncRuns)
+  const [schedule, setSchedule] = useState<ScheduleStatus | null>(null)
+  const [scheduleExpression, setScheduleExpression] = useState('0 3 * * *')
+  const [scheduleTimezone, setScheduleTimezone] = useState('Europe/Amsterdam')
+
+  useEffect(() => {
+    let active = true
+    void responseData(fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`))
+      .then((value: ScheduleStatus) => {
+        if (!active) return
+        setSchedule(value)
+        if (value.expression) setScheduleExpression(value.expression)
+        if (value.timezone) setScheduleTimezone(value.timezone)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [connection.id])
+
+  const saveSchedule = async (enabled: boolean) => {
+    setBusy('schedule'); setMessage(null)
+    try {
+      const response = await fetch(`/api/v1/inventory-sources/meraki/${connection.id}/schedule`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          enabled,
+          expression: scheduleExpression,
+          timezone: scheduleTimezone,
+        }),
+      })
+      const next = await responseData(response) as ScheduleStatus
+      setSchedule(next)
+      setMessage(enabled ? 'Inventory sync schedule saved.' : 'Inventory sync schedule disabled.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update sync schedule.')
+    } finally { setBusy(null) }
+  }
 
   const save = async () => {
     setBusy('save'); setMessage(null)
@@ -143,6 +180,23 @@ export function MerakiConnectionManager({ initialConnection, initialSyncRuns }: 
           {org.networks.length > 0 ? <div className="mt-4 space-y-2">{org.networks.map((network) => <div key={network.networkId} className="grid gap-2 md:grid-cols-2 md:items-end"><div className="text-xs"><div className="font-semibold">{network.networkName || network.networkId}</div><div className="font-mono text-[var(--muted)]">{network.networkId}</div></div><label className="space-y-1 text-xs"><span className="font-semibold">Site mapping</span><input value={network.site} placeholder={network.networkName || 'Canonical site'} onChange={(e) => updateSite(org.organizationId, network.networkId, e.target.value)} className="h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm" /></label></div>)}</div> : <p className="mt-3 text-xs text-[var(--muted)]">No network filter means all networks in this organization are included.</p>}
         </div>)}
         <div className="flex justify-end"><Button variant="primary" disabled={busy !== null} onClick={() => void save()}>{busy === 'save' ? 'Saving…' : 'Save settings'}</Button></div>
+      </div>
+    </section>
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 className="font-semibold">Schedule</h2><p className="mt-1 text-sm text-[var(--muted)]">Uses the shared pg-boss inventory-sync queue. Manual and scheduled runs call the same sync execution service.</p></div>
+        <StatusBadge tone={schedule?.enabled ? 'success' : 'neutral'}>{schedule?.enabled ? 'Enabled' : 'Disabled'}</StatusBadge>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="space-y-1 text-sm"><span className="font-semibold">Recurring expression</span><input value={scheduleExpression} onChange={(e) => setScheduleExpression(e.target.value)} placeholder="0 3 * * *" className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 font-mono" /></label>
+        <label className="space-y-1 text-sm"><span className="font-semibold">Timezone</span><input value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 font-mono" /></label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
+        <span>Next run: {schedule?.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : '—'}</span>
+        <div className="flex gap-2">
+          {schedule?.enabled ? <Button disabled={busy !== null} onClick={() => void saveSchedule(false)}>Disable schedule</Button> : null}
+          <Button variant="primary" disabled={busy !== null || !connection.enabled || connection.connectionTest.status !== 'SUCCESS'} onClick={() => void saveSchedule(true)}>{busy === 'schedule' ? 'Saving…' : 'Save schedule'}</Button>
+        </div>
       </div>
     </section>
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">

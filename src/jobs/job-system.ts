@@ -218,6 +218,13 @@ export class JobSystem {
     return this.boss.getSchedule(name, key)
   }
 
+  previewRecurring(expression: string, timezone?: string): Date[] {
+    return this.boss.previewSchedule(
+      expression,
+      timezone ? { tz: timezone } : undefined,
+    )
+  }
+
   async unschedule<N extends JobName>(name: N, key?: string): Promise<void> {
     await this.boss.unschedule(name, key)
   }
