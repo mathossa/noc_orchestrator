@@ -80,9 +80,9 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       return [
         ...current.filter(site=>!found.some(candidate=>candidate.name.toLowerCase()===site.siteName.toLowerCase())),
         ...found.map(site=>({
-          ...previous.get(site.name.toLowerCase())??{
+          ...(previous.get(site.name.toLowerCase()) ?? {
             siteId:site.id,siteName:site.name,enabled:false,site:site.name,
-          },
+          }),
           siteId:previous.get(site.name.toLowerCase())?.siteId??site.id,
         })),
       ]
