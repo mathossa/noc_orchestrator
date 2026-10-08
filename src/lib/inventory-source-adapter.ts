@@ -52,6 +52,8 @@ function clean(value: string | null | undefined) {
 
 const CANONICAL_INVENTORY_PROVIDERS = new Map([
   ['auvik', 'AUVIK'],
+  ['meraki', 'MERAKI'],
+  ['cisco meraki', 'MERAKI'],
 ])
 
 export function normalizeInventoryProvider(
