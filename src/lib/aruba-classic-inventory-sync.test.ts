@@ -122,7 +122,7 @@ describe('Classic Central shared inventory sync',()=>{
     expect(mocks.listDevices).not.toHaveBeenCalled()
   })
 
-  it('can explicitly stage every customer-tenant device when site discovery is empty',async()=>{
+  it('rejects legacy ALL_DEVICES connections unless a saved site is enabled',async()=>{
     const record=await mocks.credentials()
     mocks.credentials.mockResolvedValueOnce({
       ...record,
@@ -135,21 +135,35 @@ describe('Classic Central shared inventory sync',()=>{
         },
       },
     })
-    mocks.listDevices.mockResolvedValueOnce([
-      {kind:'AP',raw:{serial:'AP01',model:'AP-515',status:'Up'}},
-      {kind:'SWITCH',raw:{serial:'SW01',site:'Branch',model:'2930F'}},
-    ])
+    await expect(runClassicCentralInventorySync('source-1'))
+      .rejects.toThrow('Select and save at least one Aruba Central site')
+    expect(mocks.listDevices).not.toHaveBeenCalled()
+    expect(mocks.stage).not.toHaveBeenCalled()
+  })
+
+  it('always excludes unselected sites even for previously saved ALL_DEVICES connections',async()=>{
+    const record=await mocks.credentials()
+    mocks.credentials.mockResolvedValueOnce({
+      ...record,
+      connection:{
+        ...record.connection,
+        configuration:{
+          ...record.connection.configuration,
+          scopeMode:'ALL_DEVICES',
+        },
+      },
+    })
     const result=await runClassicCentralInventorySync('source-1')
     expect(result.source).toMatchObject({
-      scopeMode:'ALL_DEVICES',
-      deviceCount:2,observedDeviceCount:2,selectedSiteCount:0,
+      deviceCount:1,observedDeviceCount:3,
+      selectedSiteCount:1,excludedFromScopeCount:2,
+      scopeMode:'SELECTED_SITES',
     })
     expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
       isFullInventoryExport:false,
-      rows:[
-        expect.objectContaining({rawValues:expect.objectContaining({sourceId:'AP01',site:null})}),
-        expect.objectContaining({rawValues:expect.objectContaining({sourceId:'SW01',site:'Branch'})}),
-      ],
+      rows:[expect.objectContaining({
+        rawValues:expect.objectContaining({sourceId:'AP01',customer:'Customer A',site:'Main Site'}),
+      })],
     }))
   })
 
