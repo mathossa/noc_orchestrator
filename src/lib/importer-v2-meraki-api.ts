@@ -59,6 +59,32 @@ export function merakiProductTypeToDeviceType(productType: unknown) {
   }
 }
 
+/**
+ * Saved discovery entries are inert until explicitly enabled. Legacy Meraki
+ * connections with no discovered networks retain their previous all-network
+ * meaning; a newly discovered empty network list never grants broad scope.
+ */
+export function configuredMerakiOrganizations(input: {
+  organizations: readonly MerakiOrganizationScope[]
+}) {
+  const scopes = input.organizations
+    .filter((organization) => organization.enabled !== false)
+    .map((organization) => ({
+      ...organization,
+      networks: organization.networks.filter((network) => network.enabled !== false),
+      hasExplicitNetworkScopes:
+        organization.networksDiscovered === true || organization.networks.length > 0,
+    }))
+    .filter((organization) =>
+      !organization.hasExplicitNetworkScopes || organization.networks.length > 0,
+    )
+
+  if (scopes.length === 0) {
+    throw new Error('Enable at least one Meraki organization and network before synchronizing inventory.')
+  }
+  return scopes
+}
+
 function networkContext(
   scope: MerakiOrganizationScope,
   networkId: string,
