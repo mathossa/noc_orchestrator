@@ -111,12 +111,16 @@ export function ReleaseDocumentationLinks({
     }
   }
 
+  // Navigating between devices must not momentarily display references from
+  // a previously viewed firmware release.
+  const visiblePayload = payload?.release?.id === releaseId ? payload : null
+
   if (!releaseId) return <p className="text-xs text-[var(--muted)]">No canonical firmware release matched; documentation cannot be linked safely.</p>
 
   return (
     <section aria-label="Firmware documentation" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Documentation{payload?.release ? ` · ${payload.release.version}` : ''}</h3>
+        <h3 className="text-sm font-semibold">Documentation{visiblePayload?.release ? ` · ${payload.release.version}` : ''}</h3>
         {editable ? (
           <Button type="button" variant="secondary" onClick={() => {
             setShowForm((current) => !current)
@@ -126,12 +130,12 @@ export function ReleaseDocumentationLinks({
         ) : null}
       </div>
       {error ? <p role="alert" className="mt-2 text-xs text-[var(--danger)]">{error}</p> : null}
-      {!payload && !error ? <p className="mt-2 text-xs text-[var(--muted)]">Loading references…</p> : null}
-      {payload?.data?.length === 0 ? (
+      {!visiblePayload && !error ? <p className="mt-2 text-xs text-[var(--muted)]">Loading references…</p> : null}
+      {visiblePayload?.data?.length === 0 ? (
         <p className="mt-2 text-xs text-[var(--muted)]">No release documentation linked. Use a manual reference; a vendor adapter may be added later.</p>
       ) : null}
       <div className="mt-3 space-y-2">
-        {payload?.data?.map((reference) => (
+        {visiblePayload?.data?.map((reference) => (
           <div key={reference.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2 last:border-0">
             <div className="min-w-0">
               <a href={reference.url} target="_blank" rel="noreferrer" className="text-sm font-medium text-[var(--accent-light)] hover:underline">
