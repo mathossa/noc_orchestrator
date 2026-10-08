@@ -121,4 +121,36 @@ describe('Classic Central shared inventory sync',()=>{
     await expect(runClassicCentralInventorySync('source-1')).rejects.toThrow('Enable at least one')
     expect(mocks.listDevices).not.toHaveBeenCalled()
   })
+
+  it('can explicitly stage every customer-tenant device when site discovery is empty',async()=>{
+    const record=await mocks.credentials()
+    mocks.credentials.mockResolvedValueOnce({
+      ...record,
+      connection:{
+        ...record.connection,
+        configuration:{
+          ...record.connection.configuration,
+          scopeMode:'ALL_DEVICES',
+          sites:[],
+        },
+      },
+    })
+    mocks.listDevices.mockResolvedValueOnce([
+      {kind:'AP',raw:{serial:'AP01',model:'AP-515',status:'Up'}},
+      {kind:'SWITCH',raw:{serial:'SW01',site:'Branch',model:'2930F'}},
+    ])
+    const result=await runClassicCentralInventorySync('source-1')
+    expect(result.source).toMatchObject({
+      scopeMode:'ALL_DEVICES',
+      deviceCount:2,observedDeviceCount:2,selectedSiteCount:0,
+    })
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      isFullInventoryExport:false,
+      rows:[
+        expect.objectContaining({rawValues:expect.objectContaining({sourceId:'AP01',site:null})}),
+        expect.objectContaining({rawValues:expect.objectContaining({sourceId:'SW01',site:'Branch'})}),
+      ],
+    }))
+  })
+
 })
