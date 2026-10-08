@@ -294,23 +294,26 @@ export function AuvikConnectionManager({
 
       const staged =
         `Auvik sync staged ${result.source.deviceCount.toLocaleString()} devices from ${result.source.tenantCount.toLocaleString()} tenant${result.source.tenantCount === 1 ? '' : 's'}.`
+      const partialNotice = result.source.partial
+        ? ` ${result.source.failures.length} tenant(s) failed; successful tenant data was staged as a partial export.`
+        : ''
       if (autoPublication.status === 'PUBLISHED') {
         const published =
           ` Auto-published ${autoPublication.publishedLogicalDeviceCount.toLocaleString()} valid device${autoPublication.publishedLogicalDeviceCount === 1 ? '' : 's'}.`
         const review = autoPublication.reconciliationRequired
           ? ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} still need reconciliation.`
           : ' No reconciliation is required.'
-        setMessage(staged + published + review)
+        setMessage(staged + published + review + partialNotice)
       } else if (autoPublication.reconciliationRequired) {
         setMessage(
           staged +
             ` ${autoPublication.remainingIncludedRows.toLocaleString()} device row${autoPublication.remainingIncludedRows === 1 ? '' : 's'} need reconciliation.` +
             (autoPublication.error
               ? ` Automatic publication paused: ${autoPublication.error}`
-              : ''),
+              : '') + partialNotice,
         )
       } else {
-        setMessage(staged + ' Nothing required reconciliation or publication.')
+        setMessage(staged + ' Nothing required reconciliation or publication.' + partialNotice)
       }
     } catch (error) {
       setMessage(
