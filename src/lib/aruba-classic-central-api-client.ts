@@ -126,7 +126,10 @@ export async function refreshClassicCentralAccessToken(input: {
 }
 
 function parsePage(input: { payload: Record<string, unknown>; collection: string }) {
-  const candidates = input.payload[input.collection]
+  // Classic gateway inventory is returned under "mcs" in some official
+  // Classic payloads, while other deployments return "gateways".
+  const candidates = input.payload[input.collection] ??
+    (input.collection === 'gateways' ? input.payload.mcs : undefined)
   if (!Array.isArray(candidates)) {
     throw new ArubaCentralApiError(
       `Classic Central returned an invalid ${input.collection} list.`,
