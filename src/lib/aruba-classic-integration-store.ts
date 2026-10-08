@@ -79,7 +79,13 @@ export function normalizeClassicCentralConnectionConfiguration(input: {
   }
 }
 function parseConfiguration(value: unknown) {
-  const item = value as Partial<ClassicCentralConnectionConfiguration> | null
+  // The database may still contain ALL_DEVICES from an earlier test build.
+  // Accept it only when reading legacy JSON, then downgrade to selected sites.
+  const item = value as (
+    Partial<Omit<ClassicCentralConnectionConfiguration, 'scopeMode'>> & {
+      scopeMode?: 'SELECTED_SITES' | 'ALL_DEVICES'
+    }
+  ) | null
   if (!item || item.version !== 1 || item.variant !== 'CLASSIC' || !item.baseUrl) {
     throw new Error('Classic Central connection configuration is invalid.')
   }
