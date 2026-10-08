@@ -4,7 +4,6 @@ import {
 } from '@/lib/meraki-api-client'
 import {
   getMerakiInventoryConnectionCredentials,
-  type MerakiInventoryConnectionConfiguration,
 } from '@/lib/meraki-integration-store'
 import { normalizeInventorySourceDefinition } from '@/lib/inventory-source-adapter'
 import {
@@ -16,6 +15,7 @@ import {
   MERAKI_API_PROVIDER,
   MERAKI_DASHBOARD_API_ADAPTER_TYPE,
   merakiDashboardInventorySourceAdapter,
+  configuredMerakiOrganizations,
 } from '@/lib/importer-v2-meraki-api'
 import { initializeImporterV2WorkspaceAutomation } from '@/lib/importer-v2-workspace-maintenance'
 import { autoPublishImporterV2SafeValidRows } from '@/lib/importer-v2-auto-publication'
@@ -44,25 +44,6 @@ export function merakiApiRuntimeImporterProfile(input: {
     defaults: {},
     exactValueAliases: [],
   }
-}
-
-export function configuredMerakiOrganizations(
-  configuration: MerakiInventoryConnectionConfiguration,
-) {
-  const scopes = configuration.organizations
-    .filter((organization) => organization.enabled !== false)
-    .map((organization) => ({
-      ...organization,
-      networks: organization.networks.filter((network) => network.enabled !== false),
-      // Preserve a zero-network legacy organization as an all-networks scope.
-      hasExplicitNetworkScopes: organization.networksDiscovered === true || organization.networks.length > 0,
-    }))
-    .filter((organization) => !organization.hasExplicitNetworkScopes || organization.networks.length > 0)
-
-  if (scopes.length === 0) {
-    throw new Error('Enable at least one Meraki organization and network before synchronizing inventory.')
-  }
-  return scopes
 }
 
 async function runMerakiInventorySyncCore(
