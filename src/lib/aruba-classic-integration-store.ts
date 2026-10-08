@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { discoverSitesFromClassicDeviceEvidence } from '@/lib/aruba-classic-site-discovery'
 import { prisma } from '@/lib/prisma'
 import {
   ArubaCentralApiError,
@@ -344,35 +345,8 @@ export async function discoverClassicCentralSites(
     fetchImpl: options.fetchImpl,
     signal: options.signal,
   })
-  const found = new Map<string, { id: string | null; name: string; origin: 'DEVICE_EVIDENCE' }>()
-  const groups = new Set<string>()
-  let unassignedDeviceCount = 0
-  for (const observation of observations) {
-    const item = observation.raw
-    const name = [item.site, item.site_name, item.siteName]
-      .find(value => typeof value === 'string' && value.trim())
-    if (typeof name !== 'string') {
-      unassignedDeviceCount += 1
-    } else {
-      const normalized = clean(name)
-      const siteId = item.site_id ?? item.siteId
-      if (normalized && !found.has(normalized.toLocaleLowerCase('en-US'))) {
-        found.set(normalized.toLocaleLowerCase('en-US'), {
-          id: typeof siteId === 'string' || typeof siteId === 'number' ? String(siteId) : null,
-          name: normalized,
-          origin: 'DEVICE_EVIDENCE',
-        })
-      }
-    }
-    const group = [item.group_name, item.group, item.ap_group, item.device_group]
-      .find(value => typeof value === 'string' && value.trim())
-    if (typeof group === 'string') groups.add(clean(group))
-  }
   return {
-    sites: [...found.values()].sort((a,b) => a.name.localeCompare(b.name)),
+    ...discoverSitesFromClassicDeviceEvidence(observations),
     catalogCount: 0,
-    observedDeviceCount: observations.length,
-    unassignedDeviceCount,
-    observedGroupCount: groups.size,
   }
 }
