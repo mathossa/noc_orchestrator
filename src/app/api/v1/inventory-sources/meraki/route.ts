@@ -20,6 +20,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] {
       throw new Error('Each organization scope requires organizationId.')
     }
     return {
+      enabled: item.enabled === undefined ? undefined : item.enabled === true,
       organizationId: item.organizationId,
       organizationName: optionalString(item.organizationName),
       customer: optionalString(item.customer),
@@ -31,6 +32,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] {
               throw new Error('Each Meraki network scope requires networkId.')
             }
             return {
+              enabled: value.enabled === undefined ? undefined : value.enabled === true,
               networkId: value.networkId,
               networkName: optionalString(value.networkName),
               site: optionalString(value.site),
