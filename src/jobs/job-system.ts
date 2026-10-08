@@ -10,7 +10,7 @@ import {
   createDefaultJobHandlers,
   type JobHandler,
   type JobHandlers,
-} from './handlers.js'
+} from '@/jobs/handlers'
 import {
   JOB_DEFINITIONS,
   JOB_NAMES,
@@ -18,7 +18,7 @@ import {
   type JobName,
   type JobPayloadMap,
   type JobResultMap,
-} from './registry.js'
+} from '@/jobs/registry'
 
 export interface JobSystemOptions {
   databaseUrl?: string
