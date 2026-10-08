@@ -43,6 +43,7 @@ function sorted(values: Iterable<number>) {
  */
 export async function autoPublishImporterV2SafeValidRows(
   batchId: string,
+  options: { additionalBlockedRowNumbers?: readonly number[] } = {},
 ): Promise<ImporterV2AutoPublicationResult> {
   const qa = await getImporterV2PublicationQa(batchId)
   const candidates = qa.publication.validOnlyCandidateRows
@@ -58,7 +59,7 @@ export async function autoPublishImporterV2SafeValidRows(
       publishedRowCount: 0,
       remainingIncludedRows,
       reconciliationRequired: remainingIncludedRows > 0,
-      blockedRowNumbers: [],
+      blockedRowNumbers: sorted(options.additionalBlockedRowNumbers ?? []),
       error: null,
     }
   }
@@ -104,6 +105,7 @@ export async function autoPublishImporterV2SafeValidRows(
     ...identityBlocked,
     ...qaIdentityBlocked,
     ...nameConflicts,
+    ...(options.additionalBlockedRowNumbers ?? []),
   ])
   const safeRows = candidates.filter((rowNumber) => !blocked.has(rowNumber))
 
