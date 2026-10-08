@@ -9,7 +9,7 @@ import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/com
 type Site={siteId?:string|null;siteName:string;enabled:boolean;site:string|null}
 type Connection={
   id:string;name:string;enabled:boolean;sourceAdapterId:string
-  configuration:{version:1;variant:'CLASSIC';baseUrl:string;scopeMode:'ALL_DEVICES'|'SELECTED_SITES';customer:string|null;businessUnit:string|null;sites:readonly Site[]}
+  configuration:{version:1;variant:'CLASSIC';baseUrl:string;scopeMode:'SELECTED_SITES';customer:string|null;businessUnit:string|null;sites:readonly Site[]}
   credentialsConfigured:boolean
   connectionTest:{status:'UNTESTED'|'SUCCESS'|'FAILED';testedAt:string|null;httpStatus:number|null}
 }
@@ -28,7 +28,6 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
   const [customer,setCustomer]=useState(connection.configuration.customer??'')
   const [businessUnit,setBusinessUnit]=useState(connection.configuration.businessUnit??'')
   const [sites,setSites]=useState<Site[]>([...connection.configuration.sites])
-  const [scopeMode,setScopeMode]=useState<'ALL_DEVICES'|'SELECTED_SITES'>(connection.configuration.scopeMode)
   const [clientId,setClientId]=useState('')
   const [clientSecret,setClientSecret]=useState('')
   const [accessToken,setAccessToken]=useState('')
@@ -49,9 +48,9 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       ? {clientId,clientSecret,accessToken,refreshToken} : {}
     const data=await responseData(await fetch(endpoint,{
       method:'PATCH',headers:{'content-type':'application/json'},
-      body:JSON.stringify({name,baseUrl,customer,businessUnit,scopeMode,sites,...replacement}),
+      body:JSON.stringify({name,baseUrl,customer,businessUnit,sites,...replacement}),
     })) as Connection
-    setConnection(data);setSites([...data.configuration.sites]);setScopeMode(data.configuration.scopeMode)
+    setConnection(data);setSites([...data.configuration.sites])
     setClientId('');setClientSecret('');setAccessToken('');setRefreshToken('')
     setMessage('Aruba Central settings saved.');router.refresh()
   })
@@ -91,7 +90,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       ? `Central site API returned 0 sites. Monitoring saw ${result.observedDeviceCount??0} devices, of which ${result.unassignedDeviceCount??0} have no site field; ${result.observedGroupCount??0} Aruba groups are not physical sites.`
       : `Central site API returned ${result.catalogCount} sites.`
     setDiscoveryMessage(evidenceMessage)
-    setMessage(`Found ${found.length} sites. New sites are disabled; review the selection and save. ${found.length===0?'If devices have no Central site assignment, use the explicit whole-tenant option.':''}`)
+    setMessage(`Found ${found.length} sites. New sites are disabled; review the selection and save. ${found.length===0?'Confirm devices have physical sites assigned in the customer tenant in Aruba Central.':''}`)
     router.refresh()
   })
   const sync=()=>perform('sync',async()=>{
@@ -105,11 +104,11 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
         finishedAt:run.finishedAt?new Date(run.finishedAt).toISOString():null,
       },...current].slice(0,20))
     }
-    setMessage(`Aruba Classic staged ${result.source.deviceCount} devices from ${result.source.selectedSiteCount} selected sites; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.`)
+    setMessage(`Aruba Classic staged ${result.source.deviceCount} devices from ${result.source.selectedSiteCount} selected sites; ${result.source.excludedFromScopeCount} outside the site selection were excluded; ${publication.publishedLogicalDeviceCount} auto-published, ${publication.remainingIncludedRows} need review.`)
   })
   const changeSite=(name:string,partial:Partial<Site>)=>setSites(current=>current.map(site=>site.siteName===name?{...site,...partial}:site))
   const enabledSites=connection.configuration.sites.filter(site=>site.enabled).length
-  const hasScope=connection.configuration.scopeMode==='ALL_DEVICES'||enabledSites>0
+  const hasScope=enabledSites>0
   const canSync=connection.enabled&&connection.connectionTest.status==='SUCCESS'&&hasScope
   return <div className="space-y-5">
     <div className="grid gap-4 md:grid-cols-3">
@@ -133,7 +132,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy!==null} onClick={()=>void test()}>Test connection</Button>
-          <Button disabled={busy!==null||(!connection.enabled&&connection.connectionTest.status!=='SUCCESS')} onClick={()=>void enable(!connection.enabled)}>{connection.enabled?'Disable':'Enable'}</Button>
+          <Button disabled={busy!==null||(!connection.enabled&&(connection.connectionTest.status!=='SUCCESS'||!hasScope||!connection.configuration.customer))} onClick={()=>void enable(!connection.enabled)}>{connection.enabled?'Disable':'Enable'}</Button>
           <Button variant="primary" disabled={busy!==null||!canSync} onClick={()=>void sync()}>{busy==='sync'?'Syncing…':'Sync now'}</Button>
         </div>
       </div>
@@ -167,18 +166,12 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
         <Button disabled={busy!==null} onClick={()=>void discover()}>Discover Central sites</Button>
       </div>
       <div className="space-y-3 p-5">
-        <fieldset className="space-y-2 rounded-md border border-[var(--border)] p-3">
-          <legend className="px-1 text-sm font-semibold">Inventory scope for this customer tenant</legend>
-          <label className="flex gap-2 text-sm"><input type="radio" name="aruba-classic-scope" checked={scopeMode==='SELECTED_SITES'} onChange={()=>setScopeMode('SELECTED_SITES')}/>
-            Only enabled Central sites
-          </label>
-          <label className="flex gap-2 text-sm"><input type="radio" name="aruba-classic-scope" checked={scopeMode==='ALL_DEVICES'} onChange={()=>setScopeMode('ALL_DEVICES')}/>
-            All devices in this Central tenant (including unassigned devices)
-          </label>
-          <p className="text-xs text-[var(--muted)]">Whole-tenant sync retains Aruba site evidence where available; devices without a site may require review in Importer v2. No devices are deleted when selection changes.</p>
-        </fieldset>
+        <p className="text-xs text-[var(--muted)]">
+          Only checked and saved sites under this customer are imported. Devices
+          without a selected site are excluded, including during scheduled sync.
+        </p>
         {discoveryMessage?<p role="status" className="text-sm text-[var(--muted-strong)]">{discoveryMessage}</p>:null}
-        {sites.length===0?<p className="text-sm text-[var(--muted)]">No Central sites found yet. Discover sites, or explicitly select all devices in this customer tenant.</p>:null}
+        {sites.length===0?<p className="text-sm text-[var(--muted)]">No Central sites found yet. Assign physical sites under this customer in Aruba Central, then discover and enable them before syncing.</p>:null}
         {sites.map(site=><div key={site.siteName} className="grid gap-3 rounded-md border border-[var(--border)] p-3 md:grid-cols-[auto_1fr_1fr] md:items-center">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={site.enabled} onChange={event=>changeSite(site.siteName,{enabled:event.target.checked})}/>
