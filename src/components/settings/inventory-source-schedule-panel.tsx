@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { formatAmsterdamTimestamp } from '@/lib/format-amsterdam-timestamp'
@@ -179,6 +180,11 @@ export function InventorySourceSchedulePanel({
                 {run.trigger === 'SCHEDULED' ? 'skipped (unattended)' : 'review'} ·{' '}
                 <span className="font-semibold">{run.errorCount}</span> errors
                 {run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}
+                {run.batchId && run.reviewRequiredCount > 0 ? (
+                  <Link href={`/devices/import/${run.batchId}`} className="mt-1 block text-xs text-[var(--accent-light)] hover:underline">
+                    Inspect skipped/reviewable rows
+                  </Link>
+                ) : null}
               </div>
               <div className="text-xs text-[var(--muted)]">{formatAmsterdamTimestamp(run.startedAt)}</div>
             </div>
