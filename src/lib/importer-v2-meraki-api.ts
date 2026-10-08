@@ -13,12 +13,14 @@ export const MERAKI_API_PROVIDER = 'MERAKI'
 export const MERAKI_DASHBOARD_API_ADAPTER_TYPE = 'meraki-dashboard-api-v1'
 
 export type MerakiNetworkScope = {
+  enabled?: boolean
   networkId: string
   networkName?: string | null
   site?: string | null
 }
 
 export type MerakiOrganizationScope = {
+  enabled?: boolean
   organizationId: string
   organizationName?: string | null
   customer?: string | null
