@@ -6,7 +6,7 @@ export type WorkspaceRow = {
   inclusion: string
   statuses: string[]
   primaryStatus: string
-  availabilityStatus: string | null
+  availabilityStatus?: string | null
   repeatClassification: string | null
   issueCount: number
   hasErrors: boolean
