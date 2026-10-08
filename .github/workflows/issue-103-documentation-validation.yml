@@ -48,6 +48,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test -- src/lib/firmware-release-documentation.test.ts src/lib/firmware-release-documentation-store.test.ts
+      - run: npm run test:integration -- src/lib/firmware-release-documentation-store.integration.test.ts
       - name: Verify migrations and Prisma schema parity
         run: |
           npm run prisma:deploy
