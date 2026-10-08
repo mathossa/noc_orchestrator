@@ -7,6 +7,7 @@ import {
 } from '@/lib/aruba-central-api-client'
 import {
   refreshClassicCentralAccessToken,
+  listClassicCentralSites,
   type ClassicCentralClientCredentials,
   type ClassicCentralTokens,
 } from '@/lib/aruba-classic-central-api-client'
@@ -275,6 +276,14 @@ export async function testClassicCentralConnection(
       signal:options.signal,
     })
     await persistClassicCentralRotatedTokens(sourceId,credentials.refreshToken,tokens)
+    // A token-only response is not enough: verify the connection can read
+    // site inventory with the same API gateway used by device monitoring.
+    await listClassicCentralSites({
+      configuration: connection.configuration,
+      accessToken: tokens.accessToken,
+      fetchImpl: options.fetchImpl,
+      signal: options.signal,
+    })
     await prisma.inventorySource.update({
       where:{id:sourceId},
       data:{metadata:{connectionType:'ARUBA_CENTRAL_CLASSIC',lastConnectionTestStatus:'SUCCESS',lastConnectionTestAt:testedAt}},
