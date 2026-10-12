@@ -41,6 +41,14 @@ type DiscoveredTenant = {
   id: string
   domainPrefix: string
   tenantType: string | null
+  displayName: string | null
+  siteName: string | null
+  suggestion: {
+    customer: string
+    businessUnit: string | null
+    site: string | null
+    status: 'CUSTOMER' | 'CUSTOMER_AND_SITE'
+  } | null
 }
 
 type TenantEditor = {
@@ -50,6 +58,8 @@ type TenantEditor = {
   customer: string
   businessUnit: string
   site: string
+  tenantType: string
+  domainPrefix: string
 }
 
 function editorTenant(
@@ -62,6 +72,8 @@ function editorTenant(
     customer: tenant?.customer ?? '',
     businessUnit: tenant?.businessUnit ?? '',
     site: tenant?.site ?? '',
+    tenantType: '',
+    domainPrefix: '',
   }
 }
 
@@ -85,10 +97,10 @@ export function AuvikConnectionManager({
   const [name, setName] = useState(connection.name)
   const [region, setRegion] = useState(connection.configuration.region)
   const [tenants, setTenants] = useState<TenantEditor[]>(
-    connection.configuration.tenants.length
-      ? connection.configuration.tenants.map(editorTenant)
-      : [editorTenant()],
+    connection.configuration.tenants.map(editorTenant),
   )
+  const [tenantSearch, setTenantSearch] = useState('')
+  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED'>('ALL')
   const [username, setUsername] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -125,7 +137,11 @@ export function AuvikConnectionManager({
           body: JSON.stringify({
             name,
             region,
-            tenants: tenants.filter((tenant) => tenant.tenantId.trim()),
+            tenants: tenants.filter((tenant) => tenant.tenantId.trim()).map(({
+              tenantType: _tenantType,
+              domainPrefix: _domainPrefix,
+              ...saved
+            }) => saved),
             ...credentials,
           }),
         },
@@ -134,11 +150,11 @@ export function AuvikConnectionManager({
       setConnection(updated)
       setName(updated.name)
       setRegion(updated.configuration.region)
-      setTenants(
-        updated.configuration.tenants.length
-          ? updated.configuration.tenants.map(editorTenant)
-          : [editorTenant()],
-      )
+      setTenants((current) => updated.configuration.tenants.map((saved) => ({
+        ...editorTenant(saved),
+        tenantType: current.find((item) => item.tenantId === saved.tenantId)?.tenantType ?? '',
+        domainPrefix: current.find((item) => item.tenantId === saved.tenantId)?.domainPrefix ?? '',
+      })))
       setUsername('')
       setApiKey('')
       setMessage('Connection settings saved.')
@@ -245,19 +261,43 @@ export function AuvikConnectionManager({
       const discovered = (await responseData(response)) as DiscoveredTenant[]
       setTenants((current) => {
         const existing = new Map(current.filter((tenant) => tenant.tenantId).map((tenant) => [tenant.tenantId, tenant]))
+        const discoveredIds = new Set(discovered.map((tenant) => tenant.id))
         return [
-          ...current.filter((tenant) => tenant.tenantId && !discovered.some((candidate) => candidate.id === tenant.tenantId)),
+          // Keep scopes that have disappeared from the API response: a temporary
+          // permission change must not silently delete a confirmed mapping.
+          ...current.filter((tenant) => tenant.tenantId && !discoveredIds.has(tenant.tenantId)),
           ...discovered.map((tenant) => {
             const saved = existing.get(tenant.id)
-            return saved ?? editorTenant({
-              tenantId: tenant.id,
-              tenantName: tenant.domainPrefix,
-              enabled: false,
-            })
+            const display = tenant.displayName || tenant.domainPrefix || tenant.id
+            const suggestion = tenant.suggestion
+            if (saved) {
+              return {
+                ...saved,
+                tenantType: tenant.tenantType ?? '',
+                domainPrefix: tenant.domainPrefix,
+                // Upgrade an old opaque prefix to a real name, without
+                // overwriting a manually edited name or confirmed hierarchy.
+                tenantName: saved.tenantName === tenant.domainPrefix && tenant.displayName
+                  ? tenant.displayName
+                  : saved.tenantName,
+              }
+            }
+            return {
+              ...editorTenant({
+                tenantId: tenant.id,
+                tenantName: display,
+                enabled: false,
+                customer: suggestion?.customer ?? null,
+                businessUnit: suggestion?.businessUnit ?? null,
+                site: suggestion?.site ?? null,
+              }),
+              tenantType: tenant.tenantType ?? '',
+              domainPrefix: tenant.domainPrefix,
+            }
           }),
         ]
       })
-      setMessage(`Discovered ${discovered.length} Auvik tenants. Review enabled locations and save settings; newly discovered tenants start disabled.`)
+      setMessage(`Discovered ${discovered.length} Auvik tenants. New tenants start disabled; review suggested mappings, select locations in bulk and save settings before syncing.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sync Auvik tenants.')
     } finally {
@@ -325,6 +365,23 @@ export function AuvikConnectionManager({
   }
 
   const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
+  const search = tenantSearch.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+  const visibleTenants = tenants.map((tenant, index) => ({ tenant, index })).filter(({ tenant }) => {
+    if (tenantFilter === 'UNMAPPED' && tenant.customer.trim()) return false
+    return !search || [tenant.tenantName, tenant.domainPrefix, tenant.tenantId, tenant.customer, tenant.businessUnit, tenant.site]
+      .some((value) => value.toLocaleLowerCase('en-US').includes(search))
+  })
+  const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
+  const mappedCount = tenants.filter((tenant) => tenant.customer.trim()).length
+  const bulkEnableVisible = (enabled: boolean) => {
+    const indices = new Set(visibleTenants.map(({ index }) => index))
+    setTenants((current) => current.map((tenant, index) => indices.has(index) && tenant.tenantId
+      // Auvik multi-client parents should not be bulk-enabled; users can enable
+      // an individual parent scope explicitly if their Auvik setup requires it.
+      && ( !enabled || !/multi/i.test(tenant.tenantType))
+        ? { ...tenant, enabled }
+        : tenant))
+  }
 
   const testTone =
     connection.connectionTest.status === 'SUCCESS'
@@ -455,77 +512,141 @@ export function AuvikConnectionManager({
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div>
-            <h2 className="font-semibold">Tenant mappings</h2>
+            <h2 className="font-semibold">Auvik tenants &amp; site mappings</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Explicit first-slice mapping. These values remain staged evidence;
-              canonical hierarchy decisions still happen in Importer v2.
+              Discover accessible tenants, review suggested canonical mappings and enable sites in bulk.
+              Changes are applied only after Save settings. Missing or ambiguous matches stay for review in Importer v2.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={
-                busy !== null ||
-                connection.connectionTest.status !== 'SUCCESS'
-              }
+              disabled={busy !== null || connection.connectionTest.status !== 'SUCCESS'}
               onClick={() => void syncTenantsAndSites()}
             >
-              {busy === 'discover' ? 'Syncing tenants…' : 'Sync tenants & sites'}
+              {busy === 'discover' ? 'Discovering…' : 'Discover tenants'}
             </Button>
-            <Button onClick={() => setTenants((current) => [...current, editorTenant()])}>
+            <Button onClick={() => setTenants((current) => [...current, editorTenant()])} disabled={busy !== null}>
               Add manually
             </Button>
           </div>
         </div>
-        <div className="space-y-3 p-5">
-          {tenants.map((tenant, index) => (
-            <div
-              key={index}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4"
-            >
-              <label className="mb-3 flex items-center gap-2 text-xs font-semibold">
-                <input type="checkbox" checked={tenant.enabled} disabled={!tenant.tenantId} onChange={(event) => setTenants((current) => current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))} aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`} />
-                Enable tenant for synchronization
-              </label>
-              <div className="grid gap-3 lg:grid-cols-5">
-                {(
-                  [
-                    ['tenantId', 'Tenant ID'],
-                    ['tenantName', 'Tenant name'],
-                    ['customer', 'Customer'],
-                    ['businessUnit', 'Business Unit'],
-                    ['site', 'Site'],
-                  ] as const
-                ).map(([field, label]) => (
-                  <label key={field} className="space-y-1 text-xs">
-                    <span className="font-semibold text-[var(--muted-strong)]">{label}</span>
-                    <input
-                      value={tenant[field]}
-                      onChange={(event) => updateTenant(index, field, event.target.value)}
-                      className="h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm"
-                    />
-                  </label>
+        <div className="space-y-4 p-5">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <span><strong>{tenants.filter((tenant) => tenant.tenantId).length}</strong> discovered/configured</span>
+            <span><strong>{enabledCount}</strong> enabled</span>
+            <span><strong>{mappedCount}</strong> customer mapped</span>
+            <span><strong>{tenants.filter((tenant) => tenant.tenantId && !tenant.customer.trim()).length}</strong> need mapping</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              aria-label="Search Auvik tenants"
+              placeholder="Search customer, site or tenant ID"
+              value={tenantSearch}
+              onChange={(event) => setTenantSearch(event.target.value)}
+              className="h-10 min-w-60 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm"
+            />
+            <label className="text-sm">
+              <span className="sr-only">Filter tenants</span>
+              <select
+                value={tenantFilter}
+                onChange={(event) => setTenantFilter(event.target.value as 'ALL' | 'UNMAPPED')}
+                className="h-10 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
+              >
+                <option value="ALL">All tenants</option>
+                <option value="UNMAPPED">Needs customer mapping</option>
+              </select>
+            </label>
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkEnableVisible(true)}>
+              Enable visible sites
+            </Button>
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkEnableVisible(false)}>
+              Disable visible
+            </Button>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Bulk actions affect the filtered rows only and exclude multi-client parents when enabling. 
+            A mapping suggestion is not a confirmed device match. Unnamed tenants show their domain prefix or ID.
+          </p>
+          <div className="overflow-x-auto rounded-md border border-[var(--border)]">
+            <table className="w-full min-w-[940px] border-collapse text-left text-sm">
+              <thead className="bg-[var(--surface-raised)] text-xs text-[var(--muted-strong)]">
+                <tr>
+                  <th className="p-3 font-semibold">Sync</th>
+                  <th className="p-3 font-semibold">Auvik tenant</th>
+                  <th className="p-3 font-semibold">Customer</th>
+                  <th className="p-3 font-semibold">Business Unit</th>
+                  <th className="p-3 font-semibold">Site</th>
+                  <th className="p-3 font-semibold">Mapping</th>
+                  <th className="p-3"><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTenants.map(({ tenant, index }) => (
+                  <tr key={tenant.tenantId || `manual-${index}`} className="border-t border-[var(--border)] align-top">
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={tenant.enabled}
+                        disabled={!tenant.tenantId || busy !== null}
+                        onChange={(event) => setTenants((current) =>
+                          current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))}
+                        aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`}
+                      />
+                    </td>
+                    <td className="min-w-52 p-3">
+                      <input
+                        aria-label={`Tenant name ${index + 1}`}
+                        className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 font-medium"
+                        value={tenant.tenantName}
+                        onChange={(event) => updateTenant(index, 'tenantName', event.target.value)}
+                        placeholder="Name"
+                      />
+                      <div className="mt-1 break-all text-xs text-[var(--muted)]">
+                        {tenant.tenantType ? `${tenant.tenantType} · ` : ''}{tenant.domainPrefix && tenant.domainPrefix !== tenant.tenantName ? `${tenant.domainPrefix} · ` : ''}{tenant.tenantId}
+                      </div>
+                      {!tenant.tenantId && (
+                        <input
+                          aria-label="Manual tenant ID"
+                          value={tenant.tenantId}
+                          onChange={(event) => updateTenant(index, 'tenantId', event.target.value)}
+                          placeholder="Auvik tenant ID"
+                          className="mt-2 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1"
+                        />
+                      )}
+                    </td>
+                    {(['customer', 'businessUnit', 'site'] as const).map((field) => (
+                      <td className="min-w-40 p-3" key={field}>
+                        <input
+                          aria-label={`${field} for ${tenant.tenantName || tenant.tenantId}`}
+                          value={tenant[field]}
+                          onChange={(event) => updateTenant(index, field, event.target.value)}
+                          placeholder={field === 'businessUnit' ? 'Optional' : 'Not mapped'}
+                          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5"
+                        />
+                      </td>
+                    ))}
+                    <td className="p-3 text-xs">
+                      {tenant.customer.trim()
+                        ? <span className="text-[var(--muted-strong)]">Customer mapped</span>
+                        : <span className="text-[var(--warning)]">Needs review</span>}
+                    </td>
+                    <td className="p-3">
+                      <Button variant="ghost" disabled={busy !== null} onClick={() => setTenants((current) => current.filter((_, position) => position !== index))}>
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-              <div className="mt-3 flex justify-end">
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      setTenants((current) =>
-                        current.filter((_, tenantIndex) => tenantIndex !== index),
-                      )
-                    }
-                  >
-                    Remove tenant
-                  </Button>
-                </div>
-            </div>
-          ))}
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              disabled={busy !== null}
-              onClick={() => void save()}
-            >
+              </tbody>
+            </table>
+            {visibleTenants.length === 0 && (
+              <p className="p-6 text-center text-sm text-[var(--muted)]">No tenants match this filter. Discover tenants or change your search.</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-xs text-[var(--muted)]">Review all changes before saving. Sync now uses the saved selection, not unsaved edits.</span>
+            <Button variant="primary" disabled={busy !== null} onClick={() => void save()}>
               {busy === 'save' ? 'Saving…' : 'Save settings'}
             </Button>
           </div>
