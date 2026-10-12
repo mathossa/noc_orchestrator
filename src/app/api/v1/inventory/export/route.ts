@@ -7,6 +7,8 @@ import {
 
 function exportScope(params: URLSearchParams): InventoryExportScope | null {
   const scope = params.get('scope')
+  if (scope === 'all') return { kind: 'all' }
+
   const customerId = params.get('customerId')
   if (!customerId) return null
 
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
       {
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Choose a valid customer, site, or device-type export scope.',
+          message: 'Choose a valid all, customer, site, or device-type export scope.',
         },
       },
       { status: 400 },
