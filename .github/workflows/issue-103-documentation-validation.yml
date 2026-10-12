@@ -1,0 +1,57 @@
+name: Issue 103 firmware documentation validation
+
+on:
+  push:
+    branches:
+      - issue/103-firmware-release-documentation
+  pull_request:
+    paths:
+      - 'src/lib/firmware-release-documentation*'
+      - 'src/components/firmware/release-documentation-links.tsx'
+      - 'src/components/devices/device-detail.tsx'
+      - 'src/components/firmware/planning/firmware-plan-detail.tsx'
+      - 'src/app/(app)/firmware/[id]/page.tsx'
+      - 'src/app/api/v1/firmware-releases/**'
+      - 'prisma/**'
+      - '.github/workflows/issue-103-documentation-validation.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: noc_orchestrator
+          POSTGRES_PASSWORD: docs_ci_only
+          POSTGRES_DB: noc_orchestrator_docs_ci
+        ports:
+          - 5439:5432
+        options: >-
+          --health-cmd "pg_isready -U noc_orchestrator -d noc_orchestrator_docs_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://noc_orchestrator:docs_ci_only@127.0.0.1:5439/noc_orchestrator_docs_ci
+      BETTER_AUTH_SECRET: docs-ci-build-secret-only-not-for-production
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test -- src/lib/firmware-release-documentation.test.ts src/lib/firmware-release-documentation-store.test.ts
+      - run: npm run test:integration -- src/lib/firmware-release-documentation-store.integration.test.ts
+      - name: Verify migrations and Prisma schema parity
+        run: |
+          npm run prisma:deploy
+          npx prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
+      - name: Verify Next.js production build
+        run: npm run build
