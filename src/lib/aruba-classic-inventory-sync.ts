@@ -5,6 +5,7 @@ import {
 } from '@/lib/aruba-classic-central-api-client'
 import { filterClassicCentralDevicesBySelectedSites } from '@/lib/aruba-classic-site-scope'
 import { recoverClassicSwitchSitesFromVerifiedQueries } from '@/lib/aruba-classic-switch-site-recovery'
+import { prepareClassicCentralStacks } from '@/lib/aruba-classic-stack-normalization'
 import {
   classicCentralRefreshContext,
   getClassicCentralConnectionCredentials,
@@ -115,20 +116,14 @@ export async function runClassicCentralInventorySync(
       configuration:connection.configuration,
       metadata:{connectionType:'ARUBA_CENTRAL_CLASSIC'},
     })
-    const stackMemberReviewRowNumbers=devices.flatMap((device,index)=>{
-      // AOS-CX VSX/stack members are physical observations, not separate
-      // logical managed stacks. Keep them in review until stack parent/member
-      // topology can be confirmed; do not silently create 8 devices for 3 stacks.
-      const stackId=device.raw.stack_id
-      return device.kind==='SWITCH' &&
-        (typeof stackId==='string'&&stackId.trim() ||
-          typeof stackId==='number'&&Number.isSafeInteger(stackId))
-        ? [index+1] : []
-    })
+    // Reuse the shared Importer v2 stack-parent/member topology engine.
+    // Groups with ambiguous source identity remain physical rows held for
+    // review; neither path creates same-name standalone managed devices.
+    const stacks=prepareClassicCentralStacks(devices)
     const normalized=await arubaClassicCentralInventorySourceAdapter.loadAndNormalize({
       source,
       input:{
-        devices,
+        devices:stacks.observations,
         context:{
           customer:connection.configuration.customer,
           businessUnit:connection.configuration.businessUnit,
@@ -147,11 +142,11 @@ export async function runClassicCentralInventorySync(
     })
     const automation=await initializeImporterV2WorkspaceAutomation(staged.batch.id)
     const autoPublication=await autoPublishImporterV2SafeValidRows(staged.batch.id,{
-      additionalBlockedRowNumbers:stackMemberReviewRowNumbers,
+      additionalBlockedRowNumbers:stacks.reviewRowNumbers,
     })
     const syncRun=await completeInventorySyncRun({
       runId:run.id,status:'SUCCEEDED',batchId:staged.batch.id,
-      fetchedCount:fetched.length,stagedCount:devices.length,
+      fetchedCount:fetched.length,stagedCount:stacks.observations.length,
       autoPublishedCount:autoPublication.publishedLogicalDeviceCount??0,
       reviewRequiredCount:autoPublication.remainingIncludedRows??0,
       metadata:{
@@ -163,7 +158,10 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
-        stackMembersHeldForReview:stackMemberReviewRowNumbers.length,
+        stackMembersHeldForReview:stacks.physicalMembersHeldForReview,
+        logicalStacksDetected:stacks.logicalStacksDetected,
+        stackRowsHeldForReview:stacks.reviewRowNumbers.length,
+        unresolvedStackObservationCount:stacks.unresolvedStackObservationCount,
         switchSiteRecovery:{
           attempted:recovery.attempted,
           serverFilterVerified:recovery.serverFilterVerified,
@@ -180,7 +178,8 @@ export async function runClassicCentralInventorySync(
       ...staged,automation,autoPublication,syncRun,
       source:{
         id:sourceId,sourceAdapterId:connection.sourceAdapterId,
-        deviceCount:devices.length,observedDeviceCount:fetched.length,
+        deviceCount:stacks.observations.length,physicalSelectedDeviceCount:devices.length,
+        observedDeviceCount:fetched.length,
         selectedSiteCount:enabledSites.length,scopeMode:'SELECTED_SITES',
         excludedFromScopeCount:selection.excludedCount,
         unassignedSiteCount:selection.withoutSiteCount,
@@ -188,7 +187,10 @@ export async function runClassicCentralInventorySync(
         fetchedByType,
         selectedByType,
         excludedByType,
-        stackMembersHeldForReview:stackMemberReviewRowNumbers.length,
+        stackMembersHeldForReview:stacks.physicalMembersHeldForReview,
+        logicalStacksDetected:stacks.logicalStacksDetected,
+        stackRowsHeldForReview:stacks.reviewRowNumbers.length,
+        unresolvedStackObservationCount:stacks.unresolvedStackObservationCount,
         switchSiteRecovery:{
           attempted:recovery.attempted,
           serverFilterVerified:recovery.serverFilterVerified,
