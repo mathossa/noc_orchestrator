@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   exportRecords: vi.fn(),
   csv: vi.fn(),
+  getSession: vi.fn(),
+}))
+
+vi.mock('@/lib/auth', () => ({
+  auth: { api: { getSession: mocks.getSession } },
 }))
 
 vi.mock('@/lib/inventory-explorer-store', () => ({
@@ -20,6 +25,7 @@ describe('inventory CSV export scopes', () => {
     vi.clearAllMocks()
     mocks.exportRecords.mockResolvedValue([])
     mocks.csv.mockReturnValue('Customer,Site,Current firmware,Contract\r\n')
+    mocks.getSession.mockResolvedValue({ user: { id: 'engineer-1' } })
   })
 
   it('exports all customers with the existing vendor, device-type, and contract filters', async () => {
@@ -70,6 +76,15 @@ describe('inventory CSV export scopes', () => {
         expect.any(Object),
       )
     }
+  })
+
+  it('requires a session before exporting any internal contract data', async () => {
+    mocks.getSession.mockResolvedValue(null)
+    const response = await GET(
+      new Request('https://noc.example/api/v1/inventory/export?scope=all'),
+    )
+    expect(response.status).toBe(401)
+    expect(mocks.exportRecords).not.toHaveBeenCalled()
   })
 
   it('rejects invalid export scopes without calling the inventory store', async () => {
