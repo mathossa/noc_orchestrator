@@ -72,8 +72,8 @@ function editorTenant(
     customer: tenant?.customer ?? '',
     businessUnit: tenant?.businessUnit ?? '',
     site: tenant?.site ?? '',
-    tenantType: '',
-    domainPrefix: '',
+    tenantType: tenant?.tenantType ?? '',
+    domainPrefix: tenant?.domainPrefix ?? '',
   }
 }
 
