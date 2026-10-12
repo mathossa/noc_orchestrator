@@ -45,6 +45,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
   const [customer,setCustomer]=useState(connection.configuration.customer??'')
   const [businessUnit,setBusinessUnit]=useState(connection.configuration.businessUnit??'')
   const [sites,setSites]=useState<Site[]>([...connection.configuration.sites])
+  const [showCredentialReplacement,setShowCredentialReplacement]=useState(false)
   const [clientId,setClientId]=useState('')
   const [clientSecret,setClientSecret]=useState('')
   const [accessToken,setAccessToken]=useState('')
@@ -62,7 +63,8 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
     finally{setBusy(null)}
   }
   const save=()=>perform('save',async()=>{
-    const replacement=[clientId,clientSecret,accessToken,refreshToken].some((value)=>value.trim())
+    const replacement=showCredentialReplacement &&
+      [clientId,clientSecret,accessToken,refreshToken].some((value)=>value.trim())
       ? {clientId,clientSecret,accessToken,refreshToken} : {}
     const data=await responseData(await fetch(endpoint,{
       method:'PATCH',headers:{'content-type':'application/json'},
@@ -70,6 +72,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
     })) as Connection
     setConnection(data);setSites([...data.configuration.sites])
     setClientId('');setClientSecret('');setAccessToken('');setRefreshToken('')
+    setShowCredentialReplacement(false)
     setMessage('Aruba Central settings saved.');router.refresh()
   })
   const test=()=>perform('test',async()=>{
@@ -194,6 +197,20 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
             className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
           />
         </label>)}
+      </div>
+      <div className="mt-4">
+        <Button disabled={busy!==null} onClick={()=>{
+          setShowCredentialReplacement(current=>!current)
+          setClientId('');setClientSecret('');setAccessToken('');setRefreshToken('')
+        }}>
+          {showCredentialReplacement?'Cancel credential replacement':'Replace API credentials'}
+        </Button>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Credentials stay encrypted and unchanged unless you explicitly open
+          this section and enter all four replacement values.
+        </p>
+      </div>
+      {showCredentialReplacement?<div className="mt-4 grid gap-4 md:grid-cols-2">
         {([
           ['Replace client ID',clientId,setClientId],
           ['Replace client secret',clientSecret,setClientSecret],
@@ -212,7 +229,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
             className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
           />
         </label>)}
-      </div>
+      </div>:null}
     </section>
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] p-5">
