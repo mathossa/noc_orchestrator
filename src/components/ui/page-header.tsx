@@ -13,6 +13,7 @@ export function PageHeader({
   breadcrumbs,
   actions,
   meta,
+  alignActionsTop = false,
 }: {
   title: string
   description?: string
@@ -20,6 +21,7 @@ export function PageHeader({
   breadcrumbs?: PageBreadcrumb[]
   actions?: ReactNode
   meta?: ReactNode
+  alignActionsTop?: boolean
 }) {
   return (
     <header className="mb-6 border-b border-[var(--border)] pb-5">
@@ -47,7 +49,7 @@ export function PageHeader({
         </nav>
       ) : null}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className={`flex flex-col gap-4 sm:flex-row sm:justify-between ${alignActionsTop ? 'sm:items-start' : 'sm:items-end'}`}>
         <div className="min-w-0">
           {eyebrow ? (
             <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
