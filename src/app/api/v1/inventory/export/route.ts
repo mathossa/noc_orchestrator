@@ -1,3 +1,4 @@
+import { auth } from '@/lib/auth'
 import { inventoryExportCsv } from '@/lib/inventory-export'
 import { parseInventoryQuery } from '@/lib/inventory-explorer'
 import {
@@ -36,6 +37,15 @@ function exportScope(params: URLSearchParams): InventoryExportScope | null {
 }
 
 export async function GET(request: Request) {
+  // Reports can expose inventory and internal contract data across customers.
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session) {
+    return Response.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Authentication is required.' } },
+      { status: 401 },
+    )
+  }
+
   const params = new URL(request.url).searchParams
   const scope = exportScope(params)
   if (!scope) {
