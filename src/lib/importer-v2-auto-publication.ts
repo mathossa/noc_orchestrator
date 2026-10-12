@@ -1,4 +1,5 @@
 import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
+import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import {
   findImporterV2PublicationIdentityConflicts,
 } from '@/lib/importer-v2-publication-identity-diagnostics'
@@ -19,6 +20,16 @@ export type ImporterV2AutoPublicationResult = {
   error: string | null
 }
 
+function isDeviceCustomerNameCollision(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const failure = error as { code?: unknown; meta?: { target?: unknown } }
+  if (failure.code !== 'P2002') return false
+  const target = failure.meta?.target
+  if (typeof target === 'string') return target === 'Device_customerId_name_key'
+  return Array.isArray(target) &&
+    target.includes('customerId') && target.includes('name')
+}
+
 function sorted(values: Iterable<number>) {
   return [...new Set(values)].sort((left, right) => left - right)
 }
@@ -32,6 +43,7 @@ function sorted(values: Iterable<number>) {
  */
 export async function autoPublishImporterV2SafeValidRows(
   batchId: string,
+  options: { additionalBlockedRowNumbers?: readonly number[] } = {},
 ): Promise<ImporterV2AutoPublicationResult> {
   const qa = await getImporterV2PublicationQa(batchId)
   const candidates = qa.publication.validOnlyCandidateRows
@@ -47,7 +59,7 @@ export async function autoPublishImporterV2SafeValidRows(
       publishedRowCount: 0,
       remainingIncludedRows,
       reconciliationRequired: remainingIncludedRows > 0,
-      blockedRowNumbers: [],
+      blockedRowNumbers: sorted(options.additionalBlockedRowNumbers ?? []),
       error: null,
     }
   }
@@ -68,10 +80,16 @@ export async function autoPublishImporterV2SafeValidRows(
     ...qa.publication.allResolvedCandidateRows,
     ...qa.publication.unresolvedRows.map((row) => row.rowNumber),
   ])
-  const identityConflicts = await findImporterV2PublicationIdentityConflicts({
-    batchId,
-    rowNumbers: identityScope,
-  })
+  const [identityConflicts, nameConflicts] = await Promise.all([
+    findImporterV2PublicationIdentityConflicts({
+      batchId,
+      rowNumbers: identityScope,
+    }),
+    findImporterV2PublicationNameConflicts({
+      batchId,
+      rowNumbers: candidates,
+    }),
+  ])
   const identityBlocked = new Set(
     identityConflicts.flatMap((conflict) => [
       conflict.rowNumber,
@@ -86,6 +104,8 @@ export async function autoPublishImporterV2SafeValidRows(
     ...approvalBlocked,
     ...identityBlocked,
     ...qaIdentityBlocked,
+    ...nameConflicts,
+    ...(options.additionalBlockedRowNumbers ?? []),
   ])
   const safeRows = candidates.filter((rowNumber) => !blocked.has(rowNumber))
 
@@ -127,6 +147,7 @@ export async function autoPublishImporterV2SafeValidRows(
     }
   } catch (error) {
     if (
+      isDeviceCustomerNameCollision(error) ||
       error instanceof ImporterV2PublicationConflictError ||
       error instanceof ImporterV2PublicationValidationError
     ) {
@@ -141,7 +162,9 @@ export async function autoPublishImporterV2SafeValidRows(
         remainingIncludedRows,
         reconciliationRequired: remainingIncludedRows > 0,
         blockedRowNumbers: sorted(blocked),
-        error: error.message,
+        error: isDeviceCustomerNameCollision(error)
+          ? 'A device with the same name already exists within this customer. Confirm canonical identity or rename the device before publication.'
+          : error instanceof Error ? error.message : 'Publication needs review.',
       }
     }
     throw error

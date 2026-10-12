@@ -46,7 +46,7 @@ export function InventorySourceSchedulePanel({
   hasEnabledScope,
   syncRuns,
 }: {
-  provider: 'auvik' | 'meraki'
+  provider: 'auvik' | 'meraki' | 'aruba'
   sourceId: string
   enabled: boolean
   connectionTestPassed: boolean
