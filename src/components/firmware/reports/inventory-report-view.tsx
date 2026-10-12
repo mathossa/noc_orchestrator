@@ -121,9 +121,10 @@ export function InventoryReportView({
 
   const scopeDescription = inventoryReportScopeDescription(query, filters, firmware)
   const sections = buildContractReportSections(report.devices)
-  const xlsxHref = inventoryHref('/api/v1/reports/inventory/xlsx', query) +
-    (inventoryHref('/api/v1/reports/inventory/xlsx', query).includes('?') ? '&' : '?') +
-    (firmware ? 'firmware=' + encodeURIComponent(firmware) : 'format=xlsx')
+  const xlsxBase = inventoryHref('/api/v1/reports/inventory/xlsx', query)
+  const xlsxHref = firmware
+    ? xlsxBase + (xlsxBase.includes('?') ? '&' : '?') + 'firmware=' + encodeURIComponent(firmware)
+    : xlsxBase
 
   const date = new Intl.DateTimeFormat('nl-NL', {
     dateStyle: 'medium',
@@ -223,7 +224,7 @@ export function InventoryReportView({
           </p>
         </header>
 
-        <section aria-label="Report summary">
+        <section aria-label="Report summary" className="inventory-report-print-hide">
           <h3 className="mb-3 text-base font-semibold">Summary</h3>
           <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
             <SummaryStat label="Devices" value={report.deviceCount} />
@@ -235,7 +236,7 @@ export function InventoryReportView({
           </div>
         </section>
 
-        <section aria-label="Report distributions" className="grid gap-5 lg:grid-cols-3">
+        <section aria-label="Report distributions" className="inventory-report-print-hide grid gap-5 lg:grid-cols-3">
           <div className="rounded-lg border border-[var(--border)] p-4">
             <h3 className="mb-3 text-sm font-semibold">Firmware distribution</h3>
             {distributions(report.firmwareDistribution, 'No firmware versions match this scope.')}
