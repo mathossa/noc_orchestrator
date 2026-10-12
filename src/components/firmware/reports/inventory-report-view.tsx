@@ -120,11 +120,18 @@ export function InventoryReportView({
   const vendorName = filters.vendors.find((item) => item.id === query.vendor)?.name
   const typeName = filters.deviceTypes.find((item) => item.id === query.deviceType)?.name
   const contractName = filters.contracts.find((item) => item.id === query.contract)?.name
+  const modelName = filters.models.find((item) => item.id === query.model)?.model
   const scopeDescription = [
     vendorName,
     typeName,
+    modelName,
     query.contract === 'none' ? 'No management contract' : contractName,
     firmware ? 'Firmware contains ' + firmware : null,
+    query.status ? 'Status: ' + label(query.status) : null,
+    query.source ? 'Source: ' + label(query.source) : null,
+    query.attention ? 'Needs attention' : null,
+    query.flagged ? 'Flagged' : null,
+    query.q ? 'Search: ' + query.q : null,
   ].filter(Boolean).join(' · ') || 'All managed inventory'
 
   const date = new Intl.DateTimeFormat('nl-NL', {
@@ -157,6 +164,8 @@ export function InventoryReportView({
           }
         />
         <form action="/reports/inventory" method="get" className="mb-6">
+          {query.attention ? <input type="hidden" name="attention" value="1" /> : null}
+          {query.flagged ? <input type="hidden" name="flagged" value="1" /> : null}
           <FilterBar
             label="Inventory report filters"
             summary={<span>Report scope: {scopeDescription}</span>}
@@ -223,7 +232,7 @@ export function InventoryReportView({
             <SummaryStat label="Devices" value={report.deviceCount} />
             <SummaryStat label="Customers" value={report.customerCount} />
             <SummaryStat label="Sites" value={report.siteCount} />
-            <SummaryStat label="Firmware versions" value={report.firmwareDistribution.length} />
+            <SummaryStat label="Firmware versions" value={report.firmwareDistribution.filter((entry) => entry.label !== 'Unknown').length} />
             <SummaryStat label="Unknown firmware" value={report.unknownFirmwareCount} />
             <SummaryStat label="No contract" value={report.missingContractCount} />
           </div>
