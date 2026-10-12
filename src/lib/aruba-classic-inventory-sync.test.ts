@@ -211,6 +211,7 @@ describe('Classic Central shared inventory sync',()=>{
       kind:'SWITCH',
       raw:{
         serial:`CX${i+1}`,stack_id:`STACK-${Math.floor(i/3)+1}`,
+        name:`72switch${Math.floor(i/3)+5}`,
         model:'6200',firmware_version:'10.13.1000',
       },
     }))
@@ -232,10 +233,12 @@ describe('Classic Central shared inventory sync',()=>{
     })
     const result=await runClassicCentralInventorySync('source-1')
     expect(result.source).toMatchObject({
-      deviceCount:9,observedDeviceCount:22,
+      deviceCount:12,physicalSelectedDeviceCount:9,observedDeviceCount:22,
       selectedByType:{AP:1,SWITCH:8,GATEWAY:0},
       excludedByType:{AP:0,SWITCH:13,GATEWAY:0},
       stackMembersHeldForReview:8,
+      logicalStacksDetected:3,
+      stackRowsHeldForReview:11,
       switchSiteRecovery:{serverFilterVerified:true,recoveredSwitchCount:8},
     })
     expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
@@ -252,11 +255,13 @@ describe('Classic Central shared inventory sync',()=>{
       ]),
     }))
     const staged=mocks.stage.mock.calls[0][0].rows
-    expect(staged).toHaveLength(9)
+    expect(staged).toHaveLength(12)
+    expect(staged.filter((row:{rawValues:{deviceType:string}})=>
+      row.rawValues.deviceType==='Stack')).toHaveLength(3)
     expect(staged.find((row:{rawValues:{sourceId:string}})=>row.rawValues.sourceId==='OTHER0'))
       .toBeUndefined()
     expect(mocks.publish).toHaveBeenCalledWith('batch-1',{
-      additionalBlockedRowNumbers:[2,3,4,5,6,7,8,9],
+      additionalBlockedRowNumbers:[2,3,4,5,6,7,8,9,10,11,12],
     })
   })
 
