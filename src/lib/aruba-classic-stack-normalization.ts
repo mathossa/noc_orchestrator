@@ -61,12 +61,20 @@ export function prepareClassicCentralStacks(
   for (const [id, group] of grouped) {
     if (group.length < 2) continue
     const names = [...new Set(group.map(item => stackName(item.row)))]
+    // A stack never spans customer sites. Do not join two different selected
+    // Central sites merely because an upstream stack_id was reused.
+    const siteContexts = new Set(group.map(item =>
+      JSON.stringify([
+        clean(item.row.raw.site_id) ?? item.row.raw.site_id ?? null,
+        clean(item.row.raw.site),
+      ]),
+    ))
     const serials = group.map(item => serial(item.row))
     const durableSerials = serials.every(Boolean) &&
       new Set(serials.map(value => value!.toUpperCase())).size === group.length
     // A stack_id groups physical hardware, but does not prove the logical
     // name when the members disagree. Leave ambiguous groups for review.
-    if (names.length !== 1 || !names[0] || !durableSerials) continue
+    if (siteContexts.size !== 1 || names.length !== 1 || !names[0] || !durableSerials) continue
     const name = names[0]
     const explicitSlots = group.map(item => slot(item.row))
     const reliableSlots = explicitSlots.every(item => item !== null) &&
