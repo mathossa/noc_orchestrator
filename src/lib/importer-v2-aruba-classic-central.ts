@@ -47,15 +47,21 @@ export function classicCentralObservationToNormalizedRow(
 ): NormalizedInventorySourceRow {
   const raw = observation.raw
   const serial = pick(raw, 'serial', 'serial_number', 'serialNumber')
-  const sourceId = serial // Classic monitoring APIs use serial as their identity.
+  // A synthetic logical stack is identified by its durable Central stack ID;
+  // member serials never become the logical parent's own serial number.
+  const sourceId = raw.nocOrchestratorStackParent === true
+    ? pick(raw, 'nocOrchestratorStackSourceId')
+    : serial
   const site = pick(raw, 'site', 'site_name', 'siteName')
   const version = pick(raw, 'firmware_version', 'firmwareVersion', 'version')
   const mappedSite = site ? clean(context.sitesByName?.[site]) : null
-  const deviceType = observation.kind === 'AP'
-    ? 'Access Point'
-    : observation.kind === 'SWITCH'
-      ? 'Switch'
-      : 'Gateway'
+  const deviceType = raw.nocOrchestratorStackParent === true
+    ? 'Stack'
+    : observation.kind === 'AP'
+      ? 'Access Point'
+      : observation.kind === 'SWITCH'
+        ? 'Switch'
+        : 'Gateway'
 
   return {
     rowNumber,
