@@ -15,6 +15,8 @@ import type {
 } from '@/lib/inventory-report'
 import type { InventoryExportRecord } from '@/lib/inventory-explorer-store'
 import { inventoryHref } from '@/lib/inventory-explorer'
+import { buildContractReportSections } from '@/lib/inventory-contract-report'
+import { inventoryReportScopeDescription } from '@/lib/inventory-report-context'
 
 function label(value: string) {
   return value
@@ -117,22 +119,11 @@ export function InventoryReportView({
   if (firmware) extra.set('firmware', firmware)
   const csvHref = baseExport + (baseExport.includes('?') ? '&' : '?') + extra.toString()
 
-  const vendorName = filters.vendors.find((item) => item.id === query.vendor)?.name
-  const typeName = filters.deviceTypes.find((item) => item.id === query.deviceType)?.name
-  const contractName = filters.contracts.find((item) => item.id === query.contract)?.name
-  const modelName = filters.models.find((item) => item.id === query.model)?.model
-  const scopeDescription = [
-    vendorName,
-    typeName,
-    modelName,
-    query.contract === 'none' ? 'No management contract' : contractName,
-    firmware ? 'Firmware contains ' + firmware : null,
-    query.status ? 'Status: ' + label(query.status) : null,
-    query.source ? 'Source: ' + label(query.source) : null,
-    query.attention ? 'Needs attention' : null,
-    query.flagged ? 'Flagged' : null,
-    query.q ? 'Search: ' + query.q : null,
-  ].filter(Boolean).join(' · ') || 'All managed inventory'
+  const scopeDescription = inventoryReportScopeDescription(query, filters, firmware)
+  const sections = buildContractReportSections(report.devices)
+  const xlsxHref = inventoryHref('/api/v1/reports/inventory/xlsx', query) +
+    (inventoryHref('/api/v1/reports/inventory/xlsx', query).includes('?') ? '&' : '?') +
+    (firmware ? 'firmware=' + encodeURIComponent(firmware) : 'format=xlsx')
 
   const date = new Intl.DateTimeFormat('nl-NL', {
     dateStyle: 'medium',
@@ -158,6 +149,12 @@ export function InventoryReportView({
                 className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
               >
                 Export matching CSV
+              </Link>
+              <Link
+                href={xlsxHref}
+                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
+              >
+                Download Excel (.xlsx)
               </Link>
               <PrintInventoryReportButton />
             </>
@@ -253,35 +250,41 @@ export function InventoryReportView({
           </div>
         </section>
 
-        <section aria-label="Customer and Site inventory">
-          <h3 className="mb-4 text-lg font-semibold">Detailed inventory by customer and site</h3>
-          {report.customers.length === 0 ? (
-            <div className="rounded-lg border border-[var(--border)] p-5 text-sm text-[var(--muted)]">
-              No devices match these filters. Adjust the report scope above.
-            </div>
-          ) : (
-            <div className="space-y-7">
-              {report.customers.map((customer) => (
-                <section key={customer.id} className="inventory-report-customer space-y-3">
-                  <div className="flex items-center justify-between gap-4 border-b border-[var(--border-strong)] pb-2">
-                    <h4 className="text-base font-semibold">{customer.name}</h4>
-                    <span className="text-xs text-[var(--muted)]">
-                      {customer.deviceCount} devices · {customer.sites.length} site groups
-                    </span>
-                  </div>
-                  {customer.sites.map((site) => (
-                    <section key={site.id ?? '__unassigned'} className="inventory-report-site space-y-2">
-                      <div className="flex items-baseline justify-between gap-4">
-                        <h5 className="text-sm font-semibold">{site.name}</h5>
-                        <span className="text-xs text-[var(--muted)]">{site.devices.length} devices</span>
+        <section aria-label="Devices grouped by internal contract, customer and site">
+          <h3 className="inventory-report-print-hide mb-4 text-lg font-semibold">Detailed inventory by contract, customer and site</h3>
+          {sections.map((section) => (
+            <section key={section.category} className="inventory-report-contract-section mb-8 space-y-4">
+              <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-strong)] pb-2">
+                <h3 className="text-xl font-semibold">{section.title}</h3>
+                <span className="text-xs text-[var(--muted)]">{section.report.deviceCount} devices</span>
+              </div>
+              {section.report.customers.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">No matching devices</p>
+              ) : (
+                <div className="space-y-7">
+                  {section.report.customers.map((customer) => (
+                    <section key={customer.id} className="inventory-report-customer space-y-3">
+                      <div className="flex items-center justify-between gap-4 border-b border-[var(--border-strong)] pb-2">
+                        <h4 className="text-base font-semibold">{customer.name}</h4>
+                        <span className="text-xs text-[var(--muted)]">
+                          {customer.deviceCount} devices · {customer.sites.length} site groups
+                        </span>
                       </div>
-                      <DeviceTable devices={site.devices} />
+                      {customer.sites.map((site) => (
+                        <section key={site.id ?? '__unassigned'} className="inventory-report-site space-y-2">
+                          <div className="flex items-baseline justify-between gap-4">
+                            <h5 className="text-sm font-semibold">{site.name}</h5>
+                            <span className="text-xs text-[var(--muted)]">{site.devices.length} devices</span>
+                          </div>
+                          <DeviceTable devices={site.devices} />
+                        </section>
+                      ))}
                     </section>
                   ))}
-                </section>
-              ))}
-            </div>
-          )}
+                </div>
+              )}
+            </section>
+          ))}
         </section>
         <footer className="border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
           Source: canonical NOC Orchestrator inventory. Internal contracts reflect Site override, then Customer default.
