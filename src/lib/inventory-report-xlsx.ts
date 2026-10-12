@@ -7,7 +7,9 @@ const spreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main
 const relationshipNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
 function xml(value: string | number) {
-  return String(value).replace(/[&<>"']/g, (value) => ({
+  // Spreadsheet cells have a 32,767-character limit; remove invalid XML 1.0 controls.
+  const safe = String(value).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').slice(0, 32767)
+  return safe.replace(/[&<>"']/g, (value) => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
