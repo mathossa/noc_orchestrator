@@ -737,6 +737,9 @@ export type InventoryExportScope =
     }
 
 export type InventoryExportRecord = {
+  deviceId: string
+  customerId: string
+  siteId: string | null
   issueReason: string
   customer: string
   site: string
@@ -833,6 +836,9 @@ export async function getInventoryExportRecords(
     if (!row) return []
     return [
       {
+        deviceId: fact.id,
+        customerId: fact.customerId,
+        siteId: fact.siteId,
         customer: row.customer.name,
         site: row.site?.name ?? 'Unassigned',
         deviceType: row.deviceModel.deviceType.name,
