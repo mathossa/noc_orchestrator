@@ -148,6 +148,19 @@ a {
     box-shadow: none !important;
   }
 
+  #inventory-print-report .inventory-report-print-hide {
+    display: none !important;
+  }
+
+  #inventory-print-report .inventory-report-contract-section + .inventory-report-contract-section {
+    break-before: page;
+  }
+
+  #inventory-print-report .inventory-report-contract-section h3,
+  #inventory-print-report .inventory-report-customer h4 {
+    break-after: avoid;
+  }
+
   #inventory-print-report .inventory-report-site {
     break-inside: auto;
   }
