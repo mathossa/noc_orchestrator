@@ -610,7 +610,7 @@ export function AuvikConnectionManager({
                       <div className="mt-1 break-all text-xs text-[var(--muted)]">
                         {tenant.tenantType ? `${tenant.tenantType} · ` : ''}{tenant.domainPrefix && tenant.domainPrefix !== tenant.tenantName ? `${tenant.domainPrefix} · ` : ''}{tenant.tenantId}
                       </div>
-                      {!tenant.tenantId && (
+                      {(!tenant.domainPrefix && !tenant.tenantType) && (
                         <input
                           aria-label="Manual tenant ID"
                           value={tenant.tenantId}
