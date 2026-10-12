@@ -21,6 +21,8 @@ type Connection = {
       tenantId: string
       enabled?: boolean
       tenantName?: string | null
+      tenantType?: string | null
+      domainPrefix?: string | null
       customer?: string | null
       businessUnit?: string | null
       site?: string | null
