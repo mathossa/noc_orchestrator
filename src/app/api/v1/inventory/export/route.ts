@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth'
 import { inventoryExportCsv } from '@/lib/inventory-export'
+import { filterInventoryReportRows } from '@/lib/inventory-report'
 import { parseInventoryQuery } from '@/lib/inventory-explorer'
 import {
   getInventoryExportRecords,
@@ -71,7 +72,9 @@ export async function GET(request: Request) {
     new Date().toISOString().slice(0, 10) +
     '.csv'
 
-  return new Response(inventoryExportCsv(rows), {
+  // The CSV uses the same optional running-version filter as the live report.
+  const firmware = (params.get('firmware') ?? '').normalize('NFKC').trim().slice(0, 100)
+  return new Response(inventoryExportCsv(filterInventoryReportRows(rows, firmware)), {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
       'content-disposition': 'attachment; filename="' + filename + '"',
