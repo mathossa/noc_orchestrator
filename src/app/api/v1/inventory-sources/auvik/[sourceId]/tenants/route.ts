@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { AuvikApiError } from '@/lib/auvik-api-client'
 import { discoverAuvikInventoryTenants } from '@/lib/auvik-integration-store'
@@ -12,11 +14,27 @@ export async function POST(request: Request, context: RouteContext) {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
     const tenants = await discoverAuvikInventoryTenants(sourceId)
+    const customers = await prisma.customer.findMany({
+      where: { isActive: true },
+      select: {
+        name: true,
+        organizationUnits: {
+          select: { id: true, name: true, isActive: true },
+        },
+        sites: {
+          select: { name: true, isActive: true, organizationUnitId: true },
+        },
+      },
+    })
     return NextResponse.json({
       data: tenants.map((tenant) => ({
         id: tenant.id,
         domainPrefix: tenant.attributes.domainPrefix,
         tenantType: tenant.attributes.tenantType,
+        displayName: tenant.attributes.clientName ?? tenant.attributes.name ??
+          tenant.attributes.displayName ?? tenant.attributes.tenantName ?? null,
+        siteName: tenant.attributes.siteName ?? null,
+        suggestion: suggestAuvikTenantHierarchy(tenant, customers),
       })),
     })
   } catch (error) {
