@@ -103,3 +103,73 @@ a {
     background-attachment: scroll;
   }
 }
+
+/* Keep the live inventory report printable without rendering the application shell. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body:has(#inventory-print-report),
+  body:has(#inventory-print-report) .noc-app-background {
+    background: white !important;
+    color: #181818 !important;
+  }
+
+  body:has(#inventory-print-report) .noc-app-background > aside,
+  body:has(#inventory-print-report) .noc-app-background > div > header,
+  .inventory-report-screen-only {
+    display: none !important;
+  }
+
+  body:has(#inventory-print-report) .noc-app-background > div {
+    padding-left: 0 !important;
+  }
+
+  body:has(#inventory-print-report) #main-content {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #inventory-print-report {
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: #181818 !important;
+  }
+
+  #inventory-print-report * {
+    color: #181818 !important;
+    background: transparent !important;
+    border-color: #dedede !important;
+    box-shadow: none !important;
+  }
+
+  #inventory-print-report .inventory-report-site {
+    break-inside: auto;
+  }
+
+  #inventory-print-report .inventory-report-site h5,
+  #inventory-print-report .inventory-report-customer h4 {
+    break-after: avoid;
+  }
+
+  #inventory-print-report thead {
+    display: table-header-group;
+  }
+
+  #inventory-print-report tr {
+    break-inside: avoid;
+  }
+
+  #inventory-print-report .noc-scrollbar {
+    overflow: visible !important;
+  }
+
+  #inventory-print-report table {
+    min-width: 0 !important;
+  }
+}
