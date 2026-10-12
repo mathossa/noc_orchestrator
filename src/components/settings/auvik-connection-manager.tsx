@@ -141,6 +141,8 @@ export function AuvikConnectionManager({
               enabled: tenant.enabled,
               tenantId: tenant.tenantId,
               tenantName: tenant.tenantName,
+              tenantType: tenant.tenantType,
+              domainPrefix: tenant.domainPrefix,
               customer: tenant.customer,
               businessUnit: tenant.businessUnit,
               site: tenant.site,
