@@ -726,6 +726,7 @@ export async function getDeviceTypeInventory(
 }
 
 export type InventoryExportScope =
+  | { kind: 'all' }
   | { kind: 'customer'; customerId: string }
   | { kind: 'site'; customerId: string; siteId: string }
   | {
@@ -778,7 +779,7 @@ export async function getInventoryExportRecords(
       : undefined
   const facts = await loadFacts(
     {
-      customerId: scope.customerId,
+      customerId: scope.kind === 'all' ? undefined : scope.customerId,
       siteId,
       deviceTypeId:
         scope.kind === 'deviceType' ? scope.deviceTypeId : undefined,
@@ -827,7 +828,7 @@ export async function getInventoryExportRecords(
   })
   const rowById = new Map(rows.map((row) => [row.id, row]))
 
-  return visible.flatMap((fact) => {
+  const exported = visible.flatMap((fact) => {
     const row = rowById.get(fact.id)
     if (!row) return []
     return [
@@ -870,6 +871,17 @@ export async function getInventoryExportRecords(
       },
     ]
   })
+
+  // Cross-customer exports are grouped Customer → Site → Device.
+  // Existing scoped export order is unchanged.
+  if (scope.kind !== 'all') return exported
+  return exported.sort(
+    (left, right) =>
+      left.customer.localeCompare(right.customer) ||
+      left.site.localeCompare(right.site) ||
+      left.name.localeCompare(right.name) ||
+      left.serialNumber.localeCompare(right.serialNumber),
+  )
 }
 
 export function statusCodeLabel(code: InventoryPrimaryStatusCode | import('@/lib/firmware-lifecycle').FirmwareWorkflowState) {
