@@ -98,6 +98,8 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
           tenantId: typeof item.tenantId === 'string' ? item.tenantId : '',
           tenantName:
             typeof item.tenantName === 'string' ? item.tenantName : null,
+          tenantType: typeof item.tenantType === 'string' ? item.tenantType : null,
+          domainPrefix: typeof item.domainPrefix === 'string' ? item.domainPrefix : null,
           customer: typeof item.customer === 'string' ? item.customer : null,
           businessUnit:
             typeof item.businessUnit === 'string' ? item.businessUnit : null,
