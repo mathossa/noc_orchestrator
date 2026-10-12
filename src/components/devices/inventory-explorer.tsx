@@ -524,6 +524,12 @@ export function InventoryOverview({
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
+              href={inventoryHref('/reports/inventory', query)}
+              className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]"
+            >
+              View inventory report
+            </Link>
+            <Link
               href={exportHref({ scope: 'all' }, query)}
               className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
             >
