@@ -9,13 +9,14 @@ const relationshipNs = 'http://schemas.openxmlformats.org/officeDocument/2006/re
 function xml(value: string | number) {
   // Spreadsheet cells have a 32,767-character limit; remove invalid XML 1.0 controls.
   const safe = String(value).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').slice(0, 32767)
-  return safe.replace(/[&<>"']/g, (value) => ({
+  const escapes: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
     "'": '&apos;',
-  })[value]!)
+  }
+  return safe.replace(/[&<>"']/g, (character) => escapes[character])
 }
 
 function cell(column: string, row: number, value: string | number, style = 0) {
