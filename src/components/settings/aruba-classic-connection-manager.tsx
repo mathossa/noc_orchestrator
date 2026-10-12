@@ -44,6 +44,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
   const [baseUrl,setBaseUrl]=useState(connection.configuration.baseUrl)
   const [customer,setCustomer]=useState(connection.configuration.customer??'')
   const [businessUnit,setBusinessUnit]=useState(connection.configuration.businessUnit??'')
+  const [editBusinessUnit,setEditBusinessUnit]=useState(false)
   const [sites,setSites]=useState<Site[]>([...connection.configuration.sites])
   const [showCredentialReplacement,setShowCredentialReplacement]=useState(false)
   const [clientId,setClientId]=useState('')
@@ -71,6 +72,7 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
       body:JSON.stringify({name,baseUrl,customer,businessUnit,sites,...replacement}),
     })) as Connection
     setConnection(data);setSites([...data.configuration.sites])
+    setEditBusinessUnit(false)
     setClientId('');setClientSecret('');setAccessToken('');setRefreshToken('')
     setShowCredentialReplacement(false)
     setMessage('Aruba Central settings saved.');router.refresh()
@@ -187,7 +189,6 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
           ['Connection name',name,setName],
           ['Classic API gateway',baseUrl,setBaseUrl],
           ['Customer',customer,setCustomer],
-          ['Business unit',businessUnit,setBusinessUnit],
         ] as const).map(([label,value,set])=><label key={label} className="space-y-1 text-sm">
           <span className="font-semibold">{label}</span>
           <input
@@ -197,6 +198,26 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
             className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
           />
         </label>)}
+      </div>
+      <div className="mt-4">
+        <div className="text-sm font-semibold">Business unit (optional)</div>
+        {editBusinessUnit?<label className="mt-1 block space-y-1 text-sm">
+          <span className="text-xs text-[var(--muted)]">NOC customer business unit</span>
+          <input name={`noc-aruba-business-unit-edit-${connection.id}`}
+            autoComplete="off" data-lpignore="true" data-1p-ignore="true"
+            data-bwignore="true" spellCheck={false}
+            value={businessUnit} onChange={event=>setBusinessUnit(event.target.value)}
+            className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
+          />
+        </label>:<p className="mt-1 text-sm text-[var(--muted)]">
+          {businessUnit||'None configured'} (not editable until requested)
+        </p>}
+        <Button disabled={busy!==null} onClick={()=>{
+          if(editBusinessUnit)setBusinessUnit(connection.configuration.businessUnit??'')
+          setEditBusinessUnit(value=>!value)
+        }}>
+          {editBusinessUnit?'Cancel business-unit edit':'Edit business unit'}
+        </Button>
       </div>
       <div className="mt-4">
         <Button disabled={busy!==null} onClick={()=>{
