@@ -464,7 +464,7 @@ function typeRows(
     })
 }
 
-async function getFilterOptions(): Promise<InventoryFilterOptions> {
+export async function getInventoryFilterOptions(): Promise<InventoryFilterOptions> {
   const [vendors, models, deviceTypes, contracts] = await Promise.all([
     prisma.vendor.findMany({
       where: { isActive: true },
@@ -582,7 +582,7 @@ export async function getInventoryOverview(
 ): Promise<InventoryOverviewModel> {
   const [facts, filters] = await Promise.all([
     loadFacts({}, query),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -606,7 +606,7 @@ export async function getCustomerInventory(
 
   const [facts, filters] = await Promise.all([
     loadFacts({ customerId }, query),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -663,7 +663,7 @@ export async function getSiteInventory(
       { customerId, siteId: context.databaseSiteId },
       query,
     ),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -700,7 +700,7 @@ export async function getDeviceTypeInventory(
       },
       query,
     ),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = sortFacts(applyDerivedFilters(facts, query))
   const total = visible.length
