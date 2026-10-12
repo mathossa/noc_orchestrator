@@ -4,6 +4,9 @@ import type { InventoryExportRecord } from './inventory-explorer-store'
 
 function record(overrides: Partial<InventoryExportRecord> = {}): InventoryExportRecord {
   return {
+    deviceId: 'device-1',
+    customerId: 'customer-a',
+    siteId: 'site-hq',
     issueReason: '',
     customer: 'Acme',
     site: 'HQ',
