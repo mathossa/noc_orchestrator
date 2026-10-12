@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import archiver from 'archiver'
+import { buildContractReportSections } from '@/lib/inventory-contract-report'
+import type { InventoryExportRecord } from '@/lib/inventory-explorer-store'
+
+const spreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+const relationshipNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+function xml(value: string | number) {
+  return String(value).replace(/[&<>"']/g, (value) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&apos;',
+  })[value]!)
+}
+
+function cell(column: string, row: number, value: string | number, style = 0) {
+  const ref = column + row
+  if (typeof value === 'number') {
+    return `<c r="${ref}" s="${style}"><v>${value}</v></c>`
+  }
+  // Use explicit inline strings; attacker-controlled device names are never formulas.
+  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`
+}
+
+const columns = [
+  ['A', 'Device', 30],
+  ['B', 'Site', 25],
+  ['C', 'Model', 23],
+  ['D', 'Serial', 25],
+  ['E', 'Running firmware', 21],
+  ['F', 'Preferred target', 22],
+  ['G', 'Management contract', 26],
+  ['H', 'Status', 28],
+] as const
+
+export function inventoryWorksheetXml(
+  devices: InventoryExportRecord[],
+  category: string,
+  generatedAt: string,
+  scopeDescription: string,
+): string {
+  const sections = buildContractReportSections(devices)
+  // This helper receives the pre-filtered rows for one category.
+  const report = sections.find((section) => section.title === category)?.report
+  if (!report) throw new Error('Unknown contract report section: ' + category)
+
+  let rowNumber = 0
+  const rows: string[] = []
+  const merges: string[] = []
+  const line = (cells: string[], style?: { height?: number }) => {
+    rowNumber++
+    rows.push(`<row r="${rowNumber}"${style?.height ? ` ht="${style.height}" customHeight="1"` : ''}>${cells.join('')}</row>`)
+    return rowNumber
+  }
+  const heading = (text: string, style: number, height: number) => {
+    const row = rowNumber + 1
+    line([cell('A', row, text, style)], { height })
+    merges.push(`<mergeCell ref="A${row}:H${row}"/>`)
+  }
+
+  heading('Firmware inventory report — ' + category, 1, 33)
+  heading('Scope: ' + scopeDescription, 4, 22)
+  heading('Generated: ' + generatedAt + '  |  Devices: ' + report.deviceCount +
+    '  |  Customers: ' + report.customerCount, 4, 21)
+  line([])
+
+  if (!report.customers.length) heading('No matching devices for this contract category', 2, 27)
+
+  for (const customer of report.customers) {
+    heading(customer.name + '  (' + customer.deviceCount + ' devices)', 2, 29)
+    const headerRow = rowNumber + 1
+    line(columns.map(([column, label]) => cell(column, headerRow, label, 3)), { height: 25 })
+    for (const site of customer.sites) {
+      for (const device of site.devices) {
+        const n = rowNumber + 1
+        const values = [
+          device.name, site.name, device.model, device.serialNumber,
+          device.currentFirmware || 'Unknown', device.effectiveTarget || 'Unresolved',
+          device.contract || 'No contract', device.primaryStatus,
+        ]
+        line(columns.map(([column], i) => cell(column, n, values[i])), { height: 22 })
+      }
+    }
+    line([])
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="${spreadsheetNs}">
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>${columns.map(([, , width], i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>
+  <sheetData>${rows.join('')}</sheetData>
+  <mergeCells count="${merges.length}">${merges.join('')}</mergeCells>
+  <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
+  <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+</worksheet>`
+}
+
+function workbookStylesXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="${spreadsheetNs}">
+  <fonts count="4">
+    <font><sz val="11"/><name val="Aptos"/></font>
+    <font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Aptos Display"/></font>
+    <font><b/><sz val="13"/><color rgb="FF202020"/><name val="Aptos"/></font>
+    <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font>
+  </fonts>
+  <fills count="5">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFAB5F20"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF333333"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF4E9DD"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="5">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+    <xf numFmtId="0" fontId="3" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`
+}
+
+export function inventoryWorkbookParts(
+  devices: InventoryExportRecord[],
+  generatedAt: string,
+  scopeDescription: string,
+) {
+  const sections = buildContractReportSections(devices)
+  const sheets = sections.map((section, index) => ({
+    name: section.title,
+    file: `xl/worksheets/sheet${index + 1}.xml`,
+    xml: inventoryWorksheetXml(section.report.devices, section.title, generatedAt, scopeDescription),
+  }))
+  const types = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  ${sheets.map((sheet, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+</Types>`
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="${spreadsheetNs}" xmlns:r="${relationshipNs}">
+<sheets>${sheets.map((sheet, i) => `<sheet name="${xml(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
+</workbook>`
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}
+<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`
+  return [
+    { name: '[Content_Types].xml', content: types },
+    { name: '_rels/.rels', content: rootRels },
+    { name: 'xl/workbook.xml', content: workbook },
+    { name: 'xl/_rels/workbook.xml.rels', content: workbookRels },
+    { name: 'xl/styles.xml', content: workbookStylesXml() },
+    ...sheets.map((sheet) => ({ name: sheet.file, content: sheet.xml })),
+  ]
+}
+
+/** Uses existing MIT-licensed archiver rather than adding a second zip engine. */
+export async function inventoryReportXlsx(
+  devices: InventoryExportRecord[],
+  generatedAt: string,
+  scopeDescription: string,
+): Promise<Buffer> {
+  const zip = archiver('zip', { zlib: { level: 6 } })
+  const chunks: Buffer[] = []
+  const result = new Promise<Buffer>((resolve, reject) => {
+    zip.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
+    zip.once('error', reject)
+    zip.once('end', () => resolve(Buffer.concat(chunks)))
+  })
+  for (const part of inventoryWorkbookParts(devices, generatedAt, scopeDescription)) {
+    zip.append(part.content, { name: part.name })
+  }
+  await zip.finalize()
+  return result
+}
