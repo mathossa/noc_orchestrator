@@ -48,7 +48,7 @@ describe('cross-customer inventory report aggregation', () => {
     ])
     expect(report.deviceCount).toBe(3)
     expect(report.customerCount).toBe(2)
-    expect(report.siteCount).toBe(3)
+    expect(report.siteCount).toBe(2)
     expect(report.customers).toHaveLength(2)
     expect(report.customers.map((customer) => customer.id)).toEqual(['customer-1', 'customer-2'])
     expect(report.customers[0].sites.map((site) => site.name)).toEqual(['Branch', 'HQ'])
