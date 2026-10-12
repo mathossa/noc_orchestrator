@@ -56,6 +56,8 @@ function normalizeTenantScope(
     enabled: value.enabled !== false,
     tenantId,
     tenantName: clean(value.tenantName),
+    ...(clean(value.tenantType) ? { tenantType: clean(value.tenantType) } : {}),
+    ...(clean(value.domainPrefix) ? { domainPrefix: clean(value.domainPrefix) } : {}),
     customer: clean(value.customer),
     businessUnit: clean(value.businessUnit),
     site: clean(value.site),
