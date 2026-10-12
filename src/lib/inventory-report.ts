@@ -99,7 +99,10 @@ export function buildInventoryReport(rows: InventoryExportRecord[]): InventoryRe
     devices,
     customers,
     customerCount: customers.length,
-    siteCount: customers.reduce((sum, customer) => sum + customer.sites.length, 0),
+    siteCount: customers.reduce(
+      (sum, customer) => sum + customer.sites.filter((site) => site.id !== null).length,
+      0,
+    ),
     deviceCount: devices.length,
     unknownFirmwareCount: devices.filter((device) => !device.currentFirmware.trim()).length,
     missingContractCount: devices.filter((device) => !device.contract.trim()).length,
