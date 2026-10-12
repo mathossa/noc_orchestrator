@@ -345,6 +345,42 @@ describe('Auvik Device API v2 client', () => {
     ])
   })
 
+  it('preserves real tenant names and follows all same-host tenant pages', async () => {
+    const calls: string[] = []
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input))
+      if (calls.length === 1) {
+        return new Response(JSON.stringify({
+          data: [{ type: 'tenant', id: 'tenant-1', attributes: {
+            domainPrefix: '421701500ve9', tenantType: 'client',
+            clientName: 'Northwind', siteName: 'HQ',
+          } }],
+          links: { next: '/v1/tenants?page%5Bafter%5D=second' },
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({
+        data: [{ type: 'tenant', id: 'tenant-2', attributes: {
+          domainPrefix: 'unica-02', tenantType: 'client', displayName: 'Unica Office',
+        } }],
+        links: { next: null },
+      }), { status: 200 })
+    }
+    const tenants = await listAuvikTenants({ region: 'eu2', credentials, fetchImpl })
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toContain('page%5Bafter%5D=second')
+    expect(tenants).toHaveLength(2)
+    expect(tenants[0].attributes).toMatchObject({ clientName: 'Northwind', siteName: 'HQ' })
+    expect(tenants[1].attributes.displayName).toBe('Unica Office')
+  })
+
+  it('rejects tenant discovery pagination to another host', async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      data: [], links: { next: 'https://example.com/exfiltrate' },
+    }), { status: 200 })
+    await expect(listAuvikTenants({ region: 'eu2', credentials, fetchImpl }))
+      .rejects.toMatchObject({ name: 'AuvikApiError', status: 502 })
+  })
+
   it('uses the documented credential verification endpoint', async () => {
     const calls: string[] = []
     const fetchImpl: typeof fetch = async (input) => {
