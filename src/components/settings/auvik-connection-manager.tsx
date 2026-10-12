@@ -137,11 +137,14 @@ export function AuvikConnectionManager({
           body: JSON.stringify({
             name,
             region,
-            tenants: tenants.filter((tenant) => tenant.tenantId.trim()).map(({
-              tenantType: _tenantType,
-              domainPrefix: _domainPrefix,
-              ...saved
-            }) => saved),
+            tenants: tenants.filter((tenant) => tenant.tenantId.trim()).map((tenant) => ({
+              enabled: tenant.enabled,
+              tenantId: tenant.tenantId,
+              tenantName: tenant.tenantName,
+              customer: tenant.customer,
+              businessUnit: tenant.businessUnit,
+              site: tenant.site,
+            })),
             ...credentials,
           }),
         },
