@@ -78,6 +78,21 @@ describe('inventory CSV export scopes', () => {
     }
   })
 
+  it('exports only running firmware versions matching the report filter', async () => {
+    const rows = [
+      { currentFirmware: '7.4.8', customer: 'Acme' },
+      { currentFirmware: '7.2.11', customer: 'Beta' },
+    ]
+    mocks.exportRecords.mockResolvedValue(rows)
+    const response = await GET(
+      new Request(
+        'https://noc.example/api/v1/inventory/export?scope=all&firmware=7.4',
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.csv).toHaveBeenCalledWith([rows[0]])
+  })
+
   it('requires a session before exporting any internal contract data', async () => {
     mocks.getSession.mockResolvedValue(null)
     const response = await GET(
