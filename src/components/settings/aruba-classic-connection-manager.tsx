@@ -187,7 +187,12 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
           ['Business unit',businessUnit,setBusinessUnit],
         ] as const).map(([label,value,set])=><label key={label} className="space-y-1 text-sm">
           <span className="font-semibold">{label}</span>
-          <input value={value} onChange={event=>set(event.target.value)} className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"/>
+          <input
+            name={`noc-aruba-config-${connection.id}-${label.toLowerCase().replace(/[^a-z]+/g,'-')}`}
+            autoComplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true"
+            spellCheck={false} value={value} onChange={event=>set(event.target.value)}
+            className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
+          />
         </label>)}
         {([
           ['Replace client ID',clientId,setClientId],
@@ -196,8 +201,16 @@ export function ArubaClassicConnectionManager({initialConnection,initialSyncRuns
           ['Replace refresh token',refreshToken,setRefreshToken],
         ] as const).map(([label,value,set])=><label key={label} className="space-y-1 text-sm">
           <span className="font-semibold">{label}</span>
-          <input type="password" autoComplete="off" placeholder="Leave blank to retain existing value" value={value} onChange={event=>set(event.target.value)}
-            className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"/>
+          <input
+            type={label==='Replace client ID'?'text':'password'}
+            name={`noc-aruba-replace-${connection.id}-${label.toLowerCase().replace(/[^a-z]+/g,'-')}`}
+            autoComplete={label==='Replace client ID'?'off':'new-password'}
+            data-lpignore="true" data-1p-ignore="true" data-bwignore="true"
+            autoCapitalize="off" spellCheck={false}
+            placeholder="Leave blank to retain existing value"
+            value={value} onChange={event=>set(event.target.value)}
+            className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
+          />
         </label>)}
       </div>
     </section>
