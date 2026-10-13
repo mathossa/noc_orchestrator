@@ -13,6 +13,69 @@ export type AuvikTenantSuggestion = {
   status: 'CUSTOMER' | 'CUSTOMER_AND_SITE'
 }
 
+export type AuvikNamingRule = {
+  id: string
+  enabled: boolean
+  field: 'customer' | 'businessUnit' | 'site'
+  match: 'EXACT' | 'PREFIX'
+  find: string
+  replace: string
+}
+
+export type AuvikNamingPolicy = {
+  stripAccountNumbers: boolean
+  stripRepeatedParents: boolean
+  rules: readonly AuvikNamingRule[]
+}
+
+export const DEFAULT_AUVIK_NAMING_POLICY: AuvikNamingPolicy = {
+  stripAccountNumbers: true,
+  stripRepeatedParents: true,
+  rules: [],
+}
+
+export function normalizeAuvikNamingPolicy(value: Partial<AuvikNamingPolicy> | null | undefined): AuvikNamingPolicy {
+  const rules = value?.rules ?? []
+  if (!Array.isArray(rules) || rules.length > 50) throw new Error('Auvik naming rules must contain 50 or fewer items.')
+  const ids = new Set<string>()
+  const normalized = rules.map((rule) => {
+    if (typeof rule.id !== 'string' || rule.id.length > 100 || ids.has(rule.id) ||
+      !['customer', 'businessUnit', 'site'].includes(rule.field) ||
+      !['EXACT', 'PREFIX'].includes(rule.match) ||
+      typeof rule.find !== 'string' || typeof rule.replace !== 'string' ||
+      rule.find.length > 120 || rule.replace.length > 120 ||
+      !rule.find.trim()) throw new Error('Auvik naming rule is invalid.')
+    ids.add(rule.id)
+    return { id: rule.id, enabled: rule.enabled === true, field: rule.field, match: rule.match,
+      find: rule.find.trim(), replace: rule.replace.trim() }
+  })
+  return {
+    stripAccountNumbers: value?.stripAccountNumbers !== false,
+    stripRepeatedParents: value?.stripRepeatedParents !== false,
+    rules: normalized,
+  }
+}
+
+function applyAuvikOverride(field: AuvikNamingRule['field'], input: string, policy: AuvikNamingPolicy) {
+  let output = input
+  for (const rule of policy.rules) {
+    if (!rule.enabled || rule.field !== field) continue
+    const original = output.toLocaleLowerCase('en-US')
+    const find = rule.find.toLocaleLowerCase('en-US')
+    if (rule.match === 'EXACT' && original === find) output = rule.replace
+    else if (rule.match === 'PREFIX' && original.startsWith(find) &&
+      (original.length === find.length || /[\s\-_/]/u.test(output.charAt(find.length)))) {
+      output = rule.replace + output.slice(rule.find.length)
+    }
+  }
+  return output.trim()
+}
+
+function cleanAuvikNameWithPolicy(value: string, policy: AuvikNamingPolicy) {
+  const text = value.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  return policy.stripAccountNumbers ? cleanAuvikHierarchyLabel(text) : text
+}
+
 /**
  * Default Auvik naming policy. Source display names remain unchanged;
  * these rules operate ONLY on proposed canonical hierarchy labels.
@@ -68,25 +131,33 @@ export function removeAuvikParentPrefix(label: string, parent: string) {
   return cleaned
 }
 
-export function normalizeAuvikHierarchyNames(names: readonly string[]) {
+export function normalizeAuvikHierarchyNames(
+  names: readonly string[],
+  policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
+) {
   if (names.length === 0) return null
-  const customer = cleanAuvikHierarchyLabel(names[0])
+  const customer = applyAuvikOverride('customer', cleanAuvikNameWithPolicy(names[0], policy), policy)
   if (!customer) return null
   const intermediates = names.slice(1, -1)
   const normalizedUnits: string[] = []
   for (const unit of intermediates) {
-    let normalized = removeAuvikParentPrefix(unit, customer)
-    for (const parent of normalizedUnits) {
-      normalized = removeAuvikParentPrefix(normalized, parent)
+    let normalized = cleanAuvikNameWithPolicy(unit, policy)
+    if (policy.stripRepeatedParents) {
+      normalized = removeAuvikParentPrefix(normalized, customer)
+      for (const parent of normalizedUnits) normalized = removeAuvikParentPrefix(normalized, parent)
     }
+    normalized = applyAuvikOverride('businessUnit', normalized, policy)
     if (normalized && matchKey(normalized) !== matchKey(customer) &&
       !normalizedUnits.some((previous) => matchKey(previous) === matchKey(normalized))) {
       normalizedUnits.push(normalized)
     }
   }
-  let site = cleanAuvikHierarchyLabel(names[names.length - 1])
-  site = removeAuvikParentPrefix(site, customer)
-  for (const unit of normalizedUnits) site = removeAuvikParentPrefix(site, unit)
+  let site = cleanAuvikNameWithPolicy(names[names.length - 1], policy)
+  if (policy.stripRepeatedParents) {
+    site = removeAuvikParentPrefix(site, customer)
+    for (const unit of normalizedUnits) site = removeAuvikParentPrefix(site, unit)
+  }
+  site = applyAuvikOverride('site', site, policy)
   return {
     customer,
     businessUnit: normalizedUnits.length ? normalizedUnits.join(' / ') : null,
@@ -119,6 +190,7 @@ export type AuvikHierarchyProposal = {
 export function deriveAuvikHierarchyProposal(
   tenant: AuvikTenantResource,
   accessible: readonly AuvikTenantResource[],
+  policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
 ): AuvikHierarchyProposal | null {
   if (tenant.attributes.tenantType?.toLocaleLowerCase('en-US') === 'multiclient') return null
   const byId = new Map(accessible.map((item) => [item.id, item]))
@@ -140,7 +212,7 @@ export function deriveAuvikHierarchyProposal(
   // One site immediately under the main MSP account represents its own
   // customer; intermediate nested multi-sites become an optional unit.
   const withoutRoot = chain.length > 1 ? names.slice(1) : names
-  const normalized = normalizeAuvikHierarchyNames(withoutRoot)
+  const normalized = normalizeAuvikHierarchyNames(withoutRoot, policy)
   if (!normalized?.customer || !normalized.site) return null
   return {
     ...normalized,
