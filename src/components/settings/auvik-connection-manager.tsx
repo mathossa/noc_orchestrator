@@ -481,7 +481,7 @@ export function AuvikConnectionManager({
   const reusedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'REUSED').length
   const conflictCount = availableSites.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
   const filterCounts: Record<typeof tenantFilter, number> = {
-    ALL: availableSites.length,
+    ALL: availableTenants.filter((tenant) => tenant.tenantId).length,
     REVIEW: reviewCount,
     UNMAPPED: unmappedCount,
     PROPOSED: proposedCount,
