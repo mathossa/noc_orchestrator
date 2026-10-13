@@ -122,6 +122,7 @@ a {
   }
 
   body:has(#inventory-print-report) .noc-app-background > aside,
+  body:has(#inventory-print-report) .noc-app-background > div > div > aside,
   body:has(#inventory-print-report) .noc-app-background > div > header,
   .inventory-report-screen-only {
     display: none !important;
