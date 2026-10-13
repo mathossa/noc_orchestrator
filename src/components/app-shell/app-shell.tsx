@@ -77,14 +77,13 @@ function WorkspaceNavigationItem({
 }) {
   const selected = isActivePath(pathname, item.href)
   const childSelected = hasActiveDescendant(pathname, item)
-  const exactPage = pathname === item.href
 
   return (
     <li>
       <Link
         href={item.href}
         onClick={onNavigate}
-        aria-current={exactPage ? 'page' : undefined}
+        aria-current={selected && !childSelected ? 'page' : undefined}
         className={[
           'flex min-h-9 items-center gap-2.5 rounded-md border px-3 text-sm font-medium transition-colors',
           nested ? 'ml-4 text-[13px]' : '',
@@ -143,6 +142,18 @@ function WorkspaceNavigation({
         ))}
       </ul>
     </nav>
+  )
+}
+
+// Compatibility entrypoint for existing navigation tests and external callers.
+export function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
+  const pathname = usePathname()
+  return (
+    <WorkspaceNavigation
+      workspace={getWorkspace(pathname)}
+      pathname={pathname}
+      onNavigate={onNavigate}
+    />
   )
 }
 
@@ -227,7 +238,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
                 {workspace.description}
               </p>
             </div>
-            <WorkspaceNavigation workspace={workspace} pathname={pathname} />
+            <NavigationGroups />
             <div className="mt-auto flex items-center justify-between border-t border-[var(--border)] px-3 pt-4 text-xs text-[var(--muted)]">
               <span>v0.1.0</span>
               <span className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-light)]">
