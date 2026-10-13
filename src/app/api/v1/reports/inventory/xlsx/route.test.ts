@@ -26,7 +26,9 @@ describe('inventory Excel API', () => {
     mocks.getSession.mockResolvedValue({ user: { id: 'engineer' } })
     mocks.filters.mockResolvedValue({
       vendors: [{ id: 'fortinet', name: 'Fortinet' }],
-      models: [], deviceTypes: [], contracts: [],
+      models: [],
+      deviceTypes: [],
+      contracts: [{ id: 'active', name: 'Active', showInReport: true }],
     })
     mocks.inventory.mockResolvedValue([
       { currentFirmware: '7.4.8', contract: 'Pro-Active' },
@@ -52,6 +54,7 @@ describe('inventory Excel API', () => {
       [expect.objectContaining({ currentFirmware: '7.4.8' })],
       expect.any(String),
       expect.stringContaining('Fortinet'),
+      [{ id: 'active', name: 'Active', showInReport: true }],
     )
   })
 
