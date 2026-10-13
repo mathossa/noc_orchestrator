@@ -22,6 +22,26 @@ function statusClass(code?: string) {
   return 'text-[var(--muted-strong)]'
 }
 
+
+function distribution(values: string[], fallback: string) {
+  const counts = new Map<string, number>()
+  for (const value of values) {
+    const key = value.trim() || fallback
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+}
+
+const attentionCodes = new Set([
+  'CRITICAL_ATTENTION',
+  'UPDATE_REQUIRED',
+  'REVIEW_REQUIRED',
+  'UPDATE_RECOMMENDED',
+  'UNKNOWN',
+])
+
 export function InventoryReportCustomerTable({
   customer,
   query,
@@ -107,6 +127,27 @@ export function InventoryReportCustomerTable({
             {customer.sites.map((site) => {
               const siteKey = site.id ?? '__unassigned'
               const siteOpen = openSites.has(siteKey)
+              const firmwareSummary = distribution(
+                site.devices.map((device) => device.currentFirmware),
+                'Unknown',
+              )
+              const targetSummary = distribution(
+                site.devices.map((device) => device.effectiveTarget),
+                'Unresolved',
+              )
+              const modelCount = new Set(site.devices.map((device) => device.modelId ?? device.model)).size
+              const contracts = new Map(
+                site.devices.map((device) => [
+                  device.contractId ?? 'none',
+                  device.contract || 'No contract',
+                ]),
+              )
+              const attentionCount = site.devices.filter(
+                (device) => device.primaryStatusCode && attentionCodes.has(device.primaryStatusCode),
+              ).length
+              const siteExceptionCount = site.devices.filter(
+                (device) => device.exceptionState !== 'NONE',
+              ).length
               return (
                 <tbody key={siteKey} className="border-b border-[var(--border)] last:border-0">
                   <tr className="bg-[var(--background)]">
@@ -138,8 +179,81 @@ export function InventoryReportCustomerTable({
                         <span className="font-semibold">{site.name}</span>
                       )}
                     </td>
-                    <td colSpan={7} className="px-3 py-2 text-[var(--muted)]">
-                      Click the chevron to {siteOpen ? 'hide' : 'show'} devices.
+                    <td className="px-3 py-2 text-[var(--muted-strong)]">
+                      {modelCount} model{modelCount === 1 ? '' : 's'}
+                    </td>
+                    <td className="px-3 py-2 font-mono">
+                      <div className="flex flex-wrap gap-1">
+                        {firmwareSummary.slice(0, 2).map((entry) =>
+                          entry.label === 'Unknown' ? (
+                            <span key={entry.label} className="text-[var(--muted)]">
+                              Unknown ({entry.count})
+                            </span>
+                          ) : (
+                            <Link
+                              key={entry.label}
+                              href={inventoryReportHref(query, firmware, {}, entry.label)}
+                              className="hover:text-[var(--accent-light)] hover:underline"
+                            >
+                              {entry.label} ({entry.count})
+                            </Link>
+                          ),
+                        )}
+                        {firmwareSummary.length > 2 ? (
+                          <span className="text-[var(--muted)]">+{firmwareSummary.length - 2}</span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[var(--muted-strong)]">
+                      {targetSummary.slice(0, 2).map((entry) => entry.label + ' (' + entry.count + ')').join(' · ')}
+                      {targetSummary.length > 2 ? ' · +' + (targetSummary.length - 2) : ''}
+                    </td>
+                    <td className="px-3 py-2">
+                      {contracts.size === 1 ? (
+                        <Link
+                          href={inventoryReportHref(query, firmware, {
+                            contract: [...contracts.keys()][0],
+                          })}
+                          className="font-semibold hover:text-[var(--accent-light)] hover:underline"
+                        >
+                          {[...contracts.values()][0]}
+                        </Link>
+                      ) : (
+                        <span className="text-[var(--muted-strong)]">Mixed ({contracts.size})</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {attentionCount > 0 ? (
+                        <Link
+                          href={inventoryReportHref(query, firmware, {
+                            customer: customer.id,
+                            site: site.id ?? '',
+                            attention: true,
+                          })}
+                          className="font-semibold text-[var(--warning)] hover:underline"
+                        >
+                          {attentionCount} attention
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-[var(--success)]">Current</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {siteExceptionCount > 0 ? (
+                        <span className="font-semibold text-[var(--warning)]">{siteExceptionCount}</span>
+                      ) : (
+                        <span className="text-[var(--muted)]">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {site.id ? (
+                        <Link
+                          href={'/devices/customers/' + customer.id + '/sites/' + site.id}
+                          className="font-semibold text-[var(--accent)] hover:underline"
+                        >
+                          Inventory
+                        </Link>
+                      ) : null}
                     </td>
                   </tr>
 
