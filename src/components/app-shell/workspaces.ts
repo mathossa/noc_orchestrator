@@ -126,6 +126,10 @@ export function isActivePath(pathname: string, href: string): boolean {
     return (pathname === href || pathname.startsWith(href + '/')) &&
       !pathname.startsWith('/firmware/exceptions')
   }
+  if (href === '/settings/integrations') {
+    return (pathname === href || pathname.startsWith(href + '/')) &&
+      !pathname.startsWith('/settings/integrations/import-automation')
+  }
   if (href === '/reports/inventory') {
     return pathname === href || pathname.startsWith(href + '/')
   }
