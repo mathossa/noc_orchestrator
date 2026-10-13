@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, normalizeAuvikHierarchyNames, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, normalizeAuvikHierarchyNames, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import type { AuvikTenantResource } from '@/lib/auvik-api-client'
 
 const customer = {
@@ -35,6 +35,44 @@ describe('Auvik default canonical naming policy', () => {
     { names: ['Unica Groep BV - [43398]', 'Blaas Set 18 - Quintax (Apeldoorn)'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Blaas Set 18 - Quintax (Apeldoorn)' } },
   ])('normalizes Auvik path $names', ({ names, expected }) => {
     expect(normalizeAuvikHierarchyNames(names)).toEqual(expected)
+  })
+
+  it('preserves postcode + house number in an existing incomplete mapping proposal', () => {
+    const output = normalizeAuvikHierarchyNames(['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'])
+    expect(output).toEqual({ customer: 'Leger des Heils', businessUnit: null, site: '3059LG41' })
+  })
+
+  it('lets a naming policy disable built-in cleanup without changing raw Auvik evidence', () => {
+    const output = normalizeAuvikHierarchyNames(
+      ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'],
+      { stripAccountNumbers: false, stripRepeatedParents: false, rules: [] },
+    )
+    expect(output).toEqual({
+      customer: 'Leger des Heils - [44751]',
+      businessUnit: null,
+      site: 'Leger des Heils - 3059LG41',
+    })
+  })
+
+  it('supports explicit exact and prefix rules after default cleanup', () => {
+    const policy = normalizeAuvikNamingPolicy({
+      rules: [
+        { id: '1', enabled: true, field: 'customer', match: 'EXACT', find: 'Leger des Heils', replace: 'LDH' },
+        { id: '2', enabled: true, field: 'site', match: 'PREFIX', find: '3059', replace: 'Postcode 3059' },
+      ],
+    })
+    expect(normalizeAuvikHierarchyNames(
+      ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'], policy,
+    )).toEqual({ customer: 'LDH', businessUnit: null, site: 'Leger des Heils - 3059LG41' })
+  })
+
+  it('validates active rules but permits blank disabled drafts', () => {
+    expect(normalizeAuvikNamingPolicy({ rules: [
+      { id: 'draft', enabled: false, field: 'site', match: 'EXACT', find: '', replace: '' },
+    ] }).rules).toHaveLength(1)
+    expect(() => normalizeAuvikNamingPolicy({ rules: [
+      { id: 'bad', enabled: true, field: 'site', match: 'EXACT', find: '', replace: '' },
+    ] })).toThrow()
   })
 
   it('does not strip a shared fragment inside a real site name', () => {
