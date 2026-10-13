@@ -487,7 +487,7 @@ export async function getInventoryFilterOptions(): Promise<InventoryFilterOption
     }),
     prisma.contractType.findMany({
       where: { isActive: true },
-      select: { id: true, name: true },
+      select: { id: true, name: true, showInReport: true },
       orderBy: { name: 'asc' },
     }),
   ])
@@ -764,6 +764,7 @@ export type InventoryExportRecord = {
   exceptionReason: string
   workflow: string
   contract: string
+  contractShowInReport?: boolean
   source: string
   externalProvider: string
   externalId: string
@@ -810,13 +811,13 @@ export async function getInventoryExportRecords(
       customer: {
         select: {
           name: true,
-          contractType: { select: { name: true } },
+          contractType: { select: { name: true, showInReport: true } },
         },
       },
       site: {
         select: {
           name: true,
-          contractType: { select: { name: true } },
+          contractType: { select: { name: true, showInReport: true } },
         },
       },
       deviceModel: {
@@ -870,6 +871,10 @@ export async function getInventoryExportRecords(
           row.site?.contractType?.name ??
           row.customer.contractType?.name ??
           '',
+        contractShowInReport:
+          row.site?.contractType?.showInReport ??
+          row.customer.contractType?.showInReport ??
+          false,
         source: row.source,
         externalProvider: row.externalProvider ?? '',
         externalId: row.externalId ?? '',
