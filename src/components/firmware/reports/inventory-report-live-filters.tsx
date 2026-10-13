@@ -40,9 +40,6 @@ export function InventoryReportLiveFilters({
   const [search, setSearch] = useState(query.q)
   const [runningFirmware, setRunningFirmware] = useState(firmware)
 
-  useEffect(() => setSearch(query.q), [query.q])
-  useEffect(() => setRunningFirmware(firmware), [firmware])
-
   function replace(patch: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString())
     for (const [key, value] of Object.entries(patch)) {
@@ -50,7 +47,8 @@ export function InventoryReportLiveFilters({
       else params.delete(key)
     }
     params.delete('page')
-    const href = params.size ? pathname + '?' + params.toString() : pathname
+    const serialized = params.toString()
+    const href = serialized ? pathname + '?' + serialized : pathname
     startTransition(() => router.replace(href, { scroll: false }))
   }
 
