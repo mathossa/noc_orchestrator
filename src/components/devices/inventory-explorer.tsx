@@ -541,12 +541,6 @@ export function InventoryOverview({
               Export matching devices
             </Link>
             <Link
-              href="/devices/manage"
-              className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
-            >
-              Manage inventory records
-            </Link>
-            <Link
               href="/devices/import"
               className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]"
             >
