@@ -45,11 +45,14 @@ type DiscoveredTenant = {
   tenantType: string | null
   displayName: string | null
   siteName: string | null
+  parentTenantId: string | null
+  mappingStatus: 'REUSED' | 'MATCHED' | 'PROPOSED' | 'REVIEW' | 'CONFLICT'
+  proposal: { customer: string; businessUnit: string | null; site: string; parentTenantId: string | null } | null
   suggestion: {
     customer: string
     businessUnit: string | null
     site: string | null
-    status: 'CUSTOMER' | 'CUSTOMER_AND_SITE'
+    status: 'CUSTOMER' | 'CUSTOMER_AND_SITE' | 'REUSED'
   } | null
 }
 
@@ -62,6 +65,7 @@ type TenantEditor = {
   site: string
   tenantType: string
   domainPrefix: string
+  mappingStatus: 'REUSED' | 'MATCHED' | 'PROPOSED' | 'REVIEW' | 'CONFLICT' | 'MANUAL'
 }
 
 function editorTenant(
@@ -76,6 +80,7 @@ function editorTenant(
     site: tenant?.site ?? '',
     tenantType: tenant?.tenantType ?? '',
     domainPrefix: tenant?.domainPrefix ?? '',
+    mappingStatus: tenant?.customer && tenant?.site ? 'MANUAL' : 'REVIEW',
   }
 }
 
@@ -103,6 +108,8 @@ export function AuvikConnectionManager({
   )
   const [tenantSearch, setTenantSearch] = useState('')
   const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED'>('ALL')
+  const [tenantPage, setTenantPage] = useState(1)
+  const tenantPageSize = 50
   const [username, setUsername] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -161,6 +168,7 @@ export function AuvikConnectionManager({
         ...editorTenant(saved),
         tenantType: current.find((item) => item.tenantId === saved.tenantId)?.tenantType ?? '',
         domainPrefix: current.find((item) => item.tenantId === saved.tenantId)?.domainPrefix ?? '',
+        mappingStatus: current.find((item) => item.tenantId === saved.tenantId)?.mappingStatus ?? 'MANUAL',
       })))
       setUsername('')
       setApiKey('')
@@ -266,6 +274,7 @@ export function AuvikConnectionManager({
         { method: 'POST' },
       )
       const discovered = (await responseData(response)) as DiscoveredTenant[]
+      setTenantPage(1)
       setTenants((current) => {
         const existing = new Map(current.filter((tenant) => tenant.tenantId).map((tenant) => [tenant.tenantId, tenant]))
         const discoveredIds = new Set(discovered.map((tenant) => tenant.id))
@@ -294,12 +303,13 @@ export function AuvikConnectionManager({
                 tenantId: tenant.id,
                 tenantName: display,
                 enabled: false,
-                customer: suggestion?.customer ?? null,
-                businessUnit: suggestion?.businessUnit ?? null,
-                site: suggestion?.site ?? null,
+                customer: (suggestion ?? tenant.proposal)?.customer ?? null,
+                businessUnit: (suggestion ?? tenant.proposal)?.businessUnit ?? null,
+                site: (suggestion ?? tenant.proposal)?.site ?? null,
               }),
               tenantType: tenant.tenantType ?? '',
               domainPrefix: tenant.domainPrefix,
+              mappingStatus: tenant.mappingStatus,
             }
           }),
         ]
@@ -378,6 +388,9 @@ export function AuvikConnectionManager({
     return !search || [tenant.tenantName, tenant.domainPrefix, tenant.tenantId, tenant.customer, tenant.businessUnit, tenant.site]
       .some((value) => value.toLocaleLowerCase('en-US').includes(search))
   })
+  const totalPages = Math.max(1, Math.ceil(visibleTenants.length / tenantPageSize))
+  const page = Math.min(tenantPage, totalPages)
+  const pageTenants = visibleTenants.slice((page - 1) * tenantPageSize, page * tenantPageSize)
   const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
   const mappedCount = tenants.filter((tenant) => tenant.customer.trim()).length
   const bulkEnableVisible = (enabled: boolean) => {
@@ -550,14 +563,14 @@ export function AuvikConnectionManager({
               aria-label="Search Auvik tenants"
               placeholder="Search customer, site or tenant ID"
               value={tenantSearch}
-              onChange={(event) => setTenantSearch(event.target.value)}
+              onChange={(event) => { setTenantSearch(event.target.value); setTenantPage(1) }}
               className="h-10 min-w-60 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm"
             />
             <label className="text-sm">
               <span className="sr-only">Filter tenants</span>
               <select
                 value={tenantFilter}
-                onChange={(event) => setTenantFilter(event.target.value as 'ALL' | 'UNMAPPED')}
+                onChange={(event) => { setTenantFilter(event.target.value as 'ALL' | 'UNMAPPED'); setTenantPage(1) }}
                 className="h-10 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
               >
                 <option value="ALL">All tenants</option>
@@ -572,7 +585,7 @@ export function AuvikConnectionManager({
             </Button>
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Bulk actions affect the filtered rows only and exclude multi-client parents when enabling. 
+            Bulk actions affect all filtered rows across all pages and exclude multi-client parents when enabling. 
             A mapping suggestion is not a confirmed device match. Unnamed tenants show their domain prefix or ID.
           </p>
           <div className="overflow-x-auto rounded-md border border-[var(--border)]">
@@ -589,7 +602,7 @@ export function AuvikConnectionManager({
                 </tr>
               </thead>
               <tbody>
-                {visibleTenants.map(({ tenant, index }) => (
+                {pageTenants.map(({ tenant, index }) => (
                   <tr key={tenant.tenantId || `manual-${index}`} className="border-t border-[var(--border)] align-top">
                     <td className="p-3">
                       <input
