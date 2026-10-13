@@ -631,6 +631,91 @@ export function AuvikConnectionManager({
         </div>
       </section>
 
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Auvik naming rules</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Clean proposed Customer / Business Unit / Site names. Original Auvik names and existing manual mappings are preserved.
+            </p>
+          </div>
+          <Button disabled={busy !== null} onClick={() => setShowNamingRules((current) => !current)}>
+            {showNamingRules ? 'Hide rules' : `Edit rules (${namingPolicy.rules.length})`}
+          </Button>
+        </div>
+        {showNamingRules ? (
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap gap-5 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={namingPolicy.stripAccountNumbers}
+                  onChange={(event) => setNamingPolicy((current) => ({ ...current, stripAccountNumbers: event.target.checked }))} />
+                Remove final [account number]
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={namingPolicy.stripRepeatedParents}
+                  onChange={(event) => setNamingPolicy((current) => ({ ...current, stripRepeatedParents: event.target.checked }))} />
+                Remove repeated parent prefixes
+              </label>
+            </div>
+            <div className="space-y-2">
+              {namingPolicy.rules.map((rule) => (
+                <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] p-3">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={rule.enabled}
+                      onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                        item.id === rule.id ? { ...item, enabled: event.target.checked } : item) }))} />
+                    Active
+                  </label>
+                  <select aria-label="Rule field" value={rule.field}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, field: event.target.value as AuvikNamingRule['field'] } : item) }))}
+                    className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs">
+                    <option value="customer">Customer</option>
+                    <option value="businessUnit">Business Unit</option>
+                    <option value="site">Site</option>
+                  </select>
+                  <select aria-label="Rule match type" value={rule.match}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, match: event.target.value as AuvikNamingRule['match'] } : item) }))}
+                    className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs">
+                    <option value="EXACT">Equals</option>
+                    <option value="PREFIX">Starts with</option>
+                  </select>
+                  <input aria-label="Rule source text" placeholder="Source text" value={rule.find}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, find: event.target.value } : item) }))}
+                    className="min-w-44 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs" />
+                  <span className="text-sm text-[var(--muted)]">→</span>
+                  <input aria-label="Rule replacement text" placeholder="Replacement (empty removes)" value={rule.replace}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, replace: event.target.value } : item) }))}
+                    className="min-w-44 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs" />
+                  <Button disabled={busy !== null} variant="ghost" onClick={() =>
+                    setNamingPolicy((current) => ({ ...current, rules: current.rules.filter((item) => item.id !== rule.id) }))}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button disabled={busy !== null || namingPolicy.rules.length >= 50}
+                onClick={() => setNamingPolicy((current) => ({
+                  ...current, rules: [...current.rules, {
+                    id: crypto.randomUUID(), enabled: false, field: 'site' as const,
+                    match: 'EXACT' as const, find: '', replace: '',
+                  }],
+                }))}>
+                Add naming rule
+              </Button>
+              <span className="text-xs text-[var(--muted)]">
+                Rules apply to new proposals after Discover tenants. Save settings to remember them.
+                Exact match and Starts with use literal text, not regular expressions.
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div>
