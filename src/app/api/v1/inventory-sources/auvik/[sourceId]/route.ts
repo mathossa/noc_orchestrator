@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { normalizeAuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import {
   updateAuvikInventoryConnection,
@@ -63,6 +64,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       name: optionalString(body.name),
       region: optionalString(body.region),
       tenants: tenantScopes(body.tenants),
+      namingPolicy: body.namingPolicy === undefined ? undefined : normalizeAuvikNamingPolicy(object(body.namingPolicy)),
       enabled:
         typeof body.enabled === 'boolean' ? body.enabled : undefined,
       credentials: hasCredentials
