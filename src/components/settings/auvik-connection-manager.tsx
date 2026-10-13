@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
-import { cleanAuvikHierarchyLabel } from '@/lib/auvik-tenant-matching'
+import { cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -19,6 +19,7 @@ type Connection = {
   configuration: {
     version: 1
     region: string
+    namingPolicy?: AuvikNamingPolicy
     tenants: readonly {
       tenantId: string
       enabled?: boolean
@@ -116,7 +117,12 @@ export function AuvikConnectionManager({
     })),
   )
   const [tenantSearch, setTenantSearch] = useState('')
-  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED' | 'PROPOSED' | 'MATCHED' | 'REUSED' | 'CONFLICT' | 'MANUAL' | 'ENABLED'>('ALL')
+  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'REVIEW' | 'UNMAPPED' | 'PROPOSED' | 'MATCHED' | 'REUSED' | 'CONFLICT' | 'MANUAL' | 'ENABLED'>('ALL')
+  const [showMultiClients, setShowMultiClients] = useState(false)
+  const [namingPolicy, setNamingPolicy] = useState<AuvikNamingPolicy>(
+    connection.configuration.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY,
+  )
+  const [showNamingRules, setShowNamingRules] = useState(false)
   const [tenantPage, setTenantPage] = useState(1)
   const tenantPageSize = 50
   const [username, setUsername] = useState('')
@@ -181,6 +187,7 @@ export function AuvikConnectionManager({
           body: JSON.stringify({
             name,
             region,
+            namingPolicy,
             tenants: tenants.filter((tenant) => tenant.tenantId.trim()).map((tenant) => ({
               enabled: tenant.enabled,
               tenantId: tenant.tenantId,
@@ -199,6 +206,7 @@ export function AuvikConnectionManager({
       setConnection(updated)
       setName(updated.name)
       setRegion(updated.configuration.region)
+      setNamingPolicy(updated.configuration.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY)
       setTenants((current) => updated.configuration.tenants.map((saved) => ({
         ...editorTenant(saved),
         tenantType: current.find((item) => item.tenantId === saved.tenantId)?.tenantType ?? '',
@@ -306,7 +314,7 @@ export function AuvikConnectionManager({
     try {
       const response = await fetch(
         `/api/v1/inventory-sources/auvik/${connection.id}/tenants`,
-        { method: 'POST' },
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ namingPolicy }) },
       )
       const discovered = (await responseData(response)) as DiscoveredTenant[]
       setTenantPage(1)
