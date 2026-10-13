@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   vendorFindUnique: vi.fn(),
   vendorUpdate: vi.fn(),
   vendorDelete: vi.fn(),
+  contractFindMany: vi.fn(),
+  contractCreate: vi.fn(),
   contractFindUnique: vi.fn(),
+  contractUpdate: vi.fn(),
   contractDelete: vi.fn(),
   deviceModelCount: vi.fn(),
   firmwareTrainCount: vi.fn(),
@@ -27,10 +30,10 @@ vi.mock('@/lib/prisma', () => ({
     },
     deviceType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     contractType: {
-      findMany: vi.fn(),
+      findMany: mocks.contractFindMany,
       findUnique: mocks.contractFindUnique,
-      create: vi.fn(),
-      update: vi.fn(),
+      create: mocks.contractCreate,
+      update: mocks.contractUpdate,
       delete: mocks.contractDelete,
     },
     deviceModel: { count: mocks.deviceModelCount },
@@ -74,6 +77,37 @@ describe('reference-data persistence rules', () => {
       },
     })
     expect(result).toMatchObject({ id: 'vendor-1', name: 'Cisco Systems' })
+  })
+
+
+  it('persists the contract Show in report setting explicitly', async () => {
+    mocks.contractFindMany.mockResolvedValue([])
+    mocks.contractCreate.mockImplementation(async ({ data }) => ({
+      id: 'contract-1',
+      ...data,
+    }))
+
+    const result = await createReferenceRecord('contract-types', {
+      code: 'pro_active',
+      name: 'Pro-active',
+      firmwareManagementEnabled: true,
+      showInReport: true,
+    })
+
+    expect(mocks.contractCreate).toHaveBeenCalledWith({
+      data: {
+        code: 'PRO-ACTIVE',
+        name: 'Pro-active',
+        description: null,
+        firmwareManagementEnabled: true,
+        showInReport: true,
+        isActive: true,
+      },
+    })
+    expect(result).toMatchObject({
+      id: 'contract-1',
+      showInReport: true,
+    })
   })
 
   it('rejects a normalized duplicate name before creating', async () => {
