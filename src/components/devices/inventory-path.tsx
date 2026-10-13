@@ -6,23 +6,28 @@ export type InventoryStageLinks = {
   customers?: string
   sites?: string
   deviceTypes?: string
+  devices?: string
 }
 
-/** Names resolved from the canonical inventory scope, not inferred from URL segments. */
+/** Human-readable names from the canonical inventory scope. */
 export type InventoryStageSelections = {
   customers?: string
   sites?: string
   deviceTypes?: string
+  devices?: string
 }
 
 const stages = [
-  { id: 'customers', label: 'Customers', description: 'Select a customer' },
-  { id: 'sites', label: 'Sites', description: 'Select a site' },
-  { id: 'deviceTypes', label: 'Device types', description: 'Select a type' },
-  { id: 'devices', label: 'Devices', description: 'View devices' },
+  { id: 'customers', label: 'Customers' },
+  { id: 'sites', label: 'Sites' },
+  { id: 'deviceTypes', label: 'Device types' },
+  { id: 'devices', label: 'Devices' },
 ] as const
 
-/** Readable, scoped navigation for the existing inventory drill-down (no parallel data model). */
+/**
+ * The single inventory breadcrumb, from overview to individual device detail.
+ * Earlier steps navigate back; on a device detail the Devices step returns to its list.
+ */
 export function InventoryPath({
   current,
   links = {},
@@ -33,55 +38,37 @@ export function InventoryPath({
   selections?: InventoryStageSelections
 }) {
   return (
-    <nav aria-label="Inventory exploration steps" className="mb-5">
+    <nav aria-label="Inventory exploration steps" className="mb-4">
       <ol className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         {stages.map((stage, index) => {
-          const href = index < current ? links[stage.id as keyof InventoryStageLinks] : undefined
+          const selectedName = selections[stage.id]?.trim()
           const active = index === current
-          const selectedName = stage.id === 'devices' ? undefined : selections[stage.id]
-          const description = selectedName?.trim() || stage.description
-          const content = (
-            <>
-              <span
-                aria-hidden="true"
-                className={[
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
-                  active
-                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
-                    : index < current
-                      ? 'bg-[var(--surface-muted)] text-[var(--foreground)]'
-                      : 'bg-[var(--surface-raised)] text-[var(--muted)]',
-                ].join(' ')}
-              >
-                {index + 1}
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold">{stage.label}</span>
-                <span
-                  className={[
-                    'block truncate text-xs',
-                    selectedName?.trim() ? 'font-medium text-[var(--foreground)]' : 'text-[var(--muted)]',
-                  ].join(' ')}
-                  title={description}
-                >
-                  {description}
-                </span>
-              </span>
-            </>
-          )
+          const href = index < current || (active && stage.id === 'devices' && selectedName)
+            ? links[stage.id]
+            : undefined
           const classes = [
-            'flex min-h-16 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors',
+            'flex min-h-11 min-w-0 items-center rounded-md border px-3 py-2 transition-colors',
             active
               ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--foreground)]'
               : href
                 ? 'border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:border-[var(--accent-muted)] hover:bg-[var(--surface-muted)]'
                 : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]',
           ].join(' ')
+          const content = (
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-[13px] font-semibold">{stage.label}</span>
+              {selectedName ? (
+                <span className="min-w-0 truncate text-xs text-[var(--muted-strong)]" title={selectedName}>
+                  {selectedName}
+                </span>
+              ) : null}
+            </span>
+          )
 
           return (
-            <li key={stage.id}>
+            <li key={stage.id} className="min-w-0">
               {href ? (
-                <Link href={href} className={classes}>
+                <Link href={href} className={classes} aria-current={active ? 'step' : undefined}>
                   {content}
                 </Link>
               ) : (
