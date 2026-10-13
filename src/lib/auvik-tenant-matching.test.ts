@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { deriveAuvikHierarchyProposal, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import type { AuvikTenantResource } from '@/lib/auvik-api-client'
 
 const customer = {
@@ -16,6 +16,31 @@ const tenant = (attributes: AuvikTenantResource['attributes']): AuvikTenantResou
 })
 
 describe('Auvik tenant hierarchy suggestions', () => {
+  it('proposes canonical hierarchy from source parent links without using domain prefixes', () => {
+    const chain: AuvikTenantResource[] = [
+      { id: 'msp', type: 'tenant', attributes: { domainPrefix: 'opaque-root', displayName: 'MSP', tenantType: 'multiClient' } },
+      { id: 'parent', type: 'tenant', attributes: { domainPrefix: 'opaque-customer', displayName: 'Northwind', tenantType: 'multiClient' },
+        relationships: { parent: { data: { id: 'msp' } } } },
+      { id: 'site', type: 'tenant', attributes: { domainPrefix: 'opaque-site', displayName: 'Headquarters', tenantType: 'client' },
+        relationships: { parent: { data: { id: 'parent' } } } },
+    ]
+    const result = deriveAuvikHierarchyProposal(chain[2], chain)
+    expect(result).toEqual({ customer: 'Northwind', businessUnit: null, site: 'Headquarters', parentTenantId: 'parent' })
+    expect(suggestAuvikTenantHierarchy(chain[2], [customer], result)).toMatchObject({
+      customer: 'Northwind', site: 'Headquarters', status: 'CUSTOMER_AND_SITE',
+    })
+  })
+
+  it('requires an intact parent chain and a display name', () => {
+    const child: AuvikTenantResource = {
+      id: 'site', type: 'tenant',
+      attributes: { domainPrefix: 'opaque', tenantType: 'client', displayName: 'Office' },
+      relationships: { parent: { data: { id: 'missing-parent' } } },
+    }
+    expect(deriveAuvikHierarchyProposal(child, [child])).toBeNull()
+    expect(deriveAuvikHierarchyProposal(tenant({ domainPrefix: 'only-id', tenantType: 'client' }), [])).toBeNull()
+  })
+
   it('matches an unambiguous customer, site, and optional business unit', () => {
     expect(suggestAuvikTenantHierarchy(tenant({
       domainPrefix: '12345xyz', tenantType: 'client',
