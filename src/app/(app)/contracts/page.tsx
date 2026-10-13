@@ -7,7 +7,7 @@ export default function ContractTypesPage() {
       <ReferenceDataManager
         kind="contract-types"
         title="Contract types"
-        description="Configure service/contract categories and whether firmware management applies to each type."
+        description="Configure service/contract categories, firmware-management applicability, and whether each contract appears as its own inventory-report tab."
       />
       <ReferenceDrilldownDirectory
         kind="contract-types"
