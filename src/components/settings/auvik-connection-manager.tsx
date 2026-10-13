@@ -289,11 +289,16 @@ export function AuvikConnectionManager({
             if (saved) {
               const hasMapping = Boolean(saved.customer.trim())
               const proposed = suggestion ?? tenant.proposal
+              const cleanKey = (value: string | null | undefined) => (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
+              const matchesProposal = proposed && cleanKey(saved.customer) === cleanKey(proposed.customer)
+                && cleanKey(saved.site) === cleanKey(proposed.site)
+                && cleanKey(saved.businessUnit) === cleanKey(proposed.businessUnit)
               return {
                 ...saved,
                 tenantType: tenant.tenantType ?? '',
                 domainPrefix: tenant.domainPrefix,
-                mappingStatus: hasMapping ? 'MANUAL' as const : tenant.mappingStatus,
+                mappingStatus: tenant.mappingStatus === 'CONFLICT' ? 'CONFLICT' as const
+                  : hasMapping && !matchesProposal ? 'MANUAL' as const : tenant.mappingStatus,
                 customer: hasMapping ? saved.customer : (proposed?.customer ?? ''),
                 businessUnit: hasMapping ? saved.businessUnit : (proposed?.businessUnit ?? ''),
                 site: hasMapping ? saved.site : (proposed?.site ?? ''),
@@ -661,7 +666,7 @@ export function AuvikConnectionManager({
                         : tenant.mappingStatus === 'MATCHED' ? 'Matched existing'
                         : tenant.mappingStatus === 'PROPOSED' ? 'Proposed new hierarchy'
                         : tenant.mappingStatus === 'CONFLICT' ? 'Conflicting mappings'
-                        : tenant.customer.trim() && tenant.site.trim() ? 'Manual / saved'
+                        : tenant.customer.trim() && tenant.site.trim() ? 'Saved mapping (reviewable)'
                         : <span className="text-[var(--warning)]">Needs review</span>}
                     </td>
                     <td className="p-3">
