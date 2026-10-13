@@ -22,14 +22,7 @@ export const workspaces: readonly Workspace[] = [
     href: '/dashboard',
     items: [
       { label: 'Dashboard', href: '/dashboard' },
-      {
-        label: 'Inventory',
-        href: '/devices',
-        children: [
-          { label: 'Manage customers', href: '/customers' },
-          { label: 'Manage sites', href: '/sites' },
-        ],
-      },
+      { label: 'Inventory', href: '/devices' },
       {
         label: 'Reports',
         href: '/reports/inventory',
@@ -53,6 +46,11 @@ export const workspaces: readonly Workspace[] = [
     description: 'Manage sources, catalogs, contracts and rules.',
     href: '/settings/integrations',
     items: [
+      {
+        label: 'Customers & sites',
+        href: '/customers',
+        children: [{ label: 'Manage sites', href: '/sites' }],
+      },
       {
         label: 'Integrations',
         href: '/settings/integrations',
@@ -90,6 +88,10 @@ export function workspaceForPath(pathname: string): WorkspaceId {
   }
 
   if (
+    pathname === '/customers' ||
+    pathname.startsWith('/customers/') ||
+    pathname === '/sites' ||
+    pathname.startsWith('/sites/') ||
     pathname === '/firmware' ||
     pathname.startsWith('/firmware/') ||
     pathname === '/models' ||
