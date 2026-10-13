@@ -165,6 +165,8 @@ function buildDeviceWhere(
 
   if (scope.customerId) and.push({ customerId: scope.customerId })
   if (scope.siteId !== undefined) and.push({ siteId: scope.siteId })
+  if (query.customer) and.push({ customerId: query.customer })
+  if (query.site) and.push({ siteId: query.site })
   if (scope.deviceTypeId) {
     and.push({ deviceModel: { deviceTypeId: scope.deviceTypeId } })
   }
@@ -465,7 +467,22 @@ function typeRows(
 }
 
 export async function getInventoryFilterOptions(): Promise<InventoryFilterOptions> {
-  const [vendors, models, deviceTypes, contracts] = await Promise.all([
+  const [customers, sites, vendors, models, deviceTypes, contracts] = await Promise.all([
+    prisma.customer.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.site.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        customerId: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: [{ customer: { name: 'asc' } }, { name: 'asc' }],
+    }),
     prisma.vendor.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
@@ -493,6 +510,13 @@ export async function getInventoryFilterOptions(): Promise<InventoryFilterOption
   ])
 
   return {
+    customers,
+    sites: sites.map((site) => ({
+      id: site.id,
+      name: site.name,
+      customerId: site.customerId,
+      customerName: site.customer.name,
+    })),
     vendors,
     models: models.map((model) => ({
       id: model.id,
@@ -740,6 +764,11 @@ export type InventoryExportRecord = {
   deviceId: string
   customerId: string
   siteId: string | null
+  vendorId?: string
+  deviceTypeId?: string
+  modelId?: string
+  contractId?: string
+  primaryStatusCode?: InventoryPrimaryStatusCode
   issueReason: string
   customer: string
   site: string
@@ -811,20 +840,21 @@ export async function getInventoryExportRecords(
       customer: {
         select: {
           name: true,
-          contractType: { select: { name: true, showInReport: true } },
+          contractType: { select: { id: true, name: true, showInReport: true } },
         },
       },
       site: {
         select: {
           name: true,
-          contractType: { select: { name: true, showInReport: true } },
+          contractType: { select: { id: true, name: true, showInReport: true } },
         },
       },
       deviceModel: {
         select: {
+          id: true,
           model: true,
-          vendor: { select: { name: true } },
-          deviceType: { select: { name: true } },
+          vendor: { select: { id: true, name: true } },
+          deviceType: { select: { id: true, name: true } },
         },
       },
       lifecycle: { select: { state: true } },
@@ -842,6 +872,14 @@ export async function getInventoryExportRecords(
         siteId: fact.siteId,
         customer: row.customer.name,
         site: row.site?.name ?? 'Unassigned',
+        vendorId: row.deviceModel.vendor.id,
+        deviceTypeId: row.deviceModel.deviceType.id,
+        modelId: row.deviceModel.id,
+        contractId:
+          row.site?.contractType?.id ??
+          row.customer.contractType?.id ??
+          undefined,
+        primaryStatusCode: fact.status.code,
         deviceType: row.deviceModel.deviceType.name,
         name: row.name,
         hostname: row.hostname ?? '',
