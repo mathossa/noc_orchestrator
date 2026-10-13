@@ -76,6 +76,7 @@ export async function listReferenceData(kind: ReferenceKind) {
       name: true,
       description: true,
       firmwareManagementEnabled: true,
+      showInReport: true,
       isActive: true,
     },
   })
