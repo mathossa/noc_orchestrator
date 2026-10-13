@@ -1,6 +1,7 @@
-import type {
-  InventoryFilterOptions,
-  InventoryQuery,
+import {
+  inventoryHref,
+  type InventoryFilterOptions,
+  type InventoryQuery,
 } from '@/lib/inventory-explorer'
 
 function readableStatus(value: string) {
@@ -33,4 +34,17 @@ export function inventoryReportScopeDescription(
     query.flagged ? 'Flagged' : null,
     query.q ? 'Search: ' + query.q : null,
   ].filter(Boolean).join(' · ') || 'All managed inventory'
+}
+
+
+export function inventoryReportHref(
+  query: InventoryQuery,
+  firmware: string,
+  patch: Partial<InventoryQuery> = {},
+  firmwarePatch: string = firmware,
+) {
+  const base = inventoryHref('/reports/inventory', query, patch)
+  const version = firmwarePatch.normalize('NFKC').trim()
+  if (!version) return base
+  return base + (base.includes('?') ? '&' : '?') + 'firmware=' + encodeURIComponent(version)
 }
