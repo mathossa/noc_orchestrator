@@ -35,6 +35,7 @@ export async function GET(request: Request) {
     rows,
     generatedAt,
     inventoryReportScopeDescription(query, filters, firmware),
+    filters.contracts,
   )
 
   return new Response(new Uint8Array(workbook), {
