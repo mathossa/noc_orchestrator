@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -124,9 +125,35 @@ export function AuvikConnectionManager({
   ) => {
     setTenants((current) =>
       current.map((tenant, tenantIndex) =>
-        tenantIndex === index ? { ...tenant, [field]: value } : tenant,
+        tenantIndex === index ? {
+          ...tenant, [field]: value,
+          ...(field === 'customer' || field === 'businessUnit' || field === 'site'
+            ? { mappingStatus: 'MANUAL' as const } : {}),
+        } : tenant,
       ),
     )
+  }
+
+  const selectExistingMapping = (index: number, field: AuvikLookupField, option: AuvikLookupOption) => {
+    setTenants((current) => current.map((tenant, position) => {
+      if (position !== index) return tenant
+      if (field === 'customer') return {
+        ...tenant, customer: option.customerName, mappingStatus: 'MANUAL' as const,
+      }
+      if (field === 'businessUnit') return {
+        ...tenant, businessUnit: option.name, mappingStatus: 'MANUAL' as const,
+      }
+      // Never change an existing customer implicitly. A site under a different
+      // customer must be selected explicitly after correcting Customer.
+      if (option.relation !== 'SAME_CUSTOMER') return tenant
+      return {
+        ...tenant,
+        customer: option.customerName,
+        businessUnit: option.businessUnit ?? '',
+        site: option.name,
+        mappingStatus: 'MATCHED' as const,
+      }
+    }))
   }
 
   const save = async () => {
@@ -684,18 +711,22 @@ export function AuvikConnectionManager({
                     </td>
                     {(['customer', 'businessUnit', 'site'] as const).map((field) => (
                       <td className="min-w-40 p-3" key={field}>
-                        <input
-                          aria-label={`${field} for ${tenant.tenantName || tenant.tenantId}`}
+                        <AuvikMappingInput
+                          connectionId={connection.id}
+                          field={field}
+                          tenantLabel={tenant.tenantName || tenant.tenantId}
                           value={tenant[field]}
-                          onChange={(event) => updateTenant(index, field, event.target.value)}
-                          placeholder={field === 'businessUnit' ? 'Optional' : 'Not mapped'}
-                          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5"
+                          customer={tenant.customer}
+                          businessUnit={tenant.businessUnit}
+                          disabled={busy !== null}
+                          onChange={(value) => updateTenant(index, field, value)}
+                          onSelect={(option) => selectExistingMapping(index, field, option)}
                         />
                       </td>
                     ))}
                     <td className="p-3 text-xs">
                       {tenant.mappingStatus === 'REUSED' ? 'Existing Auvik mapping'
-                        : tenant.mappingStatus === 'MATCHED' ? 'Matched existing'
+                        : tenant.mappingStatus === 'MATCHED' ? 'Existing site'
                         : tenant.mappingStatus === 'PROPOSED' ? 'Proposed new hierarchy'
                         : tenant.mappingStatus === 'CONFLICT' ? 'Conflicting mappings'
                         : tenant.customer.trim() && tenant.site.trim() ? 'Saved mapping (reviewable)'
