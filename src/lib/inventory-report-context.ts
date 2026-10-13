@@ -12,12 +12,16 @@ export function inventoryReportScopeDescription(
   filters: InventoryFilterOptions,
   firmware: string,
 ) {
+  const customerName = filters.customers.find((item) => item.id === query.customer)?.name
+  const siteName = filters.sites.find((item) => item.id === query.site)?.name
   const vendorName = filters.vendors.find((item) => item.id === query.vendor)?.name
   const typeName = filters.deviceTypes.find((item) => item.id === query.deviceType)?.name
   const modelName = filters.models.find((item) => item.id === query.model)?.model
   const contractName = filters.contracts.find((item) => item.id === query.contract)?.name
 
   return [
+    query.customer ? customerName ?? 'Customer ' + query.customer : null,
+    query.site ? siteName ?? 'Site ' + query.site : null,
     query.vendor ? vendorName ?? 'Vendor ' + query.vendor : null,
     query.deviceType ? typeName ?? 'Type ' + query.deviceType : null,
     query.model ? modelName ?? 'Model ' + query.model : null,
