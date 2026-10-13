@@ -4,6 +4,7 @@ import {
   auvikRegionFromRedirect,
   AuvikRegionRedirectError,
   listAuvikTenants,
+  listAuvikTenantDetails,
   verifyAuvikCredentials,
   type AuvikApiCredentials,
 } from '@/lib/auvik-api-client'
@@ -467,11 +468,50 @@ export async function discoverAuvikInventoryTenants(
       'Test the Auvik connection successfully before discovering tenants.',
     )
   }
-  return listAuvikTenants({
+  const request = {
     region: connection.configuration.region,
     credentials,
     fetchImpl: options.fetchImpl,
     signal: options.signal,
+  }
+  const accessible = await listAuvikTenants(request)
+  if (accessible.length === 0) return []
+
+  // Auvik's flat /v1/tenants endpoint does not contain display names.
+  // Resolve the primary multi-site domain(s) to obtain detailed descendants.
+  // The parent relationship is preserved so 941 sites can be grouped under
+  // their correct Customer / optional Business Unit rather than by opaque IDs.
+  const roots = accessible.filter((tenant) =>
+    tenant.attributes.tenantType?.toLowerCase() === 'multiclient' &&
+    !tenant.relationships?.parent?.data?.id,
+  )
+  const candidates = roots.length > 0 ? roots : accessible
+  const details = new Map<string, (typeof accessible)[number]>()
+  const errors: string[] = []
+  for (const candidate of candidates.slice(0, 20)) {
+    try {
+      const children = await listAuvikTenantDetails({
+        ...request,
+        tenantDomainPrefix: candidate.attributes.domainPrefix,
+      })
+      for (const child of children) details.set(child.id, child)
+      if (accessible.every((tenant) => details.has(tenant.id))) break
+    } catch (error) {
+      errors.push(`${candidate.attributes.domainPrefix}: ${error instanceof Error ? error.message : 'unknown error'}`)
+    }
+  }
+  if (details.size === 0) {
+    throw new Error(`Auvik tenant details could not be loaded. The main multi-site domain or Tenants Details API permission may be missing. ${errors.slice(0, 2).join('; ')}`)
+  }
+  // Never hide accessible sites when a details response has limited coverage.
+  return accessible.map((tenant) => {
+    const detail = details.get(tenant.id)
+    if (!detail) return tenant
+    return {
+      ...tenant,
+      attributes: { ...tenant.attributes, ...detail.attributes },
+      relationships: detail.relationships ?? tenant.relationships,
+    }
   })
 }
 
