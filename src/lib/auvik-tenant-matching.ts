@@ -13,6 +13,87 @@ export type AuvikTenantSuggestion = {
   status: 'CUSTOMER' | 'CUSTOMER_AND_SITE'
 }
 
+/**
+ * Default Auvik naming policy. Source display names remain unchanged;
+ * these rules operate ONLY on proposed canonical hierarchy labels.
+ * 1. Drop trailing Auvik account number markers such as " - [43541]".
+ * 2. Remove a parent customer (or safe legal-suffix alias) from the START
+ *    of a child unit/site name when it is separated by " - ".
+ * 3. Remove a parent business-unit prefix from its descendant site.
+ *
+ * No fuzzy matching or substring replacement: "Unica" must never be removed
+ * from "Unicat" or from the middle of a location name.
+ */
+export function cleanAuvikHierarchyLabel(value: string) {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ')
+    .replace(/\s*(?:-\s*)?\[\s*\d+\s*\]\s*$/u, '')
+    .trim().replace(/\s+-\s*$/u, '').trim()
+}
+
+function hierarchyAliases(value: string) {
+  const aliases = new Set<string>()
+  const original = cleanAuvikHierarchyLabel(value)
+  if (!original) return []
+  const add = (name: string) => {
+    const normalized = cleanAuvikHierarchyLabel(name)
+    if (normalized) aliases.add(normalized)
+  }
+  add(original)
+  const segments = original.split(/\s+-\s+/u)
+  if (segments.length > 1) add(segments[0])
+  for (const item of [...aliases]) {
+    let name = item
+    for (let i = 0; i < 5; i += 1) {
+      const shortened = name
+        .replace(/\s+(?:B\.?V\.?|N\.?V\.?|holding|stichting)$/iu, '')
+        .replace(/^Stichting\s+/iu, '')
+        .trim()
+      if (shortened === name || !shortened) break
+      add(shortened)
+      name = shortened
+    }
+  }
+  return [...aliases].sort((left, right) => right.length - left.length)
+}
+
+export function removeAuvikParentPrefix(label: string, parent: string) {
+  const cleaned = cleanAuvikHierarchyLabel(label)
+  for (const alias of hierarchyAliases(parent)) {
+    const prefix = alias + ' - '
+    if (cleaned.toLocaleLowerCase('en-US').startsWith(prefix.toLocaleLowerCase('en-US'))) {
+      const remainder = cleaned.slice(prefix.length).trim()
+      if (remainder) return remainder
+    }
+  }
+  return cleaned
+}
+
+export function normalizeAuvikHierarchyNames(names: readonly string[]) {
+  if (names.length === 0) return null
+  const customer = cleanAuvikHierarchyLabel(names[0])
+  if (!customer) return null
+  const intermediates = names.slice(1, -1)
+  const normalizedUnits: string[] = []
+  for (const unit of intermediates) {
+    let normalized = removeAuvikParentPrefix(unit, customer)
+    for (const parent of normalizedUnits) {
+      normalized = removeAuvikParentPrefix(normalized, parent)
+    }
+    if (normalized && matchKey(normalized) !== matchKey(customer) &&
+      !normalizedUnits.some((previous) => matchKey(previous) === matchKey(normalized))) {
+      normalizedUnits.push(normalized)
+    }
+  }
+  let site = cleanAuvikHierarchyLabel(names[names.length - 1])
+  site = removeAuvikParentPrefix(site, customer)
+  for (const unit of normalizedUnits) site = removeAuvikParentPrefix(site, unit)
+  return {
+    customer,
+    businessUnit: normalizedUnits.length ? normalizedUnits.join(' / ') : null,
+    site,
+  }
+}
+
 function matchKey(value: string) {
   return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
@@ -59,10 +140,10 @@ export function deriveAuvikHierarchyProposal(
   // One site immediately under the main MSP account represents its own
   // customer; intermediate nested multi-sites become an optional unit.
   const withoutRoot = chain.length > 1 ? names.slice(1) : names
+  const normalized = normalizeAuvikHierarchyNames(withoutRoot)
+  if (!normalized?.customer || !normalized.site) return null
   return {
-    customer: withoutRoot[0],
-    businessUnit: withoutRoot.length > 2 ? withoutRoot.slice(1, -1).join(' / ') : null,
-    site: withoutRoot[withoutRoot.length - 1],
+    ...normalized,
     parentTenantId: tenant.relationships?.parent?.data?.id ?? null,
   }
 }
