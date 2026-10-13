@@ -74,14 +74,22 @@ export async function GET(request: Request, context: Context) {
       } })
     }
 
-    const sites = await prisma.site.findMany({
-      where: { isActive: true, name: { contains: query, mode: 'insensitive' } },
-      take: 40, orderBy: { name: 'asc' },
-      select: {
-        id: true, name: true, customer: { select: { id: true, name: true } },
-        organizationUnit: { select: { id: true, name: true } },
-      },
-    })
+    const siteFilter = { isActive: true, name: { contains: query, mode: 'insensitive' as const } }
+    const fields = {
+      id: true, name: true, customer: { select: { id: true, name: true } },
+      organizationUnit: { select: { id: true, name: true } },
+    } as const
+    const [sameCustomer, otherCustomers] = await Promise.all([
+      customer ? prisma.site.findMany({
+        where: { ...siteFilter, customerId: customer.id },
+        take: 16, orderBy: { name: 'asc' }, select: fields,
+      }) : Promise.resolve([]),
+      prisma.site.findMany({
+        where: { ...siteFilter, ...(customer ? { customerId: { not: customer.id } } : {}) },
+        take: 8, orderBy: { name: 'asc' }, select: fields,
+      }),
+    ])
+    const sites = [...sameCustomer, ...otherCustomers]
     const options = sites
       .map((site) => ({
         id: site.id, name: site.name,
@@ -99,7 +107,10 @@ export async function GET(request: Request, context: Context) {
       option.relation === 'SAME_CUSTOMER' && matchesSite(option) &&
       (!unitName || key(option.businessUnit ?? '') === key(unitName)),
     )
-    const otherMatches = options.filter((option) => option.relation === 'OTHER_CUSTOMER' && matchesSite(option))
+    const otherMatches = options.filter((option) =>
+      (option.relation === 'OTHER_CUSTOMER' ||
+        (unitName && key(option.businessUnit ?? '') !== key(unitName))) &&
+      matchesSite(option))
     return NextResponse.json({ data: {
       options,
       status: matching.length === 1 ? 'EXISTING'
