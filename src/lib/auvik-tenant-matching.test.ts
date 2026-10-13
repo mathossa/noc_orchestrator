@@ -58,12 +58,12 @@ describe('Auvik default canonical naming policy', () => {
     const policy = normalizeAuvikNamingPolicy({
       rules: [
         { id: '1', enabled: true, field: 'customer', match: 'EXACT', find: 'Leger des Heils', replace: 'LDH' },
-        { id: '2', enabled: true, field: 'site', match: 'PREFIX', find: '3059', replace: 'Postcode 3059' },
+        { id: '2', enabled: true, field: 'site', match: 'EXACT', find: '3059LG41', replace: 'Postcode 3059LG41' },
       ],
     })
     expect(normalizeAuvikHierarchyNames(
       ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'], policy,
-    )).toEqual({ customer: 'LDH', businessUnit: null, site: 'Leger des Heils - 3059LG41' })
+    )).toEqual({ customer: 'LDH', businessUnit: null, site: 'Postcode 3059LG41' })
   })
 
   it('validates active rules but permits blank disabled drafts', () => {
