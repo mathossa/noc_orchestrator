@@ -792,7 +792,7 @@ export function AuvikConnectionManager({
             </Button>
           </div>
           <p className="text-xs text-[var(--muted)]">
-            "This page" means at most 50 listed sites. "All filtered" affects every matching site on every page, never multi-client parents. All selections remain unsaved until Save settings.
+            &quot;This page&quot; means at most 50 listed sites. &quot;All filtered&quot; affects every matching site on every page, never multi-client parents. All selections remain unsaved until Save settings.
           </p>
           <div className="overflow-x-auto rounded-md border border-[var(--border)]">
             <table className="w-full min-w-[940px] border-collapse text-left text-sm">
