@@ -434,7 +434,7 @@ export function AuvikConnectionManager({
     const matchesFilter = tenantFilter === 'ALL' ||
       (tenantFilter === 'UNMAPPED' && tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED') ||
       (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
-      (tenantFilter === 'MATCHED' && (tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED')) ||
+      (tenantFilter === 'MATCHED' && tenant.mappingStatus === 'MATCHED') ||
       (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
       (tenantFilter === 'CONFLICT' && tenant.mappingStatus === 'CONFLICT') ||
       (tenantFilter === 'MANUAL' && tenant.mappingStatus === 'MANUAL') ||
@@ -447,7 +447,7 @@ export function AuvikConnectionManager({
   const page = Math.min(tenantPage, totalPages)
   const pageTenants = visibleTenants.slice((page - 1) * tenantPageSize, page * tenantPageSize)
   const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
-  const mappedCount = tenants.filter((tenant) => tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED').length
+  const mappedCount = tenants.filter((tenant) => tenant.mappingStatus === 'MATCHED').length
   const proposedCount = tenants.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
   const needsReviewCount = tenants.filter((tenant) => tenant.tenantId &&
     tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED').length
@@ -628,7 +628,7 @@ export function AuvikConnectionManager({
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
             <span><strong>{tenants.filter((tenant) => tenant.tenantId).length}</strong> discovered/configured</span>
             <span><strong>{enabledCount}</strong> enabled</span>
-            <span><strong>{mappedCount}</strong> matched/reused</span>
+            <span><strong>{mappedCount}</strong> existing sites</span>
             <span><strong>{proposedCount}</strong> proposed</span>
             <span><strong>{needsReviewCount}</strong> unmapped</span>
           </div>
