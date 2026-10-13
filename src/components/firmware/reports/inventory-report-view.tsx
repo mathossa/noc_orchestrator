@@ -120,7 +120,7 @@ export function InventoryReportView({
   const csvHref = baseExport + (baseExport.includes('?') ? '&' : '?') + extra.toString()
 
   const scopeDescription = inventoryReportScopeDescription(query, filters, firmware)
-  const sections = buildContractReportSections(report.devices)
+  const sections = buildContractReportSections(report.devices, filters.contracts)
   const xlsxBase = inventoryHref('/api/v1/reports/inventory/xlsx', query)
   const xlsxHref = firmware
     ? xlsxBase + (xlsxBase.includes('?') ? '&' : '?') + 'firmware=' + encodeURIComponent(firmware)
@@ -254,7 +254,7 @@ export function InventoryReportView({
         <section aria-label="Devices grouped by internal contract, customer and site">
           <h3 className="inventory-report-print-hide mb-4 text-lg font-semibold">Detailed inventory by contract, customer and site</h3>
           {sections.map((section) => (
-            <section key={section.category} className="inventory-report-contract-section mb-8 space-y-4">
+            <section key={section.key} className="inventory-report-contract-section mb-8 space-y-4">
               <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-strong)] pb-2">
                 <h3 className="text-xl font-semibold">{section.title}</h3>
                 <span className="text-xs text-[var(--muted)]">{section.report.deviceCount} devices</span>
