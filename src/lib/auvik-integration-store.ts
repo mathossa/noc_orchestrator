@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { DEFAULT_AUVIK_NAMING_POLICY, normalizeAuvikNamingPolicy, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { prisma } from '@/lib/prisma'
 import {
   auvikRegionFromRedirect,
@@ -26,6 +27,7 @@ export type AuvikInventoryConnectionConfiguration = {
   version: 1
   region: string
   tenants: readonly AuvikInventoryTenantScope[]
+  namingPolicy: AuvikNamingPolicy
 }
 
 type AuvikStoredCredentials = {
@@ -68,6 +70,7 @@ function normalizeTenantScope(
 export function normalizeAuvikConnectionConfiguration(input: {
   region: string
   tenants?: readonly AuvikInventoryTenantScope[]
+  namingPolicy?: Partial<AuvikNamingPolicy> | null
 }): AuvikInventoryConnectionConfiguration {
   const tenants = (input.tenants ?? []).map(normalizeTenantScope)
   if (new Set(tenants.map((tenant) => tenant.tenantId)).size !== tenants.length) {
@@ -77,6 +80,7 @@ export function normalizeAuvikConnectionConfiguration(input: {
     version: 1,
     region: normalizeRegion(input.region),
     tenants,
+    namingPolicy: normalizeAuvikNamingPolicy(input.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY),
   }
 }
 
@@ -112,6 +116,8 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
   return normalizeAuvikConnectionConfiguration({
     region: record.region,
     tenants,
+    namingPolicy: record.namingPolicy && typeof record.namingPolicy === 'object' && !Array.isArray(record.namingPolicy)
+      ? record.namingPolicy as Partial<AuvikNamingPolicy> : null,
   })
 }
 
@@ -292,6 +298,7 @@ export async function updateAuvikInventoryConnection(input: {
   tenants?: readonly AuvikInventoryTenantScope[]
   enabled?: boolean
   credentials?: AuvikApiCredentials | null
+  namingPolicy?: Partial<AuvikNamingPolicy>
 }) {
   const existing = await getAuvikInventoryConnection(input.sourceId)
   if (!existing) throw new Error('Auvik connection was not found.')
@@ -299,6 +306,7 @@ export async function updateAuvikInventoryConnection(input: {
   const configuration = normalizeAuvikConnectionConfiguration({
     region: input.region ?? existing.configuration.region,
     tenants: input.tenants ?? existing.configuration.tenants,
+    namingPolicy: input.namingPolicy ?? existing.configuration.namingPolicy,
   })
   const name =
     input.name === undefined ? existing.name : clean(input.name)
