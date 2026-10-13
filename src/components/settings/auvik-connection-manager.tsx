@@ -96,16 +96,23 @@ async function responseData(response: Response) {
 export function AuvikConnectionManager({
   initialConnection,
   initialSyncRuns,
+  initialExistingTenantIds = [],
 }: {
   initialConnection: Connection
   initialSyncRuns: InventorySourceSyncRun[]
+  initialExistingTenantIds?: readonly string[]
 }) {
   const router = useRouter()
   const [connection, setConnection] = useState(initialConnection)
   const [name, setName] = useState(connection.name)
   const [region, setRegion] = useState(connection.configuration.region)
   const [tenants, setTenants] = useState<TenantEditor[]>(
-    connection.configuration.tenants.map(editorTenant),
+    connection.configuration.tenants.map((scope) => ({
+      ...editorTenant(scope),
+      mappingStatus: initialExistingTenantIds.includes(scope.tenantId)
+        ? 'MATCHED' as const
+        : editorTenant(scope).mappingStatus,
+    })),
   )
   const [tenantSearch, setTenantSearch] = useState('')
   const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED' | 'PROPOSED' | 'MATCHED' | 'REUSED' | 'CONFLICT' | 'MANUAL' | 'ENABLED'>('ALL')
