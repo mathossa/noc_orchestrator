@@ -442,53 +442,67 @@ export function AuvikConnectionManager({
     }
   }
 
-  const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
+  const isMultiClient = (tenant: Pick<TenantEditor, 'tenantType'>) =>
+    tenant.tenantType.toLocaleLowerCase('en-US').includes('multi')
+  const hasEnabledScope = connection.configuration.tenants.some((tenant) =>
+    tenant.enabled !== false && !((tenant.tenantType ?? '').toLowerCase().includes('multi')),
+  )
+  const availableTenants = tenants.filter((tenant) => showMultiClients || !isMultiClient(tenant))
+  const needsReview = (tenant: TenantEditor) =>
+    tenant.mappingStatus === 'CONFLICT' || tenant.mappingStatus === 'REVIEW' ||
+    !tenant.customer.trim() || !tenant.site.trim()
+  const isUnmapped = (tenant: TenantEditor) =>
+    tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED'
+  const filterMatches = (tenant: TenantEditor) => tenantFilter === 'ALL' ||
+    (tenantFilter === 'REVIEW' && needsReview(tenant)) ||
+    (tenantFilter === 'UNMAPPED' && isUnmapped(tenant)) ||
+    (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
+    (tenantFilter === 'MATCHED' && tenant.mappingStatus === 'MATCHED') ||
+    (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
+    (tenantFilter === 'CONFLICT' && tenant.mappingStatus === 'CONFLICT') ||
+    (tenantFilter === 'MANUAL' && tenant.mappingStatus === 'MANUAL') ||
+    (tenantFilter === 'ENABLED' && tenant.enabled)
   const search = tenantSearch.normalize('NFKC').trim().toLocaleLowerCase('en-US')
   const visibleTenants = tenants.map((tenant, index) => ({ tenant, index })).filter(({ tenant }) => {
-    const matchesFilter = tenantFilter === 'ALL' ||
-      (tenantFilter === 'UNMAPPED' && tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED') ||
-      (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
-      (tenantFilter === 'MATCHED' && tenant.mappingStatus === 'MATCHED') ||
-      (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
-      (tenantFilter === 'CONFLICT' && tenant.mappingStatus === 'CONFLICT') ||
-      (tenantFilter === 'MANUAL' && tenant.mappingStatus === 'MANUAL') ||
-      (tenantFilter === 'ENABLED' && tenant.enabled)
-    if (!matchesFilter) return false
+    if (!showMultiClients && isMultiClient(tenant)) return false
+    if (!filterMatches(tenant)) return false
     return !search || [tenant.tenantName, tenant.domainPrefix, tenant.tenantId, tenant.customer, tenant.businessUnit, tenant.site]
       .some((value) => value.toLocaleLowerCase('en-US').includes(search))
   })
   const totalPages = Math.max(1, Math.ceil(visibleTenants.length / tenantPageSize))
   const page = Math.min(tenantPage, totalPages)
   const pageTenants = visibleTenants.slice((page - 1) * tenantPageSize, page * tenantPageSize)
-  const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
-  const mappedCount = tenants.filter((tenant) => tenant.mappingStatus === 'MATCHED').length
-  const proposedCount = tenants.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
-  const needsReviewCount = tenants.filter((tenant) => tenant.tenantId &&
-    tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED').length
-  const reusedCount = tenants.filter((tenant) => tenant.mappingStatus === 'REUSED').length
-  const conflictCount = tenants.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
+  const availableSites = availableTenants.filter((tenant) => tenant.tenantId && !isMultiClient(tenant))
+  const enabledCount = availableSites.filter((tenant) => tenant.enabled).length
+  const matchedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'MATCHED').length
+  const proposedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
+  const reviewCount = availableSites.filter(needsReview).length
+  const unmappedCount = availableSites.filter(isUnmapped).length
+  const reusedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'REUSED').length
+  const conflictCount = availableSites.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
   const filterCounts: Record<typeof tenantFilter, number> = {
-    ALL: tenants.filter((tenant) => tenant.tenantId).length,
-    UNMAPPED: needsReviewCount,
+    ALL: availableSites.length,
+    REVIEW: reviewCount,
+    UNMAPPED: unmappedCount,
     PROPOSED: proposedCount,
-    MATCHED: mappedCount,
+    MATCHED: matchedCount,
     REUSED: reusedCount,
     CONFLICT: conflictCount,
-    MANUAL: tenants.filter((tenant) => tenant.mappingStatus === 'MANUAL').length,
+    MANUAL: availableSites.filter((tenant) => tenant.mappingStatus === 'MANUAL').length,
     ENABLED: enabledCount,
   }
   const selectTenantFilter = (value: typeof tenantFilter) => {
     setTenantFilter(value)
     setTenantPage(1)
   }
-  const bulkEnableVisible = (enabled: boolean) => {
-    const indices = new Set(visibleTenants.map(({ index }) => index))
-    setTenants((current) => current.map((tenant, index) => indices.has(index) && tenant.tenantId
-      // Auvik multi-client parents should not be bulk-enabled; users can enable
-      // an individual parent scope explicitly if their Auvik setup requires it.
-      && ( !enabled || !/multi/i.test(tenant.tenantType))
-        ? { ...tenant, enabled }
-        : tenant))
+  const bulkSetEnabled = (scope: 'PAGE' | 'FILTERED', enabled: boolean) => {
+    const affected = scope === 'PAGE' ? pageTenants : visibleTenants
+    const indices = new Set(affected.filter(({ tenant }) =>
+      tenant.tenantId && !isMultiClient(tenant)).map(({ index }) => index))
+    if (indices.size === 0) return
+    setTenants((current) => current.map((tenant, index) =>
+      indices.has(index) ? { ...tenant, enabled } : tenant))
+    setMessage(`${enabled ? 'Enabled' : 'Disabled'} ${indices.size} site selections across ${scope === 'PAGE' ? 'this page' : 'all filtered pages'}. Press Save settings to persist; no device sync has started.`)
   }
 
   const testTone =
