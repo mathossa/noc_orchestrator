@@ -136,14 +136,17 @@ export function normalizeAuvikHierarchyNames(
   policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
 ) {
   if (names.length === 0) return null
-  const customer = applyAuvikOverride('customer', cleanAuvikNameWithPolicy(names[0], policy), policy)
+  // Structural prefix removal uses the original Auvik parent label, not a
+  // potentially renamed canonical customer override.
+  const sourceCustomer = cleanAuvikNameWithPolicy(names[0], policy)
+  const customer = applyAuvikOverride('customer', sourceCustomer, policy)
   if (!customer) return null
   const intermediates = names.slice(1, -1)
   const normalizedUnits: string[] = []
   for (const unit of intermediates) {
     let normalized = cleanAuvikNameWithPolicy(unit, policy)
     if (policy.stripRepeatedParents) {
-      normalized = removeAuvikParentPrefix(normalized, customer)
+      normalized = removeAuvikParentPrefix(normalized, sourceCustomer)
       for (const parent of normalizedUnits) normalized = removeAuvikParentPrefix(normalized, parent)
     }
     normalized = applyAuvikOverride('businessUnit', normalized, policy)
@@ -154,7 +157,7 @@ export function normalizeAuvikHierarchyNames(
   }
   let site = cleanAuvikNameWithPolicy(names[names.length - 1], policy)
   if (policy.stripRepeatedParents) {
-    site = removeAuvikParentPrefix(site, customer)
+    site = removeAuvikParentPrefix(site, sourceCustomer)
     for (const unit of normalizedUnits) site = removeAuvikParentPrefix(site, unit)
   }
   site = applyAuvikOverride('site', site, policy)
