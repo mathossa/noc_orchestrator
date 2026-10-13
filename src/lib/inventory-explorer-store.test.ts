@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   typeFindMany: vi.fn(),
   typeFindFirst: vi.fn(),
   contractFindMany: vi.fn(),
+  customerFindMany: vi.fn(),
   customerFindFirst: vi.fn(),
+  siteFindMany: vi.fn(),
   siteFindFirst: vi.fn(),
   compliance: vi.fn(),
   exceptions: vi.fn(),
@@ -32,8 +34,14 @@ vi.mock('@/lib/prisma', () => ({
       findFirst: mocks.typeFindFirst,
     },
     contractType: { findMany: mocks.contractFindMany },
-    customer: { findFirst: mocks.customerFindFirst },
-    site: { findFirst: mocks.siteFindFirst },
+    customer: {
+      findMany: mocks.customerFindMany,
+      findFirst: mocks.customerFindFirst,
+    },
+    site: {
+      findMany: mocks.siteFindMany,
+      findFirst: mocks.siteFindFirst,
+    },
   },
 }))
 
@@ -125,7 +133,12 @@ describe('inventory explorer read model', () => {
     mocks.typeFindMany.mockResolvedValue([{ id: type.id, name: type.name }])
     mocks.typeFindFirst.mockResolvedValue(type)
     mocks.contractFindMany.mockResolvedValue([])
+    mocks.customerFindMany.mockResolvedValue([acme, beta])
     mocks.customerFindFirst.mockResolvedValue(acme)
+    mocks.siteFindMany.mockResolvedValue([
+      { ...hq, customerId: acme.id, customer: { name: acme.name } },
+      { ...branch, customerId: beta.id, customer: { name: beta.name } },
+    ])
     mocks.siteFindFirst.mockResolvedValue(hq)
     mocks.exceptions.mockImplementation(
       async (devices: Array<{ id: string }>) =>
@@ -443,6 +456,28 @@ describe('inventory explorer read model', () => {
     expect(mocks.deviceFindMany.mock.calls[0][0].where.AND).not.toEqual(
       expect.arrayContaining([{ customerId: acme.id }]),
     )
+  })
+
+  it('applies exact Customer and Site filters to cross-customer reports and exports', async () => {
+    const row = fact('filtered', acme, hq)
+    mocks.deviceFindMany.mockResolvedValue([row])
+    mocks.compliance.mockResolvedValue(
+      new Map([[row.id, complianceResult()]]),
+    )
+
+    await getInventoryOverview(query({
+      customer: acme.id,
+      site: hq.id,
+    }))
+
+    expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        AND: expect.arrayContaining([
+          { customerId: acme.id },
+          { siteId: hq.id },
+        ]),
+      },
+    })
   })
 
   it('preserves the customer and Site constraints on narrower exports', async () => {
