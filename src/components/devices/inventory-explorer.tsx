@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { InventorySearchForm } from './inventory-search-form'
+import { InventoryPath } from './inventory-path'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -70,6 +71,11 @@ function GroupAttention({
       </StatusBadge>
     </Link>
   )
+}
+
+function scopedInventoryHref(path: string, query: InventoryQuery) {
+  // A nested URL supplies its own customer/site scope; preserve useful filters, not stale scope IDs.
+  return inventoryHref(path, query, { customer: '', site: '', page: 1 })
 }
 
 function hasAdvancedFilters(query: InventoryQuery) {
@@ -487,7 +493,7 @@ export function InventoryOverview({
       header: 'Customer',
       render: (row) => (
         <Link
-          href={'/devices/customers/' + row.id}
+          href={scopedInventoryHref('/devices/customers/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -519,7 +525,7 @@ export function InventoryOverview({
     <>
       <PageHeader
         eyebrow="Inventory"
-        title="Devices"
+        title="Inventory"
         description="Find what equipment needs attention and where it is. Start at the customer, then drill into sites and device groups."
         actions={
           <div className="flex flex-wrap gap-2">
@@ -536,6 +542,12 @@ export function InventoryOverview({
               Export matching devices
             </Link>
             <Link
+              href="/customers"
+              className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
+            >
+              Manage customers
+            </Link>
+            <Link
               href="/devices/manage"
               className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
             >
@@ -550,6 +562,7 @@ export function InventoryOverview({
           </div>
         }
       />
+      <InventoryPath current={0} />
       <InventoryToolbar
         path={path}
         query={query}
@@ -597,7 +610,7 @@ export function CustomerInventory({
       header: 'Site',
       render: (row) => (
         <Link
-          href={path + '/sites/' + row.id}
+          href={scopedInventoryHref(path + '/sites/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -651,6 +664,7 @@ export function CustomerInventory({
           </Link>
         }
       />
+      <InventoryPath current={1} links={{ customers: scopedInventoryHref('/devices', query) }} />
       <InventoryToolbar
         path={path}
         query={query}
@@ -693,7 +707,7 @@ export function SiteInventory({
       header: 'Device type',
       render: (row) => (
         <Link
-          href={path + '/types/' + row.id}
+          href={scopedInventoryHref(path + '/types/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -754,6 +768,13 @@ export function SiteInventory({
             Export inventory
           </Link>
         }
+      />
+      <InventoryPath
+        current={2}
+        links={{
+          customers: scopedInventoryHref('/devices', query),
+          sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
+        }}
       />
       <InventoryToolbar
         path={path}
@@ -888,6 +909,14 @@ export function DeviceTypeInventory({
             Export inventory
           </Link>
         }
+      />
+      <InventoryPath
+        current={3}
+        links={{
+          customers: scopedInventoryHref('/devices', query),
+          sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
+          deviceTypes: scopedInventoryHref('/devices/customers/' + model.customer.id + '/sites/' + model.site.id, query),
+        }}
       />
       <InventoryToolbar
         path={path}
