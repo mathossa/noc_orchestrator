@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import archiver from 'archiver'
-import { buildContractReportSections } from '@/lib/inventory-contract-report'
+import {
+  buildContractReportSections,
+  type ContractReportDefinition,
+} from '@/lib/inventory-contract-report'
+import { buildInventoryReport } from '@/lib/inventory-report'
 import type { InventoryExportRecord } from '@/lib/inventory-explorer-store'
 
 const spreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -39,16 +43,40 @@ const columns = [
   ['H', 'Status', 28],
 ] as const
 
+function excelSheetNameBase(title: string) {
+  // Excel limits worksheet names to 31 chars and rejects \ / * ? : [ ].
+  const cleaned = title
+    .normalize('NFKC')
+    .replace(/[\\/*?:[\]]/g, '-')
+    .replace(/^'+|'+$/g, '')
+    .trim()
+  return (cleaned || 'Report').slice(0, 31)
+}
+
+export function excelSheetNames(titles: string[]) {
+  const used = new Set<string>()
+  return titles.map((title) => {
+    const base = excelSheetNameBase(title)
+    let candidate = base
+    let counter = 2
+    while (used.has(candidate.toLocaleLowerCase('en-US'))) {
+      const suffix = ` (${counter})`
+      candidate = base.slice(0, Math.max(1, 31 - suffix.length)) + suffix
+      counter++
+    }
+    used.add(candidate.toLocaleLowerCase('en-US'))
+    return candidate
+  })
+}
+
 export function inventoryWorksheetXml(
   devices: InventoryExportRecord[],
   category: string,
   generatedAt: string,
   scopeDescription: string,
 ): string {
-  const sections = buildContractReportSections(devices)
-  // This helper receives the pre-filtered rows for one category.
-  const report = sections.find((section) => section.title === category)?.report
-  if (!report) throw new Error('Unknown contract report section: ' + category)
+  // The caller provides the rows for exactly one configured report section.
+  const report = buildInventoryReport(devices)
 
   let rowNumber = 0
   const rows: string[] = []
@@ -135,12 +163,20 @@ export function inventoryWorkbookParts(
   devices: InventoryExportRecord[],
   generatedAt: string,
   scopeDescription: string,
+  configuredContracts: ContractReportDefinition[] = [],
 ) {
-  const sections = buildContractReportSections(devices)
+  const sections = buildContractReportSections(devices, configuredContracts)
+  const safeNames = excelSheetNames(sections.map((section) => section.title))
   const sheets = sections.map((section, index) => ({
-    name: section.title,
+    name: safeNames[index],
+    title: section.title,
     file: `xl/worksheets/sheet${index + 1}.xml`,
-    xml: inventoryWorksheetXml(section.report.devices, section.title, generatedAt, scopeDescription),
+    xml: inventoryWorksheetXml(
+      section.report.devices,
+      section.title,
+      generatedAt,
+      scopeDescription,
+    ),
   }))
   const types = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -178,6 +214,7 @@ export async function inventoryReportXlsx(
   devices: InventoryExportRecord[],
   generatedAt: string,
   scopeDescription: string,
+  configuredContracts: ContractReportDefinition[] = [],
 ): Promise<Buffer> {
   const zip = archiver('zip', { zlib: { level: 6 } })
   const chunks: Buffer[] = []
@@ -186,7 +223,12 @@ export async function inventoryReportXlsx(
     zip.once('error', reject)
     zip.once('end', () => resolve(Buffer.concat(chunks)))
   })
-  for (const part of inventoryWorkbookParts(devices, generatedAt, scopeDescription)) {
+  for (const part of inventoryWorkbookParts(
+    devices,
+    generatedAt,
+    scopeDescription,
+    configuredContracts,
+  )) {
     zip.append(part.content, { name: part.name })
   }
   await zip.finalize()
