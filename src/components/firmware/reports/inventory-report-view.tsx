@@ -1,66 +1,68 @@
 import Link from 'next/link'
-import { FilterBar, FilterSearch, FilterSelect } from '@/components/ui/filter-bar'
 import { PageHeader } from '@/components/ui/page-header'
-import { SummaryStat } from '@/components/ui/summary-stat'
 import { PrintInventoryReportButton } from './print-inventory-report-button'
-import {
-  INVENTORY_SOURCES,
-  type InventoryFilterOptions,
-  type InventoryQuery,
-} from '@/lib/inventory-explorer'
-import { INVENTORY_PRIMARY_STATUS_CODES } from '@/lib/inventory-status'
+import { InventoryReportLiveFilters } from './inventory-report-live-filters'
+import { InventoryReportCustomerTable } from './inventory-report-customer-table'
 import type {
-  InventoryReport,
-  InventoryReportDistribution,
-} from '@/lib/inventory-report'
+  InventoryFilterOptions,
+  InventoryQuery,
+} from '@/lib/inventory-explorer'
+import type { InventoryReport } from '@/lib/inventory-report'
 import type { InventoryExportRecord } from '@/lib/inventory-explorer-store'
 import { inventoryHref } from '@/lib/inventory-explorer'
 import { buildContractReportSections } from '@/lib/inventory-contract-report'
-import { inventoryReportScopeDescription } from '@/lib/inventory-report-context'
+import {
+  inventoryReportHref,
+  inventoryReportScopeDescription,
+} from '@/lib/inventory-report-context'
 
-function label(value: string) {
-  return value
-    .replaceAll('_', ' ')
-    .toLocaleLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
+function MetricCard({
+  label,
+  value,
+  detail,
+  href,
+  active = false,
+}: {
+  label: string
+  value: number
+  detail?: string
+  href?: string
+  active?: boolean
+}) {
+  const body = (
+    <>
+      <div className="text-xs font-semibold text-[var(--muted-strong)]">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-[var(--foreground)]">{value}</div>
+      {detail ? <div className="mt-1 text-[11px] text-[var(--muted)]">{detail}</div> : null}
+    </>
+  )
+  const className = [
+    'min-w-0 rounded-lg border p-3 transition-colors',
+    active
+      ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)]'
+      : 'border-[var(--border)] bg-[var(--surface)]',
+    href ? 'hover:border-[var(--accent-muted)] hover:bg-[var(--surface-raised)]' : '',
+  ].join(' ')
 
-function distributions(
-  rows: InventoryReportDistribution[],
-  empty: string,
-) {
-  if (!rows.length) return <p className="text-sm text-[var(--muted)]">{empty}</p>
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-[var(--border)] text-xs text-[var(--muted)]">
-          <th scope="col" className="pb-2 text-left font-medium">Value</th>
-          <th scope="col" className="pb-2 text-right font-medium">Devices</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.label} className="border-b border-[var(--border)] last:border-0">
-            <td className="py-2 font-medium">{row.label}</td>
-            <td className="py-2 text-right tabular-nums">{row.count}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+  return href ? (
+    <Link href={href} className={className}>{body}</Link>
+  ) : (
+    <div className={className}>{body}</div>
   )
 }
 
-function DeviceTable({ devices }: { devices: InventoryExportRecord[] }) {
+function PrintDeviceTable({ devices }: { devices: InventoryExportRecord[] }) {
   return (
     <div className="noc-scrollbar overflow-x-auto rounded-md border border-[var(--border)]">
-      <table className="w-full min-w-[850px] border-collapse text-left text-xs">
+      <table className="w-full min-w-[900px] border-collapse text-left text-xs">
         <thead>
           <tr className="border-b border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted)]">
             <th scope="col" className="px-3 py-2">Device</th>
+            <th scope="col" className="px-3 py-2">Site</th>
             <th scope="col" className="px-3 py-2">Model</th>
             <th scope="col" className="px-3 py-2">Running firmware</th>
             <th scope="col" className="px-3 py-2">Preferred target</th>
-            <th scope="col" className="px-3 py-2">Management contract</th>
+            <th scope="col" className="px-3 py-2">Contract</th>
             <th scope="col" className="px-3 py-2">Status</th>
           </tr>
         </thead>
@@ -70,29 +72,15 @@ function DeviceTable({ devices }: { devices: InventoryExportRecord[] }) {
               <td className="px-3 py-2">
                 <span className="font-semibold">{device.name}</span>
                 {device.serialNumber ? (
-                  <span className="block text-[10px] text-[var(--muted)]">
-                    S/N {device.serialNumber}
-                  </span>
+                  <span className="block text-[10px] text-[var(--muted)]">S/N {device.serialNumber}</span>
                 ) : null}
               </td>
+              <td className="px-3 py-2">{device.site}</td>
               <td className="px-3 py-2">{device.vendor} {device.model}</td>
-              <td className="px-3 py-2 font-mono">
-                {device.currentFirmware || 'Unknown'}
-              </td>
-              <td className="px-3 py-2 font-mono">
-                {device.effectiveTarget || 'Unresolved'}
-              </td>
-              <td className="px-3 py-2">
-                {device.contract || 'No contract'}
-              </td>
-              <td className="px-3 py-2">
-                <span className="font-medium">{device.primaryStatus}</span>
-                {device.statusReason ? (
-                  <span className="block max-w-xs text-[10px] text-[var(--muted)]">
-                    {device.statusReason}
-                  </span>
-                ) : null}
-              </td>
+              <td className="px-3 py-2 font-mono">{device.currentFirmware || 'Unknown'}</td>
+              <td className="px-3 py-2 font-mono">{device.effectiveTarget || 'Unresolved'}</td>
+              <td className="px-3 py-2">{device.contract || 'No contract'}</td>
+              <td className="px-3 py-2">{device.primaryStatus}</td>
             </tr>
           ))}
         </tbody>
@@ -120,7 +108,7 @@ export function InventoryReportView({
   const csvHref = baseExport + (baseExport.includes('?') ? '&' : '?') + extra.toString()
 
   const scopeDescription = inventoryReportScopeDescription(query, filters, firmware)
-  const sections = buildContractReportSections(report.devices, filters.contracts)
+  const printSections = buildContractReportSections(report.devices, filters.contracts)
   const xlsxBase = inventoryHref('/api/v1/reports/inventory/xlsx', query)
   const xlsxHref = firmware
     ? xlsxBase + (xlsxBase.includes('?') ? '&' : '?') + 'firmware=' + encodeURIComponent(firmware)
@@ -132,13 +120,19 @@ export function InventoryReportView({
     timeZone: 'Europe/Amsterdam',
   }).format(new Date(generatedAt))
 
+  const reportContracts = filters.contracts.filter((contract) => contract.showInReport)
+  const statusFilters = new Map<string, string>()
+  for (const device of report.devices) {
+    if (device.primaryStatusCode) statusFilters.set(device.primaryStatusCode, device.primaryStatus)
+  }
+
   return (
     <>
       <div className="inventory-report-screen-only">
         <PageHeader
           eyebrow="Reports / Live inventory"
-          title="Inventory & firmware report"
-          description="Generate a current, cross-customer inventory report with firmware distributions and effective internal management contracts. This is not a quarterly review snapshot."
+          title="Inventory report"
+          description="Live view across customers and sites. Filters apply immediately; click values in the overview to narrow the report."
           breadcrumbs={[
             { label: 'Reports', href: '/reports' },
             { label: 'Inventory report' },
@@ -149,11 +143,11 @@ export function InventoryReportView({
                 href={csvHref}
                 className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
               >
-                Export matching CSV
+                Export CSV
               </Link>
               <Link
                 href={xlsxHref}
-                className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
+                className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)]"
               >
                 Download Excel (.xlsx)
               </Link>
@@ -161,58 +155,126 @@ export function InventoryReportView({
             </>
           }
         />
-        <form action="/reports/inventory" method="get" className="mb-6">
-          {query.attention ? <input type="hidden" name="attention" value="1" /> : null}
-          {query.flagged ? <input type="hidden" name="flagged" value="1" /> : null}
-          <FilterBar
-            label="Inventory report filters"
-            summary={<span>Report scope: {scopeDescription}</span>}
-            actions={
-              <>
-                <button
-                  type="submit"
-                  className="h-9 rounded-md bg-[var(--accent)] px-3 text-sm font-semibold text-[var(--accent-contrast)]"
-                >
-                  Generate report
-                </button>
-                <Link href="/reports/inventory" className="text-sm text-[var(--muted)] hover:underline">
-                  Reset
-                </Link>
-              </>
-            }
-          >
-            <FilterSearch id="report-q" name="q" label="Search" defaultValue={query.q} placeholder="Device, customer, site, serial..." />
-            <FilterSelect id="report-vendor" name="vendor" label="Vendor" defaultValue={query.vendor} options={[
-              { value: '', label: 'All vendors' },
-              ...filters.vendors.map((item) => ({ value: item.id, label: item.name })),
-            ]} />
-            <FilterSelect id="report-device-type" name="deviceType" label="Device type" defaultValue={query.deviceType} options={[
-              { value: '', label: 'All device types' },
-              ...filters.deviceTypes.map((item) => ({ value: item.id, label: item.name })),
-            ]} />
-            <FilterSelect id="report-model" name="model" label="Model" defaultValue={query.model} options={[
-              { value: '', label: 'All models' },
-              ...filters.models.map((item) => ({ value: item.id, label: item.vendorName + ' · ' + item.model })),
-            ]} />
-            <FilterSelect id="report-contract" name="contract" label="Internal management contract" defaultValue={query.contract} options={[
-              { value: '', label: 'All contracts' },
-              { value: 'none', label: 'No management contract' },
-              ...filters.contracts.map((item) => ({ value: item.id, label: item.name })),
-            ]} />
-            <FilterSearch id="report-firmware" name="firmware" label="Running firmware contains" defaultValue={firmware} placeholder="e.g. 7.4.6 or 7.2" />
-            <FilterSelect id="report-status" name="status" label="Firmware status" defaultValue={query.status} options={[
-              { value: '', label: 'All statuses' },
-              ...INVENTORY_PRIMARY_STATUS_CODES.map((status) => ({ value: status, label: label(status) })),
-            ]} />
-            <FilterSelect id="report-source" name="source" label="Inventory source" defaultValue={query.source} options={[
-              { value: '', label: 'All sources' },
-              ...INVENTORY_SOURCES.map((source) => ({ value: source, label: label(source) })),
-            ]} />
-          </FilterBar>
-        </form>
+
+        <InventoryReportLiveFilters
+          query={query}
+          filters={filters}
+          firmware={firmware}
+          deviceCount={report.deviceCount}
+        />
+
+        <section aria-label="Inventory report summary" className="mb-4">
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
+            <MetricCard label="Devices" value={report.deviceCount} detail="Current matching scope" />
+            <MetricCard label="Customers" value={report.customerCount} />
+            <MetricCard label="Sites" value={report.siteCount} />
+            {reportContracts.map((contract) => {
+              const count = report.devices.filter(
+                (device) => device.contractId === contract.id,
+              ).length
+              return (
+                <MetricCard
+                  key={contract.id}
+                  label={contract.name}
+                  value={count}
+                  detail="Click to filter"
+                  active={query.contract === contract.id}
+                  href={inventoryReportHref(query, firmware, { contract: contract.id })}
+                />
+              )
+            })}
+            <MetricCard
+              label="No contract"
+              value={report.missingContractCount}
+              detail="Click to filter"
+              active={query.contract === 'none'}
+              href={inventoryReportHref(query, firmware, { contract: 'none' })}
+            />
+          </div>
+        </section>
+
+        {(report.firmwareDistribution.length > 0 || statusFilters.size > 0) ? (
+          <section className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs">
+            <span className="font-semibold text-[var(--muted-strong)]">Quick filters</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[var(--muted)]">Firmware:</span>
+              {report.firmwareDistribution
+                .filter((entry) => entry.label !== 'Unknown')
+                .slice(0, 6)
+                .map((entry) => (
+                  <Link
+                    key={entry.label}
+                    href={inventoryReportHref(query, firmware, {}, entry.label)}
+                    className={
+                      'rounded-full border px-2 py-0.5 font-mono hover:border-[var(--accent-muted)] hover:bg-[var(--accent-soft)] ' +
+                      (firmware === entry.label
+                        ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
+                        : 'border-[var(--border)] text-[var(--muted-strong)]')
+                    }
+                  >
+                    {entry.label} ({entry.count})
+                  </Link>
+                ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[var(--muted)]">Status:</span>
+              {[...statusFilters.entries()].map(([code, label]) => {
+                const count = report.devices.filter(
+                  (device) => device.primaryStatusCode === code,
+                ).length
+                return (
+                  <Link
+                    key={code}
+                    href={inventoryReportHref(query, firmware, {
+                      status: code as InventoryQuery['status'],
+                    })}
+                    className={
+                      'rounded-full border px-2 py-0.5 hover:border-[var(--accent-muted)] hover:bg-[var(--accent-soft)] ' +
+                      (query.status === code
+                        ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
+                        : 'border-[var(--border)] text-[var(--muted-strong)]')
+                    }
+                  >
+                    {label} ({count})
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <section aria-label="Inventory by customer" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold">Customers & sites</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Customers and sites are collapsible. Expand a site only when you need the device rows.
+              </p>
+            </div>
+            <span className="text-xs text-[var(--muted)]">{scopeDescription}</span>
+          </div>
+
+          {report.customers.length === 0 ? (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-8 text-center text-sm text-[var(--muted)]">
+              No devices match the current filters.
+            </div>
+          ) : (
+            report.customers.map((customer) => (
+              <InventoryReportCustomerTable
+                key={customer.id}
+                customer={customer}
+                query={query}
+                firmware={firmware}
+              />
+            ))
+          )}
+        </section>
       </div>
 
-      <article id="inventory-print-report" className="inventory-report-paper space-y-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-8">
+      <article
+        id="inventory-print-report"
+        className="inventory-report-print-only space-y-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-8"
+      >
         <header className="border-b border-[var(--border)] pb-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
             NOC Orchestrator · Inventory report
@@ -220,77 +282,30 @@ export function InventoryReportView({
           <h2 className="mt-2 text-2xl font-semibold">Firmware inventory overview</h2>
           <p className="mt-2 text-sm text-[var(--muted-strong)]">{scopeDescription}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Generated {date} · Live data at generation time · Not saved as a historical report
+            Generated {date} · Live data at generation time
           </p>
         </header>
 
-        <section aria-label="Report summary" className="inventory-report-print-hide">
-          <h3 className="mb-3 text-base font-semibold">Summary</h3>
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            <SummaryStat label="Devices" value={report.deviceCount} />
-            <SummaryStat label="Customers" value={report.customerCount} />
-            <SummaryStat label="Sites" value={report.siteCount} />
-            <SummaryStat label="Firmware versions" value={report.firmwareDistribution.filter((entry) => entry.label !== 'Unknown').length} />
-            <SummaryStat label="Unknown firmware" value={report.unknownFirmwareCount} />
-            <SummaryStat label="No contract" value={report.missingContractCount} />
-          </div>
-        </section>
+        {printSections.map((section) => (
+          <section key={section.key} className="inventory-report-contract-section mb-8 space-y-4">
+            <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-strong)] pb-2">
+              <h3 className="text-xl font-semibold">{section.title}</h3>
+              <span className="text-xs text-[var(--muted)]">{section.report.deviceCount} devices</span>
+            </div>
+            {section.report.customers.map((customer) => (
+              <section key={customer.id} className="inventory-report-customer space-y-3">
+                <h4 className="text-base font-semibold">{customer.name}</h4>
+                <PrintDeviceTable
+                  devices={customer.sites.flatMap((site) => site.devices)}
+                />
+              </section>
+            ))}
+          </section>
+        ))}
 
-        <section aria-label="Report distributions" className="inventory-report-print-hide grid gap-5 lg:grid-cols-3">
-          <div className="rounded-lg border border-[var(--border)] p-4">
-            <h3 className="mb-3 text-sm font-semibold">Firmware distribution</h3>
-            {distributions(report.firmwareDistribution, 'No firmware versions match this scope.')}
-          </div>
-          <div className="rounded-lg border border-[var(--border)] p-4">
-            <h3 className="mb-3 text-sm font-semibold">Internal management contracts</h3>
-            {distributions(report.contractDistribution, 'No contracts match this scope.')}
-          </div>
-          <div className="rounded-lg border border-[var(--border)] p-4">
-            <h3 className="mb-3 text-sm font-semibold">Firmware status</h3>
-            {distributions(report.statusDistribution, 'No firmware statuses match this scope.')}
-          </div>
-        </section>
-
-        <section aria-label="Devices grouped by internal contract, customer and site">
-          <h3 className="inventory-report-print-hide mb-4 text-lg font-semibold">Detailed inventory by contract, customer and site</h3>
-          {sections.map((section) => (
-            <section key={section.key} className="inventory-report-contract-section mb-8 space-y-4">
-              <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-strong)] pb-2">
-                <h3 className="text-xl font-semibold">{section.title}</h3>
-                <span className="text-xs text-[var(--muted)]">{section.report.deviceCount} devices</span>
-              </div>
-              {section.report.customers.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">No matching devices</p>
-              ) : (
-                <div className="space-y-7">
-                  {section.report.customers.map((customer) => (
-                    <section key={customer.id} className="inventory-report-customer space-y-3">
-                      <div className="flex items-center justify-between gap-4 border-b border-[var(--border-strong)] pb-2">
-                        <h4 className="text-base font-semibold">{customer.name}</h4>
-                        <span className="text-xs text-[var(--muted)]">
-                          {customer.deviceCount} devices · {customer.sites.length} site groups
-                        </span>
-                      </div>
-                      {customer.sites.map((site) => (
-                        <section key={site.id ?? '__unassigned'} className="inventory-report-site space-y-2">
-                          <div className="flex items-baseline justify-between gap-4">
-                            <h5 className="text-sm font-semibold">{site.name}</h5>
-                            <span className="text-xs text-[var(--muted)]">{site.devices.length} devices</span>
-                          </div>
-                          <DeviceTable devices={site.devices} />
-                        </section>
-                      ))}
-                    </section>
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
-        </section>
         <footer className="border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
           Source: canonical NOC Orchestrator inventory. Internal contracts reflect Site override, then Customer default.
           FortiCare/FMWR update entitlements and PSIRT vulnerability applicability are not yet verified in this report.
-          Version text filtering alone does not establish that a device is affected by a CVE.
         </footer>
       </article>
     </>
