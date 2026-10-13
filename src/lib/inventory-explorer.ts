@@ -8,6 +8,8 @@ export const INVENTORY_SOURCES = ['MANUAL', 'API', 'IMPORT'] as const
 
 export type InventoryQuery = {
   q: string
+  customer: string
+  site: string
   vendor: string
   model: string
   deviceType: string
@@ -21,6 +23,8 @@ export type InventoryQuery = {
 }
 
 export type InventoryFilterOptions = {
+  customers: Array<{ id: string; name: string }>
+  sites: Array<{ id: string; name: string; customerId: string; customerName: string }>
   vendors: Array<{ id: string; name: string }>
   models: Array<{ id: string; model: string; vendorName: string }>
   deviceTypes: Array<{ id: string; name: string }>
@@ -152,6 +156,8 @@ export function parseInventoryQuery(params: URLSearchParams): InventoryQuery {
 
   return {
     q: text(params.get('q')).slice(0, 200),
+    customer: text(params.get('customer')),
+    site: text(params.get('site')),
     vendor: text(params.get('vendor')),
     model: text(params.get('model')),
     deviceType: text(params.get('deviceType')),
@@ -195,6 +201,8 @@ export function inventoryHref(
   const next = { ...query, ...patch }
   const params = new URLSearchParams()
   if (next.q) params.set('q', next.q)
+  if (next.customer) params.set('customer', next.customer)
+  if (next.site) params.set('site', next.site)
   if (next.vendor) params.set('vendor', next.vendor)
   if (next.model) params.set('model', next.model)
   if (next.deviceType) params.set('deviceType', next.deviceType)
