@@ -26,7 +26,7 @@ describe('inventory drill-down', () => {
     }))
     expect(html).toContain('Unica Groep')
     expect(html).toContain('Zwolle')
-    expect(html).toContain('Select a type')
+    expect(html).toContain('Device types')
     expect(html).not.toContain('Select a customer')
     expect(html).not.toContain('Select a site')
   })
@@ -41,9 +41,11 @@ describe('inventory drill-down', () => {
     expect(html).toContain('aria-label="Inventory exploration steps"')
     expect(html).toContain('aria-current="step"')
     expect(html).toContain('Device types')
-    expect(html).toContain('View devices')
+    expect(html).toContain('Devices')
     expect(html).toContain('href="/devices?q=router"')
     expect(html).toContain('href="/devices/customers/c-1?q=router"')
+    expect(html).not.toContain('rounded-full')
+    expect(html).not.toContain('Select a customer')
   })
 
   it('begins with customer inventory rather than an isolated customer manager and preserves filters', () => {
@@ -59,8 +61,8 @@ describe('inventory drill-down', () => {
         },
       }),
     )
-    expect(html).toContain('Manage customers')
-    expect(html).toContain('href="/customers"')
+    expect(html).not.toContain('Manage customers')
+    expect(html).not.toContain('href="/customers"')
     expect(html).toContain('href="/devices/customers/c-1?q=router&amp;status=UPDATE_REQUIRED"')
     expect(html).toContain('aria-current="step"')
   })
@@ -89,7 +91,7 @@ describe('inventory drill-down', () => {
     }))
     expect(html).toContain('Unica Groep')
     expect(html).not.toContain('Select a customer')
-    expect(html).toContain('Select a site')
+    expect(html).toContain('Sites')
   })
 
   it('displays the selected customer and site at the type-selection step', () => {
@@ -106,7 +108,7 @@ describe('inventory drill-down', () => {
     expect(html).toContain('Zwolle')
     expect(html).not.toContain('Select a customer')
     expect(html).not.toContain('Select a site')
-    expect(html).toContain('Select a type')
+    expect(html).toContain('Device types')
   })
 
   it('displays all selected levels on the device-selection step', () => {
@@ -125,7 +127,32 @@ describe('inventory drill-down', () => {
     expect(html).toContain('Zwolle')
     expect(html).toContain('Switches')
     expect(html).not.toContain('Select a type')
-    expect(html).toContain('View devices')
+    expect(html).toContain('Devices')
+  })
+
+  it('uses the same compact breadcrumb on a detail page and links Devices to the group list', () => {
+    const html = renderToStaticMarkup(createElement(InventoryPath, {
+      current: 3,
+      links: {
+        customers: '/devices',
+        sites: '/devices/customers/c-1',
+        deviceTypes: '/devices/customers/c-1/sites/s-1',
+        devices: '/devices/customers/c-1/sites/s-1/types/t-1',
+      },
+      selections: {
+        customers: 'Leger des Heils',
+        sites: '1012DB45',
+        deviceTypes: 'Firewall',
+        devices: 'FW-ZW-01',
+      },
+    }))
+    for (const name of ['Leger des Heils', '1012DB45', 'Firewall', 'FW-ZW-01']) {
+      expect(html).toContain(name)
+    }
+    expect(html).toContain('href="/devices/customers/c-1/sites/s-1/types/t-1"')
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1)
+    expect(html).not.toContain('Select a')
+    expect(html).not.toContain('rounded-full')
   })
 
 })
