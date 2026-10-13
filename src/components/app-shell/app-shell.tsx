@@ -4,165 +4,115 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
+import {
+  getWorkspace,
+  hasActiveDescendant,
+  isActivePath,
+  workspaces,
+  type NavigationLink,
+  type Workspace,
+} from './workspaces'
 
-type NavigationLink = {
-  label: string
-  href: string
-  children?: readonly NavigationLink[]
-}
-type NavigationGroup = { label: string; children: readonly NavigationLink[] }
+// Preserve the helper's original import path for existing callers and tests.
+export { isActivePath } from './workspaces'
 
-const navigation: readonly NavigationGroup[] = [
-  {
-    label: 'Overview',
-    children: [{ label: 'Dashboard', href: '/dashboard' }],
-  },
-  {
-    label: 'Inventory',
-    children: [
-      {
-        label: 'Customers',
-        href: '/customers',
-        children: [{ label: 'All sites', href: '/sites' }],
-      },
-      { label: 'Devices', href: '/devices' },
-      { label: 'Import', href: '/devices/import' },
-    ],
-  },
-  {
-    label: 'Firmware',
-    children: [
-      { label: 'Catalog', href: '/firmware' },
-      { label: 'Models', href: '/models' },
-      { label: 'Planning', href: '/planning' },
-      { label: 'Exceptions', href: '/firmware/exceptions' },
-    ],
-  },
-  {
-    label: 'Operations',
-    children: [{
-      label: 'Reports',
-      href: '/reports',
-      children: [{ label: 'Inventory report', href: '/reports/inventory' }],
-    }],
-  },
-  {
-    label: 'Administration',
-    children: [
-      { label: 'Vendors', href: '/vendors' },
-      { label: 'Device types', href: '/device-types' },
-      { label: 'Contract types', href: '/contracts' },
-      {
-        label: 'Settings',
-        href: '/settings',
-        children: [
-          {
-            label: 'Integrations',
-            href: '/settings/integrations',
-            children: [
-              {
-                label: 'Import automation',
-                href: '/settings/integrations/import-automation',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-]
-
-export function isActivePath(pathname: string, href: string) {
-  if (href === '/dashboard') return pathname === href
-  if (href === '/customers') return pathname === href || pathname.startsWith(`${href}/`)
-  if (href === '/sites') return pathname === href || pathname.startsWith(`${href}/`)
-  if (href === '/settings') return pathname === href
-  if (href === '/settings/integrations') return pathname === href
-  if (href === '/firmware') return (pathname === href || pathname.startsWith('/firmware/')) && !pathname.startsWith('/firmware/exceptions')
-  if (href === '/devices') {
-    return (pathname === href || pathname.startsWith(`${href}/`)) && !pathname.startsWith('/devices/import')
-  }
-  return pathname === href || pathname.startsWith(`${href}/`)
-}
-
-function hasActiveDescendant(pathname: string, item: NavigationLink): boolean {
-  return item.children?.some((child) => isActivePath(pathname, child.href) || hasActiveDescendant(pathname, child)) ?? false
-}
-
-function NavigationLinkItem({
-  item,
-  onNavigate,
-  depth = 0,
-  ancestor = false,
-}: {
-  item: NavigationLink
-  onNavigate?: () => void
-  depth?: number
-  ancestor?: boolean
-}) {
-  const pathname = usePathname()
-  const active = isActivePath(pathname, item.href)
-
+function Brand() {
   return (
     <Link
-      href={item.href}
-      onClick={onNavigate}
-      aria-current={active ? 'page' : undefined}
-      className={[
-        'group flex items-center gap-3 rounded-md border font-medium transition-colors',
-        depth > 0 ? 'ml-4 min-h-8 px-2.5 text-[13px]' : 'min-h-9 px-3 text-sm',
-        active
-          ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
-          : ancestor
-            ? 'border-transparent bg-[var(--surface-muted)] text-[var(--foreground)]'
-            : 'border-transparent text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]',
-      ].join(' ')}
+      href="/dashboard"
+      className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-md"
+      aria-label="NOC Orchestrator dashboard"
     >
-      <span
-        aria-hidden="true"
-        className={[
-          'shrink-0 rounded-full transition-colors',
-          depth > 0 ? 'h-1 w-1' : 'h-1.5 w-1.5',
-          active
-            ? 'bg-[var(--accent)]'
-            : ancestor
-              ? 'bg-[var(--muted)]'
-              : 'bg-[var(--border-strong)] group-hover:bg-[var(--muted)]',
-        ].join(' ')}
+      <Image
+        src="/brand/noc-orchestrator-icon.png"
+        alt=""
+        width={40}
+        height={40}
+        className="h-9 w-9 shrink-0 object-contain"
       />
-      <span className="truncate">{item.label}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold tracking-tight text-[var(--foreground)]">
+          NOC Orchestrator
+        </span>
+        <span className="block truncate text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--accent-light)]">
+          Firmware lifecycle
+        </span>
+      </span>
     </Link>
   )
 }
 
-function NavigationTreeItem({
+function WorkspaceTabs({ activeId }: { activeId: Workspace['id'] }) {
+  return (
+    <nav aria-label="Workspaces" className="flex min-w-0 items-center gap-1 overflow-x-auto noc-scrollbar">
+      {workspaces.map((workspace) => (
+        <Link
+          key={workspace.id}
+          href={workspace.href}
+          aria-current={activeId === workspace.id ? 'location' : undefined}
+          className={[
+            'inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-md border-b-2 px-3 text-sm font-semibold transition-colors',
+            activeId === workspace.id
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--foreground)]'
+              : 'border-transparent text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]',
+          ].join(' ')}
+        >
+          {workspace.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
+function WorkspaceNavigationItem({
   item,
+  pathname,
   onNavigate,
-  depth = 0,
+  nested = false,
 }: {
   item: NavigationLink
+  pathname: string
   onNavigate?: () => void
-  depth?: number
+  nested?: boolean
 }) {
-  const pathname = usePathname()
-  const ancestor = !isActivePath(pathname, item.href) && hasActiveDescendant(pathname, item)
+  const selected = isActivePath(pathname, item.href)
+  const childSelected = hasActiveDescendant(pathname, item)
+  const exactPage = pathname === item.href
 
   return (
     <li>
-      <NavigationLinkItem
-        item={item}
-        onNavigate={onNavigate}
-        depth={depth}
-        ancestor={ancestor}
-      />
+      <Link
+        href={item.href}
+        onClick={onNavigate}
+        aria-current={exactPage ? 'page' : undefined}
+        className={[
+          'flex min-h-9 items-center gap-2.5 rounded-md border px-3 text-sm font-medium transition-colors',
+          nested ? 'ml-4 text-[13px]' : '',
+          selected && !childSelected
+            ? 'border-[var(--accent-muted)] bg-[var(--accent-soft)] text-[var(--accent-light)]'
+            : childSelected
+              ? 'border-transparent bg-[var(--surface-muted)] text-[var(--foreground)]'
+              : 'border-transparent text-[var(--muted-strong)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]',
+        ].join(' ')}
+      >
+        <span
+          aria-hidden="true"
+          className={[
+            'h-1.5 w-1.5 shrink-0 rounded-full',
+            selected ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]',
+          ].join(' ')}
+        />
+        <span className="truncate">{item.label}</span>
+      </Link>
       {item.children?.length ? (
         <ul className="mt-0.5 space-y-0.5">
           {item.children.map((child) => (
-            <NavigationTreeItem
+            <WorkspaceNavigationItem
               key={child.href}
               item={child}
+              pathname={pathname}
               onNavigate={onNavigate}
-              depth={depth + 1}
+              nested
             />
           ))}
         </ul>
@@ -171,66 +121,42 @@ function NavigationTreeItem({
   )
 }
 
-export function NavigationGroups({ onNavigate }: { onNavigate?: () => void }) {
+function WorkspaceNavigation({
+  workspace,
+  pathname,
+  onNavigate,
+}: {
+  workspace: Workspace
+  pathname: string
+  onNavigate?: () => void
+}) {
   return (
-    <nav aria-label="Primary navigation">
-      <ul className="space-y-4">
-        {navigation.map((group) => (
-          <li key={group.label}>
-            <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-              {group.label}
-            </div>
-            <ul className="space-y-0.5">
-              {group.children.map((item) => (
-                <NavigationTreeItem key={item.href} item={item} onNavigate={onNavigate} />
-              ))}
-            </ul>
-          </li>
+    <nav aria-label={workspace.label + ' navigation'}>
+      <ul className="space-y-1">
+        {workspace.items.map((item) => (
+          <WorkspaceNavigationItem
+            key={item.href}
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+          />
         ))}
       </ul>
     </nav>
   )
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
-  return (
-    <Link
-      href="/dashboard"
-      className="flex min-w-0 items-center gap-3 rounded-md"
-      aria-label="NOC Orchestrator dashboard"
-    >
-      <Image
-        src="/brand/noc-orchestrator-icon.png"
-        alt=""
-        width={40}
-        height={40}
-        className={compact ? 'h-9 w-9 shrink-0 object-contain' : 'h-10 w-10 shrink-0 object-contain'}
-      />
-      <span className="min-w-0">
-        <span className="block truncate text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
-          NOC Orchestrator
-        </span>
-        {!compact ? (
-          <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--accent-light)]">
-            Firmware lifecycle
-          </span>
-        ) : null}
-      </span>
-    </Link>
-  )
-}
-
-function MobileNavigation() {
+function MobileNavigation({ workspace, pathname }: { workspace: Workspace; pathname: string }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <>
+    <div className="lg:hidden">
       <button
         type="button"
         aria-expanded={open}
-        aria-controls="mobile-primary-navigation"
+        aria-controls="mobile-workspace-navigation"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-muted)]"
+        className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm font-semibold hover:bg-[var(--surface-muted)]"
       >
         <span aria-hidden="true" className="grid gap-1">
           <span className="h-px w-4 bg-current" />
@@ -239,29 +165,33 @@ function MobileNavigation() {
         </span>
         Menu
       </button>
-
       {open ? (
         <div
-          id="mobile-primary-navigation"
+          id="mobile-workspace-navigation"
           className="absolute inset-x-0 top-full border-b border-[var(--border)] bg-[var(--surface)] shadow-2xl"
         >
-          <div className="noc-scrollbar max-h-[calc(100vh-4rem)] overflow-y-auto px-4 py-4 sm:px-6">
-            <NavigationGroups onNavigate={() => setOpen(false)} />
-            <div className="mt-5 flex items-center justify-between border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
-              <span>v0.1.0</span>
-              <span className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-1.5 py-0.5 font-medium uppercase tracking-wider text-[var(--accent-light)]">
-                MVP
-              </span>
-            </div>
+          <div className="noc-scrollbar max-h-[calc(100vh-6rem)] overflow-y-auto px-4 py-4">
+            <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-[var(--accent-light)]">
+              {workspace.label}
+            </p>
+            <p className="mb-4 px-3 text-xs leading-5 text-[var(--muted)]">
+              {workspace.description}
+            </p>
+            <WorkspaceNavigation
+              workspace={workspace}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   )
 }
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname()
+  const workspace = getWorkspace(pathname)
   const importerWorkspace = pathname.startsWith('/devices/import')
 
   return (
@@ -273,41 +203,50 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
         Skip to content
       </a>
 
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col">
-        <div className="border-b border-[var(--border)] px-5 py-5">
-          <Brand />
-        </div>
-        <div className="noc-scrollbar flex-1 overflow-y-auto px-3 py-4">
-          <NavigationGroups />
-        </div>
-        <div className="border-t border-[var(--border)] px-5 py-4">
-          <div className="flex items-center justify-between gap-3 text-xs text-[var(--muted)]">
-            <span>v0.1.0</span>
-            <span className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-1.5 py-0.5 font-medium uppercase tracking-wider text-[var(--accent-light)]">
-              MVP
-            </span>
+      <div className="min-h-screen">
+        <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex min-h-16 items-center gap-5 px-4 sm:px-6 xl:px-8">
+            <Brand />
+            <div className="ml-1 hidden min-w-0 flex-1 sm:block">
+              <WorkspaceTabs activeId={workspace.id} />
+            </div>
+            <MobileNavigation key={pathname} workspace={workspace} pathname={pathname} />
           </div>
-        </div>
-      </aside>
-
-      <div className="lg:pl-60">
-        <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)] lg:hidden">
-          <div className="relative flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
-            <Brand compact />
-            <MobileNavigation key={pathname} />
+          <div className="border-t border-[var(--border)] px-2 py-1 sm:hidden">
+            <WorkspaceTabs activeId={workspace.id} />
           </div>
         </header>
 
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className={[
-            'mx-auto w-full px-4 py-5 sm:px-6 sm:py-7 xl:px-8',
-            importerWorkspace ? 'max-w-none' : 'max-w-[1680px]',
-          ].join(' ')}
-        >
-          {children}
-        </main>
+        <div className="lg:flex">
+          <aside className="noc-scrollbar sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] px-3 py-5 lg:flex">
+            <div className="mb-4 px-3">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--accent-light)]">
+                {workspace.label}
+              </h2>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                {workspace.description}
+              </p>
+            </div>
+            <WorkspaceNavigation workspace={workspace} pathname={pathname} />
+            <div className="mt-auto flex items-center justify-between border-t border-[var(--border)] px-3 pt-4 text-xs text-[var(--muted)]">
+              <span>v0.1.0</span>
+              <span className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-light)]">
+                MVP
+              </span>
+            </div>
+          </aside>
+
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className={[
+              'mx-auto min-w-0 w-full flex-1 px-4 py-5 sm:px-6 sm:py-7 xl:px-8',
+              importerWorkspace ? 'max-w-none' : 'max-w-[1680px]',
+            ].join(' ')}
+          >
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   )
