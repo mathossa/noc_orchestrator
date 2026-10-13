@@ -136,12 +136,13 @@ export function InventoryReportCustomerTable({
                 'Unresolved',
               )
               const modelCount = new Set(site.devices.map((device) => device.modelId ?? device.model)).size
-              const contracts = new Map(
-                site.devices.map((device) => [
+              const contracts = new Map<string, string>()
+              for (const device of site.devices) {
+                contracts.set(
                   device.contractId ?? 'none',
                   device.contract || 'No contract',
-                ]),
-              )
+                )
+              }
               const attentionCount = site.devices.filter(
                 (device) => device.primaryStatusCode && attentionCodes.has(device.primaryStatusCode),
               ).length
