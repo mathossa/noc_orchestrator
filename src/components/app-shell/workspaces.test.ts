@@ -14,6 +14,7 @@ describe('workspace navigation', () => {
     ['/customers/customer-1', 'configuration'],
     ['/sites', 'configuration'],
     ['/devices', 'monitor'],
+    ['/devices/manage', 'configuration'],
     ['/devices/customers/customer-1/sites/site-1/types/firewall', 'monitor'],
     ['/sites/site-1', 'configuration'],
     ['/devices/device-1', 'monitor'],
@@ -56,7 +57,7 @@ describe('workspace navigation', () => {
     expect(paths(monitoring?.items ?? [])).not.toContain('/customers')
     expect(paths(monitoring?.items ?? [])).not.toContain('/sites')
     expect(paths(configuration?.items ?? [])).toEqual(
-      expect.arrayContaining(['/customers', '/sites', '/vendors']),
+      expect.arrayContaining(['/customers', '/sites', '/vendors', '/devices/manage']),
     )
   })
 
@@ -75,6 +76,7 @@ describe('workspace navigation', () => {
       '/customers',
       '/sites',
       '/devices',
+      '/devices/manage',
       '/devices/import',
       '/firmware',
       '/models',
