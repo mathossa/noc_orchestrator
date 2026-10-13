@@ -393,12 +393,14 @@ describe('inventory explorer read model', () => {
           lifecycle: null,
           customer: {
             ...row.customer,
-            contractType: { name: 'Standard management' },
+            contractType: { name: 'Standard management', showInReport: false },
           },
           site: {
             ...row.site,
             contractType:
-              row.customer.id === acme.id ? { name: 'Premium management' } : null,
+              row.customer.id === acme.id
+                ? { name: 'Premium management', showInReport: true }
+                : null,
           },
           deviceModel: {
             model: firewallModel.model,
@@ -422,6 +424,10 @@ describe('inventory explorer read model', () => {
     expect(result.map((row) => row.contract)).toEqual([
       'Premium management',
       'Standard management',
+    ])
+    expect(result.map((row) => row.contractShowInReport)).toEqual([
+      true,
+      false,
     ])
     expect(result.map((row) => row.currentFirmware)).toEqual(['7.4.8', '7.4.8'])
     expect(result.map((row) => row.vendor)).toEqual(['Fortinet', 'Fortinet'])
@@ -453,7 +459,10 @@ describe('inventory explorer read model', () => {
           externalId: 'fg-a',
           lastSynchronizedAt: null,
           lifecycle: null,
-          customer: { ...row.customer, contractType: { name: 'Standard' } },
+          customer: {
+            ...row.customer,
+            contractType: { name: 'Standard', showInReport: true },
+          },
           site: { ...row.site, contractType: null },
           deviceModel: {
             model: model.model,
@@ -472,6 +481,7 @@ describe('inventory explorer read model', () => {
     )
     expect(result).toHaveLength(1)
     expect(result[0].contract).toBe('Standard')
+    expect(result[0].contractShowInReport).toBe(true)
     expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
       where: {
         AND: expect.arrayContaining([
