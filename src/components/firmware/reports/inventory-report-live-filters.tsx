@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import type {
-  InventoryFilterOptions,
-  InventoryQuery,
+import {
+  INVENTORY_SOURCES,
+  type InventoryFilterOptions,
+  type InventoryQuery,
 } from '@/lib/inventory-explorer'
 import { INVENTORY_PRIMARY_STATUS_CODES } from '@/lib/inventory-status'
 
@@ -113,7 +114,7 @@ export function InventoryReportLiveFilters({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-9">
           <label>
             {fieldLabel('Customer')}
             <select
@@ -227,6 +228,20 @@ export function InventoryReportLiveFilters({
               <option value="">All statuses</option>
               {INVENTORY_PRIMARY_STATUS_CODES.map((status) => (
                 <option key={status} value={status}>{readableStatus(status)}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            {fieldLabel('Inventory source')}
+            <select
+              className={controlClass}
+              value={query.source}
+              onChange={(event) => replace({ source: event.target.value || null })}
+            >
+              <option value="">All sources</option>
+              {INVENTORY_SOURCES.map((source) => (
+                <option key={source} value={source}>{readableStatus(source)}</option>
               ))}
             </select>
           </label>
