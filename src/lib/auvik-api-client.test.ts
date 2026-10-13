@@ -4,6 +4,7 @@ import {
   AuvikApiError,
   listAuvikDevicesV2,
   listAuvikTenants,
+  listAuvikTenantDetails,
   verifyAuvikCredentials,
 } from '@/lib/auvik-api-client'
 
@@ -379,6 +380,38 @@ describe('Auvik Device API v2 client', () => {
     }), { status: 200 })
     await expect(listAuvikTenants({ region: 'eu2', credentials, fetchImpl }))
       .rejects.toMatchObject({ name: 'AuvikApiError', status: 502 })
+  })
+
+  it('reads real tenant detail displayName and parent hierarchy using main tenant domain', async () => {
+    const seen: string[] = []
+    const fetchImpl: typeof fetch = async (input) => {
+      seen.push(String(input))
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'msp', type: 'tenant', attributes: { domainPrefix: 'msp-prefix', displayName: 'MSP', tenantType: 'multiClient' } },
+          { id: 'customer', type: 'tenant', attributes: { domainPrefix: 'number-string', displayName: 'Customer A', tenantType: 'multiClient' },
+            relationships: { parent: { data: { id: 'msp', type: 'tenant' } } } },
+          { id: 'site', type: 'tenant', attributes: { domainPrefix: 'opaque', displayName: 'Amsterdam', tenantType: 'client' },
+            relationships: { parent: { data: { id: 'customer', type: 'tenant' } } } },
+        ],
+      }), { status: 200 })
+    }
+    const result = await listAuvikTenantDetails({
+      region: 'eu2', credentials, tenantDomainPrefix: 'msp-prefix', fetchImpl,
+    })
+    expect(new URL(seen[0]).pathname).toBe('/v1/tenants/detail')
+    expect(new URL(seen[0]).searchParams.get('tenantDomainPrefix')).toBe('msp-prefix')
+    expect(result[2].attributes.displayName).toBe('Amsterdam')
+    expect(result[2].relationships?.parent?.data?.id).toBe('customer')
+  })
+
+  it('does not follow unsafe external links from tenant detail responses', async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      data: [], links: { next: 'https://wrong.example/steal' },
+    }), { status: 200 })
+    await expect(listAuvikTenantDetails({
+      region: 'eu2', credentials, tenantDomainPrefix: 'root', fetchImpl,
+    })).rejects.toMatchObject({ name: 'AuvikApiError', status: 502 })
   })
 
   it('uses the documented credential verification endpoint', async () => {
