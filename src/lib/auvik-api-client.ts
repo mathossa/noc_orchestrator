@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 export const AUVIK_DEVICE_V2_PATH = '/v2/api/inventory/device/info'
 export const AUVIK_VERIFY_CREDENTIALS_PATH = '/authentication/verify'
 export const AUVIK_TENANTS_PATH = '/v1/tenants'
+export const AUVIK_TENANT_DETAILS_PATH = '/v1/tenants/detail'
 export const AUVIK_DEVICE_V2_PAGE_SIZE = 1000
 export const AUVIK_RATE_LIMIT_REQUESTS = 2500
 export const AUVIK_RATE_LIMIT_WINDOW_SECONDS = 5 * 60
@@ -71,6 +72,9 @@ export type AuvikTenantResource = {
     clientName?: string
     siteName?: string
     tenantName?: string
+  }
+  relationships?: {
+    parent?: { data?: { id: string; type?: string } | null }
   }
 }
 
@@ -218,6 +222,12 @@ function parseTenantsResponse(value: unknown): AuvikTenantsResponse {
       const value = candidate.attributes[key]
       if (typeof value === 'string' && value.trim()) names[key] = value.trim()
     }
+    const parentRelationship = isRecord(candidate.relationships)
+      ? candidate.relationships.parent : null
+    const parent = isRecord(parentRelationship) && isRecord(parentRelationship.data)
+      && typeof parentRelationship.data.id === 'string'
+      ? { id: parentRelationship.data.id }
+      : null
     return {
       type: candidate.type,
       id: candidate.id,
@@ -229,6 +239,7 @@ function parseTenantsResponse(value: unknown): AuvikTenantsResponse {
             : null,
         ...names,
       },
+      ...(parent ? { relationships: { parent: { data: parent } } } : {}),
     }
   })
 
@@ -424,6 +435,51 @@ export async function listAuvikTenants(input: {
       // Preserve the first occurrence of each durable Auvik tenant identity.
       if (!tenants.has(tenant.id)) tenants.set(tenant.id, tenant)
     }
+    url = parsed.next ? safeNextUrl(parsed.next, baseUrl) : null
+  }
+  return [...tenants.values()]
+}
+
+/**
+ * Retrieve human-readable tenant metadata and parent relationships.
+ * The Auvik Tenant Details API requires the primary MSP domain prefix,
+ * which is different from a tenant ID. This endpoint returns all descendants.
+ */
+export async function listAuvikTenantDetails(input: {
+  region: string
+  credentials: AuvikApiCredentials
+  tenantDomainPrefix: string
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  requestPolicy?: AuvikApiRequestPolicy
+}) {
+  if (!input.tenantDomainPrefix.trim()) {
+    throw new Error('Auvik tenant details require a primary tenant domain prefix.')
+  }
+  const baseUrl = auvikApiBaseUrl(input.region)
+  const firstUrl = new URL(AUVIK_TENANT_DETAILS_PATH, baseUrl)
+  firstUrl.searchParams.set('tenantDomainPrefix', input.tenantDomainPrefix.trim())
+  const seenUrls = new Set<string>()
+  const tenants = new Map<string, AuvikTenantResource>()
+  let url: URL | null = firstUrl
+  for (let page = 0; url; page += 1) {
+    if (page >= 100 || seenUrls.has(url.href)) {
+      throw new AuvikApiError('Auvik tenant details exceeded their pagination safety limit.', 502, false)
+    }
+    seenUrls.add(url.href)
+    const response = await auvikGet({
+      url, baseUrl, credentials: input.credentials,
+      fetchImpl: input.fetchImpl ?? fetch,
+      signal: input.signal, requestPolicy: input.requestPolicy,
+    })
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      throw new AuvikApiError('Auvik returned invalid tenant details JSON.', 502, false)
+    }
+    const parsed = parseTenantsResponse(payload)
+    for (const tenant of parsed.data) tenants.set(tenant.id, tenant)
     url = parsed.next ? safeNextUrl(parsed.next, baseUrl) : null
   }
   return [...tenants.values()]
