@@ -319,7 +319,9 @@ export function AuvikConnectionManager({
           }),
         ]
       })
-      setMessage(`Discovered ${discovered.length} Auvik tenants. New tenants start disabled; review suggested mappings, select locations in bulk and save settings before syncing.`)
+      const named = discovered.filter((tenant) => Boolean(tenant.displayName)).length
+      const reused = discovered.filter((tenant) => tenant.mappingStatus === 'REUSED').length
+      setMessage(`Discovered ${discovered.length} Auvik tenants; ${named} have display names, ${reused} reuse another Auvik connection. New tenants start disabled. Review proposals, select sites in bulk and save before syncing.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sync Auvik tenants.')
     } finally {
