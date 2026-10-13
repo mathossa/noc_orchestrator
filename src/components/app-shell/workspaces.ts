@@ -24,10 +24,10 @@ export const workspaces: readonly Workspace[] = [
       { label: 'Dashboard', href: '/dashboard' },
       {
         label: 'Inventory',
-        href: '/customers',
+        href: '/devices',
         children: [
-          { label: 'All sites', href: '/sites' },
-          { label: 'Device inventory', href: '/devices' },
+          { label: 'Manage customers', href: '/customers' },
+          { label: 'Manage sites', href: '/sites' },
         ],
       },
       {
