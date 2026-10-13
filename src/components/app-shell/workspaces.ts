@@ -33,7 +33,6 @@ export const workspaces: readonly Workspace[] = [
       {
         label: 'Reports',
         href: '/reports/inventory',
-        children: [{ label: 'Report overview', href: '/reports' }],
       },
     ],
   },
