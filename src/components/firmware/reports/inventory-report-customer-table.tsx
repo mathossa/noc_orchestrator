@@ -224,16 +224,22 @@ export function InventoryReportCustomerTable({
                     </td>
                     <td className="px-3 py-2">
                       {attentionCount > 0 ? (
-                        <Link
-                          href={inventoryReportHref(query, firmware, {
-                            customer: customer.id,
-                            site: site.id ?? '',
-                            attention: true,
-                          })}
-                          className="font-semibold text-[var(--warning)] hover:underline"
-                        >
-                          {attentionCount} attention
-                        </Link>
+                        site.id ? (
+                          <Link
+                            href={inventoryReportHref(query, firmware, {
+                              customer: customer.id,
+                              site: site.id,
+                              attention: true,
+                            })}
+                            className="font-semibold text-[var(--warning)] hover:underline"
+                          >
+                            {attentionCount} attention
+                          </Link>
+                        ) : (
+                          <span className="font-semibold text-[var(--warning)]">
+                            {attentionCount} attention
+                          </span>
+                        )
                       ) : (
                         <span className="font-semibold text-[var(--success)]">Current</span>
                       )}
