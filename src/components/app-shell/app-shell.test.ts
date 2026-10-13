@@ -67,6 +67,6 @@ describe('app shell inventory navigation', () => {
     navigationState.pathname = '/customers/customer-1/sites/site-1'
     const customerSiteHtml = renderToStaticMarkup(createElement(NavigationGroups))
     expect(customerSiteHtml.match(/aria-current="page"/g)).toHaveLength(1)
-    expect(customerSiteHtml).toContain('Customers')
+    expect(customerSiteHtml).toContain('Inventory')
   })
 })
