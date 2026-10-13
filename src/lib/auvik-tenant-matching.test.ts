@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveAuvikHierarchyProposal, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, normalizeAuvikHierarchyNames, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import type { AuvikTenantResource } from '@/lib/auvik-api-client'
 
 const customer = {
@@ -13,6 +13,33 @@ const customer = {
 
 const tenant = (attributes: AuvikTenantResource['attributes']): AuvikTenantResource => ({
   id: '12345', type: 'tenant', attributes,
+})
+
+describe('Auvik default canonical naming policy', () => {
+  it('removes only trailing numeric bracket labels', () => {
+    expect(cleanAuvikHierarchyLabel('Deutsche Post DHL - [43541]')).toBe('Deutsche Post DHL')
+    expect(cleanAuvikHierarchyLabel('Aqualab Zuid BV [250493]')).toBe('Aqualab Zuid BV')
+    expect(cleanAuvikHierarchyLabel('Network [Lab]')).toBe('Network [Lab]')
+    expect(cleanAuvikHierarchyLabel('Example - [Not a number]')).toBe('Example - [Not a number]')
+  })
+
+  it.each([
+    { names: ['ROVA Holding NV - [35466]', 'Rova - Winterswijk - VK'], expected: { customer: 'ROVA Holding NV', businessUnit: null, site: 'Winterswijk - VK' } },
+    { names: ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'], expected: { customer: 'Leger des Heils', businessUnit: null, site: '3059LG41' } },
+    { names: ['Stichting SWZ - [43968]', 'SWZ - WV Eindhoven - Silverenberg'], expected: { customer: 'Stichting SWZ', businessUnit: null, site: 'WV Eindhoven - Silverenberg' } },
+    { names: ['Metrex - Moxba B.V. [44642]', 'Metrex - Heeren'], expected: { customer: 'Metrex - Moxba B.V.', businessUnit: null, site: 'Heeren' } },
+    { names: ['Dusseldorp Automotive BV - [44358]', 'Dusseldorp Automotive - Deventer'], expected: { customer: 'Dusseldorp Automotive BV', businessUnit: null, site: 'Deventer' } },
+    { names: ['Unica Groep BV - [43398]', 'Unica Groep - Gerco Applicom Nijmegen'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Gerco Applicom Nijmegen' } },
+    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - Open Internet', 'Deutsche Post DHL - Utrecht - Reactoweg - Open Internet'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Utrecht - Reactoweg - Open Internet' } },
+    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - eCom - [43541]', 'Deutsche Post DHL - eCom - Alkmaar'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'eCom', site: 'Alkmaar' } },
+    { names: ['Unica Groep BV - [43398]', 'Blaas Set 18 - Quintax (Apeldoorn)'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Blaas Set 18 - Quintax (Apeldoorn)' } },
+  ])('normalizes Auvik path $names', ({ names, expected }) => {
+    expect(normalizeAuvikHierarchyNames(names)).toEqual(expected)
+  })
+
+  it('does not strip a shared fragment inside a real site name', () => {
+    expect(normalizeAuvikHierarchyNames(['Unica', 'Unicat - Center'])).toMatchObject({ site: 'Unicat - Center' })
+  })
 })
 
 describe('Auvik tenant hierarchy suggestions', () => {
