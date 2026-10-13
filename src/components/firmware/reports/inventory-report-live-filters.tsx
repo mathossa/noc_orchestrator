@@ -6,12 +6,20 @@ import type {
   InventoryFilterOptions,
   InventoryQuery,
 } from '@/lib/inventory-explorer'
+import { INVENTORY_PRIMARY_STATUS_CODES } from '@/lib/inventory-status'
 
 const controlClass =
   'h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] px-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] transition-colors hover:border-[var(--muted)] focus:border-[var(--accent)]'
 
 function fieldLabel(text: string) {
   return <span className="mb-1.5 block text-xs font-semibold text-[var(--muted-strong)]">{text}</span>
+}
+
+function readableStatus(value: string) {
+  return value
+    .toLowerCase()
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 export function InventoryReportLiveFilters({
@@ -219,11 +227,9 @@ export function InventoryReportLiveFilters({
               onChange={(event) => replace({ status: event.target.value || null })}
             >
               <option value="">All statuses</option>
-              <option value="CURRENT">Current</option>
-              <option value="UPDATE_RECOMMENDED">Update recommended</option>
-              <option value="UPDATE_REQUIRED">Update required</option>
-              <option value="CRITICAL_ATTENTION">Critical attention</option>
-              <option value="UNKNOWN">Unknown</option>
+              {INVENTORY_PRIMARY_STATUS_CODES.map((status) => (
+                <option key={status} value={status}>{readableStatus(status)}</option>
+              ))}
             </select>
           </label>
         </div>
