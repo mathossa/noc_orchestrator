@@ -33,14 +33,25 @@ describe('reference-data input validation', () => {
         name: 'Customer Managed',
         description: 'Customer retains firmware responsibility.',
         firmwareManagementEnabled: false,
+        showInReport: true,
       }),
     ).toEqual({
       code: 'CUSTOMER-MANAGED',
       name: 'Customer Managed',
       description: 'Customer retains firmware responsibility.',
       firmwareManagementEnabled: false,
+      showInReport: true,
       isActive: true,
     })
+  })
+
+  it('defaults contract report visibility to opt-in', () => {
+    expect(
+      parseReferenceInput('contract-types', {
+        code: 'active',
+        name: 'Active',
+      }),
+    ).toMatchObject({ showInReport: false })
   })
 
   it('rejects non-http vendor URLs', () => {
