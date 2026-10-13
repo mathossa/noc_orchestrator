@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { deriveAuvikHierarchyProposal, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { deriveAuvikHierarchyProposal, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { AuvikApiError } from '@/lib/auvik-api-client'
-import { discoverAuvikInventoryTenants } from '@/lib/auvik-integration-store'
+import { discoverAuvikInventoryTenants, getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
 
 type RouteContext = {
   params: Promise<{ sourceId: string }>
@@ -13,6 +13,14 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
+    const stored = await getAuvikInventoryConnection(sourceId)
+    if (!stored) throw new Error('Auvik connection was not found.')
+    const rawBody = await request.text()
+    const incoming = rawBody ? JSON.parse(rawBody) as { namingPolicy?: unknown } : {}
+    const namingPolicy = incoming.namingPolicy && typeof incoming.namingPolicy === 'object' &&
+      !Array.isArray(incoming.namingPolicy)
+      ? normalizeAuvikNamingPolicy(incoming.namingPolicy)
+      : stored.configuration.namingPolicy
     const tenants = await discoverAuvikInventoryTenants(sourceId)
     const customers = await prisma.customer.findMany({
       where: { isActive: true },
@@ -55,7 +63,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
     return NextResponse.json({
       data: tenants.map((tenant) => {
-        const proposal = deriveAuvikHierarchyProposal(tenant, tenants)
+        const proposal = deriveAuvikHierarchyProposal(tenant, tenants, namingPolicy)
         const suggestion = suggestAuvikTenantHierarchy(tenant, customers, proposal)
         const crossConnection = reusable.get(tenant.id)
         const hasConflict = reusable.has(tenant.id) && crossConnection === null
