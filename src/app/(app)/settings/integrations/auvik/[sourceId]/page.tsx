@@ -31,16 +31,21 @@ export default async function AuvikConnectionPage({
       },
     })
     const key = (label: string) => cleanAuvikHierarchyLabel(label).toLocaleLowerCase('en-US')
+    const composite = (customer: string, unit: string, site: string) =>
+      JSON.stringify([key(customer), key(unit), key(site)])
+    const indexes = new Map<string, number>()
+    for (const site of canonical) {
+      if (!site.customer.isActive) continue
+      const normalized = normalizeAuvikHierarchyNames([site.customer.name, site.name])?.site
+      const labels = new Set([site.name, normalized].filter((name): name is string => Boolean(name)))
+      for (const label of labels) {
+        const indexKey = composite(site.customer.name, site.organizationUnit?.name ?? '', label)
+        indexes.set(indexKey, (indexes.get(indexKey) ?? 0) + 1)
+      }
+    }
     for (const tenant of savedSites) {
-      const matches = canonical.filter((site) => {
-        if (!site.customer.isActive || key(site.customer.name) !== key(tenant.customer ?? '')) return false
-        const normalized = normalizeAuvikHierarchyNames([site.customer.name, site.name])?.site
-        const matchesName = key(site.name) === key(tenant.site ?? '') ||
-          key(normalized ?? '') === key(tenant.site ?? '')
-        return matchesName &&
-          key(site.organizationUnit?.name ?? '') === key(tenant.businessUnit ?? '')
-      })
-      if (matches.length === 1) existingTenantIds.push(tenant.tenantId)
+      const indexKey = composite(tenant.customer ?? '', tenant.businessUnit ?? '', tenant.site ?? '')
+      if (indexes.get(indexKey) === 1) existingTenantIds.push(tenant.tenantId)
     }
   }
 
