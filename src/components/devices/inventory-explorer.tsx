@@ -664,7 +664,11 @@ export function CustomerInventory({
           </Link>
         }
       />
-      <InventoryPath current={1} links={{ customers: scopedInventoryHref('/devices', query) }} />
+      <InventoryPath
+        current={1}
+        links={{ customers: scopedInventoryHref('/devices', query) }}
+        selections={{ customers: model.customer.name }}
+      />
       <InventoryToolbar
         path={path}
         query={query}
@@ -775,6 +779,7 @@ export function SiteInventory({
           customers: scopedInventoryHref('/devices', query),
           sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
         }}
+        selections={{ customers: model.customer.name, sites: model.site.name }}
       />
       <InventoryToolbar
         path={path}
@@ -916,6 +921,11 @@ export function DeviceTypeInventory({
           customers: scopedInventoryHref('/devices', query),
           sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
           deviceTypes: scopedInventoryHref('/devices/customers/' + model.customer.id + '/sites/' + model.site.id, query),
+        }}
+        selections={{
+          customers: model.customer.name,
+          sites: model.site.name,
+          deviceTypes: model.deviceType.name,
         }}
       />
       <InventoryToolbar
