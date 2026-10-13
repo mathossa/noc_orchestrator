@@ -25,6 +25,8 @@ describe('inventory Excel API', () => {
     vi.clearAllMocks()
     mocks.getSession.mockResolvedValue({ user: { id: 'engineer' } })
     mocks.filters.mockResolvedValue({
+      customers: [{ id: 'acme', name: 'Acme' }],
+      sites: [{ id: 'hq', name: 'HQ', customerId: 'acme', customerName: 'Acme' }],
       vendors: [{ id: 'fortinet', name: 'Fortinet' }],
       models: [],
       deviceTypes: [],
