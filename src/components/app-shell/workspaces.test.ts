@@ -43,6 +43,7 @@ describe('workspace navigation', () => {
 
   it('excludes task routes from their inventory and firmware parents', () => {
     expect(isActivePath('/devices/import', '/devices')).toBe(false)
+    expect(isActivePath('/devices/manage', '/devices')).toBe(false)
     expect(isActivePath('/firmware/exceptions', '/firmware')).toBe(false)
     expect(isActivePath('/devices/device-1', '/devices')).toBe(true)
     expect(isActivePath('/firmware/platforms', '/firmware')).toBe(true)
