@@ -127,7 +127,8 @@ export function isActivePath(pathname: string, href: string): boolean {
   if (href === '/dashboard' || href === '/settings') return pathname === href
   if (href === '/devices') {
     return (pathname === href || pathname.startsWith(href + '/')) &&
-      !pathname.startsWith('/devices/import')
+      !pathname.startsWith('/devices/import') &&
+      !pathname.startsWith('/devices/manage')
   }
   if (href === '/firmware') {
     return (pathname === href || pathname.startsWith(href + '/')) &&
