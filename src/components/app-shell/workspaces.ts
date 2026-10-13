@@ -49,7 +49,10 @@ export const workspaces: readonly Workspace[] = [
       {
         label: 'Customers & sites',
         href: '/customers',
-        children: [{ label: 'Manage sites', href: '/sites' }],
+        children: [
+          { label: 'Manage sites', href: '/sites' },
+          { label: 'Manage device records', href: '/devices/manage' },
+        ],
       },
       {
         label: 'Integrations',
@@ -88,6 +91,8 @@ export function workspaceForPath(pathname: string): WorkspaceId {
   }
 
   if (
+    pathname === '/devices/manage' ||
+    pathname.startsWith('/devices/manage/') ||
     pathname === '/customers' ||
     pathname.startsWith('/customers/') ||
     pathname === '/sites' ||
