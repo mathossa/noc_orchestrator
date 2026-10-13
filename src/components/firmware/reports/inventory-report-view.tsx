@@ -157,6 +157,17 @@ export function InventoryReportView({
         />
 
         <InventoryReportLiveFilters
+          key={[
+            query.q,
+            query.customer,
+            query.site,
+            query.vendor,
+            query.deviceType,
+            query.model,
+            query.contract,
+            query.status,
+            firmware,
+          ].join('|')}
           query={query}
           filters={filters}
           firmware={firmware}
@@ -259,12 +270,13 @@ export function InventoryReportView({
               No devices match the current filters.
             </div>
           ) : (
-            report.customers.map((customer) => (
+            report.customers.map((customer, index) => (
               <InventoryReportCustomerTable
                 key={customer.id}
                 customer={customer}
                 query={query}
                 firmware={firmware}
+                defaultOpen={index === 0}
               />
             ))
           )}
