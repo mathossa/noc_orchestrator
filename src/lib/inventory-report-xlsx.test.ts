@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { inventoryWorkbookParts, inventoryReportXlsx } from './inventory-report-xlsx'
+import {
+  excelSheetNames,
+  inventoryWorkbookParts,
+  inventoryReportXlsx,
+} from './inventory-report-xlsx'
 import type { InventoryExportRecord } from './inventory-explorer-store'
 
-function device(id: string, customer: string, contract: string): InventoryExportRecord {
+function device(
+  id: string,
+  customer: string,
+  contract: string,
+  contractShowInReport = false,
+): InventoryExportRecord {
   return {
     deviceId: id,
     customerId: 'customer-' + customer,
@@ -31,6 +40,7 @@ function device(id: string, customer: string, contract: string): InventoryExport
     exceptionReason: '',
     workflow: '',
     contract,
+    contractShowInReport,
     source: 'API',
     externalProvider: 'Auvik',
     externalId: id,
@@ -40,42 +50,81 @@ function device(id: string, customer: string, contract: string): InventoryExport
 
 describe('multi-sheet Excel inventory report', () => {
   const generated = '2026-10-12T15:30:00.000Z'
-  it('creates exactly three standard contract sheets with merged report title and Customer subtitles', () => {
-    const parts = inventoryWorkbookParts([
-      device('fg-01', 'Acme', 'Pro-Active'),
-      device('fg-02', 'Beta', 'Active'),
-      device('fg-03', 'Charlie', ''),
-    ], generated, 'Vendor: Fortinet')
+
+  it('uses report-enabled Contract Type names as worksheet names', () => {
+    const parts = inventoryWorkbookParts(
+      [
+        device('fg-01', 'Acme', 'Pro-active', true),
+        device('fg-02', 'Beta', 'Active', true),
+        device('fg-03', 'Charlie', ''),
+      ],
+      generated,
+      'Vendor: Fortinet',
+      [
+        { name: 'Pro-active', showInReport: true },
+        { name: 'Active', showInReport: true },
+      ],
+    )
     const workbook = parts.find((part) => part.name === 'xl/workbook.xml')!.content
-    const proactive = parts.find((part) => part.name === 'xl/worksheets/sheet1.xml')!.content
-    expect(workbook).toContain('sheet name="Pro-active"')
+    const active = parts.find((part) => part.name === 'xl/worksheets/sheet1.xml')!.content
+    const proactive = parts.find((part) => part.name === 'xl/worksheets/sheet2.xml')!.content
+
     expect(workbook).toContain('sheet name="Active"')
+    expect(workbook).toContain('sheet name="Pro-active"')
     expect(workbook).toContain('sheet name="No contract"')
     expect(workbook).not.toContain('Other contracts')
     expect(parts.filter((part) => part.name.startsWith('xl/worksheets/sheet'))).toHaveLength(3)
+
+    expect(active).toContain('Firmware inventory report — Active')
+    expect(active).toContain('Beta')
+    expect(active).toContain('fg-02')
+    expect(active).not.toContain('fg-01')
+
     expect(proactive).toContain('Firmware inventory report — Pro-active')
     expect(proactive).toContain('Acme')
     expect(proactive).toContain('fg-01')
-    expect(proactive).not.toContain('fg-02')
     expect(proactive).toContain('mergeCell ref="A1:H1"')
     expect(proactive).toContain('Running firmware')
   })
 
-  it('keeps unknown named contracts, escaping Excel XML and preventing formula evaluation', () => {
+  it('omits contracts not marked Show in report and keeps cell content safe', () => {
     const parts = inventoryWorkbookParts([
-      device('=cmd|danger', 'Alpha & Sons <HQ>', 'Managed Plus'),
+      device('=cmd|danger', 'Alpha & Sons <HQ>', 'Managed Plus', true),
+      device('hidden-device', 'Hidden Customer', 'Monitoring only', false),
     ], generated, 'All Customers')
+
     const workbook = parts.find((part) => part.name === 'xl/workbook.xml')!.content
-    const other = parts.find((part) => part.name === 'xl/worksheets/sheet4.xml')!.content
-    expect(workbook).toContain('sheet name="Other contracts"')
-    expect(other).toContain('Alpha &amp; Sons &lt;HQ&gt;')
-    expect(other).toContain('<t xml:space="preserve">=cmd|danger</t>')
-    expect(other).toContain('t="inlineStr"')
-    expect(other).not.toContain('<f>')
+    const managed = parts.find((part) => part.name === 'xl/worksheets/sheet1.xml')!.content
+
+    expect(workbook).toContain('sheet name="Managed Plus"')
+    expect(workbook).toContain('sheet name="No contract"')
+    expect(workbook).not.toContain('Monitoring only')
+    expect(managed).toContain('Alpha &amp; Sons &lt;HQ&gt;')
+    expect(managed).toContain('<t xml:space="preserve">=cmd|danger</t>')
+    expect(managed).toContain('t="inlineStr"')
+    expect(managed).not.toContain('<f>')
+    expect(managed).not.toContain('hidden-device')
   })
 
-  it('returns an Excel-compatible ZIP workbook, including empty contract tabs', async () => {
-    const xlsx = await inventoryReportXlsx([], generated, 'All inventory')
+  it('sanitizes dynamic Contract Type names for Excel while keeping them unique', () => {
+    const names = excelSheetNames([
+      'Managed / Premium',
+      'Managed : Premium',
+      'A very long contract type name that exceeds the Excel worksheet limit',
+    ])
+
+    expect(names[0]).toBe('Managed - Premium')
+    expect(names[1]).toBe('Managed - Premium (2)')
+    expect(names[2].length).toBeLessThanOrEqual(31)
+  })
+
+  it('returns an Excel-compatible ZIP workbook, including configured empty tabs', async () => {
+    const xlsx = await inventoryReportXlsx(
+      [],
+      generated,
+      'All inventory',
+      [{ name: 'Pro-active', showInReport: true }],
+    )
     expect(xlsx.subarray(0, 4).toString('hex')).toBe('504b0304')
     expect(xlsx.length).toBeGreaterThan(3000)
   })
