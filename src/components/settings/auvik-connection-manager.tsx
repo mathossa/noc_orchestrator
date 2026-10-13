@@ -431,7 +431,7 @@ export function AuvikConnectionManager({
   const search = tenantSearch.normalize('NFKC').trim().toLocaleLowerCase('en-US')
   const visibleTenants = tenants.map((tenant, index) => ({ tenant, index })).filter(({ tenant }) => {
     const matchesFilter = tenantFilter === 'ALL' ||
-      (tenantFilter === 'UNMAPPED' && (tenant.mappingStatus === 'REVIEW' || !tenant.customer.trim() || !tenant.site.trim())) ||
+      (tenantFilter === 'UNMAPPED' && tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED') ||
       (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
       (tenantFilter === 'MATCHED' && (tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED')) ||
       (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
@@ -448,7 +448,8 @@ export function AuvikConnectionManager({
   const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
   const mappedCount = tenants.filter((tenant) => tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED').length
   const proposedCount = tenants.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
-  const needsReviewCount = tenants.filter((tenant) => tenant.tenantId && (tenant.mappingStatus === 'REVIEW' || !tenant.customer.trim() || !tenant.site.trim())).length
+  const needsReviewCount = tenants.filter((tenant) => tenant.tenantId &&
+    tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED').length
   const reusedCount = tenants.filter((tenant) => tenant.mappingStatus === 'REUSED').length
   const conflictCount = tenants.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
   const filterCounts: Record<typeof tenantFilter, number> = {
