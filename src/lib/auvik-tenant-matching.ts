@@ -166,9 +166,12 @@ export function suggestAuvikTenantHierarchy(
     return { customer: customer.name, businessUnit: null, site: null, status: 'CUSTOMER' }
   }
 
-  const matchingSites = customer.sites.filter(
-    (site) => site.isActive && matchKey(site.name) === matchKey(siteName),
-  )
+  const matchingSites = customer.sites.filter((site) => {
+    if (!site.isActive) return false
+    const canonicalName = normalizeAuvikHierarchyNames([customer.name, site.name])?.site
+    return matchKey(site.name) === matchKey(siteName) ||
+      (canonicalName !== undefined && matchKey(canonicalName) === matchKey(siteName))
+  })
   if (matchingSites.length !== 1) {
     return { customer: customer.name, businessUnit: null, site: null, status: 'CUSTOMER' }
   }
