@@ -24,7 +24,7 @@ export type InventoryFilterOptions = {
   vendors: Array<{ id: string; name: string }>
   models: Array<{ id: string; model: string; vendorName: string }>
   deviceTypes: Array<{ id: string; name: string }>
-  contracts: Array<{ id: string; name: string }>
+  contracts: Array<{ id: string; name: string; showInReport?: boolean }>
 }
 
 export type InventoryCounts = {
