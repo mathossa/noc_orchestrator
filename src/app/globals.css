@@ -104,6 +104,10 @@ a {
   }
 }
 
+.inventory-report-print-only {
+  display: none;
+}
+
 /* Keep the live inventory report printable without rendering the application shell. */
 @media print {
   @page {
@@ -131,6 +135,10 @@ a {
     max-width: none !important;
     padding: 0 !important;
     margin: 0 !important;
+  }
+
+  .inventory-report-print-only {
+    display: block !important;
   }
 
   #inventory-print-report {
