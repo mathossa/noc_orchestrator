@@ -330,21 +330,27 @@ export function AuvikConnectionManager({
             const display = tenant.displayName ? cleanAuvikHierarchyLabel(tenant.displayName) : (tenant.domainPrefix || tenant.id)
             const suggestion = tenant.suggestion
             if (saved) {
-              const hasMapping = Boolean(saved.customer.trim())
               const proposed = suggestion ?? tenant.proposal
+              // Existing custom values win, but an incomplete saved row must not
+              // prevent Auvik from filling missing site/postcode information.
+              const mergedCustomer = saved.customer.trim() || proposed?.customer || ''
+              const mergedSite = saved.site.trim() || proposed?.site || ''
+              const mergedUnit = saved.businessUnit.trim() ||
+                (saved.site.trim() ? '' : (proposed?.businessUnit || ''))
               const cleanKey = (value: string | null | undefined) => (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
-              const matchesProposal = proposed && cleanKey(saved.customer) === cleanKey(proposed.customer)
-                && cleanKey(saved.site) === cleanKey(proposed.site)
-                && cleanKey(saved.businessUnit) === cleanKey(proposed.businessUnit)
+              const changedFromProposal = Boolean(proposed) &&
+                ((Boolean(saved.customer.trim()) && cleanKey(saved.customer) !== cleanKey(proposed?.customer)) ||
+                (Boolean(saved.site.trim()) && cleanKey(saved.site) !== cleanKey(proposed?.site)) ||
+                (Boolean(saved.businessUnit.trim()) && cleanKey(saved.businessUnit) !== cleanKey(proposed?.businessUnit)))
               return {
                 ...saved,
                 tenantType: tenant.tenantType ?? '',
                 domainPrefix: tenant.domainPrefix,
                 mappingStatus: tenant.mappingStatus === 'CONFLICT' ? 'CONFLICT' as const
-                  : hasMapping && !matchesProposal ? 'MANUAL' as const : tenant.mappingStatus,
-                customer: hasMapping ? saved.customer : (proposed?.customer ?? ''),
-                businessUnit: hasMapping ? saved.businessUnit : (proposed?.businessUnit ?? ''),
-                site: hasMapping ? saved.site : (proposed?.site ?? ''),
+                  : changedFromProposal ? 'MANUAL' as const : tenant.mappingStatus,
+                customer: mergedCustomer,
+                businessUnit: mergedUnit,
+                site: mergedSite,
                 // Preserve manual naming and canonical corrections.
                 tenantName: tenant.displayName && (!saved.tenantName || saved.tenantName === saved.domainPrefix || saved.tenantName === tenant.domainPrefix || saved.tenantName === tenant.displayName)
                   ? cleanAuvikHierarchyLabel(tenant.displayName)
