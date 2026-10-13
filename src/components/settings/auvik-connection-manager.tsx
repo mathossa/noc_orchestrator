@@ -654,12 +654,20 @@ export function AuvikConnectionManager({
         </div>
         <div className="space-y-4 p-5">
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <span><strong>{tenants.filter((tenant) => tenant.tenantId).length}</strong> discovered/configured</span>
+            <span><strong>{availableSites.length}</strong> sites</span>
             <span><strong>{enabledCount}</strong> enabled</span>
-            <span><strong>{mappedCount}</strong> existing sites</span>
+            <span><strong>{matchedCount}</strong> existing sites</span>
             <span><strong>{proposedCount}</strong> proposed</span>
-            <span><strong>{needsReviewCount}</strong> unmapped</span>
+            <span><strong>{reviewCount}</strong> needs review</span>
           </div>
+          <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={showMultiClients}
+              onChange={(event) => { setShowMultiClients(event.target.checked); setTenantPage(1) }}
+            />
+            Show multi-client parents ({tenants.filter(isMultiClient).length}) — hierarchy only, not device sync
+          </label>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
@@ -671,7 +679,7 @@ export function AuvikConnectionManager({
             />
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter Auvik tenants by mapping status">
               {([
-                ['ALL', 'All'], ['UNMAPPED', 'Unmapped'], ['PROPOSED', 'Proposed'],
+                ['ALL', 'All'], ['REVIEW', 'Needs review'], ['UNMAPPED', 'Unmapped'], ['PROPOSED', 'Proposed'],
                 ['MATCHED', 'Existing'], ['REUSED', 'Reused'], ['CONFLICT', 'Conflicts'],
                 ['MANUAL', 'Manual'], ['ENABLED', 'Enabled'],
               ] as const).map(([status, label]) => (
@@ -688,16 +696,18 @@ export function AuvikConnectionManager({
                 </button>
               ))}
             </div>
-            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkEnableVisible(true)}>
-              Enable visible sites
+            <Button disabled={busy !== null || pageTenants.length === 0} onClick={() => bulkSetEnabled('PAGE', true)}>
+              Enable this page
             </Button>
-            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkEnableVisible(false)}>
-              Disable visible
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkSetEnabled('FILTERED', true)}>
+              Enable all filtered ({visibleTenants.filter(({ tenant }) => tenant.tenantId && !isMultiClient(tenant)).length})
+            </Button>
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkSetEnabled('FILTERED', false)}>
+              Disable all filtered
             </Button>
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Bulk actions affect all filtered rows across all pages and exclude multi-client parents when enabling. 
-            A mapping suggestion is not a confirmed device match. Unnamed tenants show their domain prefix or ID.
+            "This page" means at most 50 listed sites. "All filtered" affects every matching site on every page, never multi-client parents. All selections remain unsaved until Save settings.
           </p>
           <div className="overflow-x-auto rounded-md border border-[var(--border)]">
             <table className="w-full min-w-[940px] border-collapse text-left text-sm">
@@ -719,7 +729,7 @@ export function AuvikConnectionManager({
                       <input
                         type="checkbox"
                         checked={tenant.enabled}
-                        disabled={!tenant.tenantId || busy !== null}
+                        disabled={!tenant.tenantId || busy !== null || (isMultiClient(tenant) && !tenant.enabled)}
                         onChange={(event) => setTenants((current) =>
                           current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))}
                         aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`}
@@ -762,7 +772,9 @@ export function AuvikConnectionManager({
                       </td>
                     ))}
                     <td className="p-3 text-xs">
-                      {tenant.mappingStatus === 'REUSED' ? 'Existing Auvik mapping'
+                      {isMultiClient(tenant) ? 'Hierarchy parent (not a site)'
+                        : needsReview(tenant) ? <span className="text-[var(--warning)]">Needs review</span>
+                        : tenant.mappingStatus === 'REUSED' ? 'Existing Auvik mapping'
                         : tenant.mappingStatus === 'MATCHED' ? 'Existing site'
                         : tenant.mappingStatus === 'PROPOSED' ? 'Proposed new hierarchy'
                         : tenant.mappingStatus === 'CONFLICT' ? 'Conflicting mappings'
