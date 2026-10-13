@@ -44,7 +44,7 @@ export function normalizeAuvikNamingPolicy(value: Partial<AuvikNamingPolicy> | n
       !['EXACT', 'PREFIX'].includes(rule.match) ||
       typeof rule.find !== 'string' || typeof rule.replace !== 'string' ||
       rule.find.length > 120 || rule.replace.length > 120 ||
-      !rule.find.trim()) throw new Error('Auvik naming rule is invalid.')
+      (rule.enabled === true && !rule.find.trim())) throw new Error('Auvik naming rule is invalid.')
     ids.add(rule.id)
     return { id: rule.id, enabled: rule.enabled === true, field: rule.field, match: rule.match,
       find: rule.find.trim(), replace: rule.replace.trim() }
