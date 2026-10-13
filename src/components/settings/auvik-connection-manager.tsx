@@ -107,7 +107,7 @@ export function AuvikConnectionManager({
     connection.configuration.tenants.map(editorTenant),
   )
   const [tenantSearch, setTenantSearch] = useState('')
-  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED'>('ALL')
+  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'UNMAPPED' | 'PROPOSED' | 'MATCHED' | 'REUSED' | 'CONFLICT' | 'MANUAL' | 'ENABLED'>('ALL')
   const [tenantPage, setTenantPage] = useState(1)
   const tenantPageSize = 50
   const [username, setUsername] = useState('')
@@ -396,7 +396,15 @@ export function AuvikConnectionManager({
   const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
   const search = tenantSearch.normalize('NFKC').trim().toLocaleLowerCase('en-US')
   const visibleTenants = tenants.map((tenant, index) => ({ tenant, index })).filter(({ tenant }) => {
-    if (tenantFilter === 'UNMAPPED' && tenant.customer.trim()) return false
+    const matchesFilter = tenantFilter === 'ALL' ||
+      (tenantFilter === 'UNMAPPED' && (tenant.mappingStatus === 'REVIEW' || !tenant.customer.trim() || !tenant.site.trim())) ||
+      (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
+      (tenantFilter === 'MATCHED' && (tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED')) ||
+      (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
+      (tenantFilter === 'CONFLICT' && tenant.mappingStatus === 'CONFLICT') ||
+      (tenantFilter === 'MANUAL' && tenant.mappingStatus === 'MANUAL') ||
+      (tenantFilter === 'ENABLED' && tenant.enabled)
+    if (!matchesFilter) return false
     return !search || [tenant.tenantName, tenant.domainPrefix, tenant.tenantId, tenant.customer, tenant.businessUnit, tenant.site]
       .some((value) => value.toLocaleLowerCase('en-US').includes(search))
   })
@@ -406,7 +414,23 @@ export function AuvikConnectionManager({
   const enabledCount = tenants.filter((tenant) => tenant.enabled && tenant.tenantId).length
   const mappedCount = tenants.filter((tenant) => tenant.mappingStatus === 'MATCHED' || tenant.mappingStatus === 'REUSED').length
   const proposedCount = tenants.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
-  const needsReviewCount = tenants.filter((tenant) => tenant.tenantId && !tenant.customer.trim()).length
+  const needsReviewCount = tenants.filter((tenant) => tenant.tenantId && (tenant.mappingStatus === 'REVIEW' || !tenant.customer.trim() || !tenant.site.trim())).length
+  const reusedCount = tenants.filter((tenant) => tenant.mappingStatus === 'REUSED').length
+  const conflictCount = tenants.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
+  const filterCounts: Record<typeof tenantFilter, number> = {
+    ALL: tenants.filter((tenant) => tenant.tenantId).length,
+    UNMAPPED: needsReviewCount,
+    PROPOSED: proposedCount,
+    MATCHED: mappedCount,
+    REUSED: reusedCount,
+    CONFLICT: conflictCount,
+    MANUAL: tenants.filter((tenant) => tenant.mappingStatus === 'MANUAL').length,
+    ENABLED: enabledCount,
+  }
+  const selectTenantFilter = (value: typeof tenantFilter) => {
+    setTenantFilter(value)
+    setTenantPage(1)
+  }
   const bulkEnableVisible = (enabled: boolean) => {
     const indices = new Set(visibleTenants.map(({ index }) => index))
     setTenants((current) => current.map((tenant, index) => indices.has(index) && tenant.tenantId
@@ -581,17 +605,25 @@ export function AuvikConnectionManager({
               onChange={(event) => { setTenantSearch(event.target.value); setTenantPage(1) }}
               className="h-10 min-w-60 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm"
             />
-            <label className="text-sm">
-              <span className="sr-only">Filter tenants</span>
-              <select
-                value={tenantFilter}
-                onChange={(event) => { setTenantFilter(event.target.value as 'ALL' | 'UNMAPPED'); setTenantPage(1) }}
-                className="h-10 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3"
-              >
-                <option value="ALL">All tenants</option>
-                <option value="UNMAPPED">Needs customer mapping</option>
-              </select>
-            </label>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter Auvik tenants by mapping status">
+              {([
+                ['ALL', 'All'], ['UNMAPPED', 'Unmapped'], ['PROPOSED', 'Proposed'],
+                ['MATCHED', 'Existing'], ['REUSED', 'Reused'], ['CONFLICT', 'Conflicts'],
+                ['MANUAL', 'Manual'], ['ENABLED', 'Enabled'],
+              ] as const).map(([status, label]) => (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={tenantFilter === status}
+                  onClick={() => selectTenantFilter(status)}
+                  className={`rounded-md border px-2.5 py-2 text-xs transition-colors ${tenantFilter === status
+                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-semibold'
+                    : 'border-[var(--border)] bg-[var(--surface-raised)] hover:bg-[var(--surface-hover)]'}`}
+                >
+                  {label} <span className="tabular-nums text-[var(--muted)]">{filterCounts[status]}</span>
+                </button>
+              ))}
+            </div>
             <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkEnableVisible(true)}>
               Enable visible sites
             </Button>
