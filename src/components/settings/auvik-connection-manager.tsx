@@ -287,13 +287,18 @@ export function AuvikConnectionManager({
             const display = tenant.displayName || tenant.domainPrefix || tenant.id
             const suggestion = tenant.suggestion
             if (saved) {
+              const hasMapping = Boolean(saved.customer.trim())
+              const proposed = suggestion ?? tenant.proposal
               return {
                 ...saved,
                 tenantType: tenant.tenantType ?? '',
                 domainPrefix: tenant.domainPrefix,
-                // Upgrade an old opaque prefix to a real name, without
-                // overwriting a manually edited name or confirmed hierarchy.
-                tenantName: saved.tenantName === tenant.domainPrefix && tenant.displayName
+                mappingStatus: hasMapping ? 'MANUAL' as const : tenant.mappingStatus,
+                customer: hasMapping ? saved.customer : (proposed?.customer ?? ''),
+                businessUnit: hasMapping ? saved.businessUnit : (proposed?.businessUnit ?? ''),
+                site: hasMapping ? saved.site : (proposed?.site ?? ''),
+                // Preserve manual naming and canonical corrections.
+                tenantName: tenant.displayName && (!saved.tenantName || saved.tenantName === saved.domainPrefix || saved.tenantName === tenant.domainPrefix)
                   ? tenant.displayName
                   : saved.tenantName,
               }
@@ -647,8 +652,11 @@ export function AuvikConnectionManager({
                       </td>
                     ))}
                     <td className="p-3 text-xs">
-                      {tenant.customer.trim()
-                        ? <span className="text-[var(--muted-strong)]">Customer mapped</span>
+                      {tenant.mappingStatus === 'REUSED' ? 'Existing Auvik mapping'
+                        : tenant.mappingStatus === 'MATCHED' ? 'Matched existing'
+                        : tenant.mappingStatus === 'PROPOSED' ? 'Proposed new hierarchy'
+                        : tenant.mappingStatus === 'CONFLICT' ? 'Conflicting mappings'
+                        : tenant.customer.trim() && tenant.site.trim() ? 'Manual / saved'
                         : <span className="text-[var(--warning)]">Needs review</span>}
                     </td>
                     <td className="p-3">
@@ -663,6 +671,13 @@ export function AuvikConnectionManager({
             {visibleTenants.length === 0 && (
               <p className="p-6 text-center text-sm text-[var(--muted)]">No tenants match this filter. Discover tenants or change your search.</p>
             )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-[var(--muted)]">Page {page} of {totalPages} · {visibleTenants.length} matching tenants · {tenantPageSize} per page</span>
+            <div className="flex gap-2">
+              <Button disabled={page <= 1} onClick={() => setTenantPage((value) => Math.max(1, value - 1))}>Previous page</Button>
+              <Button disabled={page >= totalPages} onClick={() => setTenantPage((value) => Math.min(totalPages, value + 1))}>Next page</Button>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-xs text-[var(--muted)]">Review all changes before saving. Sync now uses the saved selection, not unsaved edits.</span>
