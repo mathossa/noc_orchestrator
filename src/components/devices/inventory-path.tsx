@@ -8,6 +8,13 @@ export type InventoryStageLinks = {
   deviceTypes?: string
 }
 
+/** Names resolved from the canonical inventory scope, not inferred from URL segments. */
+export type InventoryStageSelections = {
+  customers?: string
+  sites?: string
+  deviceTypes?: string
+}
+
 const stages = [
   { id: 'customers', label: 'Customers', description: 'Select a customer' },
   { id: 'sites', label: 'Sites', description: 'Select a site' },
@@ -19,9 +26,11 @@ const stages = [
 export function InventoryPath({
   current,
   links = {},
+  selections = {},
 }: {
   current: InventoryStage
   links?: InventoryStageLinks
+  selections?: InventoryStageSelections
 }) {
   return (
     <nav aria-label="Inventory exploration steps" className="mb-5">
@@ -29,6 +38,8 @@ export function InventoryPath({
         {stages.map((stage, index) => {
           const href = index < current ? links[stage.id as keyof InventoryStageLinks] : undefined
           const active = index === current
+          const selectedName = stage.id === 'devices' ? undefined : selections[stage.id]
+          const description = selectedName?.trim() || stage.description
           const content = (
             <>
               <span
@@ -46,8 +57,14 @@ export function InventoryPath({
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold">{stage.label}</span>
-                <span className="block truncate text-xs text-[var(--muted)]">
-                  {stage.description}
+                <span
+                  className={[
+                    'block truncate text-xs',
+                    selectedName?.trim() ? 'font-medium text-[var(--foreground)]' : 'text-[var(--muted)]',
+                  ].join(' ')}
+                  title={description}
+                >
+                  {description}
                 </span>
               </span>
             </>
