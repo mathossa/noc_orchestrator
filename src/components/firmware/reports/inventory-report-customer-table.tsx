@@ -145,7 +145,7 @@ export function InventoryReportCustomerTable({
 
                   {siteOpen
                     ? site.devices.map((device) => (
-                        <tr key={device.deviceId} className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]/40">
+                        <tr key={device.deviceId} className="border-t border-[var(--border)] hover:bg-[var(--surface-muted)]">
                           <td className="px-3 py-2">
                             <Link
                               href={'/devices/' + device.deviceId}
