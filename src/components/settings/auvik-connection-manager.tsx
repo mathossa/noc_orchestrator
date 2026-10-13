@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
+import { cleanAuvikHierarchyLabel } from '@/lib/auvik-tenant-matching'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -318,7 +319,7 @@ export function AuvikConnectionManager({
           ...current.filter((tenant) => tenant.tenantId && !discoveredIds.has(tenant.tenantId)),
           ...discovered.map((tenant) => {
             const saved = existing.get(tenant.id)
-            const display = tenant.displayName || tenant.domainPrefix || tenant.id
+            const display = tenant.displayName ? cleanAuvikHierarchyLabel(tenant.displayName) : (tenant.domainPrefix || tenant.id)
             const suggestion = tenant.suggestion
             if (saved) {
               const hasMapping = Boolean(saved.customer.trim())
@@ -337,8 +338,8 @@ export function AuvikConnectionManager({
                 businessUnit: hasMapping ? saved.businessUnit : (proposed?.businessUnit ?? ''),
                 site: hasMapping ? saved.site : (proposed?.site ?? ''),
                 // Preserve manual naming and canonical corrections.
-                tenantName: tenant.displayName && (!saved.tenantName || saved.tenantName === saved.domainPrefix || saved.tenantName === tenant.domainPrefix)
-                  ? tenant.displayName
+                tenantName: tenant.displayName && (!saved.tenantName || saved.tenantName === saved.domainPrefix || saved.tenantName === tenant.domainPrefix || saved.tenantName === tenant.displayName)
+                  ? cleanAuvikHierarchyLabel(tenant.displayName)
                   : saved.tenantName,
               }
             }
