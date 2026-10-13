@@ -19,7 +19,7 @@ export async function POST(request: Request, context: RouteContext) {
     const incoming = rawBody ? JSON.parse(rawBody) as { namingPolicy?: unknown } : {}
     const namingPolicy = incoming.namingPolicy && typeof incoming.namingPolicy === 'object' &&
       !Array.isArray(incoming.namingPolicy)
-      ? normalizeAuvikNamingPolicy(incoming.namingPolicy)
+      ? normalizeAuvikNamingPolicy(incoming.namingPolicy as Parameters<typeof normalizeAuvikNamingPolicy>[0])
       : stored.configuration.namingPolicy
     const tenants = await discoverAuvikInventoryTenants(sourceId)
     const customers = await prisma.customer.findMany({
