@@ -95,7 +95,7 @@ export function AuvikMappingInput({
         <div className="text-xs text-[var(--warning)]">More than one exact match — choose carefully</div>
       ) : null}
       {focused && value.trim().length >= 2 && (loading || options.length > 0) ? (
-        <div className="absolute left-0 top-full z-30 mt-1 max-h-52 min-w-72 w-max max-w-96 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-lg">
+        <div className="mt-1 max-h-48 min-w-60 w-full overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-lg">
           {loading ? <div className="px-3 py-2 text-xs text-[var(--muted)]">Finding existing {field}s…</div> : null}
           {options.map((option) => {
             const other = field === 'site' && option.relation === 'OTHER_CUSTOMER'
