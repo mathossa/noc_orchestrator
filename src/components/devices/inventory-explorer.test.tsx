@@ -7,7 +7,7 @@ import { parseInventoryQuery } from '@/lib/inventory-explorer'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 const query = parseInventoryQuery(new URLSearchParams())
 const counts = { total: 6, attention: 5, critical: 1, issues: 0, unknown: 0 }
-const filters = { vendors: [], models: [], deviceTypes: [], contracts: [] }
+const filters = { customers: [], sites: [], vendors: [], models: [], deviceTypes: [], contracts: [] }
 const common = { counts, filters, searchHits: [], hierarchyMatches: [] }
 const row = { id: 'scope', name: 'Scope', deviceCount: 6, attentionCount: 5, criticalCount: 1, issueCount: 0, highestStatus: 'CRITICAL_ATTENTION' as const }
 const customer = { id: 'customer', name: 'Customer' }

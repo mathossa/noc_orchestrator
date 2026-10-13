@@ -20,6 +20,7 @@ type FormState = {
   description: string
   websiteUrl: string
   firmwareManagementEnabled: boolean
+  showInReport: boolean
   isActive: boolean
 }
 
@@ -29,6 +30,7 @@ const initialForm: FormState = {
   description: '',
   websiteUrl: '',
   firmwareManagementEnabled: true,
+  showInReport: false,
   isActive: true,
 }
 
@@ -106,6 +108,7 @@ export function ReferenceDataManager({
       description: record.description ?? '',
       websiteUrl: record.websiteUrl ?? '',
       firmwareManagementEnabled: record.firmwareManagementEnabled ?? true,
+      showInReport: record.showInReport ?? false,
       isActive: record.isActive,
     })
     setFieldErrors({})
@@ -214,7 +217,12 @@ export function ReferenceDataManager({
                   <tr>
                     <th className="px-4 py-3 font-semibold">Name</th>
                     <th className="px-4 py-3 font-semibold">Code</th>
-                    {kind === 'contract-types' ? <th className="px-4 py-3 font-semibold">Firmware management</th> : null}
+                    {kind === 'contract-types' ? (
+                      <>
+                        <th className="px-4 py-3 font-semibold">Firmware management</th>
+                        <th className="px-4 py-3 font-semibold">Show in report</th>
+                      </>
+                    ) : null}
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 text-right font-semibold">Actions</th>
                   </tr>
@@ -229,9 +237,14 @@ export function ReferenceDataManager({
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-[var(--muted-strong)]">{record.code}</td>
                       {kind === 'contract-types' ? (
-                        <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">
-                          {record.firmwareManagementEnabled ? 'Enabled' : 'Disabled'}
-                        </td>
+                        <>
+                          <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">
+                            {record.firmwareManagementEnabled ? 'Enabled' : 'Disabled'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-[var(--muted-strong)]">
+                            {record.showInReport ? 'Yes' : 'No'}
+                          </td>
+                        </>
                       ) : null}
                       <td className="px-4 py-3">
                         <span className="rounded border border-[var(--border-strong)] px-2 py-1 text-xs text-[var(--muted-strong)]">
@@ -279,13 +292,22 @@ export function ReferenceDataManager({
             )}
 
             {kind === 'contract-types' ? (
-              <label className="flex items-start gap-3 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
-                <input type="checkbox" className="mt-0.5 h-4 w-4" checked={form.firmwareManagementEnabled} onChange={(event) => setForm({ ...form, firmwareManagementEnabled: event.target.checked })} />
-                <span>
-                  <span className="block font-semibold text-[var(--foreground)]">Firmware management enabled</span>
-                  <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">Capability flag only; complex contract policy rules are intentionally not implemented in v0.1.0.</span>
-                </span>
-              </label>
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={form.firmwareManagementEnabled} onChange={(event) => setForm({ ...form, firmwareManagementEnabled: event.target.checked })} />
+                  <span>
+                    <span className="block font-semibold text-[var(--foreground)]">Firmware management enabled</span>
+                    <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">Capability flag only; complex contract policy rules are intentionally not implemented in v0.1.0.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={form.showInReport} onChange={(event) => setForm({ ...form, showInReport: event.target.checked })} />
+                  <span>
+                    <span className="block font-semibold text-[var(--foreground)]">Show in report</span>
+                    <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">Include this contract type as its own inventory-report and Excel tab. The contract type name is used as the tab name.</span>
+                  </span>
+                </label>
+              </div>
             ) : null}
 
             <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">

@@ -7,6 +7,7 @@ export type ReferenceRecord = {
   description?: string | null
   websiteUrl?: string | null
   firmwareManagementEnabled?: boolean
+  showInReport?: boolean
   isActive: boolean
 }
 
@@ -88,8 +89,10 @@ export function parseReferenceInput(kind: ReferenceKind, input: unknown) {
   if (kind === 'contract-types') {
     const firmwareManagementEnabled =
       typeof body.firmwareManagementEnabled === 'boolean' ? body.firmwareManagementEnabled : true
+    const showInReport =
+      typeof body.showInReport === 'boolean' ? body.showInReport : false
 
-    return { code, name, description, firmwareManagementEnabled, isActive }
+    return { code, name, description, firmwareManagementEnabled, showInReport, isActive }
   }
 
   return { code, name, description, isActive }

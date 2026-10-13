@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   typeFindMany: vi.fn(),
   typeFindFirst: vi.fn(),
   contractFindMany: vi.fn(),
+  customerFindMany: vi.fn(),
   customerFindFirst: vi.fn(),
+  siteFindMany: vi.fn(),
   siteFindFirst: vi.fn(),
   compliance: vi.fn(),
   exceptions: vi.fn(),
@@ -32,8 +34,14 @@ vi.mock('@/lib/prisma', () => ({
       findFirst: mocks.typeFindFirst,
     },
     contractType: { findMany: mocks.contractFindMany },
-    customer: { findFirst: mocks.customerFindFirst },
-    site: { findFirst: mocks.siteFindFirst },
+    customer: {
+      findMany: mocks.customerFindMany,
+      findFirst: mocks.customerFindFirst,
+    },
+    site: {
+      findMany: mocks.siteFindMany,
+      findFirst: mocks.siteFindFirst,
+    },
   },
 }))
 
@@ -48,6 +56,7 @@ vi.mock('@/lib/device-exception-summary-store', () => ({
 import {
   getCustomerInventory,
   getDeviceTypeInventory,
+  getInventoryExportRecords,
   getInventoryOverview,
   getSiteInventory,
 } from './inventory-explorer-store'
@@ -124,7 +133,12 @@ describe('inventory explorer read model', () => {
     mocks.typeFindMany.mockResolvedValue([{ id: type.id, name: type.name }])
     mocks.typeFindFirst.mockResolvedValue(type)
     mocks.contractFindMany.mockResolvedValue([])
+    mocks.customerFindMany.mockResolvedValue([acme, beta])
     mocks.customerFindFirst.mockResolvedValue(acme)
+    mocks.siteFindMany.mockResolvedValue([
+      { ...hq, customerId: acme.id, customer: { name: acme.name } },
+      { ...branch, customerId: beta.id, customer: { name: beta.name } },
+    ])
     mocks.siteFindFirst.mockResolvedValue(hq)
     mocks.exceptions.mockImplementation(
       async (devices: Array<{ id: string }>) =>
@@ -368,4 +382,149 @@ describe('inventory explorer read model', () => {
     expect(attentionOnly?.pagination.total).toBe(1)
     expect(attentionOnly?.devices.map((row) => row.id)).toEqual(['device-30'])
   })
+  it('exports all Customers grouped by Site with effective internal contracts', async () => {
+    const fortinet = { id: 'fortinet', name: 'Fortinet' }
+    const firewall = { id: 'firewall', name: 'Firewall' }
+    const firewallModel = { ...model, vendor: fortinet, deviceType: firewall }
+    const inputs = [
+      { ...fact('fg-b', beta, branch), deviceModel: firewallModel },
+      { ...fact('fg-a', acme, hq), deviceModel: firewallModel },
+    ]
+
+    mocks.deviceFindMany.mockImplementation(
+      async (args: { select: Record<string, unknown> }) => {
+        if (!args.select.serialNumber) return inputs
+        return inputs.map((row) => ({
+          ...compact(row),
+          serialNumber: 'SER-' + row.id,
+          managementAddress: '10.0.0.1',
+          currentFirmwareRelease: { version: '7.4.8' },
+          source: 'API',
+          externalProvider: 'AUVIK',
+          externalId: row.id,
+          lastSynchronizedAt: null,
+          lifecycle: null,
+          customer: {
+            ...row.customer,
+            contractType: { name: 'Standard management', showInReport: false },
+          },
+          site: {
+            ...row.site,
+            contractType:
+              row.customer.id === acme.id
+                ? { name: 'Premium management', showInReport: true }
+                : null,
+          },
+          deviceModel: {
+            model: firewallModel.model,
+            vendor: fortinet,
+            deviceType: firewall,
+          },
+        }))
+      },
+    )
+    mocks.compliance.mockResolvedValue(
+      new Map(inputs.map((row) => [row.id, complianceResult()])),
+    )
+
+    const result = await getInventoryExportRecords(
+      { kind: 'all' },
+      query({ vendor: fortinet.id, deviceType: firewall.id }),
+    )
+
+    expect(result.map((row) => row.customer)).toEqual(['Acme', 'Beta'])
+    expect(result.map((row) => row.site)).toEqual(['HQ', 'Branch'])
+    expect(result.map((row) => row.contract)).toEqual([
+      'Premium management',
+      'Standard management',
+    ])
+    expect(result.map((row) => row.contractShowInReport)).toEqual([
+      true,
+      false,
+    ])
+    expect(result.map((row) => row.currentFirmware)).toEqual(['7.4.8', '7.4.8'])
+    expect(result.map((row) => row.vendor)).toEqual(['Fortinet', 'Fortinet'])
+    expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        AND: expect.arrayContaining([
+          { isActive: true },
+          { deviceModel: { vendorId: fortinet.id } },
+          { deviceModel: { deviceTypeId: firewall.id } },
+        ]),
+      },
+    })
+    expect(mocks.deviceFindMany.mock.calls[0][0].where.AND).not.toEqual(
+      expect.arrayContaining([{ customerId: acme.id }]),
+    )
+  })
+
+  it('applies exact Customer and Site filters to cross-customer reports and exports', async () => {
+    const row = fact('filtered', acme, hq)
+    mocks.deviceFindMany.mockResolvedValue([row])
+    mocks.compliance.mockResolvedValue(
+      new Map([[row.id, complianceResult()]]),
+    )
+
+    await getInventoryOverview(query({
+      customer: acme.id,
+      site: hq.id,
+    }))
+
+    expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        AND: expect.arrayContaining([
+          { customerId: acme.id },
+          { siteId: hq.id },
+        ]),
+      },
+    })
+  })
+
+  it('preserves the customer and Site constraints on narrower exports', async () => {
+    const row = fact('fg-a', acme, hq)
+    mocks.deviceFindMany.mockImplementation(
+      async (args: { select: Record<string, unknown> }) => {
+        if (!args.select.serialNumber) return [row]
+        return [{
+          ...compact(row),
+          serialNumber: 'SER-FG',
+          managementAddress: '10.0.0.1',
+          source: 'API',
+          externalProvider: 'AUVIK',
+          externalId: 'fg-a',
+          lastSynchronizedAt: null,
+          lifecycle: null,
+          customer: {
+            ...row.customer,
+            contractType: { name: 'Standard', showInReport: true },
+          },
+          site: { ...row.site, contractType: null },
+          deviceModel: {
+            model: model.model,
+            vendor: vendor,
+            deviceType: type,
+          },
+        }]
+      },
+    )
+    mocks.compliance.mockResolvedValue(
+      new Map([[row.id, complianceResult()]]),
+    )
+    const result = await getInventoryExportRecords(
+      { kind: 'site', customerId: acme.id, siteId: hq.id },
+      query(),
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0].contract).toBe('Standard')
+    expect(result[0].contractShowInReport).toBe(true)
+    expect(mocks.deviceFindMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        AND: expect.arrayContaining([
+          { customerId: acme.id },
+          { siteId: hq.id },
+        ]),
+      },
+    })
+  })
+
 })

@@ -1,4 +1,6 @@
+import { auth } from '@/lib/auth'
 import { inventoryExportCsv } from '@/lib/inventory-export'
+import { filterInventoryReportRows } from '@/lib/inventory-report'
 import { parseInventoryQuery } from '@/lib/inventory-explorer'
 import {
   getInventoryExportRecords,
@@ -7,6 +9,8 @@ import {
 
 function exportScope(params: URLSearchParams): InventoryExportScope | null {
   const scope = params.get('scope')
+  if (scope === 'all') return { kind: 'all' }
+
   const customerId = params.get('customerId')
   if (!customerId) return null
 
@@ -34,6 +38,15 @@ function exportScope(params: URLSearchParams): InventoryExportScope | null {
 }
 
 export async function GET(request: Request) {
+  // Reports can expose inventory and internal contract data across customers.
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session) {
+    return Response.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Authentication is required.' } },
+      { status: 401 },
+    )
+  }
+
   const params = new URL(request.url).searchParams
   const scope = exportScope(params)
   if (!scope) {
@@ -41,7 +54,7 @@ export async function GET(request: Request) {
       {
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Choose a valid customer, site, or device-type export scope.',
+          message: 'Choose a valid all, customer, site, or device-type export scope.',
         },
       },
       { status: 400 },
@@ -59,7 +72,9 @@ export async function GET(request: Request) {
     new Date().toISOString().slice(0, 10) +
     '.csv'
 
-  return new Response(inventoryExportCsv(rows), {
+  // The CSV uses the same optional running-version filter as the live report.
+  const firmware = (params.get('firmware') ?? '').normalize('NFKC').trim().slice(0, 100)
+  return new Response(inventoryExportCsv(filterInventoryReportRows(rows, firmware)), {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
       'content-disposition': 'attachment; filename="' + filename + '"',

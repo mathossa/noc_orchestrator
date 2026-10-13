@@ -87,6 +87,7 @@ model ContractType {
   name                      String  @unique
   description String?
   firmwareManagementEnabled Boolean @default(true)
+  showInReport             Boolean @default(false)
   isActive                  Boolean @default(true)
 
   customers        Customer[]

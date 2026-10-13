@@ -10,6 +10,8 @@ describe('inventory explorer query', () => {
     const query = parseInventoryQuery(
       new URLSearchParams({
         q: '  HQ-SW-01  ',
+        customer: 'customer-1',
+        site: 'site-1',
         attention: '1',
         status: 'update_required',
         page: '2',
@@ -19,6 +21,8 @@ describe('inventory explorer query', () => {
 
     expect(query).toMatchObject({
       q: 'HQ-SW-01',
+      customer: 'customer-1',
+      site: 'site-1',
       attention: true,
       status: 'UPDATE_REQUIRED',
       page: 2,
@@ -36,7 +40,13 @@ describe('inventory explorer query', () => {
 
   it('builds stable scoped navigation while resetting only requested state', () => {
     const query = parseInventoryQuery(
-      new URLSearchParams({ q: 'cisco', vendor: 'vendor-1', page: '3' }),
+      new URLSearchParams({
+        q: 'cisco',
+        customer: 'customer-1',
+        site: 'site-1',
+        vendor: 'vendor-1',
+        page: '3',
+      }),
     )
     expect(
       inventoryHref('/devices/customers/customer-1', query, {
@@ -44,7 +54,7 @@ describe('inventory explorer query', () => {
         page: 1,
       }),
     ).toBe(
-      '/devices/customers/customer-1?q=cisco&vendor=vendor-1&attention=1',
+      '/devices/customers/customer-1?q=cisco&customer=customer-1&site=site-1&vendor=vendor-1&attention=1',
     )
   })
 

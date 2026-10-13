@@ -165,6 +165,8 @@ function buildDeviceWhere(
 
   if (scope.customerId) and.push({ customerId: scope.customerId })
   if (scope.siteId !== undefined) and.push({ siteId: scope.siteId })
+  if (query.customer) and.push({ customerId: query.customer })
+  if (query.site) and.push({ siteId: query.site })
   if (scope.deviceTypeId) {
     and.push({ deviceModel: { deviceTypeId: scope.deviceTypeId } })
   }
@@ -464,8 +466,23 @@ function typeRows(
     })
 }
 
-async function getFilterOptions(): Promise<InventoryFilterOptions> {
-  const [vendors, models, deviceTypes, contracts] = await Promise.all([
+export async function getInventoryFilterOptions(): Promise<InventoryFilterOptions> {
+  const [customers, sites, vendors, models, deviceTypes, contracts] = await Promise.all([
+    prisma.customer.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.site.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        customerId: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: [{ customer: { name: 'asc' } }, { name: 'asc' }],
+    }),
     prisma.vendor.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
@@ -487,12 +504,19 @@ async function getFilterOptions(): Promise<InventoryFilterOptions> {
     }),
     prisma.contractType.findMany({
       where: { isActive: true },
-      select: { id: true, name: true },
+      select: { id: true, name: true, showInReport: true },
       orderBy: { name: 'asc' },
     }),
   ])
 
   return {
+    customers,
+    sites: sites.map((site) => ({
+      id: site.id,
+      name: site.name,
+      customerId: site.customerId,
+      customerName: site.customer.name,
+    })),
     vendors,
     models: models.map((model) => ({
       id: model.id,
@@ -582,7 +606,7 @@ export async function getInventoryOverview(
 ): Promise<InventoryOverviewModel> {
   const [facts, filters] = await Promise.all([
     loadFacts({}, query),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -606,7 +630,7 @@ export async function getCustomerInventory(
 
   const [facts, filters] = await Promise.all([
     loadFacts({ customerId }, query),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -663,7 +687,7 @@ export async function getSiteInventory(
       { customerId, siteId: context.databaseSiteId },
       query,
     ),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = applyDerivedFilters(facts, query)
   return {
@@ -700,7 +724,7 @@ export async function getDeviceTypeInventory(
       },
       query,
     ),
-    getFilterOptions(),
+    getInventoryFilterOptions(),
   ])
   const visible = sortFacts(applyDerivedFilters(facts, query))
   const total = visible.length
@@ -726,6 +750,7 @@ export async function getDeviceTypeInventory(
 }
 
 export type InventoryExportScope =
+  | { kind: 'all' }
   | { kind: 'customer'; customerId: string }
   | { kind: 'site'; customerId: string; siteId: string }
   | {
@@ -736,6 +761,14 @@ export type InventoryExportScope =
     }
 
 export type InventoryExportRecord = {
+  deviceId: string
+  customerId: string
+  siteId: string | null
+  vendorId?: string
+  deviceTypeId?: string
+  modelId?: string
+  contractId?: string
+  primaryStatusCode?: InventoryPrimaryStatusCode
   issueReason: string
   customer: string
   site: string
@@ -760,6 +793,7 @@ export type InventoryExportRecord = {
   exceptionReason: string
   workflow: string
   contract: string
+  contractShowInReport?: boolean
   source: string
   externalProvider: string
   externalId: string
@@ -778,7 +812,7 @@ export async function getInventoryExportRecords(
       : undefined
   const facts = await loadFacts(
     {
-      customerId: scope.customerId,
+      customerId: scope.kind === 'all' ? undefined : scope.customerId,
       siteId,
       deviceTypeId:
         scope.kind === 'deviceType' ? scope.deviceTypeId : undefined,
@@ -806,20 +840,21 @@ export async function getInventoryExportRecords(
       customer: {
         select: {
           name: true,
-          contractType: { select: { name: true } },
+          contractType: { select: { id: true, name: true, showInReport: true } },
         },
       },
       site: {
         select: {
           name: true,
-          contractType: { select: { name: true } },
+          contractType: { select: { id: true, name: true, showInReport: true } },
         },
       },
       deviceModel: {
         select: {
+          id: true,
           model: true,
-          vendor: { select: { name: true } },
-          deviceType: { select: { name: true } },
+          vendor: { select: { id: true, name: true } },
+          deviceType: { select: { id: true, name: true } },
         },
       },
       lifecycle: { select: { state: true } },
@@ -827,13 +862,24 @@ export async function getInventoryExportRecords(
   })
   const rowById = new Map(rows.map((row) => [row.id, row]))
 
-  return visible.flatMap((fact) => {
+  const exported = visible.flatMap((fact) => {
     const row = rowById.get(fact.id)
     if (!row) return []
     return [
       {
+        deviceId: fact.id,
+        customerId: fact.customerId,
+        siteId: fact.siteId,
         customer: row.customer.name,
         site: row.site?.name ?? 'Unassigned',
+        vendorId: row.deviceModel.vendor.id,
+        deviceTypeId: row.deviceModel.deviceType.id,
+        modelId: row.deviceModel.id,
+        contractId:
+          row.site?.contractType?.id ??
+          row.customer.contractType?.id ??
+          undefined,
+        primaryStatusCode: fact.status.code,
         deviceType: row.deviceModel.deviceType.name,
         name: row.name,
         hostname: row.hostname ?? '',
@@ -863,6 +909,10 @@ export async function getInventoryExportRecords(
           row.site?.contractType?.name ??
           row.customer.contractType?.name ??
           '',
+        contractShowInReport:
+          row.site?.contractType?.showInReport ??
+          row.customer.contractType?.showInReport ??
+          false,
         source: row.source,
         externalProvider: row.externalProvider ?? '',
         externalId: row.externalId ?? '',
@@ -870,6 +920,17 @@ export async function getInventoryExportRecords(
       },
     ]
   })
+
+  // Cross-customer exports are grouped Customer → Site → Device.
+  // Existing scoped export order is unchanged.
+  if (scope.kind !== 'all') return exported
+  return exported.sort(
+    (left, right) =>
+      left.customer.localeCompare(right.customer) ||
+      left.site.localeCompare(right.site) ||
+      left.name.localeCompare(right.name) ||
+      left.serialNumber.localeCompare(right.serialNumber),
+  )
 }
 
 export function statusCodeLabel(code: InventoryPrimaryStatusCode | import('@/lib/firmware-lifecycle').FirmwareWorkflowState) {
