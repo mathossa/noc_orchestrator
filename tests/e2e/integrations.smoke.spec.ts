@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test'
 
+test('offers an administrator login in the app header while session is absent', async ({ page }) => {
+  await page.goto('/settings/integrations')
+  const entry = page.getByRole('link', { name: 'Sign in', exact: true })
+  await expect(entry).toBeVisible()
+  await expect(entry).toHaveAttribute('href', /\/login\?next=/)
+
+  await entry.click()
+  await expect(page).toHaveURL(/\/login\?next=/)
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Email address' })).toBeVisible()
+  await expect(page.getByLabel('Password')).toHaveAttribute('type', 'password')
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByText('Public registration is disabled.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Back to application' }))
+    .toHaveAttribute('href', '/settings/integrations')
+})
+
+test('rejects an external login return URL', async ({ page }) => {
+  await page.goto('/login?next=https%3A%2F%2Fexample.invalid')
+  await expect(page.getByRole('link', { name: 'Back to application' }))
+    .toHaveAttribute('href', '/settings/integrations')
+})
+
+
 test('opens the generic integrations foundation from Settings', async ({ page }) => {
   await page.goto('/settings/integrations')
 
