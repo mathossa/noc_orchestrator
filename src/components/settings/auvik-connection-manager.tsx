@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
+import { cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -17,10 +19,13 @@ type Connection = {
   configuration: {
     version: 1
     region: string
+    namingPolicy?: AuvikNamingPolicy
     tenants: readonly {
       tenantId: string
       enabled?: boolean
       tenantName?: string | null
+      tenantType?: string | null
+      domainPrefix?: string | null
       customer?: string | null
       businessUnit?: string | null
       site?: string | null
@@ -41,6 +46,17 @@ type DiscoveredTenant = {
   id: string
   domainPrefix: string
   tenantType: string | null
+  displayName: string | null
+  siteName: string | null
+  parentTenantId: string | null
+  mappingStatus: 'REUSED' | 'MATCHED' | 'PROPOSED' | 'REVIEW' | 'CONFLICT'
+  proposal: { customer: string; businessUnit: string | null; site: string; parentTenantId: string | null } | null
+  suggestion: {
+    customer: string
+    businessUnit: string | null
+    site: string | null
+    status: 'CUSTOMER' | 'CUSTOMER_AND_SITE' | 'REUSED'
+  } | null
 }
 
 type TenantEditor = {
@@ -50,6 +66,9 @@ type TenantEditor = {
   customer: string
   businessUnit: string
   site: string
+  tenantType: string
+  domainPrefix: string
+  mappingStatus: 'REUSED' | 'MATCHED' | 'PROPOSED' | 'REVIEW' | 'CONFLICT' | 'MANUAL'
 }
 
 function editorTenant(
@@ -62,6 +81,9 @@ function editorTenant(
     customer: tenant?.customer ?? '',
     businessUnit: tenant?.businessUnit ?? '',
     site: tenant?.site ?? '',
+    tenantType: tenant?.tenantType ?? '',
+    domainPrefix: tenant?.domainPrefix ?? '',
+    mappingStatus: tenant?.customer && tenant?.site ? 'MANUAL' : 'REVIEW',
   }
 }
 
@@ -76,19 +98,33 @@ async function responseData(response: Response) {
 export function AuvikConnectionManager({
   initialConnection,
   initialSyncRuns,
+  initialExistingTenantIds = [],
 }: {
   initialConnection: Connection
   initialSyncRuns: InventorySourceSyncRun[]
+  initialExistingTenantIds?: readonly string[]
 }) {
   const router = useRouter()
   const [connection, setConnection] = useState(initialConnection)
   const [name, setName] = useState(connection.name)
   const [region, setRegion] = useState(connection.configuration.region)
   const [tenants, setTenants] = useState<TenantEditor[]>(
-    connection.configuration.tenants.length
-      ? connection.configuration.tenants.map(editorTenant)
-      : [editorTenant()],
+    connection.configuration.tenants.map((scope) => ({
+      ...editorTenant(scope),
+      mappingStatus: initialExistingTenantIds.includes(scope.tenantId)
+        ? 'MATCHED' as const
+        : editorTenant(scope).mappingStatus,
+    })),
   )
+  const [tenantSearch, setTenantSearch] = useState('')
+  const [tenantFilter, setTenantFilter] = useState<'ALL' | 'REVIEW' | 'UNMAPPED' | 'PROPOSED' | 'MATCHED' | 'REUSED' | 'CONFLICT' | 'MANUAL' | 'ENABLED'>('ALL')
+  const [showMultiClients, setShowMultiClients] = useState(false)
+  const [namingPolicy, setNamingPolicy] = useState<AuvikNamingPolicy>(
+    connection.configuration.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY,
+  )
+  const [showNamingRules, setShowNamingRules] = useState(false)
+  const [tenantPage, setTenantPage] = useState(1)
+  const tenantPageSize = 50
   const [username, setUsername] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -103,9 +139,35 @@ export function AuvikConnectionManager({
   ) => {
     setTenants((current) =>
       current.map((tenant, tenantIndex) =>
-        tenantIndex === index ? { ...tenant, [field]: value } : tenant,
+        tenantIndex === index ? {
+          ...tenant, [field]: value,
+          ...(field === 'customer' || field === 'businessUnit' || field === 'site'
+            ? { mappingStatus: 'MANUAL' as const } : {}),
+        } : tenant,
       ),
     )
+  }
+
+  const selectExistingMapping = (index: number, field: AuvikLookupField, option: AuvikLookupOption) => {
+    setTenants((current) => current.map((tenant, position) => {
+      if (position !== index) return tenant
+      if (field === 'customer') return {
+        ...tenant, customer: option.customerName, mappingStatus: 'MANUAL' as const,
+      }
+      if (field === 'businessUnit') return {
+        ...tenant, businessUnit: option.name, mappingStatus: 'MANUAL' as const,
+      }
+      // Never change an existing customer implicitly. A site under a different
+      // customer must be selected explicitly after correcting Customer.
+      if (option.relation !== 'SAME_CUSTOMER') return tenant
+      return {
+        ...tenant,
+        customer: option.customerName,
+        businessUnit: option.businessUnit ?? '',
+        site: option.name,
+        mappingStatus: 'MATCHED' as const,
+      }
+    }))
   }
 
   const save = async () => {
@@ -125,7 +187,17 @@ export function AuvikConnectionManager({
           body: JSON.stringify({
             name,
             region,
-            tenants: tenants.filter((tenant) => tenant.tenantId.trim()),
+            namingPolicy,
+            tenants: tenants.filter((tenant) => tenant.tenantId.trim()).map((tenant) => ({
+              enabled: tenant.enabled,
+              tenantId: tenant.tenantId,
+              tenantName: tenant.tenantName,
+              tenantType: tenant.tenantType,
+              domainPrefix: tenant.domainPrefix,
+              customer: tenant.customer,
+              businessUnit: tenant.businessUnit,
+              site: tenant.site,
+            })),
             ...credentials,
           }),
         },
@@ -134,11 +206,13 @@ export function AuvikConnectionManager({
       setConnection(updated)
       setName(updated.name)
       setRegion(updated.configuration.region)
-      setTenants(
-        updated.configuration.tenants.length
-          ? updated.configuration.tenants.map(editorTenant)
-          : [editorTenant()],
-      )
+      setNamingPolicy(updated.configuration.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY)
+      setTenants((current) => updated.configuration.tenants.map((saved) => ({
+        ...editorTenant(saved),
+        tenantType: current.find((item) => item.tenantId === saved.tenantId)?.tenantType ?? '',
+        domainPrefix: current.find((item) => item.tenantId === saved.tenantId)?.domainPrefix ?? '',
+        mappingStatus: current.find((item) => item.tenantId === saved.tenantId)?.mappingStatus ?? 'MANUAL',
+      })))
       setUsername('')
       setApiKey('')
       setMessage('Connection settings saved.')
@@ -240,24 +314,68 @@ export function AuvikConnectionManager({
     try {
       const response = await fetch(
         `/api/v1/inventory-sources/auvik/${connection.id}/tenants`,
-        { method: 'POST' },
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ namingPolicy }) },
       )
       const discovered = (await responseData(response)) as DiscoveredTenant[]
+      setTenantPage(1)
       setTenants((current) => {
         const existing = new Map(current.filter((tenant) => tenant.tenantId).map((tenant) => [tenant.tenantId, tenant]))
+        const discoveredIds = new Set(discovered.map((tenant) => tenant.id))
         return [
-          ...current.filter((tenant) => tenant.tenantId && !discovered.some((candidate) => candidate.id === tenant.tenantId)),
+          // Keep scopes that have disappeared from the API response: a temporary
+          // permission change must not silently delete a confirmed mapping.
+          ...current.filter((tenant) => tenant.tenantId && !discoveredIds.has(tenant.tenantId)),
           ...discovered.map((tenant) => {
             const saved = existing.get(tenant.id)
-            return saved ?? editorTenant({
-              tenantId: tenant.id,
-              tenantName: tenant.domainPrefix,
-              enabled: false,
-            })
+            const display = tenant.displayName ? cleanAuvikHierarchyLabel(tenant.displayName) : (tenant.domainPrefix || tenant.id)
+            const suggestion = tenant.suggestion
+            if (saved) {
+              const proposed = suggestion ?? tenant.proposal
+              // Existing custom values win, but an incomplete saved row must not
+              // prevent Auvik from filling missing site/postcode information.
+              const mergedCustomer = saved.customer.trim() || proposed?.customer || ''
+              const mergedSite = saved.site.trim() || proposed?.site || ''
+              const mergedUnit = saved.businessUnit.trim() ||
+                (saved.site.trim() ? '' : (proposed?.businessUnit || ''))
+              const cleanKey = (value: string | null | undefined) => (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
+              const changedFromProposal = Boolean(proposed) &&
+                ((Boolean(saved.customer.trim()) && cleanKey(saved.customer) !== cleanKey(proposed?.customer)) ||
+                (Boolean(saved.site.trim()) && cleanKey(saved.site) !== cleanKey(proposed?.site)) ||
+                (Boolean(saved.businessUnit.trim()) && cleanKey(saved.businessUnit) !== cleanKey(proposed?.businessUnit)))
+              return {
+                ...saved,
+                tenantType: tenant.tenantType ?? '',
+                domainPrefix: tenant.domainPrefix,
+                mappingStatus: tenant.mappingStatus === 'CONFLICT' ? 'CONFLICT' as const
+                  : changedFromProposal ? 'MANUAL' as const : tenant.mappingStatus,
+                customer: mergedCustomer,
+                businessUnit: mergedUnit,
+                site: mergedSite,
+                // Preserve manual naming and canonical corrections.
+                tenantName: tenant.displayName && (!saved.tenantName || saved.tenantName === saved.domainPrefix || saved.tenantName === tenant.domainPrefix || saved.tenantName === tenant.displayName)
+                  ? cleanAuvikHierarchyLabel(tenant.displayName)
+                  : saved.tenantName,
+              }
+            }
+            return {
+              ...editorTenant({
+                tenantId: tenant.id,
+                tenantName: display,
+                enabled: false,
+                customer: (suggestion ?? tenant.proposal)?.customer ?? null,
+                businessUnit: (suggestion ?? tenant.proposal)?.businessUnit ?? null,
+                site: (suggestion ?? tenant.proposal)?.site ?? null,
+              }),
+              tenantType: tenant.tenantType ?? '',
+              domainPrefix: tenant.domainPrefix,
+              mappingStatus: tenant.mappingStatus,
+            }
           }),
         ]
       })
-      setMessage(`Discovered ${discovered.length} Auvik tenants. Review enabled locations and save settings; newly discovered tenants start disabled.`)
+      const named = discovered.filter((tenant) => Boolean(tenant.displayName)).length
+      const reused = discovered.filter((tenant) => tenant.mappingStatus === 'REUSED').length
+      setMessage(`Discovered ${discovered.length} Auvik tenants; ${named} have display names, ${reused} reuse another Auvik connection. New tenants start disabled. Review proposals, select sites in bulk and save before syncing.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sync Auvik tenants.')
     } finally {
@@ -324,7 +442,68 @@ export function AuvikConnectionManager({
     }
   }
 
-  const hasEnabledScope = connection.configuration.tenants.some((tenant) => tenant.enabled !== false)
+  const isMultiClient = (tenant: Pick<TenantEditor, 'tenantType'>) =>
+    tenant.tenantType.toLocaleLowerCase('en-US').includes('multi')
+  const hasEnabledScope = connection.configuration.tenants.some((tenant) =>
+    tenant.enabled !== false && !((tenant.tenantType ?? '').toLowerCase().includes('multi')),
+  )
+  const availableTenants = tenants.filter((tenant) => showMultiClients || !isMultiClient(tenant))
+  const needsReview = (tenant: TenantEditor) =>
+    tenant.mappingStatus === 'CONFLICT' || tenant.mappingStatus === 'REVIEW' ||
+    !tenant.customer.trim() || !tenant.site.trim()
+  const isUnmapped = (tenant: TenantEditor) =>
+    tenant.mappingStatus !== 'MATCHED' && tenant.mappingStatus !== 'REUSED'
+  const filterMatches = (tenant: TenantEditor) => tenantFilter === 'ALL' ||
+    (tenantFilter === 'REVIEW' && needsReview(tenant)) ||
+    (tenantFilter === 'UNMAPPED' && isUnmapped(tenant)) ||
+    (tenantFilter === 'PROPOSED' && tenant.mappingStatus === 'PROPOSED') ||
+    (tenantFilter === 'MATCHED' && tenant.mappingStatus === 'MATCHED') ||
+    (tenantFilter === 'REUSED' && tenant.mappingStatus === 'REUSED') ||
+    (tenantFilter === 'CONFLICT' && tenant.mappingStatus === 'CONFLICT') ||
+    (tenantFilter === 'MANUAL' && tenant.mappingStatus === 'MANUAL') ||
+    (tenantFilter === 'ENABLED' && tenant.enabled)
+  const search = tenantSearch.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+  const visibleTenants = tenants.map((tenant, index) => ({ tenant, index })).filter(({ tenant }) => {
+    if (!showMultiClients && isMultiClient(tenant)) return false
+    if (!filterMatches(tenant)) return false
+    return !search || [tenant.tenantName, tenant.domainPrefix, tenant.tenantId, tenant.customer, tenant.businessUnit, tenant.site]
+      .some((value) => value.toLocaleLowerCase('en-US').includes(search))
+  })
+  const totalPages = Math.max(1, Math.ceil(visibleTenants.length / tenantPageSize))
+  const page = Math.min(tenantPage, totalPages)
+  const pageTenants = visibleTenants.slice((page - 1) * tenantPageSize, page * tenantPageSize)
+  const availableSites = availableTenants.filter((tenant) => tenant.tenantId && !isMultiClient(tenant))
+  const enabledCount = availableSites.filter((tenant) => tenant.enabled).length
+  const matchedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'MATCHED').length
+  const proposedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'PROPOSED').length
+  const reviewCount = availableSites.filter(needsReview).length
+  const unmappedCount = availableSites.filter(isUnmapped).length
+  const reusedCount = availableSites.filter((tenant) => tenant.mappingStatus === 'REUSED').length
+  const conflictCount = availableSites.filter((tenant) => tenant.mappingStatus === 'CONFLICT').length
+  const filterCounts: Record<typeof tenantFilter, number> = {
+    ALL: availableTenants.filter((tenant) => tenant.tenantId).length,
+    REVIEW: reviewCount,
+    UNMAPPED: unmappedCount,
+    PROPOSED: proposedCount,
+    MATCHED: matchedCount,
+    REUSED: reusedCount,
+    CONFLICT: conflictCount,
+    MANUAL: availableSites.filter((tenant) => tenant.mappingStatus === 'MANUAL').length,
+    ENABLED: enabledCount,
+  }
+  const selectTenantFilter = (value: typeof tenantFilter) => {
+    setTenantFilter(value)
+    setTenantPage(1)
+  }
+  const bulkSetEnabled = (scope: 'PAGE' | 'FILTERED', enabled: boolean) => {
+    const affected = scope === 'PAGE' ? pageTenants : visibleTenants
+    const indices = new Set(affected.filter(({ tenant }) =>
+      tenant.tenantId && !isMultiClient(tenant)).map(({ index }) => index))
+    if (indices.size === 0) return
+    setTenants((current) => current.map((tenant, index) =>
+      indices.has(index) ? { ...tenant, enabled } : tenant))
+    setMessage(`${enabled ? 'Enabled' : 'Disabled'} ${indices.size} site selections across ${scope === 'PAGE' ? 'this page' : 'all filtered pages'}. Press Save settings to persist; no device sync has started.`)
+  }
 
   const testTone =
     connection.connectionTest.status === 'SUCCESS'
@@ -452,80 +631,264 @@ export function AuvikConnectionManager({
         </div>
       </section>
 
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Auvik naming rules</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Clean proposed Customer / Business Unit / Site names. Original Auvik names and existing manual mappings are preserved.
+            </p>
+          </div>
+          <Button disabled={busy !== null} onClick={() => setShowNamingRules((current) => !current)}>
+            {showNamingRules ? 'Hide rules' : `Edit rules (${namingPolicy.rules.length})`}
+          </Button>
+        </div>
+        {showNamingRules ? (
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap gap-5 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={namingPolicy.stripAccountNumbers}
+                  onChange={(event) => setNamingPolicy((current) => ({ ...current, stripAccountNumbers: event.target.checked }))} />
+                Remove final [account number]
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={namingPolicy.stripRepeatedParents}
+                  onChange={(event) => setNamingPolicy((current) => ({ ...current, stripRepeatedParents: event.target.checked }))} />
+                Remove repeated parent prefixes
+              </label>
+            </div>
+            <div className="space-y-2">
+              {namingPolicy.rules.map((rule) => (
+                <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] p-3">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={rule.enabled}
+                      onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                        item.id === rule.id ? { ...item, enabled: event.target.checked } : item) }))} />
+                    Active
+                  </label>
+                  <select aria-label="Rule field" value={rule.field}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, field: event.target.value as AuvikNamingRule['field'] } : item) }))}
+                    className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs">
+                    <option value="customer">Customer</option>
+                    <option value="businessUnit">Business Unit</option>
+                    <option value="site">Site</option>
+                  </select>
+                  <select aria-label="Rule match type" value={rule.match}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, match: event.target.value as AuvikNamingRule['match'] } : item) }))}
+                    className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs">
+                    <option value="EXACT">Equals</option>
+                    <option value="PREFIX">Starts with</option>
+                  </select>
+                  <input aria-label="Rule source text" placeholder="Source text" value={rule.find}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, find: event.target.value } : item) }))}
+                    className="min-w-44 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs" />
+                  <span className="text-sm text-[var(--muted)]">→</span>
+                  <input aria-label="Rule replacement text" placeholder="Replacement (empty removes)" value={rule.replace}
+                    onChange={(event) => setNamingPolicy((current) => ({ ...current, rules: current.rules.map((item) =>
+                      item.id === rule.id ? { ...item, replace: event.target.value } : item) }))}
+                    className="min-w-44 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-2 text-xs" />
+                  <Button disabled={busy !== null} variant="ghost" onClick={() =>
+                    setNamingPolicy((current) => ({ ...current, rules: current.rules.filter((item) => item.id !== rule.id) }))}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button disabled={busy !== null || namingPolicy.rules.length >= 50}
+                onClick={() => setNamingPolicy((current) => ({
+                  ...current, rules: [...current.rules, {
+                    id: crypto.randomUUID(), enabled: false, field: 'site' as const,
+                    match: 'EXACT' as const, find: '', replace: '',
+                  }],
+                }))}>
+                Add naming rule
+              </Button>
+              <span className="text-xs text-[var(--muted)]">
+                Rules apply to new proposals after Discover tenants. Save settings to remember them.
+                Exact match and Starts with use literal text, not regular expressions.
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div>
-            <h2 className="font-semibold">Tenant mappings</h2>
+            <h2 className="font-semibold">Auvik tenants &amp; site mappings</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Explicit first-slice mapping. These values remain staged evidence;
-              canonical hierarchy decisions still happen in Importer v2.
+              Discover accessible tenants, review suggested canonical mappings and enable sites in bulk.
+              Changes are applied only after Save settings. Missing or ambiguous matches stay for review in Importer v2.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={
-                busy !== null ||
-                connection.connectionTest.status !== 'SUCCESS'
-              }
+              disabled={busy !== null || connection.connectionTest.status !== 'SUCCESS'}
               onClick={() => void syncTenantsAndSites()}
             >
-              {busy === 'discover' ? 'Syncing tenants…' : 'Sync tenants & sites'}
+              {busy === 'discover' ? 'Discovering…' : 'Discover tenants'}
             </Button>
-            <Button onClick={() => setTenants((current) => [...current, editorTenant()])}>
+            <Button onClick={() => setTenants((current) => [...current, editorTenant()])} disabled={busy !== null}>
               Add manually
             </Button>
           </div>
         </div>
-        <div className="space-y-3 p-5">
-          {tenants.map((tenant, index) => (
-            <div
-              key={index}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-4"
-            >
-              <label className="mb-3 flex items-center gap-2 text-xs font-semibold">
-                <input type="checkbox" checked={tenant.enabled} disabled={!tenant.tenantId} onChange={(event) => setTenants((current) => current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))} aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`} />
-                Enable tenant for synchronization
-              </label>
-              <div className="grid gap-3 lg:grid-cols-5">
-                {(
-                  [
-                    ['tenantId', 'Tenant ID'],
-                    ['tenantName', 'Tenant name'],
-                    ['customer', 'Customer'],
-                    ['businessUnit', 'Business Unit'],
-                    ['site', 'Site'],
-                  ] as const
-                ).map(([field, label]) => (
-                  <label key={field} className="space-y-1 text-xs">
-                    <span className="font-semibold text-[var(--muted-strong)]">{label}</span>
-                    <input
-                      value={tenant[field]}
-                      onChange={(event) => updateTenant(index, field, event.target.value)}
-                      className="h-9 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-sm"
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="mt-3 flex justify-end">
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      setTenants((current) =>
-                        current.filter((_, tenantIndex) => tenantIndex !== index),
-                      )
-                    }
-                  >
-                    Remove tenant
-                  </Button>
-                </div>
+        <div className="space-y-4 p-5">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <span><strong>{availableSites.length}</strong> sites</span>
+            <span><strong>{enabledCount}</strong> enabled</span>
+            <span><strong>{matchedCount}</strong> existing sites</span>
+            <span><strong>{proposedCount}</strong> proposed</span>
+            <span><strong>{reviewCount}</strong> needs review</span>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={showMultiClients}
+              onChange={(event) => { setShowMultiClients(event.target.checked); setTenantPage(1) }}
+            />
+            Show multi-client parents ({tenants.filter(isMultiClient).length}) — hierarchy only, not device sync
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              aria-label="Search Auvik tenants"
+              placeholder="Search customer, site or tenant ID"
+              value={tenantSearch}
+              onChange={(event) => { setTenantSearch(event.target.value); setTenantPage(1) }}
+              className="h-10 min-w-60 flex-1 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 text-sm"
+            />
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter Auvik tenants by mapping status">
+              {([
+                ['ALL', 'All'], ['REVIEW', 'Needs review'], ['UNMAPPED', 'Unmapped'], ['PROPOSED', 'Proposed'],
+                ['MATCHED', 'Existing'], ['REUSED', 'Reused'], ['CONFLICT', 'Conflicts'],
+                ['MANUAL', 'Manual'], ['ENABLED', 'Enabled'],
+              ] as const).map(([status, label]) => (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={tenantFilter === status}
+                  onClick={() => selectTenantFilter(status)}
+                  className={`rounded-md border px-2.5 py-2 text-xs transition-colors ${tenantFilter === status
+                    ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-semibold'
+                    : 'border-[var(--border)] bg-[var(--surface-raised)] hover:bg-[var(--surface-hover)]'}`}
+                >
+                  {label} <span className="tabular-nums text-[var(--muted)]">{filterCounts[status]}</span>
+                </button>
+              ))}
             </div>
-          ))}
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              disabled={busy !== null}
-              onClick={() => void save()}
-            >
+            <Button disabled={busy !== null || pageTenants.length === 0} onClick={() => bulkSetEnabled('PAGE', true)}>
+              Enable this page
+            </Button>
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkSetEnabled('FILTERED', true)}>
+              Enable all filtered ({visibleTenants.filter(({ tenant }) => tenant.tenantId && !isMultiClient(tenant)).length})
+            </Button>
+            <Button disabled={busy !== null || visibleTenants.length === 0} onClick={() => bulkSetEnabled('FILTERED', false)}>
+              Disable all filtered
+            </Button>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            &quot;This page&quot; means at most 50 listed sites. &quot;All filtered&quot; affects every matching site on every page, never multi-client parents. All selections remain unsaved until Save settings.
+          </p>
+          <div className="overflow-x-auto rounded-md border border-[var(--border)]">
+            <table className="w-full min-w-[940px] border-collapse text-left text-sm">
+              <thead className="bg-[var(--surface-raised)] text-xs text-[var(--muted-strong)]">
+                <tr>
+                  <th className="p-3 font-semibold">Sync</th>
+                  <th className="p-3 font-semibold">Auvik tenant</th>
+                  <th className="p-3 font-semibold">Customer</th>
+                  <th className="p-3 font-semibold">Business Unit</th>
+                  <th className="p-3 font-semibold">Site</th>
+                  <th className="p-3 font-semibold">Mapping</th>
+                  <th className="p-3"><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageTenants.map(({ tenant, index }) => (
+                  <tr key={tenant.tenantId || `manual-${index}`} className="border-t border-[var(--border)] align-top">
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={tenant.enabled}
+                        disabled={!tenant.tenantId || busy !== null || (isMultiClient(tenant) && !tenant.enabled)}
+                        onChange={(event) => setTenants((current) =>
+                          current.map((value, position) => position === index ? { ...value, enabled: event.target.checked } : value))}
+                        aria-label={`Enable Auvik tenant ${tenant.tenantName || tenant.tenantId || index + 1}`}
+                      />
+                    </td>
+                    <td className="min-w-52 p-3">
+                      <input
+                        aria-label={`Tenant name ${index + 1}`}
+                        className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1.5 font-medium"
+                        value={tenant.tenantName}
+                        onChange={(event) => updateTenant(index, 'tenantName', event.target.value)}
+                        placeholder="Name"
+                      />
+                      <div className="mt-1 break-all text-xs text-[var(--muted)]">
+                        {tenant.tenantType ? `${tenant.tenantType} · ` : ''}{tenant.domainPrefix && tenant.domainPrefix !== tenant.tenantName ? `${tenant.domainPrefix} · ` : ''}{tenant.tenantId}
+                      </div>
+                      {(!tenant.domainPrefix && !tenant.tenantType) && (
+                        <input
+                          aria-label="Manual tenant ID"
+                          value={tenant.tenantId}
+                          onChange={(event) => updateTenant(index, 'tenantId', event.target.value)}
+                          placeholder="Auvik tenant ID"
+                          className="mt-2 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1"
+                        />
+                      )}
+                    </td>
+                    {(['customer', 'businessUnit', 'site'] as const).map((field) => (
+                      <td className="min-w-40 p-3" key={field}>
+                        <AuvikMappingInput
+                          connectionId={connection.id}
+                          field={field}
+                          tenantLabel={tenant.tenantName || tenant.tenantId}
+                          value={tenant[field]}
+                          customer={tenant.customer}
+                          businessUnit={tenant.businessUnit}
+                          disabled={busy !== null}
+                          onChange={(value) => updateTenant(index, field, value)}
+                          onSelect={(option) => selectExistingMapping(index, field, option)}
+                        />
+                      </td>
+                    ))}
+                    <td className="p-3 text-xs">
+                      {isMultiClient(tenant) ? 'Hierarchy parent (not a site)'
+                        : needsReview(tenant) ? <span className="text-[var(--warning)]">Needs review</span>
+                        : tenant.mappingStatus === 'REUSED' ? 'Existing Auvik mapping'
+                        : tenant.mappingStatus === 'MATCHED' ? 'Existing site'
+                        : tenant.mappingStatus === 'PROPOSED' ? 'Proposed new hierarchy'
+                        : tenant.mappingStatus === 'CONFLICT' ? 'Conflicting mappings'
+                        : tenant.customer.trim() && tenant.site.trim() ? 'Saved mapping (reviewable)'
+                        : <span className="text-[var(--warning)]">Needs review</span>}
+                    </td>
+                    <td className="p-3">
+                      <Button variant="ghost" disabled={busy !== null} onClick={() => setTenants((current) => current.filter((_, position) => position !== index))}>
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {visibleTenants.length === 0 && (
+              <p className="p-6 text-center text-sm text-[var(--muted)]">No tenants match this filter. Discover tenants or change your search.</p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-[var(--muted)]">Page {page} of {totalPages} · {visibleTenants.length} matching tenants · {tenantPageSize} per page</span>
+            <div className="flex gap-2">
+              <Button disabled={page <= 1} onClick={() => setTenantPage((value) => Math.max(1, value - 1))}>Previous page</Button>
+              <Button disabled={page >= totalPages} onClick={() => setTenantPage((value) => Math.min(totalPages, value + 1))}>Next page</Button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-xs text-[var(--muted)]">Review all changes before saving. Sync now uses the saved selection, not unsaved edits.</span>
+            <Button variant="primary" disabled={busy !== null} onClick={() => void save()}>
               {busy === 'save' ? 'Saving…' : 'Save settings'}
             </Button>
           </div>

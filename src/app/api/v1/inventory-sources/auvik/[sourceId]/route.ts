@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { normalizeAuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import {
   updateAuvikInventoryConnection,
@@ -31,6 +32,8 @@ function tenantScopes(value: unknown): AuvikInventoryTenantScope[] | undefined {
       enabled: item.enabled === undefined ? undefined : item.enabled === true,
       tenantId: item.tenantId,
       tenantName: optionalString(item.tenantName),
+      tenantType: optionalString(item.tenantType),
+      domainPrefix: optionalString(item.domainPrefix),
       customer: optionalString(item.customer),
       businessUnit: optionalString(item.businessUnit),
       site: optionalString(item.site),
@@ -61,6 +64,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       name: optionalString(body.name),
       region: optionalString(body.region),
       tenants: tenantScopes(body.tenants),
+      namingPolicy: body.namingPolicy === undefined ? undefined : normalizeAuvikNamingPolicy(object(body.namingPolicy)),
       enabled:
         typeof body.enabled === 'boolean' ? body.enabled : undefined,
       credentials: hasCredentials

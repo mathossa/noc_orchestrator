@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { DEFAULT_AUVIK_NAMING_POLICY, normalizeAuvikNamingPolicy, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { prisma } from '@/lib/prisma'
 import {
   auvikRegionFromRedirect,
   AuvikRegionRedirectError,
   listAuvikTenants,
+  listAuvikTenantDetails,
   verifyAuvikCredentials,
   type AuvikApiCredentials,
 } from '@/lib/auvik-api-client'
@@ -25,6 +27,7 @@ export type AuvikInventoryConnectionConfiguration = {
   version: 1
   region: string
   tenants: readonly AuvikInventoryTenantScope[]
+  namingPolicy: AuvikNamingPolicy
 }
 
 type AuvikStoredCredentials = {
@@ -56,6 +59,8 @@ function normalizeTenantScope(
     enabled: value.enabled !== false,
     tenantId,
     tenantName: clean(value.tenantName),
+    ...(clean(value.tenantType) ? { tenantType: clean(value.tenantType) } : {}),
+    ...(clean(value.domainPrefix) ? { domainPrefix: clean(value.domainPrefix) } : {}),
     customer: clean(value.customer),
     businessUnit: clean(value.businessUnit),
     site: clean(value.site),
@@ -65,6 +70,7 @@ function normalizeTenantScope(
 export function normalizeAuvikConnectionConfiguration(input: {
   region: string
   tenants?: readonly AuvikInventoryTenantScope[]
+  namingPolicy?: Partial<AuvikNamingPolicy> | null
 }): AuvikInventoryConnectionConfiguration {
   const tenants = (input.tenants ?? []).map(normalizeTenantScope)
   if (new Set(tenants.map((tenant) => tenant.tenantId)).size !== tenants.length) {
@@ -74,6 +80,7 @@ export function normalizeAuvikConnectionConfiguration(input: {
     version: 1,
     region: normalizeRegion(input.region),
     tenants,
+    namingPolicy: normalizeAuvikNamingPolicy(input.namingPolicy ?? DEFAULT_AUVIK_NAMING_POLICY),
   }
 }
 
@@ -96,6 +103,8 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
           tenantId: typeof item.tenantId === 'string' ? item.tenantId : '',
           tenantName:
             typeof item.tenantName === 'string' ? item.tenantName : null,
+          tenantType: typeof item.tenantType === 'string' ? item.tenantType : null,
+          domainPrefix: typeof item.domainPrefix === 'string' ? item.domainPrefix : null,
           customer: typeof item.customer === 'string' ? item.customer : null,
           businessUnit:
             typeof item.businessUnit === 'string' ? item.businessUnit : null,
@@ -107,6 +116,8 @@ function parseConfiguration(value: unknown): AuvikInventoryConnectionConfigurati
   return normalizeAuvikConnectionConfiguration({
     region: record.region,
     tenants,
+    namingPolicy: record.namingPolicy && typeof record.namingPolicy === 'object' && !Array.isArray(record.namingPolicy)
+      ? record.namingPolicy as Partial<AuvikNamingPolicy> : null,
   })
 }
 
@@ -287,6 +298,7 @@ export async function updateAuvikInventoryConnection(input: {
   tenants?: readonly AuvikInventoryTenantScope[]
   enabled?: boolean
   credentials?: AuvikApiCredentials | null
+  namingPolicy?: Partial<AuvikNamingPolicy>
 }) {
   const existing = await getAuvikInventoryConnection(input.sourceId)
   if (!existing) throw new Error('Auvik connection was not found.')
@@ -294,6 +306,7 @@ export async function updateAuvikInventoryConnection(input: {
   const configuration = normalizeAuvikConnectionConfiguration({
     region: input.region ?? existing.configuration.region,
     tenants: input.tenants ?? existing.configuration.tenants,
+    namingPolicy: input.namingPolicy ?? existing.configuration.namingPolicy,
   })
   const name =
     input.name === undefined ? existing.name : clean(input.name)
@@ -463,11 +476,50 @@ export async function discoverAuvikInventoryTenants(
       'Test the Auvik connection successfully before discovering tenants.',
     )
   }
-  return listAuvikTenants({
+  const request = {
     region: connection.configuration.region,
     credentials,
     fetchImpl: options.fetchImpl,
     signal: options.signal,
+  }
+  const accessible = await listAuvikTenants(request)
+  if (accessible.length === 0) return []
+
+  // Auvik's flat /v1/tenants endpoint does not contain display names.
+  // Resolve the primary multi-site domain(s) to obtain detailed descendants.
+  // The parent relationship is preserved so 941 sites can be grouped under
+  // their correct Customer / optional Business Unit rather than by opaque IDs.
+  const roots = accessible.filter((tenant) =>
+    tenant.attributes.tenantType?.toLowerCase() === 'multiclient' &&
+    !tenant.relationships?.parent?.data?.id,
+  )
+  const candidates = roots.length > 0 ? roots : accessible
+  const details = new Map<string, (typeof accessible)[number]>()
+  const errors: string[] = []
+  for (const candidate of candidates.slice(0, 20)) {
+    try {
+      const children = await listAuvikTenantDetails({
+        ...request,
+        tenantDomainPrefix: candidate.attributes.domainPrefix,
+      })
+      for (const child of children) details.set(child.id, child)
+      if (accessible.every((tenant) => details.has(tenant.id))) break
+    } catch (error) {
+      errors.push(`${candidate.attributes.domainPrefix}: ${error instanceof Error ? error.message : 'unknown error'}`)
+    }
+  }
+  if (details.size === 0) {
+    throw new Error(`Auvik tenant details could not be loaded. The main multi-site domain or Tenants Details API permission may be missing. ${errors.slice(0, 2).join('; ')}`)
+  }
+  // Never hide accessible sites when a details response has limited coverage.
+  return accessible.map((tenant) => {
+    const detail = details.get(tenant.id)
+    if (!detail) return tenant
+    return {
+      ...tenant,
+      attributes: { ...tenant.attributes, ...detail.attributes },
+      relationships: detail.relationships ?? tenant.relationships,
+    }
   })
 }
 

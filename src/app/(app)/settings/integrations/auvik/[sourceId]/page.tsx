@@ -5,6 +5,8 @@ import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
 import { listInventorySyncRuns } from '@/lib/inventory-sync-run-store'
+import { prisma } from '@/lib/prisma'
+import { normalizeAuvikHierarchyNames, cleanAuvikHierarchyLabel } from '@/lib/auvik-tenant-matching'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +19,35 @@ export default async function AuvikConnectionPage({
   const connection = await getAuvikInventoryConnection(sourceId)
   if (!connection) notFound()
   const syncRuns = await listInventorySyncRuns(sourceId)
+  const savedSites = connection.configuration.tenants.filter((tenant) => tenant.customer && tenant.site)
+  const existingTenantIds: string[] = []
+  if (savedSites.length > 0) {
+    const canonical = await prisma.site.findMany({
+      where: { isActive: true },
+      select: {
+        name: true,
+        customer: { select: { name: true, isActive: true } },
+        organizationUnit: { select: { name: true } },
+      },
+    })
+    const key = (label: string) => cleanAuvikHierarchyLabel(label).toLocaleLowerCase('en-US')
+    const composite = (customer: string, unit: string, site: string) =>
+      JSON.stringify([key(customer), key(unit), key(site)])
+    const indexes = new Map<string, number>()
+    for (const site of canonical) {
+      if (!site.customer.isActive) continue
+      const normalized = normalizeAuvikHierarchyNames([site.customer.name, site.name])?.site
+      const labels = new Set([site.name, normalized].filter((name): name is string => Boolean(name)))
+      for (const label of labels) {
+        const indexKey = composite(site.customer.name, site.organizationUnit?.name ?? '', label)
+        indexes.set(indexKey, (indexes.get(indexKey) ?? 0) + 1)
+      }
+    }
+    for (const tenant of savedSites) {
+      const indexKey = composite(tenant.customer ?? '', tenant.businessUnit ?? '', tenant.site ?? '')
+      if (indexes.get(indexKey) === 1) existingTenantIds.push(tenant.tenantId)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -41,7 +72,7 @@ export default async function AuvikConnectionPage({
           </>
         }
       />
-      <AuvikConnectionManager initialConnection={connection} initialSyncRuns={syncRuns.map((run) => ({ ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null }))} />
+      <AuvikConnectionManager initialConnection={connection} initialExistingTenantIds={existingTenantIds} initialSyncRuns={syncRuns.map((run) => ({ ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null }))} />
     </div>
   )
 }
