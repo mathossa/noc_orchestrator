@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
+import { AuthControls } from '@/components/app-shell/auth-controls'
 
 type NavigationLink = {
   label: string
@@ -287,10 +288,13 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)] lg:hidden">
-          <div className="relative flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
-            <Brand compact />
-            <MobileNavigation key={pathname} />
+        <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]">
+          <div className="relative flex h-16 items-center justify-between gap-4 px-4 sm:px-6 xl:px-8">
+            <div className="lg:hidden"><Brand compact /></div>
+            <div className="ml-auto flex items-center gap-2 sm:gap-3">
+              <AuthControls />
+              <div className="lg:hidden"><MobileNavigation key={pathname} /></div>
+            </div>
           </div>
         </header>
 
