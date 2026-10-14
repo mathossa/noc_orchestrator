@@ -120,6 +120,28 @@ npm run auth:create-admin -- --email admin@example.com --name "Administrator"
 
 The command prompts for a password if one is not supplied.
 
+### Sign in for local integration administration
+
+- Set `BETTER_AUTH_URL=http://localhost:3000` and include
+  `http://localhost:3000` in `BETTER_AUTH_TRUSTED_ORIGINS` in `.env`.
+  Do not change `BETTER_AUTH_SECRET` for an existing installation unless
+  intentionally invalidating current sessions.
+- Run the first-admin command above **only if you do not already have an
+  administrator account**. Use the password prompted for by the command;
+  never put credentials or API keys into the source repository.
+- Start `npm run dev`, then open `http://localhost:3000` and click
+  **Sign in** in the upper-right corner. Alternatively open
+  `http://localhost:3000/login`.
+- After signing in, test the Auvik connection again; protected endpoints
+  such as `/api/v1/inventory-sources/auvik/[sourceId]/test` require a
+  Better Auth admin session. A 401 on these routes means no active NOC
+  Orchestrator session, **not** that the Auvik API key is invalid.
+- The header also offers **Sign out**. This is a minimal administration
+  login interface, not a replacement for production-grade perimeter access.
+  The application's non-API pages are not yet globally access-gated.
+- Use the same hostname as configured in Better Auth. A browser visiting
+  `127.0.0.1:3000` does not share `localhost` session cookies.
+
 Microsoft Entra ID is enabled only when all of these are configured:
 
 - `MICROSOFT_CLIENT_ID`
