@@ -183,6 +183,7 @@ export function ImporterV2PublicationPanel({
   const [deferConflicts, setDeferConflicts] = useState(false)
   const [haPair, setHaPair] = useState<ScopedPublication['haReviewCandidates'][number] | null>(null)
   const [haVerified, setHaVerified] = useState(false)
+  const [haIgnoreRows, setHaIgnoreRows] = useState<number[]>([])
   const [haPreview, setHaPreview] = useState<HaRepairPreview | null>(null)
   const [haBusy, setHaBusy] = useState(false)
   const [haMessage, setHaMessage] = useState<string | null>(null)
@@ -279,11 +280,13 @@ export function ImporterV2PublicationPanel({
   }, [batchId, qa, mode, selectionEnabled, selectedWorkspaceRows])
 
   const fixHaPair = async (mode: 'PREVIEW' | 'APPLY') => {
-    if (!haPair || !haVerified || (mode === 'APPLY' && !haPreview?.scopeToken)) return
+    if (!haPair || !haVerified || haIgnoreRows.length === 0 ||
+      haIgnoreRows.some((row) => !haPair.rowNumbers.includes(row)) ||
+      (mode === 'APPLY' && !haPreview?.scopeToken)) return
     const action = {
       type: 'IGNORE_FIELD',
       field: 'serialNumber',
-      explanation: 'After explicit engineer verification, ignore copied HA cluster-level source serial for exactly two distinct source devices, retaining immutable raw evidence.',
+      explanation: 'After explicit engineer verification, ignore incorrect/copied source serial on explicitly chosen physical HA member(s), retaining raw source evidence.',
     }
     setHaBusy(true)
     setHaError(null)
@@ -295,7 +298,7 @@ export function ImporterV2PublicationPanel({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             mode,
-            selection: { mode: 'ROWS', rowNumbers: haPair.rowNumbers },
+            selection: { mode: 'ROWS', rowNumbers: haIgnoreRows },
             action,
             ...(mode === 'APPLY' ? { scopeToken: haPreview?.scopeToken } : {}),
           }),
@@ -303,7 +306,7 @@ export function ImporterV2PublicationPanel({
       )
       const result = await responseData<HaRepairPreview>(response)
       if (mode === 'PREVIEW') {
-        if (result.affectedRowCount !== 2 || !result.requiresConfirmation) {
+        if (result.affectedRowCount !== haIgnoreRows.length || !result.requiresConfirmation) {
           throw new Error('Both source rows must still be present. Reopen QA to review.')
         }
         setHaPreview(result)
@@ -312,6 +315,7 @@ export function ImporterV2PublicationPanel({
         setHaPreview(null)
         setHaPair(null)
         setHaVerified(false)
+        setHaIgnoreRows([])
         setScoped(null)
         setDeferConflicts(false)
         setApproved(new Set())
@@ -828,6 +832,7 @@ export function ImporterV2PublicationPanel({
                       onClick={() => {
                         setHaPair(pair)
                         setHaVerified(false)
+                        setHaIgnoreRows([])
                         setHaPreview(null)
                         setHaError(null)
                       }}>
@@ -840,9 +845,25 @@ export function ImporterV2PublicationPanel({
                 <div className="mt-3 space-y-3 rounded-md border border-[var(--border-strong)] p-3">
                   <p className="text-xs">
                     Review rows #{haPair.rowNumbers[0]} and #{haPair.rowNumbers[1]}.
-                    This action will ignore the untrusted source serial for these two staged rows only.
-                    It will retain the original serial as raw evidence and will not alter any firmware corrections.
+                    Select which member(s) report an incorrect or copied serial. If the primary member has
+                    the genuine hardware serial, leave it unchecked. The raw values remain as evidence, and
+                    previously confirmed firmware versions will not be modified.
                   </p>
+                  <div className="space-y-1">
+                    {haPair.rowNumbers.map((rowNumber, index) => (
+                      <label key={rowNumber} className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" disabled={haBusy} checked={haIgnoreRows.includes(rowNumber)}
+                          onChange={(event) => {
+                            setHaIgnoreRows((current) => event.target.checked
+                              ? [...current, rowNumber] : current.filter((row) => row !== rowNumber))
+                            setHaPreview(null)
+                          }} />
+                        <span className="min-w-0 break-all">
+                          Ignore incorrect source serial on row #{rowNumber} — {haPair.deviceNames[index]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                   <label className="flex items-start gap-2 text-xs">
                     <input type="checkbox" checked={haVerified} disabled={haBusy}
                       onChange={(event) => {
@@ -850,14 +871,14 @@ export function ImporterV2PublicationPanel({
                         setHaPreview(null)
                       }} />
                     <span>
-                      I independently verified that these represent two separate physical firewall members,
-                      that their provider Source IDs and canonical device names are distinct,
-                      and that this shared serial is a copied cluster alias rather than the true member serial.
+                      I independently verified that these are two separate physical firewall members,
+                      with different provider Source IDs and unique canonical names. I also verified that
+                      each selected member has an inaccurate source serial; an unselected member retains its reported serial.
                     </span>
                   </label>
                   {haError ? <p role="alert" className="text-xs text-[var(--danger)]">{haError}</p> : null}
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" disabled={haBusy || !haVerified || publishing}
+                    <Button variant="secondary" disabled={haBusy || !haVerified || haIgnoreRows.length === 0 || publishing}
                       onClick={() => void fixHaPair('PREVIEW')}>
                       {haBusy ? 'Checking…' : 'Preview serial correction'}
                     </Button>
@@ -872,6 +893,7 @@ export function ImporterV2PublicationPanel({
                         setHaPair(null)
                         setHaPreview(null)
                         setHaVerified(false)
+                        setHaIgnoreRows([])
                       }}>
                       Cancel
                     </Button>
