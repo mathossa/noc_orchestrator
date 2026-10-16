@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 export const IMPORTER_V2_FIRMWARE_INTERPRETER_ID =
   'importer-v2-firmware-interpreter'
-export const IMPORTER_V2_FIRMWARE_INTERPRETER_VERSION = '1.0.0'
+export const IMPORTER_V2_FIRMWARE_INTERPRETER_VERSION = '1.0.1'
 
 export type ImporterV2FirmwareConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 
