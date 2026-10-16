@@ -34,7 +34,7 @@ const context: ImporterV2FirmwareInterpretationContext = {
       id: 'fortigate-100f',
       vendor: 'Fortinet',
       model: 'FortiGate 100F',
-      platforms: ['FortiGate'],
+      platforms: ['FortiOS'],
     },
   ],
 }
@@ -232,7 +232,7 @@ describe('Importer v2 deterministic firmware interpreter', () => {
       'FortiGate',
       'FortiGate 100F',
       'FortiGate-100F v7.4.0,build2303,230307 (GA)',
-      'FortiGate',
+      'FortiOS',
       '7.4.0',
     ],
     [
