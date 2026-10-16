@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
-import { cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
+import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -329,8 +329,9 @@ export function AuvikConnectionManager({
             const saved = existing.get(tenant.id)
             const display = tenant.displayName ? cleanAuvikHierarchyLabel(tenant.displayName) : (tenant.domainPrefix || tenant.id)
             const suggestion = tenant.suggestion
+            const proposed = tenant.mappingStatus === 'CONFLICT' ? null
+              : chooseAuvikMappingSuggestion(suggestion, tenant.proposal)
             if (saved) {
-              const proposed = suggestion ?? tenant.proposal
               // Existing custom values win, but an incomplete saved row must not
               // prevent Auvik from filling missing site/postcode information.
               const mergedCustomer = saved.customer.trim() || proposed?.customer || ''
@@ -362,9 +363,9 @@ export function AuvikConnectionManager({
                 tenantId: tenant.id,
                 tenantName: display,
                 enabled: false,
-                customer: (suggestion ?? tenant.proposal)?.customer ?? null,
-                businessUnit: (suggestion ?? tenant.proposal)?.businessUnit ?? null,
-                site: (suggestion ?? tenant.proposal)?.site ?? null,
+                customer: proposed?.customer ?? null,
+                businessUnit: proposed?.businessUnit ?? null,
+                site: proposed?.site ?? null,
               }),
               tenantType: tenant.tenantType ?? '',
               domainPrefix: tenant.domainPrefix,
