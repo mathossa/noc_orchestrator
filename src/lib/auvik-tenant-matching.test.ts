@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, normalizeAuvikHierarchyNames, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, inferAuvikProposalFromKnownCustomer, normalizeAuvikHierarchyNames, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
 import type { AuvikTenantResource } from '@/lib/auvik-api-client'
 
 const customer = {
@@ -30,11 +30,64 @@ describe('Auvik default canonical naming policy', () => {
     { names: ['Metrex - Moxba B.V. [44642]', 'Metrex - Heeren'], expected: { customer: 'Metrex - Moxba B.V.', businessUnit: null, site: 'Heeren' } },
     { names: ['Dusseldorp Automotive BV - [44358]', 'Dusseldorp Automotive - Deventer'], expected: { customer: 'Dusseldorp Automotive BV', businessUnit: null, site: 'Deventer' } },
     { names: ['Unica Groep BV - [43398]', 'Unica Groep - Gerco Applicom Nijmegen'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Gerco Applicom Nijmegen' } },
-    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - Open Internet', 'Deutsche Post DHL - Utrecht - Reactoweg - Open Internet'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Utrecht - Reactoweg - Open Internet' } },
+    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - Open Internet', 'Deutsche Post DHL - Utrecht - Reactoweg - Open Internet'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Utrecht - Reactoweg' } },
     { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - eCom - [43541]', 'Deutsche Post DHL - eCom - Alkmaar'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'eCom', site: 'Alkmaar' } },
     { names: ['Unica Groep BV - [43398]', 'Blaas Set 18 - Quintax (Apeldoorn)'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Blaas Set 18 - Quintax (Apeldoorn)' } },
   ])('normalizes Auvik path $names', ({ names, expected }) => {
     expect(normalizeAuvikHierarchyNames(names)).toEqual(expected)
+  })
+
+  it('maps DHL site names with a verified Business Unit suffix', () => {
+    expect(normalizeAuvikHierarchyNames([
+      'Deutsche Post DHL - [43541]',
+      'Deutsche Post DHL - Open Internet',
+      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+    ])).toEqual({
+      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Zwolle Nieuwbouw',
+    })
+    expect(inferAuvikProposalFromKnownCustomer(
+      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+      'Deutsche Post DHL',
+      ['Open Internet'],
+    )).toEqual({
+      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Zwolle Nieuwbouw',
+    })
+  })
+
+  it('preserves a site suffix when no verified Business Unit is known', () => {
+    expect(inferAuvikProposalFromKnownCustomer(
+      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+      'Deutsche Post DHL',
+      [],
+    )).toMatchObject({
+      businessUnit: null, site: 'Zwolle Nieuwbouw - Open Internet',
+    })
+  })
+
+  it('keeps complete leaf proposals even if only the Customer exists canonically', () => {
+    const complete = {
+      customer: 'Leger des Heils', businessUnit: null, site: '3135VR41', parentTenantId: null,
+    }
+    expect(chooseAuvikMappingSuggestion({
+      customer: 'Leger des Heils', businessUnit: null, site: null, status: 'CUSTOMER',
+    }, complete)).toMatchObject({ site: '3135VR41' })
+    expect(chooseAuvikMappingSuggestion({
+      customer: 'Different customer', businessUnit: null, site: null, status: 'CUSTOMER',
+    }, complete)).toMatchObject({ customer: 'Different customer', site: null })
+  })
+
+  it('extracts an orphaned postcode leaf only with known Customer evidence', () => {
+    const orphan: AuvikTenantResource = {
+      id: 'orphan', type: 'tenant',
+      attributes: { domainPrefix: 'opaque', displayName: 'Leger des Heils - 3135VR41', tenantType: 'client' },
+    }
+    expect(deriveAuvikHierarchyProposal(orphan, [orphan])).toBeNull()
+    expect(inferAuvikProposalFromKnownCustomer(
+      orphan.attributes.displayName!, 'Leger des Heils', [],
+    )).toEqual({ customer: 'Leger des Heils', businessUnit: null, site: '3135VR41' })
+    expect(inferAuvikProposalFromKnownCustomer(
+      orphan.attributes.displayName!, 'Unrelated customer', [],
+    )).toBeNull()
   })
 
   it('preserves postcode + house number in an existing incomplete mapping proposal', () => {
