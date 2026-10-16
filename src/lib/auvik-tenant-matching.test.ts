@@ -101,6 +101,9 @@ describe('Auvik default canonical naming policy', () => {
     expect(chooseAuvikMappingSuggestion({
       customer: 'Different customer', businessUnit: null, site: null, status: 'CUSTOMER',
     }, complete)).toMatchObject({ customer: 'Different customer', site: null })
+    expect(chooseAuvikMappingSuggestion({
+      customer: 'Leger des Heils', businessUnit: null, site: null, status: 'REUSED',
+    }, complete)).toMatchObject({ customer: 'Leger des Heils', site: '3135VR41' })
   })
 
   it('extracts an orphaned postcode leaf only with known Customer evidence', () => {
