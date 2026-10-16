@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { deriveAuvikHierarchyProposal, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, inferAuvikProposalFromKnownCustomer, inferAuvikSiteFromKnownCustomer, normalizeAuvikNamingPolicy, removeAuvikParentPrefix, suggestAuvikTenantHierarchy, type AuvikHierarchyProposal } from '@/lib/auvik-tenant-matching'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { AuvikApiError } from '@/lib/auvik-api-client'
 import { discoverAuvikInventoryTenants, getAuvikInventoryConnection } from '@/lib/auvik-integration-store'
@@ -61,9 +61,69 @@ export async function POST(request: Request, context: RouteContext) {
         else reusable.set(item.tenantId, target)
       }
     }
+    // Derive the fallback from explicit, existing Customer context only.
+    // The details endpoint occasionally omits a parent link even when
+    // displayName is "Customer - Site - Business Unit". Never turn such a
+    // leaf into a new Customer based on its own display name.
+    const key = (name: string) => cleanAuvikHierarchyLabel(name).toLocaleLowerCase('en-US')
+    const savedById = new Map(stored.configuration.tenants.map((scope) => [scope.tenantId, scope]))
+    const graph = new Map(tenants.map((tenant) => [
+      tenant.id, deriveAuvikHierarchyProposal(tenant, tenants, namingPolicy),
+    ]))
+    const customerNames = [...new Set([
+      ...customers.map((item) => item.name),
+      ...stored.configuration.tenants.map((scope) => scope.customer?.trim() ?? ''),
+      ...[...graph.values()].map((proposal) => proposal?.customer ?? ''),
+      ...[...reusable.values()].map((mapping) => mapping?.customer ?? ''),
+    ].filter(Boolean))]
+    const unitsFor = (customerName: string): string[] => {
+      const label = key(customerName)
+      const existingUnits = customers.filter((customer) => key(customer.name) === label)
+        .flatMap((customer) => customer.organizationUnits.filter((unit) => unit.isActive).map((unit) => unit.name))
+      const savedUnits = stored.configuration.tenants
+        .filter((scope) => key(scope.customer ?? '') === label)
+        .map((scope) => scope.businessUnit ?? '')
+      const proposedUnits = [...graph.values()]
+        .filter((proposal) => proposal && key(proposal.customer) === label)
+        .map((proposal) => proposal?.businessUnit ?? '')
+      const parentUnits = tenants
+        .filter((candidate) => candidate.attributes.tenantType?.toLowerCase().includes('multi'))
+        .map((candidate) => {
+          const name = candidate.attributes.displayName ?? ''
+          const child = removeAuvikParentPrefix(name, customerName)
+          return child === cleanAuvikHierarchyLabel(name) ? '' : child
+        })
+      return [...new Set([...existingUnits, ...savedUnits, ...proposedUnits, ...parentUnits]
+        .map((unit) => cleanAuvikHierarchyLabel(unit)).filter(Boolean))]
+    }
+    const inferredProposalFor = (tenant: (typeof tenants)[number]): AuvikHierarchyProposal | null => {
+      const name = tenant.attributes.displayName ?? tenant.attributes.clientName ?? ''
+      if (!name || tenant.attributes.tenantType?.toLowerCase().includes('multi')) return null
+      const confirmedCustomer = savedById.get(tenant.id)?.customer?.trim() ||
+        reusable.get(tenant.id)?.customer?.trim()
+      const candidates = confirmedCustomer
+        ? [confirmedCustomer]
+        : customerNames.filter((customerName) =>
+          inferAuvikSiteFromKnownCustomer(name, customerName, namingPolicy) !== null)
+      // Do not arbitrarily choose among multiple matching Customer names.
+      if (candidates.length !== 1) return null
+      const customerName = candidates[0]
+      const parts = inferAuvikProposalFromKnownCustomer(name, customerName, unitsFor(customerName), namingPolicy)
+      return parts ? { ...parts, parentTenantId: tenant.relationships?.parent?.data?.id ?? null } : null
+    }
     return NextResponse.json({
       data: tenants.map((tenant) => {
-        const proposal = deriveAuvikHierarchyProposal(tenant, tenants, namingPolicy)
+        const parentProposal = graph.get(tenant.id) ?? null
+        const fallback = inferredProposalFor(tenant)
+        const proposal = parentProposal && fallback && key(parentProposal.customer) === key(fallback.customer)
+          ? {
+              ...parentProposal,
+              businessUnit: parentProposal.businessUnit ?? fallback.businessUnit,
+              // A source leaf label can append the known BU even when the
+              // parent chain contains only Customer + Site.
+              site: parentProposal.businessUnit ? parentProposal.site : fallback.site,
+            }
+          : parentProposal ?? fallback
         const suggestion = suggestAuvikTenantHierarchy(tenant, customers, proposal)
         const crossConnection = reusable.get(tenant.id)
         const hasConflict = reusable.has(tenant.id) && crossConnection === null
