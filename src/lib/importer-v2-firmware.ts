@@ -197,8 +197,8 @@ function canonicalPlatform(value: string | null | undefined) {
     arubaos8: 'AOS-8',
     aos10: 'AOS-10',
     arubaos10: 'AOS-10',
-    fortigate: 'FortiGate',
-    fortios: 'FortiGate',
+    fortigate: 'FortiOS',
+    fortios: 'FortiOS',
     fortiswitch: 'FortiSwitch',
     fortiswitchos: 'FortiSwitch',
     fortiap: 'FortiAP',
@@ -322,7 +322,7 @@ function explicitPlatformFromEvidence(
     inferred = 'IOS'
     source = 'VERSION_EVIDENCE'
   } else if (/\bfortigate\b|\bfortios\b/.test(text)) {
-    inferred = 'FortiGate'
+    inferred = 'FortiOS'
     source = 'SOURCE_DEVICE_TYPE'
   } else if (/\bfortiswitch(?:os)?\b/.test(text)) {
     inferred = 'FortiSwitch'
@@ -378,7 +378,7 @@ function explicitPlatformFromEvidence(
   const sourceTypePlatform = canonicalPlatform(evidence.sourceDeviceType)
   if (
     sourceTypePlatform &&
-    ['FortiGate', 'FortiSwitch', 'FortiAP'].includes(sourceTypePlatform)
+    ['FortiOS', 'FortiSwitch', 'FortiAP'].includes(sourceTypePlatform)
   ) {
     return {
       platform: sourceTypePlatform,
