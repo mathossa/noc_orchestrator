@@ -273,6 +273,22 @@ export function deriveAuvikHierarchyProposal(
   }
 }
 
+/**
+ * An exact Customer match is not an existing Site match. In particular the
+ * CUSTOMER-only suggestion has site:null, which previously shadowed a
+ * complete Auvik proposal and left new sites permanently "Not mapped".
+ */
+export function chooseAuvikMappingSuggestion(
+  suggestion: (AuvikTenantSuggestion & { status: 'CUSTOMER' | 'CUSTOMER_AND_SITE' | 'REUSED' }) | null,
+  proposal: AuvikHierarchyProposal | null,
+): { customer: string; businessUnit: string | null; site: string | null } | null {
+  if (!suggestion) return proposal
+  if (suggestion.status !== 'CUSTOMER' || !proposal) return suggestion
+  // Only combine proposals if the existing canonical Customer agrees.
+  if (matchKey(suggestion.customer) !== matchKey(proposal.customer)) return suggestion
+  return { ...proposal, customer: suggestion.customer }
+}
+
 export function suggestAuvikTenantHierarchy(
   tenant: AuvikTenantResource,
   customers: readonly AuvikCanonicalCustomer[],
