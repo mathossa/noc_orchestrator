@@ -84,8 +84,8 @@ function cleanAuvikNameWithPolicy(value: string, policy: AuvikNamingPolicy) {
  *    of a child unit/site name when it is separated by " - ".
  * 3. Remove a parent business-unit prefix from its descendant site.
  *
- * No fuzzy matching or substring replacement: "Unica" must never be removed
- * from "Unicat" or from the middle of a location name.
+ * No fuzzy matching or substring replacement: "Contoso" must never be removed
+ * from "Contosoland" or from the middle of a location name.
  */
 export function cleanAuvikHierarchyLabel(value: string) {
   return value.normalize('NFKC').trim().replace(/\s+/g, ' ')
