@@ -361,7 +361,7 @@ describe('Auvik Device API v2 client', () => {
       }
       return new Response(JSON.stringify({
         data: [{ type: 'tenant', id: 'tenant-2', attributes: {
-          domainPrefix: 'unica-02', tenantType: 'client', displayName: 'Unica Office',
+          domainPrefix: 'unica-02', tenantType: 'client', displayName: 'Contoso Office',
         } }],
         links: { next: null },
       }), { status: 200 })
@@ -371,7 +371,7 @@ describe('Auvik Device API v2 client', () => {
     expect(calls[1]).toContain('page%5Bafter%5D=second')
     expect(tenants).toHaveLength(2)
     expect(tenants[0].attributes).toMatchObject({ clientName: 'Northwind', siteName: 'HQ' })
-    expect(tenants[1].attributes.displayName).toBe('Unica Office')
+    expect(tenants[1].attributes.displayName).toBe('Contoso Office')
   })
 
   it('rejects tenant discovery pagination to another host', async () => {
