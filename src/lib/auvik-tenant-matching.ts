@@ -164,7 +164,9 @@ export function inferAuvikProposalFromKnownCustomer(
 ): { customer: string; businessUnit: string | null; site: string } | null {
   const leaf = inferAuvikSiteFromKnownCustomer(displayName, customerName, policy)
   if (!leaf) return null
-  const candidates = [...new Set(knownUnits.map((unit) => cleanAuvikHierarchyLabel(unit)).filter(Boolean))]
+  const candidates = [...new Set(knownUnits
+    .map((unit) => removeAuvikParentPrefix(cleanAuvikHierarchyLabel(unit), customerName))
+    .filter(Boolean))]
     .map((unit) => ({ unit, site: removeAuvikKnownUnitSuffix(leaf, unit) }))
     .filter((result) => result.site !== leaf)
   // Multiple different units matching a suffix would be ambiguous.
