@@ -36,7 +36,9 @@ export default async function AuvikConnectionPage({
     const indexes = new Map<string, number>()
     for (const site of canonical) {
       if (!site.customer.isActive) continue
-      const normalized = normalizeAuvikHierarchyNames([site.customer.name, site.name])?.site
+      const normalized = normalizeAuvikHierarchyNames(
+        [site.customer.name, ...(site.organizationUnit?.name ? [site.organizationUnit.name] : []), site.name],
+      )?.site
       const labels = new Set([site.name, normalized].filter((name): name is string => Boolean(name)))
       for (const label of labels) {
         const indexKey = composite(site.customer.name, site.organizationUnit?.name ?? '', label)
