@@ -287,7 +287,7 @@ export function ImporterV2PublicationPanel({
     qa &&
       candidateRows.length > 0 &&
       allProposalsApproved &&
-      (mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0) &&
+      (selectionEnabled || mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0) &&
       (!selectionEnabled || (Boolean(scoped) && !scopedLoading && !scopedError)),
   )
 
@@ -542,7 +542,7 @@ export function ImporterV2PublicationPanel({
             </div>
           ) : null}
 
-          {qa.publication.unresolvedRows.length ? (
+          {!selectionEnabled && qa.publication.unresolvedRows.length ? (
             <div className="rounded-md border border-[#8f4747] bg-[#512b2b] p-3 text-sm text-[#ffd7d7]">
               <div className="font-semibold">
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
@@ -716,6 +716,44 @@ export function ImporterV2PublicationPanel({
                 {success}
               </div>
             ) : null}
+            {selectedWorkspaceRows ? (
+              <div className="mb-3 flex flex-wrap items-center gap-4">
+                <label className="text-sm font-medium text-[var(--foreground)]">
+                  Publish rows
+                  <select
+                    aria-label="Publication row selection"
+                    value={publicationScope}
+                    disabled={publishing}
+                    onChange={(event) => {
+                      setPublicationScope(event.target.value as 'SELECTION' | 'BATCH')
+                      setApproved(new Set())
+                      setScoped(null)
+                      setScopedError(null)
+                      retryRequest.current = null
+                    }}
+                    className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                  >
+                    <option value="SELECTION">{selectedWorkspaceRows.mode === 'QUERY'
+                      ? 'Only devices matching selected filter (all pages)'
+                      : `Only ${selectedWorkspaceRows.rowNumbers.length} selected row(s)`}</option>
+                    <option value="BATCH">Entire import batch</option>
+                  </select>
+                </label>
+                {selectionEnabled ? (
+                  <div role="status" className="text-xs text-[var(--muted-strong)]">
+                    {scopedLoading ? 'Checking exact filtered scope…' :
+                      scopedError ? `Scope error: ${scopedError}` :
+                      scoped ? (
+                        <span>
+                          {scoped.matchedCount.toLocaleString()} matching source rows ·
+                          {' '}{scoped.eligibleCount.toLocaleString()} QA-eligible devices ·
+                          {' '}{scoped.skippedCount.toLocaleString()} skipped (unresolved, excluded or already published)
+                        </span>
+                      ) : 'Preparing selected scope…'}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-end justify-between gap-3">
               <label className="text-sm font-medium text-[var(--foreground)]">
                 Publication scope
@@ -737,7 +775,7 @@ export function ImporterV2PublicationPanel({
                   {candidateRows.length.toLocaleString()} managed device(s) · {publicationSourceRows.size.toLocaleString()} source row(s) · {approvedRequiredCount}/{requiredProposals.length} proposal approvals
                 </div>
                 <Button onClick={() => void publish()} disabled={!canPublish || publishing || loading}>
-                  {publishing ? 'Publishing…' : 'Publish atomically'}
+                  {publishing ? 'Publishing…' : selectionEnabled ? 'Publish selected atomically' : 'Publish atomically'}
                 </Button>
               </div>
             </div>
