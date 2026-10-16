@@ -3,6 +3,7 @@ import {
   catalogSemanticsFromReleaseDecision,
   evaluateReleaseAgainstTrain,
   releaseDecisionFromCatalogSemantics,
+  resolveCatalogTrainForDevice,
   resolveCatalogTrainForModel,
   type TrainPolicyRelease,
 } from '@/lib/firmware-catalog-defaults'
@@ -63,6 +64,70 @@ describe('platform preferred-train fallback', () => {
       trains: [{ id: '17.15', name: '17.15', state: 'PREFERRED', preferredRelease, compatibility: 'COMPATIBLE', compatibilityExplanation: 'Inherited platform support.' }],
     })
     expect(result).toMatchObject({ status: 'RESOLVED', source: 'PLATFORM_PREFERRED', train: { id: '17.15' } })
+  })
+
+  it('retains a compatible current Accepted train instead of moving back to the platform preferred train', () => {
+    const result = resolveCatalogTrainForDevice({
+      vendorKey: 'FORTINET',
+      platform: 'FortiOS',
+      currentTrainId: '7.6',
+      trains: [
+        {
+          id: '7.4',
+          name: '7.4',
+          state: 'PREFERRED',
+          preferredRelease: release('7.4.13', '7.4.13'),
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Supported.',
+        },
+        {
+          id: '7.6',
+          name: '7.6',
+          state: 'ACCEPTED',
+          preferredRelease: release('7.6.8', '7.6.8'),
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Supported.',
+        },
+      ],
+    })
+
+    expect(result).toMatchObject({
+      status: 'RESOLVED',
+      source: 'CURRENT_ACCEPTED_TRAIN',
+      train: { id: '7.6' },
+    })
+  })
+
+  it('does not retain a deprecated or incompatible current train', () => {
+    const result = resolveCatalogTrainForDevice({
+      vendorKey: 'FORTINET',
+      platform: 'FortiOS',
+      currentTrainId: '7.6',
+      trains: [
+        {
+          id: '7.4',
+          name: '7.4',
+          state: 'PREFERRED',
+          preferredRelease: release('7.4.13', '7.4.13'),
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Supported.',
+        },
+        {
+          id: '7.6',
+          name: '7.6',
+          state: 'DEPRECATED',
+          preferredRelease: release('7.6.8', '7.6.8'),
+          compatibility: 'COMPATIBLE',
+          compatibilityExplanation: 'Deprecated.',
+        },
+      ],
+    })
+
+    expect(result).toMatchObject({
+      status: 'RESOLVED',
+      source: 'PLATFORM_PREFERRED',
+      train: { id: '7.4' },
+    })
   })
 
   it('falls back to the newest known-compatible accepted train after explicit incompatibility', () => {
