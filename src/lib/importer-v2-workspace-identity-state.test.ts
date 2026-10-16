@@ -157,7 +157,7 @@ describe('Importer v2 workspace identity review state', () => {
               },
               {
                 kind: 'SERIAL_NUMBER',
-                sourceValue: 'CNJMK9T1SV',
+                sourceValue: 'SYNTH00001',
                 candidateValue: null,
                 status: 'MISSING',
               },
@@ -175,8 +175,8 @@ describe('Importer v2 workspace identity review state', () => {
               },
               {
                 kind: 'SERIAL_NUMBER',
-                sourceValue: 'CNJMK9T1SV',
-                candidateValue: 'CNJMK9T1SV',
+                sourceValue: 'SYNTH00001',
+                candidateValue: 'SYNTH00001',
                 status: 'AGREE',
               },
             ],
