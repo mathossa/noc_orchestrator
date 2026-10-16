@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { auth } from '@/lib/auth'
 import { IMPORTER_V2_FIELDS, type ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import {
@@ -124,6 +125,7 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
+    await requireAdminRequest(request)
     const { batchId } = await context.params
     const body = object(await request.json())
     if (!body || (body.mode !== 'PREVIEW' && body.mode !== 'APPLY')) {
@@ -148,6 +150,12 @@ export async function POST(request: Request, context: RouteContext) {
       }),
     })
   } catch (error) {
+    if (error instanceof AdminAccessError) {
+      return NextResponse.json(
+        { error: { code: 'ACCESS_DENIED', message: error.message } },
+        { status: error.status },
+      )
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: { code: 'INVALID_JSON', message: 'Request body must contain valid JSON.' } },
