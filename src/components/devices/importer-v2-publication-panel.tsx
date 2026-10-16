@@ -803,6 +803,14 @@ export function ImporterV2PublicationPanel({
                 These are candidates for review, not proven HA relationships. The reported serial alone cannot identify a member.
                 Both Source IDs and device names must be distinct. Confirm the physical identities before changing source identity evidence.
               </p>
+              {scoped.conflictingRowNumbers.length > scoped.haReviewCandidates.length * 2 ? (
+                <p className="mt-2 text-xs text-[var(--muted-strong)]">
+                  Other conflict rows cannot use this shortcut. If records have the same Source ID or device name,
+                  or their MAC/serial evidence conflicts with a canonical device, use the Inspector to link duplicates,
+                  correct the actual member identity, or assign a verified unique device name. Never infer another
+                  physical HA member from a shared serial alone.
+                </p>
+              ) : null}
               {haMessage ? <p role="status" className="mt-2 text-xs text-[var(--muted-strong)]">{haMessage}</p> : null}
               <div className="mt-3 space-y-2">
                 {scoped.haReviewCandidates.map((pair) => (
