@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { auth } from '@/lib/auth'
 import {
   getImporterV2PublicationQa,
@@ -115,6 +116,7 @@ export async function POST(request: Request, context: RouteContext) {
   let body: PublishRequest | null = null
 
   try {
+    await requireAdminRequest(request)
     ;({ batchId } = await context.params)
     body = parsePublishRequest(await request.json())
 
@@ -191,6 +193,10 @@ export async function POST(request: Request, context: RouteContext) {
     })
     return NextResponse.json({ data: result })
   } catch (error) {
+    if (error instanceof AdminAccessError) return NextResponse.json(
+      { error: { code: 'ACCESS_DENIED', message: error.message } },
+      { status: error.status },
+    )
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: { code: 'INVALID_JSON', message: 'Request body must contain valid JSON.' } },
