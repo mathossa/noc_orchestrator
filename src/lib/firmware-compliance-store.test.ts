@@ -234,6 +234,80 @@ describe('batch firmware compliance integration', () => {
     })
   })
 
+  it('keeps a device on its current compatible Accepted train and targets that train preferred release', async () => {
+    mocks.policies.mockResolvedValue([])
+    mocks.devices.mockResolvedValue([
+      {
+        ...device(),
+        currentFirmwareReleaseId: '7.6.7',
+        deviceModel: {
+          ...device().deviceModel,
+          vendorId: 'fortinet',
+          platform: 'FortiOS',
+        },
+      },
+    ])
+    mocks.releases.mockResolvedValue([
+      release('7.4.13', {
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+        firmwareTrainId: 'train-74',
+        firmwareTrain: { id: 'train-74', name: '7.4' },
+      }),
+      release('7.6.7', {
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+        firmwareTrainId: 'train-76',
+        firmwareTrain: { id: 'train-76', name: '7.6' },
+      }),
+      release('7.6.8', {
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+        firmwareTrainId: 'train-76',
+        firmwareTrain: { id: 'train-76', name: '7.6' },
+      }),
+    ])
+    mocks.trains.mockResolvedValue([
+      {
+        id: 'train-74',
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+        name: '7.4',
+        state: 'PREFERRED',
+        preferredFirmwareReleaseId: '7.4.13',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+      {
+        id: 'train-76',
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+        name: '7.6',
+        state: 'ACCEPTED',
+        preferredFirmwareReleaseId: '7.6.8',
+        minimumAcceptableFirmwareReleaseId: null,
+      },
+    ])
+    mocks.rules.mockResolvedValue([
+      rule({
+        id: 'fortios-allow',
+        vendorId: 'fortinet',
+        platform: 'FortiOS',
+      }),
+    ])
+
+    expect(await resolveFirmwareComplianceForDevice('device', at)).toMatchObject({
+      compliance: 'OUTSIDE_RANGE',
+      recommendation: 'UPDATE_REQUIRED',
+      policySource: {
+        scope: 'CATALOG',
+        trackName: '7.6',
+        trackClass: 'ACCEPTED',
+      },
+      currentFirmware: { version: '7.6.7', platform: 'FortiOS' },
+      preferredTarget: { version: '7.6.8', platform: 'FortiOS' },
+    })
+  })
+
   it('falls back from an incompatible preferred train to a known-compatible Accepted train', async () => {
     mocks.policies.mockResolvedValue([])
     mocks.devices.mockResolvedValue([{ ...device(), currentFirmwareReleaseId: '17.12.5' }])
