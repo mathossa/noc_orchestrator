@@ -27,10 +27,12 @@ export async function POST(request: Request, context: Context) {
       findImporterV2PublicationIdentityConflicts({ batchId, rowNumbers }),
       findImporterV2PublicationNameConflicts({ batchId, rowNumbers }),
     ])
+    const candidatesInScope = new Set(rowNumbers)
     const conflictingRowNumbers = [...new Set([
       ...identityConflicts.map((conflict) => conflict.rowNumber),
       ...nameConflicts,
-    ])].sort((left, right) => left - right)
+    ])].filter((rowNumber) => candidatesInScope.has(rowNumber))
+      .sort((left, right) => left - right)
     const safeCandidateCount = rowNumbers.length - conflictingRowNumbers.length
     return NextResponse.json({ data: {
       qaFingerprint: qa.qaFingerprint,
