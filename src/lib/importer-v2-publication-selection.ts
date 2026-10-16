@@ -48,6 +48,19 @@ export function eligibleImporterV2PublicationRows(input: {
   return input.candidates.filter((rowNumber) => selected.has(rowNumber))
 }
 
+/**
+ * A collision cannot be resolved by publishing one arbitrary sibling first.
+ * When an engineer explicitly chooses to defer conflicting rows, exclude ALL
+ * affected candidates, leaving their reviewed staged decisions untouched.
+ */
+export function withoutImporterV2ConflictingRows(
+  candidates: readonly number[],
+  conflictedRowNumbers: readonly number[],
+): number[] {
+  const blocked = new Set(conflictedRowNumbers)
+  return candidates.filter((rowNumber) => !blocked.has(rowNumber))
+}
+
 export function validImporterV2PublicationMode(value: unknown): value is ImporterV2PublicationMode {
   return value === 'VALID_ONLY' || value === 'ALL_RESOLVED'
 }
