@@ -18,6 +18,13 @@ vi.mock('@/lib/importer-v2-publication-store', () => ({
   ImporterV2PublicationConflictError: class ImporterV2PublicationConflictError extends Error {},
   ImporterV2PublicationValidationError: class ImporterV2PublicationValidationError extends Error {},
 }))
+vi.mock('@/lib/api-admin', () => ({
+  requireAdminRequest: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'admin' }),
+  AdminAccessError: class AdminAccessError extends Error {
+    status = 401
+  },
+}))
+
 vi.mock('@/lib/importer-v2-workspace-store', () => ({
   resolveImporterV2PublicationSelection: mocked.resolve,
 }))
