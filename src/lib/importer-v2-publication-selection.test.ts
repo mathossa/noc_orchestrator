@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   eligibleImporterV2PublicationRows,
   parseImporterV2PublicationSelection,
+  withoutImporterV2ConflictingRows,
 } from '@/lib/importer-v2-publication-selection'
 
 describe('scoped publication selection safety', () => {
@@ -42,6 +43,16 @@ describe('scoped publication selection safety', () => {
     expect(() => parseImporterV2PublicationSelection({
       mode: 'ROWS', rowNumbers: [],
     })).toThrow()
+  })
+
+  it('defers every shared-serial HA candidate and preserves other devices', () => {
+    const candidates = [2, 7, 8, 22, 100]
+    // These row numbers are synthetic: both sides of a collision are blocked,
+    // not arbitrarily picking the first observed member as the winner.
+    expect(withoutImporterV2ConflictingRows(candidates, [7, 8]))
+      .toEqual([2, 22, 100])
+    expect(withoutImporterV2ConflictingRows([7, 8], [7, 8]))
+      .toEqual([])
   })
 
   it('keeps the requested candidate ordering and ignores unmatched conflict rows', () => {
