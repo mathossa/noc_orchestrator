@@ -327,6 +327,7 @@ export function ImporterV2PublicationPanel({
           approvedProposalKeys: approvalKeys,
           selection: selectionEnabled ? selectedWorkspaceRows : undefined,
           skipConflicts: selectionEnabled ? deferConflicts : undefined,
+          expectedCandidateRows: selectionEnabled ? candidateRows : undefined,
         }),
       },
     )
