@@ -352,6 +352,7 @@ export function ImporterV2PublicationPanel({
         approvedProposalKeys: approvalKeys,
         selection: selectionEnabled ? selectedWorkspaceRows : null,
         skipConflicts: selectionEnabled && deferConflicts,
+        expectedCandidateRows: selectionEnabled ? candidateRows : null,
       })
       if (retryRequest.current?.signature !== signature) {
         retryRequest.current = {
