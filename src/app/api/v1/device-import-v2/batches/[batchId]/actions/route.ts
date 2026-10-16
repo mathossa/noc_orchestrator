@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { auth } from '@/lib/auth'
 import type {
   ImporterV2WorkspaceAction,
@@ -118,6 +119,7 @@ function parseActionRequest(value: unknown): ActionRequest {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
+    await requireAdminRequest(request)
     const { batchId } = await context.params
     const body = parseActionRequest(await request.json())
     if (body.mode === 'PREVIEW') {
@@ -163,6 +165,12 @@ export async function POST(request: Request, context: RouteContext) {
       },
     })
   } catch (error) {
+    if (error instanceof AdminAccessError) {
+      return NextResponse.json(
+        { error: { code: 'ACCESS_DENIED', message: error.message } },
+        { status: error.status },
+      )
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         {
