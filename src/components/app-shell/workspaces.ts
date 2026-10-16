@@ -22,14 +22,7 @@ export const workspaces: readonly Workspace[] = [
     href: '/dashboard',
     items: [
       { label: 'Dashboard', href: '/dashboard' },
-      {
-        label: 'Inventory',
-        href: '/customers',
-        children: [
-          { label: 'All sites', href: '/sites' },
-          { label: 'Device inventory', href: '/devices' },
-        ],
-      },
+      { label: 'Inventory', href: '/devices' },
       {
         label: 'Reports',
         href: '/reports/inventory',
@@ -53,6 +46,14 @@ export const workspaces: readonly Workspace[] = [
     description: 'Manage sources, catalogs, contracts and rules.',
     href: '/settings/integrations',
     items: [
+      {
+        label: 'Customers & sites',
+        href: '/customers',
+        children: [
+          { label: 'Manage sites', href: '/sites' },
+          { label: 'Manage device records', href: '/devices/manage' },
+        ],
+      },
       {
         label: 'Integrations',
         href: '/settings/integrations',
@@ -90,6 +91,12 @@ export function workspaceForPath(pathname: string): WorkspaceId {
   }
 
   if (
+    pathname === '/devices/manage' ||
+    pathname.startsWith('/devices/manage/') ||
+    pathname === '/customers' ||
+    pathname.startsWith('/customers/') ||
+    pathname === '/sites' ||
+    pathname.startsWith('/sites/') ||
     pathname === '/firmware' ||
     pathname.startsWith('/firmware/') ||
     pathname === '/models' ||
@@ -120,7 +127,8 @@ export function isActivePath(pathname: string, href: string): boolean {
   if (href === '/dashboard' || href === '/settings') return pathname === href
   if (href === '/devices') {
     return (pathname === href || pathname.startsWith(href + '/')) &&
-      !pathname.startsWith('/devices/import')
+      !pathname.startsWith('/devices/import') &&
+      !pathname.startsWith('/devices/manage')
   }
   if (href === '/firmware') {
     return (pathname === href || pathname.startsWith(href + '/')) &&

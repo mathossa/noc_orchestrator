@@ -10,10 +10,13 @@ import {
 describe('workspace navigation', () => {
   it.each([
     ['/dashboard', 'monitor'],
-    ['/customers', 'monitor'],
-    ['/customers/customer-1', 'monitor'],
-    ['/sites', 'monitor'],
+    ['/customers', 'configuration'],
+    ['/customers/customer-1', 'configuration'],
+    ['/sites', 'configuration'],
     ['/devices', 'monitor'],
+    ['/devices/manage', 'configuration'],
+    ['/devices/customers/customer-1/sites/site-1/types/firewall', 'monitor'],
+    ['/sites/site-1', 'configuration'],
     ['/devices/device-1', 'monitor'],
     ['/reports', 'monitor'],
     ['/reports/inventory', 'monitor'],
@@ -40,10 +43,23 @@ describe('workspace navigation', () => {
 
   it('excludes task routes from their inventory and firmware parents', () => {
     expect(isActivePath('/devices/import', '/devices')).toBe(false)
+    expect(isActivePath('/devices/manage', '/devices')).toBe(false)
     expect(isActivePath('/firmware/exceptions', '/firmware')).toBe(false)
     expect(isActivePath('/devices/device-1', '/devices')).toBe(true)
     expect(isActivePath('/firmware/platforms', '/firmware')).toBe(true)
     expect(isActivePath('/settings/integrations', '/settings')).toBe(false)
+  })
+
+  it('keeps configuration-only management separate from monitoring', () => {
+    const monitoring = workspaces.find((workspace) => workspace.id === 'monitor')
+    const configuration = workspaces.find((workspace) => workspace.id === 'configuration')
+    const paths = (items: readonly NavigationLink[]): string[] =>
+      items.flatMap((item) => [item.href, ...paths(item.children ?? [])])
+    expect(paths(monitoring?.items ?? [])).not.toContain('/customers')
+    expect(paths(monitoring?.items ?? [])).not.toContain('/sites')
+    expect(paths(configuration?.items ?? [])).toEqual(
+      expect.arrayContaining(['/customers', '/sites', '/vendors', '/devices/manage']),
+    )
   })
 
   it('keeps existing functional menu destinations discoverable', () => {
@@ -61,6 +77,7 @@ describe('workspace navigation', () => {
       '/customers',
       '/sites',
       '/devices',
+      '/devices/manage',
       '/devices/import',
       '/firmware',
       '/models',

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { InventorySearchForm } from './inventory-search-form'
+import { InventoryPath } from './inventory-path'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -70,6 +71,11 @@ function GroupAttention({
       </StatusBadge>
     </Link>
   )
+}
+
+function scopedInventoryHref(path: string, query: InventoryQuery) {
+  // A nested URL supplies its own customer/site scope; preserve useful filters, not stale scope IDs.
+  return inventoryHref(path, query, { customer: '', site: '', page: 1 })
 }
 
 function hasAdvancedFilters(query: InventoryQuery) {
@@ -487,7 +493,7 @@ export function InventoryOverview({
       header: 'Customer',
       render: (row) => (
         <Link
-          href={'/devices/customers/' + row.id}
+          href={scopedInventoryHref('/devices/customers/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -517,10 +523,9 @@ export function InventoryOverview({
 
   return (
     <>
+      <InventoryPath current={0} />
       <PageHeader
-        eyebrow="Inventory"
-        title="Devices"
-        description="Find what equipment needs attention and where it is. Start at the customer, then drill into sites and device groups."
+        title="Inventory"
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -534,12 +539,6 @@ export function InventoryOverview({
               className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
             >
               Export matching devices
-            </Link>
-            <Link
-              href="/devices/manage"
-              className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-muted)]"
-            >
-              Manage inventory records
             </Link>
             <Link
               href="/devices/import"
@@ -563,9 +562,6 @@ export function InventoryOverview({
       <section>
         <div className="mb-2">
           <h2 className="text-sm font-semibold">Customers</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Customers with the highest-severity attention are shown first.
-          </p>
         </div>
         <DataTable
           caption="Customer inventory attention"
@@ -597,7 +593,7 @@ export function CustomerInventory({
       header: 'Site',
       render: (row) => (
         <Link
-          href={path + '/sites/' + row.id}
+          href={scopedInventoryHref(path + '/sites/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -626,19 +622,13 @@ export function CustomerInventory({
 
   return (
     <>
+      <InventoryPath
+        current={1}
+        links={{ customers: scopedInventoryHref('/devices', query) }}
+        selections={{ customers: model.customer.name }}
+      />
       <PageHeader
-        breadcrumbs={[
-          { label: 'Devices', href: '/devices' },
-          { label: model.customer.name },
-        ]}
-        eyebrow="Customer inventory"
         title={model.customer.name}
-        description="Sites for this customer, ordered by inventory attention."
-        meta={
-          <span>
-            {model.counts.total + ' devices · ' + model.sites.length + ' inventory site groups · ' + model.counts.attention + ' need attention'}
-          </span>
-        }
         actions={
           <Link
             href={exportHref(
@@ -693,7 +683,7 @@ export function SiteInventory({
       header: 'Device type',
       render: (row) => (
         <Link
-          href={path + '/types/' + row.id}
+          href={scopedInventoryHref(path + '/types/' + row.id, query)}
           className="font-semibold text-[var(--foreground)] hover:text-[var(--accent-light)] hover:underline"
         >
           {row.name}
@@ -722,23 +712,16 @@ export function SiteInventory({
 
   return (
     <>
+      <InventoryPath
+        current={2}
+        links={{
+          customers: scopedInventoryHref('/devices', query),
+          sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
+        }}
+        selections={{ customers: model.customer.name, sites: model.site.name }}
+      />
       <PageHeader
-        breadcrumbs={[
-          { label: 'Devices', href: '/devices' },
-          {
-            label: model.customer.name,
-            href: '/devices/customers/' + model.customer.id,
-          },
-          { label: model.site.name },
-        ]}
-        eyebrow="Site inventory"
         title={model.site.name}
-        description="Inventory is grouped by the canonical device type already assigned to each model."
-        meta={
-          <span>
-            {model.counts.total + ' devices · ' + model.counts.attention + ' need attention'}
-          </span>
-        }
         actions={
           <Link
             href={exportHref(
@@ -847,31 +830,21 @@ export function DeviceTypeInventory({
 
   return (
     <>
+      <InventoryPath
+        current={3}
+        links={{
+          customers: scopedInventoryHref('/devices', query),
+          sites: scopedInventoryHref('/devices/customers/' + model.customer.id, query),
+          deviceTypes: scopedInventoryHref('/devices/customers/' + model.customer.id + '/sites/' + model.site.id, query),
+        }}
+        selections={{
+          customers: model.customer.name,
+          sites: model.site.name,
+          deviceTypes: model.deviceType.name,
+        }}
+      />
       <PageHeader
-        breadcrumbs={[
-          { label: 'Devices', href: '/devices' },
-          {
-            label: model.customer.name,
-            href: '/devices/customers/' + model.customer.id,
-          },
-          {
-            label: model.site.name,
-            href:
-              '/devices/customers/' +
-              model.customer.id +
-              '/sites/' +
-              model.site.id,
-          },
-          { label: model.deviceType.name },
-        ]}
-        eyebrow="Device group"
         title={model.deviceType.name}
-        description="Individual devices are shown only at this level. Problems are ordered first; technical detail remains on the device."
-        meta={
-          <span>
-            {model.counts.total + ' devices · ' + model.counts.attention + ' need attention'}
-          </span>
-        }
         actions={
           <Link
             href={exportHref(
