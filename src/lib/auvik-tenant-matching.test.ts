@@ -177,6 +177,24 @@ describe('Auvik tenant hierarchy suggestions', () => {
     })
   })
 
+  it('handles Auvik paths starting at the actual Customer instead of an MSP root', () => {
+    const path: AuvikTenantResource[] = [
+      { id: 'dhl', type: 'tenant', attributes: {
+        domainPrefix: 'dhl', tenantType: 'multiClient', displayName: 'Deutsche Post DHL - [43541]',
+      } },
+      { id: 'unit', type: 'tenant', attributes: {
+        domainPrefix: 'internet', tenantType: 'multiClient', displayName: 'Deutsche Post DHL - Open Internet',
+      }, relationships: { parent: { data: { id: 'dhl' } } } },
+      { id: 'zwolle', type: 'tenant', attributes: {
+        domainPrefix: 'site', tenantType: 'client', displayName: 'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+      }, relationships: { parent: { data: { id: 'unit' } } } },
+    ]
+    expect(deriveAuvikHierarchyProposal(path[2], path)).toEqual({
+      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet',
+      site: 'Zwolle Nieuwbouw', parentTenantId: 'unit',
+    })
+  })
+
   it('requires an intact parent chain and a display name', () => {
     const child: AuvikTenantResource = {
       id: 'site', type: 'tenant',
