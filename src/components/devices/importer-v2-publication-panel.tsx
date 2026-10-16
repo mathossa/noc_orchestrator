@@ -136,6 +136,7 @@ type ScopedPublication = {
   haReviewCandidates: Array<{
     rowNumbers: [number, number]
     deviceNames: [string, string]
+    sourceIds: [string, string]
     reason: string
   }>
 }
@@ -810,6 +811,9 @@ export function ImporterV2PublicationPanel({
                       <strong>Rows #{pair.rowNumbers[0]} and #{pair.rowNumbers[1]}</strong>
                       <span className="mt-1 block break-all text-[var(--muted)]">
                         {pair.deviceNames[0]} / {pair.deviceNames[1]}
+                      </span>
+                      <span className="mt-1 block break-all font-mono text-[10px] text-[var(--muted)]">
+                        Source IDs: {pair.sourceIds[0]} / {pair.sourceIds[1]}
                       </span>
                     </span>
                     <Button variant="secondary" disabled={haBusy || publishing}
