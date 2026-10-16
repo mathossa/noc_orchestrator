@@ -10,6 +10,13 @@ const qa = vi.hoisted(() => ({
 vi.mock('@/lib/importer-v2-publication-store', () => ({
   getImporterV2PublicationQa: qa.get,
 }))
+vi.mock('@/lib/api-admin', () => ({
+  requireAdminRequest: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'admin' }),
+  AdminAccessError: class AdminAccessError extends Error {
+    status = 401
+  },
+}))
+
 vi.mock('@/lib/importer-v2-workspace-store', () => ({
   resolveImporterV2PublicationSelection: qa.resolve,
 }))
