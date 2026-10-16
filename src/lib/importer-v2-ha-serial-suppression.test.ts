@@ -1,11 +1,49 @@
 import { describe, expect, it } from 'vitest'
-import { importerV2SourceIdentityForCrosswalk, normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
+import { importerV2ConfirmedIdentityCorrections, importerV2SourceIdentityForCrosswalk, normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
 import {
   importerV2WorkspaceEffectiveEvaluated,
   importerV2WorkspaceEffectiveText,
 } from '@/lib/importer-v2-workspace-effective-overlay'
 
 describe('importer HA source serial suppression', () => {
+  it('chooses explicitly corrected real member serial over copied cluster alias, keeping raw evidence', () => {
+    const corrections = importerV2ConfirmedIdentityCorrections([
+      { field: 'serialNumber', action: 'SET_FIELD' },
+      { field: 'currentFirmware', action: 'SET_FIELD' },
+    ])
+    expect(corrections).toEqual(['serialNumber'])
+    const identity = importerV2SourceIdentityForCrosswalk({
+      rawIdentifiers: {
+        sourceId: 'source-peer-b',
+        serialNumber: 'PRIMARY-SERIAL',
+        macAddress: null,
+      },
+      effectiveIdentifiers: {
+        sourceId: 'source-peer-b',
+        serialNumber: 'VERIFIED-SECONDARY-SERIAL',
+        macAddress: null,
+      },
+      correctedSourceFields: corrections,
+    })
+    expect(identity).toMatchObject({
+      sourceId: 'source-peer-b', serialNumber: 'VERIFIED-SECONDARY-SERIAL',
+    })
+  })
+
+  it('does not resurrect a cleared or ignored source alias after a prior correction', () => {
+    expect(importerV2ConfirmedIdentityCorrections([
+      { field: 'serialNumber', action: 'SET_FIELD' },
+      { field: 'serialNumber', action: 'IGNORE_FIELD' },
+    ])).toEqual([])
+    const effective = importerV2SourceIdentityForCrosswalk({
+      rawIdentifiers: { sourceId: 'source-peer-b', serialNumber: 'PRIMARY-SERIAL' },
+      effectiveIdentifiers: { sourceId: 'source-peer-b', serialNumber: null },
+      suppressedSourceFields: ['serialNumber'],
+    })
+    expect(effective.serialNumber).toBeNull()
+    expect(effective.sourceId).toBe('source-peer-b')
+  })
+
   it('retains a unique provider source identity and firmware override without publishing a copied serial', () => {
     const rawValues = {
       sourceId: 'provider-member-b',
