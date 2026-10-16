@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { getImporterV2PublicationQa } from '@/lib/importer-v2-publication-store'
 import { findImporterV2PublicationIdentityConflicts } from '@/lib/importer-v2-publication-identity-diagnostics'
+import { findImporterV2HaSerialReviewCandidates } from '@/lib/importer-v2-ha-identity-review'
 import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
 import { eligibleImporterV2PublicationRows, parseImporterV2PublicationSelection, validImporterV2PublicationMode } from '@/lib/importer-v2-publication-selection'
@@ -36,6 +37,7 @@ export async function POST(request: Request, context: Context) {
     ])].filter((rowNumber) => candidatesInScope.has(rowNumber))
       .sort((left, right) => left - right)
     const safeCandidateCount = rowNumbers.length - conflictingRowNumbers.length
+    const haReviewCandidates = findImporterV2HaSerialReviewCandidates(identityConflicts, nameConflicts)
     return NextResponse.json({ data: {
       qaFingerprint: qa.qaFingerprint,
       mode: raw.mode,
@@ -45,6 +47,7 @@ export async function POST(request: Request, context: Context) {
       skippedCount: matchingRows.length - rowNumbers.length,
       conflictingRowNumbers,
       safeCandidateCount,
+      haReviewCandidates,
     } })
   } catch (error) {
     if (error instanceof AdminAccessError) return NextResponse.json(
