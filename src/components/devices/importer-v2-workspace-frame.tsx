@@ -145,7 +145,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
             onClick={openPublication}
             className={[styles.viewButton, styles.publishButton].join(' ')}
           >
-            Final QA / Publish
+            {activeSelection ? 'Final QA / Publish selection' : 'Final QA / Publish batch'}
           </button>
         </div>
 
