@@ -7,6 +7,13 @@ import { createDevice } from '@/lib/device-store'
 
 export async function GET(request: Request) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers })
+    if (!session) {
+      return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required.' } }, { status: 401 })
+    }
+    if (session.user.role !== 'admin') {
+      return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'Administrator access required.' } }, { status: 403 })
+    }
     const query = parseDeviceQuery(new URL(request.url).searchParams)
     return NextResponse.json(await queryDevices(query))
   } catch (error) {
@@ -16,9 +23,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
     const session = await auth.api.getSession({ headers: request.headers })
-    return NextResponse.json({ data: await createDevice(body, session?.user.id ?? null) }, { status: 201 })
+    if (!session) {
+      return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required.' } }, { status: 401 })
+    }
+    if (session.user.role !== 'admin') {
+      return NextResponse.json({ error: { code: 'FORBIDDEN', message: 'Administrator access required.' } }, { status: 403 })
+    }
+    const body = await request.json()
+    return NextResponse.json({ data: await createDevice(body, session.user.id) }, { status: 201 })
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
