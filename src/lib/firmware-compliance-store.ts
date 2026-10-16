@@ -2,7 +2,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
   releaseDecisionFromCatalogSemantics,
-  resolveCatalogTrainForModel,
+  resolveCatalogTrainForDevice,
 } from '@/lib/firmware-catalog-defaults'
 import {
   evaluateFirmwareCompatibility,
@@ -219,6 +219,7 @@ export async function resolveFirmwareComplianceBatch(
   >()
   function catalogDefaultPolicyForModel(
     model: (typeof devices)[number]['deviceModel'],
+    currentFirmware: ComplianceRelease | null,
     rules: FirmwareCompatibilityRule[],
     overrides: FirmwareCompatibilityOverride[],
   ): FirmwarePolicyResolution {
@@ -244,9 +245,10 @@ export async function resolveFirmwareComplianceBatch(
     const rows = catalogTrainsByPlatform.get(
       JSON.stringify([model.vendorId, normalizedFirmwarePlatform(platform)]),
     ) ?? []
-    const resolution = resolveCatalogTrainForModel({
+    const resolution = resolveCatalogTrainForDevice({
       vendorKey: model.vendorId,
       platform,
+      currentTrainId: currentFirmware?.firmwareTrain?.id ?? null,
       trains: rows.map((train) => {
         const preferred = releaseById.get(train.preferredFirmwareReleaseId ?? '') ?? null
         const compatibility = preferred
@@ -302,7 +304,7 @@ export async function resolveFirmwareComplianceBatch(
     }
     const minimum = releaseById.get(selected.minimumAcceptableFirmwareReleaseId ?? '') ?? null
     const policyId = `catalog:${selected.id}`
-    const trackClass = resolution.source === 'ACCEPTED_FALLBACK' ? 'ACCEPTED' : 'PREFERRED'
+    const trackClass = selected.state === 'ACCEPTED' ? 'ACCEPTED' : 'PREFERRED'
     const policy: FirmwarePolicyCandidate = {
       id: policyId,
       isActive: true,
@@ -394,7 +396,7 @@ export async function resolveFirmwareComplianceBatch(
 
     const effectivePolicy =
       scopedPolicy.status === 'UNRESOLVED' && scopedPolicy.unresolvedReason === 'NO_POLICY'
-        ? catalogDefaultPolicyForModel(model, rules, overrides)
+        ? catalogDefaultPolicyForModel(model, currentFirmware, rules, overrides)
         : scopedPolicy
     const policy = effectivePolicy.policy
     let preferredTarget =
