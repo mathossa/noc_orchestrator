@@ -133,6 +133,17 @@ type ScopedPublication = {
   skippedCount: number
   conflictingRowNumbers: number[]
   safeCandidateCount: number
+  haReviewCandidates: Array<{
+    rowNumbers: [number, number]
+    deviceNames: [string, string]
+    reason: string
+  }>
+}
+
+type HaRepairPreview = {
+  scopeToken: string
+  affectedRowCount: number
+  requiresConfirmation: boolean
 }
 
 type RetryRequest = {
@@ -169,6 +180,12 @@ export function ImporterV2PublicationPanel({
   const [scopedError, setScopedError] = useState<string | null>(null)
   const [scopedLoading, setScopedLoading] = useState(false)
   const [deferConflicts, setDeferConflicts] = useState(false)
+  const [haPair, setHaPair] = useState<ScopedPublication['haReviewCandidates'][number] | null>(null)
+  const [haVerified, setHaVerified] = useState(false)
+  const [haPreview, setHaPreview] = useState<HaRepairPreview | null>(null)
+  const [haBusy, setHaBusy] = useState(false)
+  const [haMessage, setHaMessage] = useState<string | null>(null)
+  const [haError, setHaError] = useState<string | null>(null)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -259,6 +276,55 @@ export function ImporterV2PublicationPanel({
       })
     return () => controller.abort()
   }, [batchId, qa, mode, selectionEnabled, selectedWorkspaceRows])
+
+  const fixHaPair = async (mode: 'PREVIEW' | 'APPLY') => {
+    if (!haPair || !haVerified || (mode === 'APPLY' && !haPreview?.scopeToken)) return
+    const action = {
+      type: 'IGNORE_FIELD',
+      field: 'serialNumber',
+      explanation: 'After explicit engineer verification, ignore copied HA cluster-level source serial for exactly two distinct source devices, retaining immutable raw evidence.',
+    }
+    setHaBusy(true)
+    setHaError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/actions`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode,
+            selection: { mode: 'ROWS', rowNumbers: haPair.rowNumbers },
+            action,
+            ...(mode === 'APPLY' ? { scopeToken: haPreview?.scopeToken } : {}),
+          }),
+        },
+      )
+      const result = await responseData<HaRepairPreview>(response)
+      if (mode === 'PREVIEW') {
+        if (result.affectedRowCount !== 2 || !result.requiresConfirmation) {
+          throw new Error('Both source rows must still be present. Reopen QA to review.')
+        }
+        setHaPreview(result)
+      } else {
+        setHaMessage(`Applied the reviewed source-serial correction to both staged rows. Recheck their identities and firmware before publishing.`)
+        setHaPreview(null)
+        setHaPair(null)
+        setHaVerified(false)
+        setScoped(null)
+        setDeferConflicts(false)
+        setApproved(new Set())
+        retryRequest.current = null
+        await loadQa()
+        onPublished?.()
+      }
+    } catch (error) {
+      setHaError(error instanceof Error ? error.message : 'HA review action failed.')
+      setHaPreview(null)
+    } finally {
+      setHaBusy(false)
+    }
+  }
 
   const candidateRows = useMemo(
     () => {
@@ -727,6 +793,86 @@ export function ImporterV2PublicationPanel({
             </div>
           </details>
 
+          {selectionEnabled && scoped?.haReviewCandidates.length ? (
+            <section className="mb-4 rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-3">
+              <h3 className="text-sm font-semibold">
+                Shared-serial firewall review · {scoped.haReviewCandidates.length} possible pair(s)
+              </h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                These are candidates for review, not proven HA relationships. The reported serial alone cannot identify a member.
+                Both Source IDs and device names must be distinct. Confirm the physical identities before changing source identity evidence.
+              </p>
+              {haMessage ? <p role="status" className="mt-2 text-xs text-[var(--muted-strong)]">{haMessage}</p> : null}
+              <div className="mt-3 space-y-2">
+                {scoped.haReviewCandidates.map((pair) => (
+                  <div key={pair.rowNumbers.join('-')} className="flex flex-wrap items-center justify-between gap-3 rounded border border-[var(--border)] p-2 text-xs">
+                    <span className="min-w-0">
+                      <strong>Rows #{pair.rowNumbers[0]} and #{pair.rowNumbers[1]}</strong>
+                      <span className="mt-1 block break-all text-[var(--muted)]">
+                        {pair.deviceNames[0]} / {pair.deviceNames[1]}
+                      </span>
+                    </span>
+                    <Button variant="secondary" disabled={haBusy || publishing}
+                      onClick={() => {
+                        setHaPair(pair)
+                        setHaVerified(false)
+                        setHaPreview(null)
+                        setHaError(null)
+                      }}>
+                      Review serial alias
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              {haPair ? (
+                <div className="mt-3 space-y-3 rounded-md border border-[var(--border-strong)] p-3">
+                  <p className="text-xs">
+                    Review rows #{haPair.rowNumbers[0]} and #{haPair.rowNumbers[1]}.
+                    This action will ignore the untrusted source serial for these two staged rows only.
+                    It will retain the original serial as raw evidence and will not alter any firmware corrections.
+                  </p>
+                  <label className="flex items-start gap-2 text-xs">
+                    <input type="checkbox" checked={haVerified} disabled={haBusy}
+                      onChange={(event) => {
+                        setHaVerified(event.target.checked)
+                        setHaPreview(null)
+                      }} />
+                    <span>
+                      I independently verified that these represent two separate physical firewall members,
+                      that their provider Source IDs and canonical device names are distinct,
+                      and that this shared serial is a copied cluster alias rather than the true member serial.
+                    </span>
+                  </label>
+                  {haError ? <p role="alert" className="text-xs text-[var(--danger)]">{haError}</p> : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" disabled={haBusy || !haVerified || publishing}
+                      onClick={() => void fixHaPair('PREVIEW')}>
+                      {haBusy ? 'Checking…' : 'Preview serial correction'}
+                    </Button>
+                    {haPreview ? (
+                      <Button variant="primary" disabled={haBusy || publishing || !haVerified}
+                        onClick={() => void fixHaPair('APPLY')}>
+                        Confirm for {haPreview.affectedRowCount} staged rows
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" disabled={haBusy}
+                      onClick={() => {
+                        setHaPair(null)
+                        setHaPreview(null)
+                        setHaVerified(false)
+                      }}>
+                      Cancel
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    To reuse this decision on future imports, add the existing exact Source ID-scoped
+                    Ignore serial rule in the Inspector after validating the device.
+                    Rows with duplicate Source IDs or duplicate names need separate manual resolution.
+                  </p>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           <div className="sticky bottom-0 z-10 -mx-4 -mb-4 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.25)]">
             {error ? (
               <div role="alert" className="mb-3 rounded-md border border-[#8f4747] bg-[#512b2b] px-3 py-2 text-sm text-[#ffd7d7]">
