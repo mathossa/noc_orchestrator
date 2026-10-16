@@ -8,7 +8,8 @@ import {
 } from '@/lib/importer-v2-publication-store'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
 import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
-import { eligibleImporterV2PublicationRows, parseImporterV2PublicationSelection } from '@/lib/importer-v2-publication-selection'
+import { eligibleImporterV2PublicationRows, parseImporterV2PublicationSelection, withoutImporterV2ConflictingRows } from '@/lib/importer-v2-publication-selection'
+import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
 import {
   findImporterV2PublicationIdentityConflicts,
@@ -23,6 +24,7 @@ type PublishRequest = {
   idempotencyKey: string
   approvedProposalKeys: string[]
   selection?: ImporterV2WorkspaceSelection
+  skipConflicts?: boolean
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -49,8 +51,14 @@ function parsePublishRequest(value: unknown): PublishRequest {
   ) {
     throw new ImporterV2PublicationValidationError('approvedProposalKeys must be an array of proposal keys.')
   }
+  if (body.skipConflicts !== undefined && typeof body.skipConflicts !== 'boolean') {
+    throw new ImporterV2PublicationValidationError('skipConflicts must be true or false.')
+  }
   const selection = body.selection === undefined ? undefined
     : parseImporterV2PublicationSelection(body.selection)
+  if (body.skipConflicts && !selection) {
+    throw new ImporterV2PublicationValidationError('Skipping conflicts requires an explicit device selection or filter.')
+  }
   return { ...body, selection } as unknown as PublishRequest
 }
 
@@ -131,13 +139,26 @@ export async function POST(request: Request, context: RouteContext) {
         'No eligible unpublished devices match this selection. Check the filter or choose VALID_ONLY.',
       )
     }
-    const identityConflicts = await findImporterV2PublicationIdentityConflicts({
-      batchId,
-      rowNumbers,
-    })
-    if (identityConflicts.length > 0) {
+    const [identityConflicts, nameConflicts] = await Promise.all([
+      findImporterV2PublicationIdentityConflicts({ batchId, rowNumbers }),
+      body.skipConflicts
+        ? findImporterV2PublicationNameConflicts({ batchId, rowNumbers })
+        : Promise.resolve([]),
+    ])
+    if (identityConflicts.length > 0 && !body.skipConflicts) {
       throw new ImporterV2PublicationValidationError(
         formatImporterV2IdentityConflictMessage(identityConflicts),
+      )
+    }
+    const selectedRows = body.skipConflicts
+      ? withoutImporterV2ConflictingRows(rowNumbers, [
+          ...identityConflicts.map((row) => row.rowNumber),
+          ...nameConflicts,
+        ])
+      : rowNumbers
+    if (selectedRows.length === 0) {
+      throw new ImporterV2PublicationValidationError(
+        'Every selected device has a durable identity or name conflict. Nothing can be safely published.',
       )
     }
 
@@ -148,7 +169,7 @@ export async function POST(request: Request, context: RouteContext) {
       qaFingerprint: body.qaFingerprint,
       idempotencyKey: body.idempotencyKey,
       approvedProposalKeys: body.approvedProposalKeys,
-      rowNumbers: body.selection ? rowNumbers : undefined,
+      rowNumbers: body.selection ? selectedRows : undefined,
       actorUserId: session?.user.id ?? null,
     })
     return NextResponse.json({ data: result })
