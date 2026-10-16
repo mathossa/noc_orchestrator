@@ -321,10 +321,16 @@ export function chooseAuvikMappingSuggestion(
   proposal: AuvikHierarchyProposal | null,
 ): { customer: string; businessUnit: string | null; site: string | null } | null {
   if (!suggestion) return proposal
-  if (suggestion.status !== 'CUSTOMER' || !proposal) return suggestion
-  // Only combine proposals if the existing canonical Customer agrees.
-  if (matchKey(suggestion.customer) !== matchKey(proposal.customer)) return suggestion
-  return { ...proposal, customer: suggestion.customer }
+  if (suggestion.site || !proposal) return suggestion
+  // An incomplete mapping reused from a different Auvik connection must
+  // not shadow the missing Site either; only supplement matching hierarchies.
+  if (matchKey(suggestion.customer) !== matchKey(proposal.customer) ||
+      (suggestion.businessUnit && proposal.businessUnit &&
+        matchKey(suggestion.businessUnit) !== matchKey(proposal.businessUnit))) {
+    return suggestion
+  }
+  return { ...proposal, customer: suggestion.customer,
+    businessUnit: suggestion.businessUnit ?? proposal.businessUnit }
 }
 
 export function suggestAuvikTenantHierarchy(
