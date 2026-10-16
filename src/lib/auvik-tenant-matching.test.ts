@@ -54,6 +54,18 @@ describe('Auvik default canonical naming policy', () => {
     })
   })
 
+  it('recognizes a saved BU that still repeats the Customer name', () => {
+    expect(inferAuvikProposalFromKnownCustomer(
+      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+      'Deutsche Post DHL',
+      ['Deutsche Post DHL - Open Internet'],
+    )).toEqual({
+      customer: 'Deutsche Post DHL',
+      businessUnit: 'Open Internet',
+      site: 'Zwolle Nieuwbouw',
+    })
+  })
+
   it('preserves a site suffix when no verified Business Unit is known', () => {
     expect(inferAuvikProposalFromKnownCustomer(
       'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
