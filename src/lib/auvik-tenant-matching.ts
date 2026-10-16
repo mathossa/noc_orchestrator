@@ -261,10 +261,16 @@ export function deriveAuvikHierarchyProposal(
     if (!current) return null
   }
   const names = chain.map((item) => item.attributes.displayName?.trim() ?? '')
-  if (names.some((name) => !name)) return null
-  // One site immediately under the main MSP account represents its own
-  // customer; intermediate nested multi-sites become an optional unit.
-  const withoutRoot = chain.length > 1 ? names.slice(1) : names
+  if (names.some((name) => !name) || chain.length < 2) return null
+  // A leaf with no known parent is NOT its own Customer.
+  // With two levels, only treat the parent as a Customer when the leaf
+  // explicitly repeats that Customer prefix; a generic MSP root doesn't
+  // establish ownership. In a complete MSP -> Customer -> Site chain,
+  // discard the MSP root.
+  if (chain.length === 2 && !inferAuvikSiteFromKnownCustomer(
+    names[1], names[0], policy,
+  )) return null
+  const withoutRoot = chain.length >= 3 ? names.slice(1) : names
   const normalized = normalizeAuvikHierarchyNames(withoutRoot, policy)
   if (!normalized?.customer || !normalized.site) return null
   return {
