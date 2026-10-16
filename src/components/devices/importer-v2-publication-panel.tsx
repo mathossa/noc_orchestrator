@@ -307,11 +307,11 @@ export function ImporterV2PublicationPanel({
       const result = await responseData<HaRepairPreview>(response)
       if (mode === 'PREVIEW') {
         if (result.affectedRowCount !== haIgnoreRows.length || !result.requiresConfirmation) {
-          throw new Error('Both source rows must still be present. Reopen QA to review.')
+          throw new Error('The selected source row scope changed. Reopen QA and review the member evidence.')
         }
         setHaPreview(result)
       } else {
-        setHaMessage(`Applied the reviewed source-serial correction to both staged rows. Recheck their identities and firmware before publishing.`)
+        setHaMessage(`Applied the reviewed source-serial correction to ${haIgnoreRows.length} staged member(s). Check the remaining identity evidence and firmware before publishing.`)
         setHaPreview(null)
         setHaPair(null)
         setHaVerified(false)
@@ -873,7 +873,7 @@ export function ImporterV2PublicationPanel({
                     <span>
                       I independently verified that these are two separate physical firewall members,
                       with different provider Source IDs and unique canonical names. I also verified that
-                      each selected member has an inaccurate source serial; an unselected member retains its reported serial.
+                      each selected member has an inaccurate source serial; unselected members retain their reported serial.
                     </span>
                   </label>
                   {haError ? <p role="alert" className="text-xs text-[var(--danger)]">{haError}</p> : null}
