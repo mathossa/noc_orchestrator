@@ -194,7 +194,8 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
               </button>
             </div>
             <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
-              <ImporterV2PublicationPanel batchId={batchId} selectedWorkspaceRows={publicationSelection} embedded />
+              <ImporterV2PublicationPanel batchId={batchId} selectedWorkspaceRows={publicationSelection}
+                  onPublished={() => setWorkspaceRevision((current) => current + 1)} embedded />
             </div>
           </div>
         </div>
