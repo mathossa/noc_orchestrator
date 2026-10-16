@@ -6,6 +6,7 @@ import type { ImporterV2IdentityConflictDiagnostic } from '@/lib/importer-v2-pub
 export type ImporterV2HaSerialReview = {
   rowNumbers: [number, number]
   deviceNames: [string, string]
+  sourceIds: [string, string]
   reason: string
 }
 
@@ -70,6 +71,9 @@ export function findImporterV2HaSerialReviewCandidates(
     candidates.push({
       rowNumbers: nums,
       deviceNames: item.rowNumber === nums[0] ? [nameA, nameB] : [nameB, nameA],
+      sourceIds: item.rowNumber === nums[0]
+        ? [item.sourceIdentifiers.sourceId!, sibling.sourceIdentifiers.sourceId!]
+        : [sibling.sourceIdentifiers.sourceId!, item.sourceIdentifiers.sourceId!],
       reason: 'Two distinct provider Source IDs and device names share only a reported serial. Verify the real member serials or confirm the source serial is a cluster alias.',
     })
   }
