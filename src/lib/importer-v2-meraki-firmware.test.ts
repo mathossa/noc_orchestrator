@@ -37,12 +37,12 @@ function input(): ImporterV2FirmwareEvaluationInput {
     rows: [
       {
         rowNumber: 2,
-        sourceRecordKey: 'Q5AA-M6G4-SQJE',
+        sourceRecordKey: 'SYNTH-MERAKI-01',
         rawValues: {
-          customer: 'Leger des Heils',
-          site: '1011SX2',
-          deviceName: '1011SX2-AP047',
-          serialNumber: 'Q5AA-M6G4-SQJE',
+          customer: 'Fabrikam Outreach',
+          site: '1234AB12',
+          deviceName: '1234AB12-AP047',
+          serialNumber: 'SYNTH-MERAKI-01',
           vendor: 'Cisco',
           model: 'Meraki CW9162I',
           deviceType: 'Access Point',

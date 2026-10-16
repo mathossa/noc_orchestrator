@@ -78,7 +78,7 @@ describe('Importer v2 cross-provider identity integration', () => {
         macAddress: null,
         normalizedMacAddress: null,
         rawSourceId: 'auvik-ap01',
-        rawSerialNumber: 'CNJMK9T1SV',
+        rawSerialNumber: 'SYNTH00001',
         rawMacAddress: null,
         sourceIdEvidenceState: 'ACCEPTED',
         serialNumberEvidenceState: 'IGNORED',
@@ -129,7 +129,7 @@ describe('Importer v2 cross-provider identity integration', () => {
       ),
     ).toMatchObject({
       sourceId: 'auvik-ap01',
-      serialNumber: 'CNJMK9T1SV',
+      serialNumber: 'SYNTH00001',
       sourceIdState: 'ACCEPTED',
       serialNumberState: 'IGNORED',
     })
