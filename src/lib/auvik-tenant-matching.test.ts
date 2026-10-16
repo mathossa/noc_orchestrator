@@ -17,136 +17,136 @@ const tenant = (attributes: AuvikTenantResource['attributes']): AuvikTenantResou
 
 describe('Auvik default canonical naming policy', () => {
   it('removes only trailing numeric bracket labels', () => {
-    expect(cleanAuvikHierarchyLabel('Deutsche Post DHL - [43541]')).toBe('Deutsche Post DHL')
-    expect(cleanAuvikHierarchyLabel('Aqualab Zuid BV [250493]')).toBe('Aqualab Zuid BV')
+    expect(cleanAuvikHierarchyLabel('Northwind Logistics - [12345]')).toBe('Northwind Logistics')
+    expect(cleanAuvikHierarchyLabel('Contoso Labs BV [67890]')).toBe('Contoso Labs BV')
     expect(cleanAuvikHierarchyLabel('Network [Lab]')).toBe('Network [Lab]')
     expect(cleanAuvikHierarchyLabel('Example - [Not a number]')).toBe('Example - [Not a number]')
   })
 
   it.each([
-    { names: ['ROVA Holding NV - [35466]', 'Rova - Winterswijk - VK'], expected: { customer: 'ROVA Holding NV', businessUnit: null, site: 'Winterswijk - VK' } },
-    { names: ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'], expected: { customer: 'Leger des Heils', businessUnit: null, site: '3059LG41' } },
-    { names: ['Stichting SWZ - [43968]', 'SWZ - WV Eindhoven - Silverenberg'], expected: { customer: 'Stichting SWZ', businessUnit: null, site: 'WV Eindhoven - Silverenberg' } },
-    { names: ['Metrex - Moxba B.V. [44642]', 'Metrex - Heeren'], expected: { customer: 'Metrex - Moxba B.V.', businessUnit: null, site: 'Heeren' } },
-    { names: ['Dusseldorp Automotive BV - [44358]', 'Dusseldorp Automotive - Deventer'], expected: { customer: 'Dusseldorp Automotive BV', businessUnit: null, site: 'Deventer' } },
-    { names: ['Unica Groep BV - [43398]', 'Unica Groep - Gerco Applicom Nijmegen'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Gerco Applicom Nijmegen' } },
-    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - Open Internet', 'Deutsche Post DHL - Utrecht - Reactoweg - Open Internet'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Utrecht - Reactoweg' } },
-    { names: ['Deutsche Post DHL - [43541]', 'Deutsche Post DHL - eCom - [43541]', 'Deutsche Post DHL - eCom - Alkmaar'], expected: { customer: 'Deutsche Post DHL', businessUnit: 'eCom', site: 'Alkmaar' } },
-    { names: ['Unica Groep BV - [43398]', 'Blaas Set 18 - Quintax (Apeldoorn)'], expected: { customer: 'Unica Groep BV', businessUnit: null, site: 'Blaas Set 18 - Quintax (Apeldoorn)' } },
+    { names: ['Contoso Holdings NV - [34567]', 'Contoso - Depot-West - VK'], expected: { customer: 'Contoso Holdings NV', businessUnit: null, site: 'Depot-West - VK' } },
+    { names: ['Fabrikam Outreach - [45678]', 'Fabrikam Outreach - 1234AB12'], expected: { customer: 'Fabrikam Outreach', businessUnit: null, site: '1234AB12' } },
+    { names: ['Contoso Foundation - [56789]', 'Contoso - Industrial Park - Block B'], expected: { customer: 'Contoso Foundation', businessUnit: null, site: 'Industrial Park - Block B' } },
+    { names: ['Fabrikam Motors B.V. [54321]', 'Fabrikam - Plant Alpha'], expected: { customer: 'Fabrikam Motors B.V.', businessUnit: null, site: 'Plant Alpha' } },
+    { names: ['Northwind Automotive BV - [65432]', 'Northwind Automotive - Site East'], expected: { customer: 'Northwind Automotive BV', businessUnit: null, site: 'Site East' } },
+    { names: ['Adventure Works Group BV - [76543]', 'Adventure Works Group - Fabrikam Installations Nijmegen'], expected: { customer: 'Adventure Works Group BV', businessUnit: null, site: 'Fabrikam Installations Nijmegen' } },
+    { names: ['Northwind Logistics - [12345]', 'Northwind Logistics - Open Internet', 'Northwind Logistics - Depot North - Lane A - Open Internet'], expected: { customer: 'Northwind Logistics', businessUnit: 'Open Internet', site: 'Depot North - Lane A' } },
+    { names: ['Northwind Logistics - [12345]', 'Northwind Logistics - eCom - [12345]', 'Northwind Logistics - eCom - Hub Alpha'], expected: { customer: 'Northwind Logistics', businessUnit: 'eCom', site: 'Hub Alpha' } },
+    { names: ['Adventure Works Group BV - [76543]', 'Warehouse Set 18 - North (City A)'], expected: { customer: 'Adventure Works Group BV', businessUnit: null, site: 'Warehouse Set 18 - North (City A)' } },
   ])('normalizes Auvik path $names', ({ names, expected }) => {
     expect(normalizeAuvikHierarchyNames(names)).toEqual(expected)
   })
 
   it('maps DHL site names with a verified Business Unit suffix', () => {
     expect(normalizeAuvikHierarchyNames([
-      'Deutsche Post DHL - [43541]',
-      'Deutsche Post DHL - Open Internet',
-      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+      'Northwind Logistics - [12345]',
+      'Northwind Logistics - Open Internet',
+      'Northwind Logistics - Site Alpha - Open Internet',
     ])).toEqual({
-      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Zwolle Nieuwbouw',
+      customer: 'Northwind Logistics', businessUnit: 'Open Internet', site: 'Site Alpha',
     })
     expect(inferAuvikProposalFromKnownCustomer(
-      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
-      'Deutsche Post DHL',
+      'Northwind Logistics - Site Alpha - Open Internet',
+      'Northwind Logistics',
       ['Open Internet'],
     )).toEqual({
-      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet', site: 'Zwolle Nieuwbouw',
+      customer: 'Northwind Logistics', businessUnit: 'Open Internet', site: 'Site Alpha',
     })
   })
 
   it('recognizes a saved BU that still repeats the Customer name', () => {
     expect(inferAuvikProposalFromKnownCustomer(
-      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
-      'Deutsche Post DHL',
-      ['Deutsche Post DHL - Open Internet'],
+      'Northwind Logistics - Site Alpha - Open Internet',
+      'Northwind Logistics',
+      ['Northwind Logistics - Open Internet'],
     )).toEqual({
-      customer: 'Deutsche Post DHL',
+      customer: 'Northwind Logistics',
       businessUnit: 'Open Internet',
-      site: 'Zwolle Nieuwbouw',
+      site: 'Site Alpha',
     })
   })
 
   it('upgrades only previous auto-derived Auvik site labels', () => {
-    const raw = 'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet'
+    const raw = 'Northwind Logistics - Site Alpha - Open Internet'
     expect(upgradeLegacyAuvikSiteLabel(
-      raw, raw, 'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
-    )).toBe('Zwolle Nieuwbouw')
+      raw, raw, 'Northwind Logistics', 'Site Alpha', 'Open Internet',
+    )).toBe('Site Alpha')
     expect(upgradeLegacyAuvikSiteLabel(
-      'Zwolle Nieuwbouw - Open Internet', raw,
-      'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
-    )).toBe('Zwolle Nieuwbouw')
+      'Site Alpha - Open Internet', raw,
+      'Northwind Logistics', 'Site Alpha', 'Open Internet',
+    )).toBe('Site Alpha')
     expect(upgradeLegacyAuvikSiteLabel(
-      'Zwolle-Zuid (manual override)', raw,
-      'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
-    )).toBe('Zwolle-Zuid (manual override)')
+      'Site South (manual override)', raw,
+      'Northwind Logistics', 'Site Alpha', 'Open Internet',
+    )).toBe('Site South (manual override)')
   })
 
   it('preserves a site suffix when no verified Business Unit is known', () => {
     expect(inferAuvikProposalFromKnownCustomer(
-      'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
-      'Deutsche Post DHL',
+      'Northwind Logistics - Site Alpha - Open Internet',
+      'Northwind Logistics',
       [],
     )).toMatchObject({
-      businessUnit: null, site: 'Zwolle Nieuwbouw - Open Internet',
+      businessUnit: null, site: 'Site Alpha - Open Internet',
     })
   })
 
   it('keeps complete leaf proposals even if only the Customer exists canonically', () => {
     const complete = {
-      customer: 'Leger des Heils', businessUnit: null, site: '3135VR41', parentTenantId: null,
+      customer: 'Fabrikam Outreach', businessUnit: null, site: '2345CD34', parentTenantId: null,
     }
     expect(chooseAuvikMappingSuggestion({
-      customer: 'Leger des Heils', businessUnit: null, site: null, status: 'CUSTOMER',
-    }, complete)).toMatchObject({ site: '3135VR41' })
+      customer: 'Fabrikam Outreach', businessUnit: null, site: null, status: 'CUSTOMER',
+    }, complete)).toMatchObject({ site: '2345CD34' })
     expect(chooseAuvikMappingSuggestion({
       customer: 'Different customer', businessUnit: null, site: null, status: 'CUSTOMER',
     }, complete)).toMatchObject({ customer: 'Different customer', site: null })
     expect(chooseAuvikMappingSuggestion({
-      customer: 'Leger des Heils', businessUnit: null, site: null, status: 'REUSED',
-    }, complete)).toMatchObject({ customer: 'Leger des Heils', site: '3135VR41' })
+      customer: 'Fabrikam Outreach', businessUnit: null, site: null, status: 'REUSED',
+    }, complete)).toMatchObject({ customer: 'Fabrikam Outreach', site: '2345CD34' })
   })
 
   it('extracts an orphaned postcode leaf only with known Customer evidence', () => {
     const orphan: AuvikTenantResource = {
       id: 'orphan', type: 'tenant',
-      attributes: { domainPrefix: 'opaque', displayName: 'Leger des Heils - 3135VR41', tenantType: 'client' },
+      attributes: { domainPrefix: 'opaque', displayName: 'Fabrikam Outreach - 2345CD34', tenantType: 'client' },
     }
     expect(deriveAuvikHierarchyProposal(orphan, [orphan])).toBeNull()
     expect(inferAuvikProposalFromKnownCustomer(
-      orphan.attributes.displayName!, 'Leger des Heils', [],
-    )).toEqual({ customer: 'Leger des Heils', businessUnit: null, site: '3135VR41' })
+      orphan.attributes.displayName!, 'Fabrikam Outreach', [],
+    )).toEqual({ customer: 'Fabrikam Outreach', businessUnit: null, site: '2345CD34' })
     expect(inferAuvikProposalFromKnownCustomer(
       orphan.attributes.displayName!, 'Unrelated customer', [],
     )).toBeNull()
   })
 
   it('preserves postcode + house number in an existing incomplete mapping proposal', () => {
-    const output = normalizeAuvikHierarchyNames(['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'])
-    expect(output).toEqual({ customer: 'Leger des Heils', businessUnit: null, site: '3059LG41' })
+    const output = normalizeAuvikHierarchyNames(['Fabrikam Outreach - [45678]', 'Fabrikam Outreach - 1234AB12'])
+    expect(output).toEqual({ customer: 'Fabrikam Outreach', businessUnit: null, site: '1234AB12' })
   })
 
   it('lets a naming policy disable built-in cleanup without changing raw Auvik evidence', () => {
     const output = normalizeAuvikHierarchyNames(
-      ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'],
+      ['Fabrikam Outreach - [45678]', 'Fabrikam Outreach - 1234AB12'],
       { stripAccountNumbers: false, stripRepeatedParents: false, rules: [] },
     )
     expect(output).toEqual({
-      customer: 'Leger des Heils - [44751]',
+      customer: 'Fabrikam Outreach - [45678]',
       businessUnit: null,
-      site: 'Leger des Heils - 3059LG41',
+      site: 'Fabrikam Outreach - 1234AB12',
     })
   })
 
   it('supports explicit exact and prefix rules after default cleanup', () => {
     const policy = normalizeAuvikNamingPolicy({
       rules: [
-        { id: '1', enabled: true, field: 'customer', match: 'EXACT', find: 'Leger des Heils', replace: 'LDH' },
-        { id: '2', enabled: true, field: 'site', match: 'EXACT', find: '3059LG41', replace: 'Postcode 3059LG41' },
+        { id: '1', enabled: true, field: 'customer', match: 'EXACT', find: 'Fabrikam Outreach', replace: 'FBM' },
+        { id: '2', enabled: true, field: 'site', match: 'EXACT', find: '1234AB12', replace: 'Postcode 1234AB12' },
       ],
     })
     expect(normalizeAuvikHierarchyNames(
-      ['Leger des Heils - [44751]', 'Leger des Heils - 3059LG41'], policy,
-    )).toEqual({ customer: 'LDH', businessUnit: null, site: 'Postcode 3059LG41' })
+      ['Fabrikam Outreach - [45678]', 'Fabrikam Outreach - 1234AB12'], policy,
+    )).toEqual({ customer: 'FBM', businessUnit: null, site: 'Postcode 1234AB12' })
   })
 
   it('validates active rules but permits blank disabled drafts', () => {
@@ -159,7 +159,7 @@ describe('Auvik default canonical naming policy', () => {
   })
 
   it('does not strip a shared fragment inside a real site name', () => {
-    expect(normalizeAuvikHierarchyNames(['Unica', 'Unicat - Center'])).toMatchObject({ site: 'Unicat - Center' })
+    expect(normalizeAuvikHierarchyNames(['Adventure', 'AdventureLand - Center'])).toMatchObject({ site: 'AdventureLand - Center' })
   })
 })
 
@@ -182,34 +182,34 @@ describe('Auvik tenant hierarchy suggestions', () => {
   it('keeps the parent Customer in an abbreviated two-level Auvik path', () => {
     const parent: AuvikTenantResource = {
       id: 'parent', type: 'tenant',
-      attributes: { domainPrefix: 'parent', tenantType: 'multiClient', displayName: 'Leger des Heils - [44751]' },
+      attributes: { domainPrefix: 'parent', tenantType: 'multiClient', displayName: 'Fabrikam Outreach - [45678]' },
     }
     const leaf: AuvikTenantResource = {
       id: 'leaf', type: 'tenant',
-      attributes: { domainPrefix: 'opaque', tenantType: 'client', displayName: 'Leger des Heils - 3135VR41' },
+      attributes: { domainPrefix: 'opaque', tenantType: 'client', displayName: 'Fabrikam Outreach - 2345CD34' },
       relationships: { parent: { data: { id: 'parent' } } },
     }
     expect(deriveAuvikHierarchyProposal(leaf, [parent, leaf])).toEqual({
-      customer: 'Leger des Heils', businessUnit: null,
-      site: '3135VR41', parentTenantId: 'parent',
+      customer: 'Fabrikam Outreach', businessUnit: null,
+      site: '2345CD34', parentTenantId: 'parent',
     })
   })
 
   it('handles Auvik paths starting at the actual Customer instead of an MSP root', () => {
     const path: AuvikTenantResource[] = [
-      { id: 'dhl', type: 'tenant', attributes: {
-        domainPrefix: 'dhl', tenantType: 'multiClient', displayName: 'Deutsche Post DHL - [43541]',
+      { id: 'logistics', type: 'tenant', attributes: {
+        domainPrefix: 'logistics', tenantType: 'multiClient', displayName: 'Northwind Logistics - [12345]',
       } },
       { id: 'unit', type: 'tenant', attributes: {
-        domainPrefix: 'internet', tenantType: 'multiClient', displayName: 'Deutsche Post DHL - Open Internet',
-      }, relationships: { parent: { data: { id: 'dhl' } } } },
+        domainPrefix: 'internet', tenantType: 'multiClient', displayName: 'Northwind Logistics - Open Internet',
+      }, relationships: { parent: { data: { id: 'logistics' } } } },
       { id: 'zwolle', type: 'tenant', attributes: {
-        domainPrefix: 'site', tenantType: 'client', displayName: 'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet',
+        domainPrefix: 'site', tenantType: 'client', displayName: 'Northwind Logistics - Site Alpha - Open Internet',
       }, relationships: { parent: { data: { id: 'unit' } } } },
     ]
     expect(deriveAuvikHierarchyProposal(path[2], path)).toEqual({
-      customer: 'Deutsche Post DHL', businessUnit: 'Open Internet',
-      site: 'Zwolle Nieuwbouw', parentTenantId: 'unit',
+      customer: 'Northwind Logistics', businessUnit: 'Open Internet',
+      site: 'Site Alpha', parentTenantId: 'unit',
     })
   })
 
