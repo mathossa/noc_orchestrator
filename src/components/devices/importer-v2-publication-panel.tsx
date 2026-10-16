@@ -126,6 +126,7 @@ function requiredProposalsFor(
 
 type ScopedPublication = {
   qaFingerprint: string
+  mode: ImporterV2PublicationMode
   rowNumbers: number[]
   matchedCount: number
   eligibleCount: number
@@ -241,7 +242,7 @@ export function ImporterV2PublicationPanel({
       .then((response) => responseData<ScopedPublication>(response))
       .then((result) => {
         if (controller.signal.aborted) return
-        if (result.qaFingerprint !== qa.qaFingerprint) {
+        if (result.qaFingerprint !== qa.qaFingerprint || result.mode !== mode) {
           setScopedError('Publication QA changed. Refresh QA before publishing.')
         } else setScoped(result)
       })
@@ -261,7 +262,7 @@ export function ImporterV2PublicationPanel({
       if (!qa) return []
       const candidates = candidateRowsFor(qa, mode)
       if (!selectionEnabled) return candidates
-      if (!scoped || scoped.qaFingerprint !== qa.qaFingerprint) return []
+      if (!scoped || scoped.qaFingerprint !== qa.qaFingerprint || scoped.mode !== mode) return []
       const selected = new Set(scoped.rowNumbers)
       return candidates.filter((row) => selected.has(row))
     },
@@ -290,7 +291,7 @@ export function ImporterV2PublicationPanel({
       candidateRows.length > 0 &&
       allProposalsApproved &&
       (selectionEnabled || mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0) &&
-      (!selectionEnabled || (Boolean(scoped) && !scopedLoading && !scopedError)),
+      (!selectionEnabled || (Boolean(scoped && scoped.mode === mode && scoped.qaFingerprint === qa.qaFingerprint) && !scopedLoading && !scopedError)),
   )
 
   const approveKeys = (keys: string[], checked: boolean) => {
@@ -752,7 +753,7 @@ export function ImporterV2PublicationPanel({
                   <div role="status" className="text-xs text-[var(--muted-strong)]">
                     {scopedLoading ? 'Checking exact filtered scope…' :
                       scopedError ? `Scope error: ${scopedError}` :
-                      scoped ? (
+                      scoped?.mode === mode ? (
                         <span>
                           {scoped.matchedCount.toLocaleString()} matching source rows ·
                           {' '}{scoped.eligibleCount.toLocaleString()} QA-eligible devices ·
