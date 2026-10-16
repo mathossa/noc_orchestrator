@@ -223,17 +223,55 @@ export function ImporterV2PublicationPanel({
     }
   }, [fetchQa])
 
+  const selectionEnabled = publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
+  useEffect(() => {
+    if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
+    const controller = new AbortController()
+    setScoped(null)
+    setScopedError(null)
+    setScopedLoading(true)
+    void fetch(`/api/v1/device-import-v2/batches/${batchId}/publication/scope`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode, selection: selectedWorkspaceRows }),
+      signal: controller.signal,
+    })
+      .then((response) => responseData<ScopedPublication>(response))
+      .then((result) => {
+        if (controller.signal.aborted) return
+        if (result.qaFingerprint !== qa.qaFingerprint) {
+          setScopedError('Publication QA changed. Refresh QA before publishing.')
+        } else setScoped(result)
+      })
+      .catch((scopeError) => {
+        if (!controller.signal.aborted) {
+          setScopedError(scopeError instanceof Error ? scopeError.message : 'Cannot resolve selected devices.')
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setScopedLoading(false)
+      })
+    return () => controller.abort()
+  }, [batchId, qa, mode, selectionEnabled, selectedWorkspaceRows])
+
   const candidateRows = useMemo(
-    () => (qa ? candidateRowsFor(qa, mode) : []),
-    [mode, qa],
+    () => {
+      if (!qa) return []
+      const candidates = candidateRowsFor(qa, mode)
+      if (!selectionEnabled) return candidates
+      if (!scoped || scoped.qaFingerprint !== qa.qaFingerprint) return []
+      const selected = new Set(scoped.rowNumbers)
+      return candidates.filter((row) => selected.has(row))
+    },
+    [mode, qa, scoped, selectionEnabled],
   )
   const publicationSourceRows = useMemo(
-    () => (qa ? publicationSourceRowsFor(qa, mode) : new Set<number>()),
-    [mode, qa],
+    () => (qa ? publicationSourceRowsFor(qa, mode, candidateRows) : new Set<number>()),
+    [mode, qa, candidateRows],
   )
   const requiredProposals = useMemo(
-    () => (qa ? requiredProposalsFor(qa, mode) : []),
-    [mode, qa],
+    () => (qa ? requiredProposalsFor(qa, mode, candidateRows) : []),
+    [mode, qa, candidateRows],
   )
   const groups = useMemo(() => proposalGroups(requiredProposals), [requiredProposals])
   const requiredKeys = useMemo(
@@ -249,7 +287,8 @@ export function ImporterV2PublicationPanel({
     qa &&
       candidateRows.length > 0 &&
       allProposalsApproved &&
-      (mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0),
+      (mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0) &&
+      (!selectionEnabled || (Boolean(scoped) && !scopedLoading && !scopedError)),
   )
 
   const approveKeys = (keys: string[], checked: boolean) => {
