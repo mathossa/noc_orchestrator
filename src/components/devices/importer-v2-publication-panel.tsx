@@ -318,6 +318,7 @@ export function ImporterV2PublicationPanel({
           qaFingerprint: currentQa.qaFingerprint,
           idempotencyKey,
           approvedProposalKeys: approvalKeys,
+          selection: selectionEnabled ? selectedWorkspaceRows : undefined,
         }),
       },
     )
@@ -336,6 +337,7 @@ export function ImporterV2PublicationPanel({
         qaFingerprint: qa.qaFingerprint,
         mode,
         approvedProposalKeys: approvalKeys,
+        selection: selectionEnabled ? selectedWorkspaceRows : null,
       })
       if (retryRequest.current?.signature !== signature) {
         retryRequest.current = {
@@ -357,6 +359,15 @@ export function ImporterV2PublicationPanel({
         }
 
         const freshQa = await fetchQa(true)
+        if (selectionEnabled) {
+          setQa(freshQa)
+          setScoped(null)
+          setApproved(new Set())
+          retryRequest.current = null
+          throw new Error(
+            'The staged QA has changed. Your selection was not published. Review the refreshed selection preview and approve proposals again.',
+          )
+        }
         const freshRequired = requiredProposalsFor(freshQa, mode)
         const freshRequiredKeys = new Set(freshRequired.map((item) => item.key))
         const stillApproved = approvalKeys.filter((key) => freshRequiredKeys.has(key))
