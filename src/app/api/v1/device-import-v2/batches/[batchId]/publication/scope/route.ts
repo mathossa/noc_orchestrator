@@ -23,6 +23,7 @@ export async function POST(request: Request, context: Context) {
     })
     return NextResponse.json({ data: {
       qaFingerprint: qa.qaFingerprint,
+      mode: raw.mode,
       rowNumbers,
       matchedCount: matchingRows.length,
       eligibleCount: rowNumbers.length,
