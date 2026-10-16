@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { getImporterV2PublicationQa } from '@/lib/importer-v2-publication-store'
 import { findImporterV2PublicationIdentityConflicts } from '@/lib/importer-v2-publication-identity-diagnostics'
 import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
@@ -9,6 +10,7 @@ type Context = { params: Promise<{ batchId: string }> }
 
 export async function POST(request: Request, context: Context) {
   try {
+    await requireAdminRequest(request)
     const { batchId } = await context.params
     const raw = await request.json() as { mode?: unknown; selection?: unknown }
     if (!validImporterV2PublicationMode(raw?.mode)) throw new Error('Unsupported publication mode.')
@@ -45,6 +47,10 @@ export async function POST(request: Request, context: Context) {
       safeCandidateCount,
     } })
   } catch (error) {
+    if (error instanceof AdminAccessError) return NextResponse.json(
+      { error: { code: 'ACCESS_DENIED', message: error.message } },
+      { status: error.status },
+    )
     const message = error instanceof Error ? error.message : 'Cannot resolve publication selection.'
     return NextResponse.json({ error: { message } }, {
       status: error instanceof SyntaxError || message.includes('selection') ||
