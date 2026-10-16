@@ -177,6 +177,31 @@ export function inferAuvikProposalFromKnownCustomer(
   return customer && site ? { customer, businessUnit: unit, site } : null
 }
 
+/**
+ * Refresh legacy auto-generated labels only when they still match the old
+ * Auvik raw name or the former Customer-only normalization. Do not rewrite
+ * unrelated, manually corrected canonical site names.
+ */
+export function upgradeLegacyAuvikSiteLabel(
+  savedSite: string,
+  rawSourceName: string,
+  customer: string,
+  candidateSite: string,
+  businessUnit: string | null,
+  policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
+) {
+  if (!savedSite.trim()) return candidateSite
+  if (!candidateSite.trim() || !policy.stripRepeatedParents) return savedSite
+  const cleanedRaw = cleanAuvikNameWithPolicy(rawSourceName, policy)
+  const oldCustomerStripped = removeAuvikParentPrefix(cleanedRaw, customer)
+  const withKnownUnit = businessUnit
+    ? removeAuvikKnownUnitSuffix(oldCustomerStripped, businessUnit) : oldCustomerStripped
+  if (matchKey(withKnownUnit) !== matchKey(candidateSite)) return savedSite
+  return [cleanedRaw, oldCustomerStripped].some((oldAutoLabel) =>
+    matchKey(oldAutoLabel) === matchKey(savedSite))
+    ? candidateSite : savedSite
+}
+
 export function normalizeAuvikHierarchyNames(
   names: readonly string[],
   policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
