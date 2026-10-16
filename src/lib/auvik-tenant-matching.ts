@@ -315,7 +315,13 @@ export function suggestAuvikTenantHierarchy(
 
   const matchingSites = customer.sites.filter((site) => {
     if (!site.isActive) return false
-    const canonicalName = normalizeAuvikHierarchyNames([customer.name, site.name])?.site
+    const unit = customer.organizationUnits.find(
+      (candidate) => candidate.isActive && candidate.id === site.organizationUnitId,
+    )
+    const labels = unit
+      ? [customer.name, unit.name, site.name]
+      : [customer.name, site.name]
+    const canonicalName = normalizeAuvikHierarchyNames(labels)?.site
     return matchKey(site.name) === matchKey(siteName) ||
       (canonicalName !== undefined && matchKey(canonicalName) === matchKey(siteName))
   })
