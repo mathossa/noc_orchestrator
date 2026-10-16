@@ -270,9 +270,14 @@ export function deriveAuvikHierarchyProposal(
   // establish ownership. In a complete MSP -> Customer -> Site chain,
   // discard the MSP root.
   if (chain.length === 2 && !inferAuvikSiteFromKnownCustomer(
-    names[1], names[0], policy,
+    names[1], names[0], DEFAULT_AUVIK_NAMING_POLICY,
   )) return null
-  const withoutRoot = chain.length >= 3 ? names.slice(1) : names
+  // Some API responses start at the Customer instead of the MSP root.
+  // If the next node is explicitly named "Customer - Business Unit",
+  // keep that first Customer; otherwise discard the actual MSP root.
+  const startsAtCustomer = chain.length >= 3 &&
+    inferAuvikSiteFromKnownCustomer(names[1], names[0], DEFAULT_AUVIK_NAMING_POLICY) !== null
+  const withoutRoot = chain.length >= 3 && !startsAtCustomer ? names.slice(1) : names
   const normalized = normalizeAuvikHierarchyNames(withoutRoot, policy)
   if (!normalized?.customer || !normalized.site) return null
   return {
