@@ -1,4 +1,4 @@
-import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
+import type { ImporterV2WorkspaceFilters, ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
 
 const PUBLICATION_FILTERS = new Set([
@@ -35,7 +35,7 @@ export function parseImporterV2PublicationSelection(value: unknown): ImporterV2W
         throw new Error('Invalid publication selection filter.')
       }
     }
-    return { mode: 'QUERY', filters: selection.filters as ImporterV2WorkspaceSelection & never }
+    return { mode: 'QUERY', filters: selection.filters as ImporterV2WorkspaceFilters }
   }
   throw new Error('Selection must use ROWS or QUERY.')
 }
