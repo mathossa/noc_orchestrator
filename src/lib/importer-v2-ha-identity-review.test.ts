@@ -56,6 +56,7 @@ describe('manual HA serial-alias review candidate safety', () => {
     expect(findImporterV2HaSerialReviewCandidates(diagnostics())).toEqual([{
       rowNumbers: [11, 12],
       deviceNames: ['fw-member-a', 'fw-member-b'],
+      sourceIds: ['source-device-a', 'source-device-b'],
       reason: expect.stringContaining('Verify'),
     }])
   })
