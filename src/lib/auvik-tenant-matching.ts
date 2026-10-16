@@ -131,6 +131,50 @@ export function removeAuvikParentPrefix(label: string, parent: string) {
   return cleaned
 }
 
+/**
+ * Drop a suffix only when it is a separately verified Business Unit,
+ * separated from the site by " - ". Never trim arbitrary last segments.
+ */
+export function removeAuvikKnownUnitSuffix(label: string, unit: string) {
+  const suffix = ' - ' + cleanAuvikHierarchyLabel(unit)
+  if (!unit.trim() || !label.toLocaleLowerCase('en-US').endsWith(suffix.toLocaleLowerCase('en-US'))) {
+    return label
+  }
+  const remaining = label.slice(0, -suffix.length).trim()
+  return remaining || label
+}
+
+/** Exact Customer prefix in an Auvik leaf name, not an inferred tenant identity. */
+export function inferAuvikSiteFromKnownCustomer(
+  displayName: string,
+  customerName: string,
+  policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
+): string | null {
+  if (!policy.stripRepeatedParents || !displayName.trim() || !customerName.trim()) return null
+  const label = cleanAuvikNameWithPolicy(displayName, policy)
+  const site = removeAuvikParentPrefix(label, customerName)
+  return site !== label && site.trim() ? site.trim() : null
+}
+
+export function inferAuvikProposalFromKnownCustomer(
+  displayName: string,
+  customerName: string,
+  knownUnits: readonly string[],
+  policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
+): { customer: string; businessUnit: string | null; site: string } | null {
+  const leaf = inferAuvikSiteFromKnownCustomer(displayName, customerName, policy)
+  if (!leaf) return null
+  const candidates = [...new Set(knownUnits.map((unit) => cleanAuvikHierarchyLabel(unit)).filter(Boolean))]
+    .map((unit) => ({ unit, site: removeAuvikKnownUnitSuffix(leaf, unit) }))
+    .filter((result) => result.site !== leaf)
+  // Multiple different units matching a suffix would be ambiguous.
+  if (candidates.length > 1) return null
+  const unit = candidates[0]?.unit ?? null
+  const site = applyAuvikOverride('site', candidates[0]?.site ?? leaf, policy)
+  const customer = applyAuvikOverride('customer', cleanAuvikNameWithPolicy(customerName, policy), policy)
+  return customer && site ? { customer, businessUnit: unit, site } : null
+}
+
 export function normalizeAuvikHierarchyNames(
   names: readonly string[],
   policy: AuvikNamingPolicy = DEFAULT_AUVIK_NAMING_POLICY,
@@ -159,6 +203,12 @@ export function normalizeAuvikHierarchyNames(
   if (policy.stripRepeatedParents) {
     site = removeAuvikParentPrefix(site, sourceCustomer)
     for (const unit of normalizedUnits) site = removeAuvikParentPrefix(site, unit)
+    // Auvik also uses "Customer - Site - Business Unit" for leaf labels.
+    // The known intermediate parent is the only evidence required to remove
+    // that suffix; don't remove trailing segments without an actual unit.
+    for (const unit of [...normalizedUnits].sort((a, b) => b.length - a.length)) {
+      site = removeAuvikKnownUnitSuffix(site, unit)
+    }
   }
   site = applyAuvikOverride('site', site, policy)
   return {
