@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AuvikMappingInput, type AuvikLookupField, type AuvikLookupOption } from '@/components/settings/auvik-mapping-input'
-import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
+import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, DEFAULT_AUVIK_NAMING_POLICY, removeAuvikParentPrefix, upgradeLegacyAuvikSiteLabel, type AuvikNamingRule, type AuvikNamingPolicy } from '@/lib/auvik-tenant-matching'
 import { InventorySourceSchedulePanel, type InventorySourceSyncRun } from '@/components/settings/inventory-source-schedule-panel'
 
 type Connection = {
@@ -335,14 +335,25 @@ export function AuvikConnectionManager({
               // Existing custom values win, but an incomplete saved row must not
               // prevent Auvik from filling missing site/postcode information.
               const mergedCustomer = saved.customer.trim() || proposed?.customer || ''
-              const mergedSite = saved.site.trim() || proposed?.site || ''
-              const mergedUnit = saved.businessUnit.trim() ||
-                (saved.site.trim() ? '' : (proposed?.businessUnit || ''))
+              const originalUnit = saved.businessUnit.trim()
+              const proposedUnit = proposed?.businessUnit ?? ''
+              const candidateUnit = removeAuvikParentPrefix(originalUnit, mergedCustomer)
+              const normalizedLegacyUnit = originalUnit && proposedUnit &&
+                candidateUnit.normalize('NFKC').toLocaleLowerCase('en-US') === proposedUnit.normalize('NFKC').toLocaleLowerCase('en-US')
+              const mergedUnit = normalizedLegacyUnit
+                ? proposedUnit
+                : originalUnit || (saved.site.trim() ? '' : proposedUnit)
+              const mergedSite = proposed?.site
+                ? upgradeLegacyAuvikSiteLabel(
+                    saved.site, tenant.displayName ?? '', mergedCustomer, proposed.site,
+                    proposed.businessUnit, namingPolicy,
+                  )
+                : saved.site.trim()
               const cleanKey = (value: string | null | undefined) => (value ?? '').normalize('NFKC').trim().toLocaleLowerCase('en-US')
               const changedFromProposal = Boolean(proposed) &&
-                ((Boolean(saved.customer.trim()) && cleanKey(saved.customer) !== cleanKey(proposed?.customer)) ||
-                (Boolean(saved.site.trim()) && cleanKey(saved.site) !== cleanKey(proposed?.site)) ||
-                (Boolean(saved.businessUnit.trim()) && cleanKey(saved.businessUnit) !== cleanKey(proposed?.businessUnit)))
+                ((Boolean(mergedCustomer.trim()) && cleanKey(mergedCustomer) !== cleanKey(proposed?.customer)) ||
+                (Boolean(mergedSite.trim()) && cleanKey(mergedSite) !== cleanKey(proposed?.site)) ||
+                (Boolean(mergedUnit.trim()) && cleanKey(mergedUnit) !== cleanKey(proposed?.businessUnit)))
               return {
                 ...saved,
                 tenantType: tenant.tenantType ?? '',
