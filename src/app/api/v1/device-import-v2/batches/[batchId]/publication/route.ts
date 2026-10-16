@@ -7,6 +7,9 @@ import {
   publishImporterV2Batch,
 } from '@/lib/importer-v2-publication-store'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
+import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
+import { eligibleImporterV2PublicationRows, parseImporterV2PublicationSelection } from '@/lib/importer-v2-publication-selection'
+import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
 import {
   findImporterV2PublicationIdentityConflicts,
   formatImporterV2IdentityConflictMessage,
@@ -19,6 +22,7 @@ type PublishRequest = {
   qaFingerprint: string
   idempotencyKey: string
   approvedProposalKeys: string[]
+  selection?: ImporterV2WorkspaceSelection
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -45,18 +49,27 @@ function parsePublishRequest(value: unknown): PublishRequest {
   ) {
     throw new ImporterV2PublicationValidationError('approvedProposalKeys must be an array of proposal keys.')
   }
-  return body as unknown as PublishRequest
+  const selection = body.selection === undefined ? undefined
+    : parseImporterV2PublicationSelection(body.selection)
+  return { ...body, selection } as unknown as PublishRequest
 }
 
-async function diagnoseIdentityConflict(batchId: string, mode: ImporterV2PublicationMode) {
+async function diagnoseIdentityConflict(
+  batchId: string,
+  mode: ImporterV2PublicationMode,
+  selection?: ImporterV2WorkspaceSelection,
+) {
   const qa = await getImporterV2PublicationQa(batchId)
   const candidateRows =
     mode === 'VALID_ONLY'
       ? qa.publication.validOnlyCandidateRows
       : qa.publication.allResolvedCandidateRows
+  const matching = selection ? await resolveImporterV2PublicationSelection({ batchId, selection }) : null
   const conflicts = await findImporterV2PublicationIdentityConflicts({
     batchId,
-    rowNumbers: candidateRows,
+    rowNumbers: matching
+      ? eligibleImporterV2PublicationRows({ candidates: candidateRows, matchingRows: matching })
+      : candidateRows,
   })
   return conflicts.length > 0
     ? formatImporterV2IdentityConflictMessage(conflicts)
@@ -107,9 +120,20 @@ export async function POST(request: Request, context: RouteContext) {
       body.mode === 'VALID_ONLY'
         ? currentQa.publication.validOnlyCandidateRows
         : currentQa.publication.allResolvedCandidateRows
+    const matching = body.selection
+      ? await resolveImporterV2PublicationSelection({ batchId, selection: body.selection })
+      : null
+    const rowNumbers = matching
+      ? eligibleImporterV2PublicationRows({ candidates: candidateRows, matchingRows: matching })
+      : candidateRows
+    if (body.selection && rowNumbers.length === 0) {
+      throw new ImporterV2PublicationValidationError(
+        'No eligible unpublished devices match this selection. Check the filter or choose VALID_ONLY.',
+      )
+    }
     const identityConflicts = await findImporterV2PublicationIdentityConflicts({
       batchId,
-      rowNumbers: candidateRows,
+      rowNumbers,
     })
     if (identityConflicts.length > 0) {
       throw new ImporterV2PublicationValidationError(
@@ -124,6 +148,7 @@ export async function POST(request: Request, context: RouteContext) {
       qaFingerprint: body.qaFingerprint,
       idempotencyKey: body.idempotencyKey,
       approvedProposalKeys: body.approvedProposalKeys,
+      rowNumbers: body.selection ? rowNumbers : undefined,
       actorUserId: session?.user.id ?? null,
     })
     return NextResponse.json({ data: result })
@@ -146,7 +171,7 @@ export async function POST(request: Request, context: RouteContext) {
       error.message.includes('Durable source identity')
     ) {
       try {
-        const diagnostic = await diagnoseIdentityConflict(batchId, body.mode)
+        const diagnostic = await diagnoseIdentityConflict(batchId, body.mode, body.selection)
         if (diagnostic) {
           return NextResponse.json(
             {
