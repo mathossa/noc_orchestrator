@@ -22,9 +22,9 @@ describe('inventory drill-down', () => {
   it('renders resolved selection names while keeping future steps generic', () => {
     const html = renderToStaticMarkup(createElement(InventoryPath, {
       current: 2,
-      selections: { customers: 'Unica Groep', sites: 'Zwolle' },
+      selections: { customers: 'Contoso Group', sites: 'Zwolle' },
     }))
-    expect(html).toContain('Unica Groep')
+    expect(html).toContain('Contoso Group')
     expect(html).toContain('Zwolle')
     expect(html).toContain('Device types')
     expect(html).not.toContain('Select a customer')
@@ -87,9 +87,9 @@ describe('inventory drill-down', () => {
   it('displays the selected customer on its site-selection step', () => {
     const html = renderToStaticMarkup(createElement(CustomerInventory, {
       query,
-      model: { ...common, customer: { id: 'c-1', name: 'Unica Groep' }, sites: [] },
+      model: { ...common, customer: { id: 'c-1', name: 'Contoso Group' }, sites: [] },
     }))
-    expect(html).toContain('Unica Groep')
+    expect(html).toContain('Contoso Group')
     expect(html).not.toContain('Select a customer')
     expect(html).toContain('Sites')
   })
@@ -99,12 +99,12 @@ describe('inventory drill-down', () => {
       query,
       model: {
         ...common,
-        customer: { id: 'c-1', name: 'Unica Groep' },
+        customer: { id: 'c-1', name: 'Contoso Group' },
         site: { id: 's-1', name: 'Zwolle', unassigned: false },
         deviceTypes: [],
       },
     }))
-    expect(html).toContain('Unica Groep')
+    expect(html).toContain('Contoso Group')
     expect(html).toContain('Zwolle')
     expect(html).not.toContain('Select a customer')
     expect(html).not.toContain('Select a site')
@@ -116,14 +116,14 @@ describe('inventory drill-down', () => {
       query,
       model: {
         ...common,
-        customer: { id: 'c-1', name: 'Unica Groep' },
+        customer: { id: 'c-1', name: 'Contoso Group' },
         site: { id: 's-1', name: 'Zwolle', unassigned: false },
         deviceType: { id: 't-1', name: 'Switches' },
         devices: [],
         pagination: { page: 1, pageSize: 25, total: 0, totalPages: 1 },
       },
     }))
-    expect(html).toContain('Unica Groep')
+    expect(html).toContain('Contoso Group')
     expect(html).toContain('Zwolle')
     expect(html).toContain('Switches')
     expect(html).not.toContain('Select a type')
