@@ -295,7 +295,11 @@ export function ImporterV2PublicationPanel({
       candidateRows.length > 0 &&
       allProposalsApproved &&
       (selectionEnabled || mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0) &&
-      (!selectionEnabled || (Boolean(scoped && scoped.mode === mode && scoped.qaFingerprint === qa.qaFingerprint) && !scopedLoading && !scopedError)),
+      (!selectionEnabled || (
+        Boolean(scoped && scoped.mode === mode && scoped.qaFingerprint === qa.qaFingerprint) &&
+        !scopedLoading && !scopedError &&
+        (scoped?.conflictingRowNumbers.length === 0 || deferConflicts)
+      )),
   )
 
   const approveKeys = (keys: string[], checked: boolean) => {
