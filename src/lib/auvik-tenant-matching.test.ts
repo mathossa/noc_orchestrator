@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, inferAuvikProposalFromKnownCustomer, normalizeAuvikHierarchyNames, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy } from '@/lib/auvik-tenant-matching'
+import { chooseAuvikMappingSuggestion, cleanAuvikHierarchyLabel, deriveAuvikHierarchyProposal, inferAuvikProposalFromKnownCustomer, normalizeAuvikHierarchyNames, normalizeAuvikNamingPolicy, suggestAuvikTenantHierarchy, upgradeLegacyAuvikSiteLabel } from '@/lib/auvik-tenant-matching'
 import type { AuvikTenantResource } from '@/lib/auvik-api-client'
 
 const customer = {
@@ -64,6 +64,21 @@ describe('Auvik default canonical naming policy', () => {
       businessUnit: 'Open Internet',
       site: 'Zwolle Nieuwbouw',
     })
+  })
+
+  it('upgrades only previous auto-derived Auvik site labels', () => {
+    const raw = 'Deutsche Post DHL - Zwolle Nieuwbouw - Open Internet'
+    expect(upgradeLegacyAuvikSiteLabel(
+      raw, raw, 'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
+    )).toBe('Zwolle Nieuwbouw')
+    expect(upgradeLegacyAuvikSiteLabel(
+      'Zwolle Nieuwbouw - Open Internet', raw,
+      'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
+    )).toBe('Zwolle Nieuwbouw')
+    expect(upgradeLegacyAuvikSiteLabel(
+      'Zwolle-Zuid (manual override)', raw,
+      'Deutsche Post DHL', 'Zwolle Nieuwbouw', 'Open Internet',
+    )).toBe('Zwolle-Zuid (manual override)')
   })
 
   it('preserves a site suffix when no verified Business Unit is known', () => {
