@@ -361,7 +361,7 @@ describe('Auvik Device API v2 client', () => {
       }
       return new Response(JSON.stringify({
         data: [{ type: 'tenant', id: 'tenant-2', attributes: {
-          domainPrefix: 'unica-02', tenantType: 'client', displayName: 'Contoso Office',
+          domainPrefix: 'contoso-02', tenantType: 'client', displayName: 'Contoso Office',
         } }],
         links: { next: null },
       }), { status: 200 })
