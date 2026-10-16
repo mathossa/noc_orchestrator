@@ -25,6 +25,7 @@ type PublishRequest = {
   approvedProposalKeys: string[]
   selection?: ImporterV2WorkspaceSelection
   skipConflicts?: boolean
+  expectedCandidateRows?: number[]
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -58,6 +59,13 @@ function parsePublishRequest(value: unknown): PublishRequest {
     : parseImporterV2PublicationSelection(body.selection)
   if (body.skipConflicts && !selection) {
     throw new ImporterV2PublicationValidationError('Skipping conflicts requires an explicit device selection or filter.')
+  }
+  if (selection && (!Array.isArray(body.expectedCandidateRows) ||
+    body.expectedCandidateRows.length === 0 || body.expectedCandidateRows.length > 20000 ||
+    body.expectedCandidateRows.some((row) => !Number.isSafeInteger(row) || row <= 0))) {
+    throw new ImporterV2PublicationValidationError(
+      'Selected publication requires the exact row numbers shown in its preview.',
+    )
   }
   return { ...body, selection } as unknown as PublishRequest
 }
@@ -160,6 +168,15 @@ export async function POST(request: Request, context: RouteContext) {
       throw new ImporterV2PublicationValidationError(
         'Every selected device has a durable identity or name conflict. Nothing can be safely published.',
       )
+    }
+    if (body.selection) {
+      const expected = [...new Set(body.expectedCandidateRows)].sort((a, b) => a - b)
+      const actual = [...selectedRows].sort((a, b) => a - b)
+      if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+        throw new ImporterV2PublicationConflictError(
+          'Selected devices or their identity conflicts changed after preview. Refresh the preview before publishing.',
+        )
+      }
     }
 
     const session = await auth.api.getSession({ headers: request.headers })
