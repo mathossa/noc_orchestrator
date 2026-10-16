@@ -170,7 +170,7 @@ export async function POST(request: Request, context: RouteContext) {
       )
     }
     if (body.selection) {
-      const expected = [...new Set(body.expectedCandidateRows)].sort((a, b) => a - b)
+      const expected = [...new Set(body.expectedCandidateRows ?? [])].sort((a, b) => a - b)
       const actual = [...selectedRows].sort((a, b) => a - b)
       if (JSON.stringify(expected) !== JSON.stringify(actual)) {
         throw new ImporterV2PublicationConflictError(
