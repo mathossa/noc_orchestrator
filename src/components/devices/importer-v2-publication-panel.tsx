@@ -485,6 +485,12 @@ export function ImporterV2PublicationPanel({
 
       {qa ? (
         <>
+          {selectionEnabled ? (
+            <p className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted-strong)]">
+              The statistics below describe the entire staged batch. Selected/filtered publication is limited
+              to the exact server-verified scope shown next to the Publish button. Unresolved rows elsewhere remain staged.
+            </p>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
             <Stat label="Valid" value={qa.counts.valid} />
             <Stat label="Warnings" value={qa.counts.warning} />
