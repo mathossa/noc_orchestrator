@@ -67,17 +67,21 @@ export async function POST(request: Request, context: RouteContext) {
     // leaf into a new Customer based on its own display name.
     const key = (name: string) => cleanAuvikHierarchyLabel(name).toLocaleLowerCase('en-US')
     const savedById = new Map(stored.configuration.tenants.map((scope) => [scope.tenantId, scope]))
-    const graph = new Map(tenants.map((tenant) => [
+    const graph = new Map<string, AuvikHierarchyProposal | null>(tenants.map((tenant) => [
       tenant.id, deriveAuvikHierarchyProposal(tenant, tenants, namingPolicy),
-    ]))
-    const customerNames = [...new Set([
+    ] as const))
+    const knownNames = [
       ...customers.map((item) => item.name),
       ...stored.configuration.tenants.map((scope) => scope.customer?.trim() ?? ''),
       ...[...graph.values()].map((proposal) => proposal?.customer ?? ''),
       ...[...reusable.values()].map((mapping) => mapping?.customer ?? ''),
-    ].filter(Boolean))]
+    ].filter(Boolean)
+    const customerNames = [...new Map(knownNames.map((name) => [key(name), name])).values()]
+    const unitCache = new Map<string, string[]>()
     const unitsFor = (customerName: string): string[] => {
       const label = key(customerName)
+      const cached = unitCache.get(label)
+      if (cached) return cached
       const existingUnits = customers.filter((customer) => key(customer.name) === label)
         .flatMap((customer) => customer.organizationUnits.filter((unit) => unit.isActive).map((unit) => unit.name))
       const savedUnits = stored.configuration.tenants
@@ -93,8 +97,10 @@ export async function POST(request: Request, context: RouteContext) {
           const child = removeAuvikParentPrefix(name, customerName)
           return child === cleanAuvikHierarchyLabel(name) ? '' : child
         })
-      return [...new Set([...existingUnits, ...savedUnits, ...proposedUnits, ...parentUnits]
+      const units = [...new Set([...existingUnits, ...savedUnits, ...proposedUnits, ...parentUnits]
         .map((unit) => cleanAuvikHierarchyLabel(unit)).filter(Boolean))]
+      unitCache.set(label, units)
+      return units
     }
     const inferredProposalFor = (tenant: (typeof tenants)[number]): AuvikHierarchyProposal | null => {
       const name = tenant.attributes.displayName ?? tenant.attributes.clientName ?? ''
