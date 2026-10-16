@@ -4,6 +4,7 @@ import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
 import type { Prisma } from '../generated/prisma/client'
 import {
+  importerV2ConfirmedIdentityCorrections,
   importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
 } from '@/lib/importer-v2-identity'
@@ -1387,6 +1388,7 @@ function publicationIdentifiers(row: ImporterV2PublicationQaRowInput, snapshot: 
     },
     effectiveIdentifiers: identifiers(snapshot),
     suppressedSourceFields: snapshot.suppressedSourceFields,
+    correctedSourceFields: importerV2ConfirmedIdentityCorrections(row.decisions),
   })
   return importerV2PublicationIdentityFields({
     topology: importerV2TopologyFromDecisions(row.decisions),
@@ -1405,12 +1407,21 @@ function publicationRawIdentityEvidence(
     macAddress: snapshot.rawValues?.macAddress ?? null,
   })
   const suppressed = new Set(snapshot.suppressedSourceFields ?? [])
+  const corrected = new Set(importerV2ConfirmedIdentityCorrections(row.decisions))
   const state = (
     field: 'sourceId' | 'serialNumber' | 'macAddress',
     value: string | null,
   ) => {
     if (!value) return null
-    return suppressed.has(field) ? 'IGNORED' : 'ACCEPTED'
+    // Retain raw evidence but never treat a corrected cluster alias as a
+    // canonical matching signal.
+    if (suppressed.has(field)) return 'IGNORED'
+    if (corrected.has(field)) {
+      const effective = effectiveText(snapshot, field)
+      if (effective && effective.normalize('NFKC').trim().toLocaleUpperCase('en-US') !==
+        value.normalize('NFKC').trim().toLocaleUpperCase('en-US')) return 'IGNORED'
+    }
+    return 'ACCEPTED'
   }
   return {
     rawSourceId: raw.sourceId,
