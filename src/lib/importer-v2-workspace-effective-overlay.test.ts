@@ -104,11 +104,11 @@ describe('Importer v2 effective reconciliation overlay', () => {
       evaluated: {
         rawValues: {
           sourceId: 'auvik-device-ap01',
-          serialNumber: 'CNJMK9T1SV',
+          serialNumber: 'SYNTH00001',
         },
         proposedCanonicalValues: {
           sourceId: { id: null, label: 'auvik-device-ap01' },
-          serialNumber: { id: null, label: 'CNJMK9T1SV' },
+          serialNumber: { id: null, label: 'SYNTH00001' },
         },
         issues: [],
       },
@@ -123,7 +123,7 @@ describe('Importer v2 effective reconciliation overlay', () => {
       ],
     })
 
-    expect(result.evaluated.rawValues?.serialNumber).toBe('CNJMK9T1SV')
+    expect(result.evaluated.rawValues?.serialNumber).toBe('SYNTH00001')
     expect(result.evaluated.proposedCanonicalValues?.serialNumber).toBeNull()
     expect(result.evaluated.suppressedSourceFields).toContain('serialNumber')
     expect(
