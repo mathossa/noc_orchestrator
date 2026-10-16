@@ -63,9 +63,9 @@ describe('scoped importer publication preview', () => {
   })
 
   it('reports both HA siblings and canonical name conflicts without applying any changes', async () => {
-    qa.resolve.mockResolvedValue([92, 104, 105, 200])
+    qa.resolve.mockResolvedValue([92, 104, 151, 200])
     qa.identity.mockResolvedValue([{ rowNumber: 92 }, { rowNumber: 104 }])
-    qa.name.mockResolvedValue([105])
+    qa.name.mockResolvedValue([151])
     const response = await POST(new Request('http://localhost/api/v1/device-import-v2/batches/batch-1/publication/scope', {
       method: 'POST',
       body: JSON.stringify({ mode: 'VALID_ONLY', selection: { mode: 'QUERY', filters: { vendor: 'Fortinet' } } }),
@@ -73,7 +73,7 @@ describe('scoped importer publication preview', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.data).toMatchObject({
-      matchedCount: 4, eligibleCount: 3, conflictingRowNumbers: [92, 104, 105],
+      matchedCount: 4, eligibleCount: 3, conflictingRowNumbers: [92, 104, 151],
       safeCandidateCount: 0,
     })
   })
