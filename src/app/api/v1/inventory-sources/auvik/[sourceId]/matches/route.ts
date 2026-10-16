@@ -100,7 +100,9 @@ export async function GET(request: Request, context: Context) {
       .sort((a, b) => (a.relation === 'SAME_CUSTOMER' ? 0 : 1) - (b.relation === 'SAME_CUSTOMER' ? 0 : 1))
       .slice(0, 12)
     const matchesSite = (option: (typeof options)[number]) => {
-      const legacyNormalized = normalizeAuvikHierarchyNames([option.customerName, option.name])?.site
+      const legacyNormalized = normalizeAuvikHierarchyNames(
+        [option.customerName, ...(option.businessUnit ? [option.businessUnit] : []), option.name],
+      )?.site
       return key(option.name) === key(query) || key(legacyNormalized ?? '') === key(query)
     }
     const matching = options.filter((option) =>
