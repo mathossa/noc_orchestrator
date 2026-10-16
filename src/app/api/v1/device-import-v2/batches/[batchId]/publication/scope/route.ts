@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getImporterV2PublicationQa } from '@/lib/importer-v2-publication-store'
+import { findImporterV2PublicationIdentityConflicts } from '@/lib/importer-v2-publication-identity-diagnostics'
+import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
 import { eligibleImporterV2PublicationRows, parseImporterV2PublicationSelection, validImporterV2PublicationMode } from '@/lib/importer-v2-publication-selection'
 
@@ -21,6 +23,15 @@ export async function POST(request: Request, context: Context) {
     const rowNumbers = eligibleImporterV2PublicationRows({
       candidates, matchingRows,
     })
+    const [identityConflicts, nameConflicts] = await Promise.all([
+      findImporterV2PublicationIdentityConflicts({ batchId, rowNumbers }),
+      findImporterV2PublicationNameConflicts({ batchId, rowNumbers }),
+    ])
+    const conflictingRowNumbers = [...new Set([
+      ...identityConflicts.map((conflict) => conflict.rowNumber),
+      ...nameConflicts,
+    ])].sort((left, right) => left - right)
+    const safeCandidateCount = rowNumbers.length - conflictingRowNumbers.length
     return NextResponse.json({ data: {
       qaFingerprint: qa.qaFingerprint,
       mode: raw.mode,
@@ -28,6 +39,8 @@ export async function POST(request: Request, context: Context) {
       matchedCount: matchingRows.length,
       eligibleCount: rowNumbers.length,
       skippedCount: matchingRows.length - rowNumbers.length,
+      conflictingRowNumbers,
+      safeCandidateCount,
     } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Cannot resolve publication selection.'
