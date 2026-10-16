@@ -5,6 +5,7 @@ import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
+import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import type {
   ImporterV2CatalogProposal,
   ImporterV2CatalogProposalField,
@@ -98,8 +99,9 @@ function candidateRowsFor(qa: ImporterV2PublicationQa, mode: ImporterV2Publicati
 function publicationSourceRowsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = new Set(candidateRowsFor(qa, mode))
+  const rows = new Set(selectedCandidateRows ?? candidateRowsFor(qa, mode))
   for (const stack of qa.topology.stackGroups) {
     if (!rows.has(stack.parentRowNumber)) continue
     for (const member of stack.memberRows) rows.add(member.rowNumber)
@@ -110,8 +112,9 @@ function publicationSourceRowsFor(
 function requiredProposalsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = publicationSourceRowsFor(qa, mode)
+  const rows = publicationSourceRowsFor(qa, mode, selectedCandidateRows)
   return qa.catalogProposals
     .filter((proposal) =>
       proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
@@ -119,6 +122,14 @@ function requiredProposalsFor(
     .filter((proposal) =>
       importerV2CatalogProposalRequiresApproval(qa, proposal),
     )
+}
+
+type ScopedPublication = {
+  qaFingerprint: string
+  rowNumbers: number[]
+  matchedCount: number
+  eligibleCount: number
+  skippedCount: number
 }
 
 type RetryRequest = {
@@ -136,12 +147,22 @@ type PublicationResult = {
 export function ImporterV2PublicationPanel({
   batchId,
   embedded = false,
+  selectedWorkspaceRows = null,
 }: {
   batchId: string
   embedded?: boolean
+  selectedWorkspaceRows?: ImporterV2WorkspaceSelection | null
 }) {
   const [qa, setQa] = useState<ImporterV2PublicationQa | null>(null)
-  const [mode, setMode] = useState<ImporterV2PublicationMode>('ALL_RESOLVED')
+  const [mode, setMode] = useState<ImporterV2PublicationMode>(
+    selectedWorkspaceRows ? 'VALID_ONLY' : 'ALL_RESOLVED',
+  )
+  const [publicationScope, setPublicationScope] = useState<'BATCH' | 'SELECTION'>(
+    selectedWorkspaceRows ? 'SELECTION' : 'BATCH',
+  )
+  const [scoped, setScoped] = useState<ScopedPublication | null>(null)
+  const [scopedError, setScopedError] = useState<string | null>(null)
+  const [scopedLoading, setScopedLoading] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
