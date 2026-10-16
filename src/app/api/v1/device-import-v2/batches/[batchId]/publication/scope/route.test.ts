@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const qa = vi.hoisted(() => ({
   get: vi.fn(),
   resolve: vi.fn(),
+  identity: vi.fn(),
+  name: vi.fn(),
 }))
 
 vi.mock('@/lib/importer-v2-publication-store', () => ({
@@ -10,6 +12,12 @@ vi.mock('@/lib/importer-v2-publication-store', () => ({
 }))
 vi.mock('@/lib/importer-v2-workspace-store', () => ({
   resolveImporterV2PublicationSelection: qa.resolve,
+}))
+vi.mock('@/lib/importer-v2-publication-identity-diagnostics', () => ({
+  findImporterV2PublicationIdentityConflicts: qa.identity,
+}))
+vi.mock('@/lib/importer-v2-publication-name-conflicts', () => ({
+  findImporterV2PublicationNameConflicts: qa.name,
 }))
 
 import { POST } from './route'
@@ -20,6 +28,10 @@ describe('scoped importer publication preview', () => {
   beforeEach(() => {
     qa.get.mockReset()
     qa.resolve.mockReset()
+    qa.identity.mockReset()
+    qa.name.mockReset()
+    qa.identity.mockResolvedValue([])
+    qa.name.mockResolvedValue([])
     qa.get.mockResolvedValue({
       qaFingerprint: 'qa-stable',
       publication: {
@@ -42,11 +54,27 @@ describe('scoped importer publication preview', () => {
     expect(body.data).toMatchObject({
       qaFingerprint: 'qa-stable',
       rowNumbers: [92, 104], matchedCount: 3,
-      eligibleCount: 2, skippedCount: 1,
+      eligibleCount: 2, skippedCount: 1, safeCandidateCount: 2, conflictingRowNumbers: [],
     })
     expect(qa.resolve).toHaveBeenCalledWith({
       batchId: 'batch-1',
       selection: { mode: 'QUERY', filters: { vendor: 'Fortinet' } },
+    })
+  })
+
+  it('reports both HA siblings and canonical name conflicts without applying any changes', async () => {
+    qa.resolve.mockResolvedValue([92, 104, 105, 200])
+    qa.identity.mockResolvedValue([{ rowNumber: 92 }, { rowNumber: 104 }])
+    qa.name.mockResolvedValue([105])
+    const response = await POST(new Request('http://localhost/api/v1/device-import-v2/batches/batch-1/publication/scope', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'VALID_ONLY', selection: { mode: 'QUERY', filters: { vendor: 'Fortinet' } } }),
+    }), context)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.data).toMatchObject({
+      matchedCount: 4, eligibleCount: 3, conflictingRowNumbers: [92, 104, 105],
+      safeCandidateCount: 0,
     })
   })
 
