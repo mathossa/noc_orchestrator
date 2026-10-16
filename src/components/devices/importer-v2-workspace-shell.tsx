@@ -219,7 +219,13 @@ function workspaceSearchParams(
   return params
 }
 
-export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: string; revision?: number }) {
+export function ImporterV2WorkspaceShell({
+  batchId, revision = 0, onSelectionChange,
+}: {
+  batchId: string
+  revision?: number
+  onSelectionChange?: (selection: ImporterV2WorkspaceSelection | null) => void
+}) {
   const [filters, setFilters] =
     useState<ImporterV2WorkspaceFilters>(EMPTY_FILTERS)
   const [groupBy, setGroupBy] =
@@ -273,11 +279,14 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
     () => [...selectedRows].sort((left, right) => left - right),
     [selectedRows],
   )
-  const selection: ImporterV2WorkspaceSelection | null = querySelection
-    ? { mode: 'QUERY', filters: querySelection }
-    : explicitSelection.length
-      ? { mode: 'ROWS', rowNumbers: explicitSelection }
-      : null
+  const selection: ImporterV2WorkspaceSelection | null = useMemo(() => (
+    querySelection
+      ? { mode: 'QUERY' as const, filters: querySelection }
+      : explicitSelection.length
+        ? { mode: 'ROWS' as const, rowNumbers: explicitSelection }
+        : null
+  ), [querySelection, explicitSelection])
+  useEffect(() => { onSelectionChange?.(selection) }, [selection, onSelectionChange])
   const selectedCount = querySelection
     ? (data?.total ?? 0)
     : explicitSelection.length
