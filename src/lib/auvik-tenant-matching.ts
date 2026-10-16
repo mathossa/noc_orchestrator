@@ -279,7 +279,7 @@ export function deriveAuvikHierarchyProposal(
  * complete Auvik proposal and left new sites permanently "Not mapped".
  */
 export function chooseAuvikMappingSuggestion(
-  suggestion: (AuvikTenantSuggestion & { status: 'CUSTOMER' | 'CUSTOMER_AND_SITE' | 'REUSED' }) | null,
+  suggestion: { customer: string; businessUnit: string | null; site: string | null; status: 'CUSTOMER' | 'CUSTOMER_AND_SITE' | 'REUSED' } | null,
   proposal: AuvikHierarchyProposal | null,
 ): { customer: string; businessUnit: string | null; site: string | null } | null {
   if (!suggestion) return proposal
