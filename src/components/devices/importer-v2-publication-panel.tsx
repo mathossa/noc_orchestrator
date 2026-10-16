@@ -148,10 +148,12 @@ export function ImporterV2PublicationPanel({
   batchId,
   embedded = false,
   selectedWorkspaceRows = null,
+  onPublished,
 }: {
   batchId: string
   embedded?: boolean
   selectedWorkspaceRows?: ImporterV2WorkspaceSelection | null
+  onPublished?: () => void
 }) {
   const [qa, setQa] = useState<ImporterV2PublicationQa | null>(null)
   const [mode, setMode] = useState<ImporterV2PublicationMode>(
@@ -396,6 +398,7 @@ export function ImporterV2PublicationPanel({
         `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
       await loadQa()
+      onPublished?.()
     } catch (publishError) {
       setError(
         publishError instanceof Error
