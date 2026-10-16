@@ -149,6 +149,22 @@ describe('Auvik tenant hierarchy suggestions', () => {
     })
   })
 
+  it('keeps the parent Customer in an abbreviated two-level Auvik path', () => {
+    const parent: AuvikTenantResource = {
+      id: 'parent', type: 'tenant',
+      attributes: { domainPrefix: 'parent', tenantType: 'multiClient', displayName: 'Leger des Heils - [44751]' },
+    }
+    const leaf: AuvikTenantResource = {
+      id: 'leaf', type: 'tenant',
+      attributes: { domainPrefix: 'opaque', tenantType: 'client', displayName: 'Leger des Heils - 3135VR41' },
+      relationships: { parent: { data: { id: 'parent' } } },
+    }
+    expect(deriveAuvikHierarchyProposal(leaf, [parent, leaf])).toEqual({
+      customer: 'Leger des Heils', businessUnit: null,
+      site: '3135VR41', parentTenantId: 'parent',
+    })
+  })
+
   it('requires an intact parent chain and a display name', () => {
     const child: AuvikTenantResource = {
       id: 'site', type: 'tenant',
