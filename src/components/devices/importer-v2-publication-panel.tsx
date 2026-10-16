@@ -776,8 +776,12 @@ export function ImporterV2PublicationPanel({
                   }}
                   className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
                 >
-                  <option value="ALL_RESOLVED">Publish entire resolved batch</option>
-                  <option value="VALID_ONLY">Publish only currently valid devices</option>
+                  <option value="ALL_RESOLVED">{selectionEnabled
+                    ? 'All resolved devices within selected scope'
+                    : 'Publish entire resolved batch'}</option>
+                  <option value="VALID_ONLY">{selectionEnabled
+                    ? 'Only valid devices within selected scope'
+                    : 'Publish only currently valid devices'}</option>
                 </select>
               </label>
               <div className="text-right">
