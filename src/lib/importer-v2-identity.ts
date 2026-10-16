@@ -175,21 +175,44 @@ export function normalizeImporterV2Identity(
  * canonical corrections. An explicit IGNORE_FIELD / CLEAR_FIELD decision is
  * different: that source identifier has been declared unreliable for durable
  * identity and must not be reintroduced into the crosswalk from raw evidence.
- * Raw evidence itself remains immutable in the staged snapshot.
+ * Raw evidence itself remains immutable in the staged snapshot. A separately
+ * confirmed SET_FIELD/LINK_FIELD correction also supersedes the raw alias
+ * for durable identity matching; otherwise a copied HA serial would leak
+ * back into the canonical crosswalk and collide again at publication.
  */
+export function importerV2ConfirmedIdentityCorrections(
+  decisions: readonly { field: string | null; action: string }[],
+): string[] {
+  const corrected = new Set<string>()
+  const fields = new Set(['sourceId', 'serialNumber', 'macAddress'])
+  for (const decision of decisions) {
+    if (!decision.field || !fields.has(decision.field)) continue
+    if (['SET_FIELD', 'LINK_FIELD', 'REMEMBER_EXACT', 'CREATE_SCOPED_RULE'].includes(decision.action)) {
+      corrected.add(decision.field)
+    } else if (decision.action === 'CLEAR_FIELD' || decision.action === 'IGNORE_FIELD') {
+      corrected.delete(decision.field)
+    }
+  }
+  return [...corrected]
+}
+
 export function importerV2SourceIdentityForCrosswalk(input: {
   rawIdentifiers: ImporterV2IdentityIdentifiers
   effectiveIdentifiers: ImporterV2IdentityIdentifiers
   suppressedSourceFields?: readonly string[]
+  correctedSourceFields?: readonly string[]
 }): { sourceId: string | null; serialNumber: string | null; macAddress: string | null } {
   const suppressed = new Set(input.suppressedSourceFields ?? [])
-  const value = (
-    field: keyof ImporterV2IdentityIdentifiers,
-  ) =>
-    suppressed.has(field)
-      ? null
-      : normalizeText(input.rawIdentifiers[field]) ??
-        normalizeText(input.effectiveIdentifiers[field])
+  const corrected = new Set(input.correctedSourceFields ?? [])
+  const value = (field: keyof ImporterV2IdentityIdentifiers) => {
+    if (suppressed.has(field)) return null
+    // A confirmed member-level correction replaces an inaccurate cluster
+    // alias. The raw identifier remains immutable evidence, but must not
+    // become a second durable identity for this physical device.
+    if (corrected.has(field)) return normalizeText(input.effectiveIdentifiers[field])
+    return normalizeText(input.rawIdentifiers[field]) ??
+      normalizeText(input.effectiveIdentifiers[field])
+  }
 
   return {
     sourceId: value('sourceId'),
