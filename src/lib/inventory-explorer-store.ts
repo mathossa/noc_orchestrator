@@ -40,6 +40,7 @@ type InventoryFact = {
   currentFirmwareReleaseId: string | null
   currentFirmwareNormalizedVersion: string | null
   currentFirmwareRawVersion: string | null
+  lifecycle?: { state: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE' } | null
   customer: { id: string; name: string; code?: string | null; contractTypeId?: string | null }
   site: { id: string; name: string; code?: string | null; contractTypeId?: string | null } | null
   deviceModel: {
@@ -70,6 +71,7 @@ const factSelect = {
   currentFirmwareReleaseId: true,
   currentFirmwareNormalizedVersion: true,
   currentFirmwareRawVersion: true,
+  lifecycle: { select: { state: true } },
   customer: { select: { id: true, name: true, code: true, contractTypeId: true } },
   site: { select: { id: true, name: true, code: true, contractTypeId: true } },
   deviceModel: {
@@ -639,6 +641,7 @@ export async function getDashboardWorkPackageFindings(
       status: fact.status.code,
       reason: fact.status.reason,
       managementContractId: fact.site?.contractTypeId ?? fact.customer.contractTypeId ?? null,
+      workflowState: fact.lifecycle?.state ?? null,
       plan: plan && [
         'PROPOSED', 'AWAITING_CUSTOMER', 'APPROVED', 'SCHEDULED', 'IN_PROGRESS',
       ].includes(plan.state)
