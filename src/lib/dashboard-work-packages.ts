@@ -19,6 +19,7 @@ export type WorkPackageFinding = {
 export type ActionWorkPackage = {
   id: string
   kind: WorkPackageKind
+  findingKey: string
   title: string
   reason: string
   customer: WorkPackageFinding['customer']
@@ -133,6 +134,7 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
         group = {
           id: identity,
           kind: candidate.kind,
+          findingKey: candidate.findingKey,
           title: candidate.label + ' · ' + finding.vendor.name + ' ' + finding.model.name,
           reason: candidate.reason,
           customer: finding.customer,
