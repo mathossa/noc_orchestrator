@@ -16,6 +16,8 @@ export type AuvikImporterV2TenantContext = {
   enabled?: boolean
   tenantId: string
   tenantName?: string | null
+  tenantType?: string | null
+  domainPrefix?: string | null
   customer?: string | null
   businessUnit?: string | null
   site?: string | null
@@ -54,6 +56,8 @@ function sourceEvidence(
     tenant: {
       id: context.tenantId,
       name: clean(context.tenantName),
+      type: clean(context.tenantType),
+      domainPrefix: clean(context.domainPrefix),
     },
     device: {
       id: resource.id,
