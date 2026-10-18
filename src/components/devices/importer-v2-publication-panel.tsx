@@ -5,6 +5,7 @@ import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
+import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import type {
   ImporterV2CatalogProposal,
   ImporterV2CatalogProposalField,
@@ -98,8 +99,11 @@ function candidateRowsFor(qa: ImporterV2PublicationQa, mode: ImporterV2Publicati
 function publicationSourceRowsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = new Set(candidateRowsFor(qa, mode))
+  const rows = new Set(
+    selectedCandidateRows ?? candidateRowsFor(qa, mode),
+  )
   for (const stack of qa.topology.stackGroups) {
     if (!rows.has(stack.parentRowNumber)) continue
     for (const member of stack.memberRows) rows.add(member.rowNumber)
@@ -110,8 +114,13 @@ function publicationSourceRowsFor(
 function requiredProposalsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = publicationSourceRowsFor(qa, mode)
+  const rows = publicationSourceRowsFor(
+    qa,
+    mode,
+    selectedCandidateRows,
+  )
   return qa.catalogProposals
     .filter((proposal) =>
       proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
@@ -133,15 +142,39 @@ type PublicationResult = {
   batchStatus: string
 }
 
+type PublicationScopePreview = {
+  qaFingerprint: string
+  mode: ImporterV2PublicationMode
+  rowNumbers: number[]
+  matchedCount: number
+  eligibleCount: number
+  skippedCount: number
+  conflictingRowNumbers: number[]
+}
+
 export function ImporterV2PublicationPanel({
   batchId,
+  selectedWorkspaceRows = null,
+  onPublished,
   embedded = false,
 }: {
   batchId: string
+  selectedWorkspaceRows?: ImporterV2WorkspaceSelection | null
+  onPublished?: () => void
   embedded?: boolean
 }) {
   const [qa, setQa] = useState<ImporterV2PublicationQa | null>(null)
-  const [mode, setMode] = useState<ImporterV2PublicationMode>('ALL_RESOLVED')
+  const [mode, setMode] = useState<ImporterV2PublicationMode>(
+    selectedWorkspaceRows ? 'VALID_ONLY' : 'ALL_RESOLVED',
+  )
+  const [publicationScope, setPublicationScope] =
+    useState<'BATCH' | 'SELECTION'>(
+      selectedWorkspaceRows ? 'SELECTION' : 'BATCH',
+    )
+  const [scoped, setScoped] = useState<PublicationScopePreview | null>(
+    null,
+  )
+  const [scopedLoading, setScopedLoading] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -202,17 +235,86 @@ export function ImporterV2PublicationPanel({
     }
   }, [fetchQa])
 
-  const candidateRows = useMemo(
-    () => (qa ? candidateRowsFor(qa, mode) : []),
-    [mode, qa],
-  )
+  const selectionEnabled =
+    publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
+
+  useEffect(() => {
+    if (!qa || !selectionEnabled || !selectedWorkspaceRows) {
+      setScoped(null)
+      setScopedLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setScopedLoading(true)
+    setError(null)
+
+    void fetch(
+      `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          selection: selectedWorkspaceRows,
+        }),
+      },
+    )
+      .then((response) => responseData<PublicationScopePreview>(response))
+      .then((preview) => {
+        if (!cancelled) setScoped(preview)
+      })
+      .catch((scopeError) => {
+        if (!cancelled) {
+          setScoped(null)
+          setError(
+            scopeError instanceof Error
+              ? scopeError.message
+              : 'Unable to preview selected publication scope.',
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setScopedLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    batchId,
+    mode,
+    qa,
+    selectionEnabled,
+    selectedWorkspaceRows,
+  ])
+
+  const candidateRows = useMemo(() => {
+    if (!qa) return []
+    if (!selectionEnabled) return candidateRowsFor(qa, mode)
+    if (
+      !scoped ||
+      scoped.qaFingerprint !== qa.qaFingerprint ||
+      scoped.mode !== mode
+    ) {
+      return []
+    }
+    return scoped.rowNumbers
+  }, [mode, qa, scoped, selectionEnabled])
+
   const publicationSourceRows = useMemo(
-    () => (qa ? publicationSourceRowsFor(qa, mode) : new Set<number>()),
-    [mode, qa],
+    () =>
+      qa
+        ? publicationSourceRowsFor(qa, mode, candidateRows)
+        : new Set<number>(),
+    [mode, qa, candidateRows],
   )
   const requiredProposals = useMemo(
-    () => (qa ? requiredProposalsFor(qa, mode) : []),
-    [mode, qa],
+    () =>
+      qa
+        ? requiredProposalsFor(qa, mode, candidateRows)
+        : [],
+    [mode, qa, candidateRows],
   )
   const groups = useMemo(() => proposalGroups(requiredProposals), [requiredProposals])
   const requiredKeys = useMemo(
@@ -228,7 +330,14 @@ export function ImporterV2PublicationPanel({
     qa &&
       candidateRows.length > 0 &&
       allProposalsApproved &&
-      (mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0),
+      (!selectionEnabled ||
+        (scoped &&
+          scoped.qaFingerprint === qa.qaFingerprint &&
+          scoped.mode === mode &&
+          scoped.conflictingRowNumbers.length === 0)) &&
+      (selectionEnabled ||
+        mode === 'VALID_ONLY' ||
+        qa.publication.unresolvedRows.length === 0),
   )
 
   const approveKeys = (keys: string[], checked: boolean) => {
@@ -258,6 +367,12 @@ export function ImporterV2PublicationPanel({
           qaFingerprint: currentQa.qaFingerprint,
           idempotencyKey,
           approvedProposalKeys: approvalKeys,
+          selection: selectionEnabled
+            ? selectedWorkspaceRows
+            : undefined,
+          expectedCandidateRows: selectionEnabled
+            ? candidateRows
+            : undefined,
         }),
       },
     )
@@ -276,6 +391,8 @@ export function ImporterV2PublicationPanel({
         qaFingerprint: qa.qaFingerprint,
         mode,
         approvedProposalKeys: approvalKeys,
+        selection: selectionEnabled ? selectedWorkspaceRows : null,
+        candidateRows: selectionEnabled ? candidateRows : null,
       })
       if (retryRequest.current?.signature !== signature) {
         retryRequest.current = {
@@ -297,6 +414,15 @@ export function ImporterV2PublicationPanel({
         }
 
         const freshQa = await fetchQa(true)
+        setQa(freshQa)
+        retryRequest.current = null
+
+        if (selectionEnabled) {
+          throw new Error(
+            'The staged QA or selected scope changed while this dialog was open. Review the refreshed selected scope and publish again.',
+          )
+        }
+
         const freshRequired = requiredProposalsFor(freshQa, mode)
         const freshRequiredKeys = new Set(freshRequired.map((item) => item.key))
         const stillApproved = approvalKeys.filter((key) => freshRequiredKeys.has(key))
@@ -306,9 +432,7 @@ export function ImporterV2PublicationPanel({
           stillApproved.length === freshRequired.length &&
           (mode === 'VALID_ONLY' || freshQa.publication.unresolvedRows.length === 0)
 
-        setQa(freshQa)
         setApproved(new Set(stillApproved))
-        retryRequest.current = null
 
         if (!mayRetry) {
           throw new Error(
@@ -325,6 +449,7 @@ export function ImporterV2PublicationPanel({
         `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
       await loadQa()
+      onPublished?.()
     } catch (publishError) {
       setError(
         publishError instanceof Error
@@ -471,7 +596,7 @@ export function ImporterV2PublicationPanel({
             </div>
           ) : null}
 
-          {qa.publication.unresolvedRows.length ? (
+          {!selectionEnabled && qa.publication.unresolvedRows.length ? (
             <div className="rounded-md border border-[#8f4747] bg-[#512b2b] p-3 text-sm text-[#ffd7d7]">
               <div className="font-semibold">
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
@@ -645,28 +770,93 @@ export function ImporterV2PublicationPanel({
                 {success}
               </div>
             ) : null}
+            {selectionEnabled && scoped?.conflictingRowNumbers.length ? (
+              <div className="mb-3 rounded-md border border-[#8f4747] bg-[#512b2b] px-3 py-2 text-sm text-[#ffd7d7]">
+                {scoped.conflictingRowNumbers.length.toLocaleString()} selected candidate row(s) still have identity or name conflicts. Resolve those rows or narrow the selection before publishing.
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <label className="text-sm font-medium text-[var(--foreground)]">
-                Publication scope
-                <select
-                  value={mode}
-                  onChange={(event) => {
-                    setMode(event.target.value as ImporterV2PublicationMode)
-                    setApproved(new Set())
-                    retryRequest.current = null
-                  }}
-                  className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-                >
-                  <option value="ALL_RESOLVED">Publish entire resolved batch</option>
-                  <option value="VALID_ONLY">Publish only currently valid devices</option>
-                </select>
-              </label>
+              <div className="flex flex-wrap items-end gap-3">
+                {selectedWorkspaceRows ? (
+                  <label className="text-sm font-medium text-[var(--foreground)]">
+                    Publish rows
+                    <select
+                      aria-label="Publication row selection"
+                      value={publicationScope}
+                      onChange={(event) => {
+                        setPublicationScope(
+                          event.target.value as 'SELECTION' | 'BATCH',
+                        )
+                        setApproved(new Set())
+                        retryRequest.current = null
+                      }}
+                      className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                    >
+                      <option value="SELECTION">
+                        {selectedWorkspaceRows.mode === 'QUERY'
+                          ? 'Selected / filtered matching rows'
+                          : `Only ${selectedWorkspaceRows.rowNumbers.length} selected row(s)`}
+                      </option>
+                      <option value="BATCH">Entire batch</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                <label className="text-sm font-medium text-[var(--foreground)]">
+                  Eligibility
+                  <select
+                    value={mode}
+                    onChange={(event) => {
+                      setMode(
+                        event.target.value as ImporterV2PublicationMode,
+                      )
+                      setApproved(new Set())
+                      retryRequest.current = null
+                    }}
+                    className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                  >
+                    <option value="VALID_ONLY">
+                      {selectionEnabled
+                        ? 'Valid devices within selected scope'
+                        : 'Only currently valid devices'}
+                    </option>
+                    <option value="ALL_RESOLVED">
+                      {selectionEnabled
+                        ? 'All resolved devices within selected scope'
+                        : 'Entire resolved batch'}
+                    </option>
+                  </select>
+                </label>
+              </div>
+
               <div className="text-right">
+                {selectionEnabled ? (
+                  <div className="mb-1 text-xs text-[var(--muted)]">
+                    {scopedLoading
+                      ? 'Checking exact server-side selection…'
+                      : scoped
+                        ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts`
+                        : 'Preparing selected scope…'}
+                  </div>
+                ) : null}
                 <div className="mb-1 text-xs text-[var(--muted)]">
                   {candidateRows.length.toLocaleString()} managed device(s) · {publicationSourceRows.size.toLocaleString()} source row(s) · {approvedRequiredCount}/{requiredProposals.length} proposal approvals
                 </div>
-                <Button onClick={() => void publish()} disabled={!canPublish || publishing || loading}>
-                  {publishing ? 'Publishing…' : 'Publish atomically'}
+                <Button
+                  onClick={() => void publish()}
+                  disabled={
+                    !canPublish ||
+                    publishing ||
+                    loading ||
+                    (selectionEnabled && scopedLoading)
+                  }
+                >
+                  {publishing
+                    ? 'Publishing…'
+                    : selectionEnabled
+                      ? 'Publish selected atomically'
+                      : 'Publish atomically'}
                 </Button>
               </div>
             </div>
