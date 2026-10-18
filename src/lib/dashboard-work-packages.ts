@@ -61,6 +61,7 @@ type Candidate = { kind: WorkPackageKind; label: string; findingKey: string; rea
  */
 export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding[]): ActionWorkPackage[] {
   const byKey = new Map<string, ActionWorkPackage>()
+  const membersByGroup = new Map<string, Set<string>>()
 
   for (const finding of findings) {
     const candidates: Candidate[] = []
@@ -117,11 +118,12 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
       const identity = JSON.stringify([
         candidate.kind,
         candidate.findingKey,
+        candidate.reason,
         finding.customer.id,
         finding.site?.id ?? null,
         finding.vendor.id,
         finding.model.id,
-        finding.firmwareKey ?? null,
+        candidate.findingKey === 'MISSING_CONTRACT' ? null : (finding.firmwareKey ?? null),
         finding.managementContractId ?? null,
         // Separate approval/maintenance scopes even within technically similar releases.
         finding.plan?.id ?? null,
@@ -145,8 +147,11 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
           assigneeId: null,
         }
         byKey.set(identity, group)
+        membersByGroup.set(identity, new Set())
       }
-      if (!group.deviceIds.includes(finding.deviceId)) {
+      const members = membersByGroup.get(identity)!
+      if (!members.has(finding.deviceId)) {
+        members.add(finding.deviceId)
         group.deviceIds.push(finding.deviceId)
         group.deviceCount += 1
       }
