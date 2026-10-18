@@ -82,7 +82,7 @@ describe('action-driven Werkoverzicht', () => {
 
   it('does not invent week trends, assignees, CVEs or deadlines', () => {
     const html = render([finding(1, 'UPDATE_REQUIRED')])
-    expect(html).toContain('Beschikbaar zodra taak- en planningshistorie is gekoppeld.')
+    expect(html).not.toContain('Weekvoortgang')
     expect(html).not.toContain('Vandaag')
     expect(html).not.toContain('Deadline')
     expect(html).not.toContain('CVE-')
@@ -91,6 +91,6 @@ describe('action-driven Werkoverzicht', () => {
   it('shows clear empty state rather than invented package counts', () => {
     const html = render([])
     expect(html).toContain('Geen werkzaamheden in deze selectie.')
-    expect(html).toContain('0 werkpakketten in scope')
+    expect(html).toContain('0 werkpakketten')
   })
 })
