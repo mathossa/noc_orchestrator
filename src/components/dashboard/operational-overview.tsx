@@ -136,7 +136,7 @@ function KpiCards({ scope, packages }: { scope: DashboardScope; packages: Action
               <span className="text-sm text-[var(--muted)] group-hover:text-[var(--foreground)]" aria-hidden="true">↗</span>
             </div>
             <div className="mt-2 text-3xl font-bold tabular-nums" style={{ color: item.accent }}>{counts[item.kind]}</div>
-            <div className="mt-1 text-xs text-[var(--muted)]">{item.hint} · werkpakketten</div>
+            <div className="mt-1 text-xs text-[var(--muted)]">{item.hint}</div>
           </Link>
         )
       })}
@@ -211,7 +211,7 @@ function WorkRows({ scope, packages }: { scope: DashboardScope; packages: Action
   )
 }
 
-function DataQuality({ packages }: { packages: ActionWorkPackage[] }) {
+function DataQuality({ packages, scope }: { packages: ActionWorkPackage[]; scope: DashboardScope }) {
   const blocked = packages.filter((item) => item.kind === 'BLOCKED')
   const missingContracts = packages.filter((item) => item.findingKey === 'MISSING_CONTRACT')
   const review = packages.filter((item) => item.kind === 'CHECK' && item.findingKey !== 'MISSING_CONTRACT')
@@ -223,7 +223,7 @@ function DataQuality({ packages }: { packages: ActionWorkPackage[] }) {
           {blocked.length ? (
             <>
               <p className="text-sm"><span className="font-bold tabular-nums">{blocked.length}</span> wachten op klantgoedkeuring</p>
-              <Link href={dashboardHref({ q: '', customer: '', vendor: '', contract: '', kind: 'BLOCKED', page: 1 })} className="text-xs text-[var(--accent-light)] hover:underline">Bekijk blokkades →</Link>
+              <Link href={dashboardHref(scope, { kind: 'BLOCKED', page: 1 })} className="text-xs text-[var(--accent-light)] hover:underline">Bekijk blokkades →</Link>
             </>
           ) : <p className="text-sm text-[var(--muted)]">Geen wachtende goedkeuringen in deze selectie.</p>}
         </div>
@@ -233,7 +233,6 @@ function DataQuality({ packages }: { packages: ActionWorkPackage[] }) {
         <div className="space-y-2 px-4 py-3 text-sm">
           <p><span className="font-semibold tabular-nums">{missingContracts.length}</span> werkpakketten zonder beheercontract</p>
           <p><span className="font-semibold tabular-nums">{review.length}</span> firmware- of reviewcontroles</p>
-          <p className="text-xs text-[var(--muted)]">HA-volledigheid en syncconflicten worden toegevoegd zodra de bronevidentie is aangesloten.</p>
         </div>
       </section>
     </aside>
@@ -255,7 +254,7 @@ export function OperationalOverview({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Werkoverzicht</h1>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            {scope.customer ? 'Geselecteerde klant' : 'Alle klanten'} · {packages.length} werkpakketten in scope
+            {scope.customer ? filters.customers.find((item) => item.id === scope.customer)?.name ?? 'Geselecteerde klant' : 'Alle klanten'}
           </p>
         </div>
         <Link href="/devices" className="text-xs font-semibold text-[var(--accent-light)] hover:underline">Inventory →</Link>
@@ -264,13 +263,8 @@ export function OperationalOverview({
       <KpiCards scope={scope} packages={packages} />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <WorkRows scope={scope} packages={packages} />
-        <DataQuality packages={packages} />
+        <DataQuality packages={packages} scope={scope} />
       </div>
-      <section className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-xs">
-        <span className="font-semibold">Weekvoortgang</span>
-        <span className="text-[var(--muted)]">Beschikbaar zodra taak- en planningshistorie is gekoppeld.</span>
-        <Link href="/planning" className="font-semibold text-[var(--accent-light)] hover:underline">Planning →</Link>
-      </section>
     </div>
   )
 }
