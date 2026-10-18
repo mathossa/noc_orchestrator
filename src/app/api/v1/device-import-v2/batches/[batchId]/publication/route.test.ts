@@ -8,17 +8,14 @@ const mocked = vi.hoisted(() => ({
   getSession: vi.fn(),
 }))
 
-class PublicationConflictError extends Error {}
-class PublicationValidationError extends Error {}
-
 vi.mock('@/lib/auth', () => ({
   auth: { api: { getSession: mocked.getSession } },
 }))
 vi.mock('@/lib/importer-v2-publication-store', () => ({
   getImporterV2PublicationQa: mocked.getQa,
   publishImporterV2Batch: mocked.publish,
-  ImporterV2PublicationConflictError: PublicationConflictError,
-  ImporterV2PublicationValidationError: PublicationValidationError,
+  ImporterV2PublicationConflictError: class ImporterV2PublicationConflictError extends Error {},
+  ImporterV2PublicationValidationError: class ImporterV2PublicationValidationError extends Error {},
 }))
 vi.mock('@/lib/importer-v2-workspace-store', () => ({
   resolveImporterV2PublicationSelection: mocked.resolve,
