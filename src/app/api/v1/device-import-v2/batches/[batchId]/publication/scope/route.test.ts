@@ -52,12 +52,20 @@ describe('selected importer publication scope preview', () => {
         rowNumber: 92,
         sourceName: 'FW-B',
         hostname: 'fw-b.example',
+        selectedCanonicalDeviceId: null,
+        sourceIdentifiers: {
+          sourceId: 'auvik-fw-b',
+          serialNumber: 'SHARED-SERIAL',
+          macAddress: null,
+        },
         conflicts: [],
         stagedConflicts: [
           {
             rowNumber: 91,
             sourceName: 'FW-A',
             hostname: 'fw-a.example',
+            sourceId: 'auvik-fw-a',
+            selectedCanonicalDeviceId: null,
             matchingIdentifiers: [
               { field: 'serialNumber', value: 'SHARED-SERIAL' },
             ],
@@ -95,12 +103,16 @@ describe('selected importer publication scope preview', () => {
             rowNumber: 92,
             sourceName: 'FW-B',
             hostname: 'fw-b.example',
+            sourceId: 'auvik-fw-b',
+            selectedCanonicalDeviceId: null,
             canonicalConflicts: [],
             stagedConflicts: [
               {
                 rowNumber: 91,
                 sourceName: 'FW-A',
                 hostname: 'fw-a.example',
+                sourceId: 'auvik-fw-a',
+                selectedCanonicalDeviceId: null,
                 matchingIdentifiers: [
                   { field: 'serialNumber', value: 'SHARED-SERIAL' },
                 ],
