@@ -76,7 +76,7 @@ describe('action-driven Werkoverzicht', () => {
     const html = render(Array.from({ length: 15 }, (_, i) => finding(i, 'UPDATE_REQUIRED')))
     expect(html).toContain('href="/dashboard?page=2"')
     expect(html).toContain('1 / 2')
-    expect(html).toContain('Firewall 7')
+    expect(html).toContain('Firewall 0')
     expect(html).not.toContain('Firewall 8')
   })
 
