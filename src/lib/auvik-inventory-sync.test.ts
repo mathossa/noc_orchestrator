@@ -227,6 +227,46 @@ describe('Auvik inventory sync orchestration', () => {
     expect(result.source.tenantCount).toBe(1)
   })
 
+  it('does not sync enabled multiClient hierarchy containers as leaf sites', async () => {
+    const existing = await mocks.getConnectionCredentials()
+    mocks.getConnectionCredentials.mockResolvedValueOnce({
+      ...existing,
+      connection: {
+        ...existing.connection,
+        configuration: {
+          ...existing.connection.configuration,
+          tenants: [
+            {
+              tenantId: 'msp-root',
+              tenantType: 'multiClient',
+              enabled: true,
+              customer: 'Container only',
+              site: 'Container only',
+            },
+            {
+              tenantId: 'tenant-a',
+              tenantType: 'client',
+              enabled: true,
+              customer: 'Customer A',
+              site: 'Site A',
+            },
+          ],
+        },
+      },
+    })
+
+    const result = await runAuvikInventorySync('source-1')
+
+    expect(mocks.listDevices).toHaveBeenCalledTimes(1)
+    expect(mocks.listDevices).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-a' }),
+    )
+    expect(result.source).toMatchObject({
+      tenantCount: 1,
+      configuredTenantCount: 1,
+    })
+  })
+
   it('stages successful tenants only and marks a partial run as a non-full export', async () => {
     mocks.listDevices.mockRejectedValueOnce(new Error('Auvik API request failed with HTTP 503.'))
     const result = await runAuvikInventorySync('source-1', { trigger: 'SCHEDULED' })
