@@ -70,6 +70,7 @@ export type ImporterV2IdentityConflictDiagnostic = {
     rowNumber: number
     sourceName: string | null
     hostname: string | null
+    sourceId: string | null
     customer: string | null
     organizationUnit: string | null
     site: string | null
@@ -414,6 +415,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
           rowNumber: other.rowNumber,
           sourceName: other.sourceName,
           hostname: other.hostname,
+          sourceId: other.sourceIdentifiers.sourceId,
           customer: other.customer,
           organizationUnit: other.organizationUnit,
           site: other.site,
