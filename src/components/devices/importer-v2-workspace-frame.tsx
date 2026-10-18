@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ImporterV2PublicationPanel } from '@/components/devices/importer-v2-publication-panel'
 import { ImporterV2WorkspaceShell } from '@/components/devices/importer-v2-workspace-shell'
+import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import styles from './importer-v2-workspace-frame.module.css'
 
 type WorkspaceView = 'compact' | 'evidence'
@@ -46,6 +47,22 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
   const [maintenanceBusy, setMaintenanceBusy] = useState<MaintenanceAction | null>(null)
   const [maintenanceStatus, setMaintenanceStatus] = useState<string | null>(null)
   const [workspaceRevision, setWorkspaceRevision] = useState(0)
+  const [activeSelection, setActiveSelection] =
+    useState<ImporterV2WorkspaceSelection | null>(null)
+  const [publicationSelection, setPublicationSelection] =
+    useState<ImporterV2WorkspaceSelection | null>(null)
+
+  const onSelectionChange = useCallback(
+    (selection: ImporterV2WorkspaceSelection | null) => {
+      setActiveSelection(selection)
+    },
+    [],
+  )
+
+  const openPublication = () => {
+    setPublicationSelection(activeSelection)
+    setPublicationOpen(true)
+  }
 
   const runMaintenance = async (action: MaintenanceAction) => {
     setMaintenanceBusy(action)
@@ -131,10 +148,10 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
           </button>
           <button
             type="button"
-            onClick={() => setPublicationOpen(true)}
+            onClick={openPublication}
             className={[styles.viewButton, styles.publishButton].join(' ')}
           >
-            Final QA / Publish
+            {activeSelection ? 'Final QA / Publish selection' : 'Final QA / Publish batch'}
           </button>
         </div>
 
@@ -145,7 +162,7 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
         ) : null}
       </section>
 
-      <ImporterV2WorkspaceShell revision={workspaceRevision} batchId={batchId} />
+      <ImporterV2WorkspaceShell revision={workspaceRevision} batchId={batchId} onSelectionChange={onSelectionChange} />
 
       {publicationOpen ? (
         <div
@@ -183,7 +200,14 @@ export function ImporterV2WorkspaceFrame({ batchId }: { batchId: string }) {
               </button>
             </div>
             <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
-              <ImporterV2PublicationPanel batchId={batchId} embedded />
+              <ImporterV2PublicationPanel
+                batchId={batchId}
+                selectedWorkspaceRows={publicationSelection}
+                onPublished={() =>
+                  setWorkspaceRevision((current) => current + 1)
+                }
+                embedded
+              />
             </div>
           </div>
         </div>
