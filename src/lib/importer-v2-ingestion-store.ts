@@ -287,8 +287,21 @@ async function catalogSnapshot(): Promise<{
 }> {
   const [customers, units, sites, vendors, families, models, deviceTypes] = await Promise.all([
     prisma.customer.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
-    prisma.customerOrganizationUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
-    prisma.site.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
+    prisma.customerOrganizationUnit.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, customerId: true },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.site.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        customerId: true,
+        organizationUnitId: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
     prisma.vendor.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
     prisma.deviceModelFamily.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { id: 'asc' } }),
     prisma.deviceModel.findMany({
@@ -310,8 +323,19 @@ async function catalogSnapshot(): Promise<{
   const value = (records: readonly { id: string; name: string }[]) => records.map((record) => ({ id: record.id, label: record.name }))
   const catalogValues: ImporterV2CatalogSnapshot['values'] = {
     customer: value(customers),
-    businessUnit: value(units),
-    site: value(sites),
+    businessUnit: units.map((record) => ({
+      id: record.id,
+      label: record.name,
+      context: { customerId: record.customerId },
+    })),
+    site: sites.map((record) => ({
+      id: record.id,
+      label: record.name,
+      context: {
+        customerId: record.customerId,
+        businessUnitId: record.organizationUnitId,
+      },
+    })),
     vendor: value(vendors),
     productFamily: value(families),
     model: models.map((record) => ({ id: record.id, label: record.model })),
