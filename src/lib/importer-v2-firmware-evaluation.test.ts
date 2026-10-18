@@ -90,7 +90,7 @@ describe('Importer v2 centralized firmware evaluation boundary', () => {
     expect(row.fields.currentFirmware.decision).toMatchObject({
       source: 'DETERMINISTIC_PARSER',
       matchedParserId: 'importer-v2-firmware-interpreter',
-      matchedParserVersion: '1.0.0',
+      matchedParserVersion: '1.0.1',
       requiresConfirmation: false,
     })
   })
