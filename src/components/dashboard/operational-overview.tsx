@@ -24,7 +24,7 @@ const kinds: ReadonlyArray<{
   { kind: 'CHECK', label: 'Te controleren', hint: 'Data of review', accent: 'var(--accent-light)' },
 ]
 
-const perPage = 8
+const perPage = 5
 
 export function dashboardHref(scope: DashboardScope, patch: Partial<DashboardScope> = {}) {
   const next = { ...scope, ...patch }
