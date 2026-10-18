@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   importerV2CurrentFirmwareReleaseId,
+  importerV2PreservedCanonicalFirmware,
   importerV2ShouldReplaceCurrentFirmware,
 } from '@/lib/importer-v2-publication-firmware'
 
@@ -26,6 +27,29 @@ describe('Importer v2 current firmware publication ownership', () => {
         ],
       }),
     ).toBe(false)
+  })
+
+  it('surfaces known canonical firmware when a matched source observation is blank', () => {
+    expect(
+      importerV2PreservedCanonicalFirmware({
+        runningVersion: null,
+        canonicalRunningVersion: '7.4.9',
+      }),
+    ).toBe('7.4.9')
+
+    expect(
+      importerV2PreservedCanonicalFirmware({
+        runningVersion: '7.4.11',
+        canonicalRunningVersion: '7.4.9',
+      }),
+    ).toBeNull()
+
+    expect(
+      importerV2PreservedCanonicalFirmware({
+        runningVersion: null,
+        canonicalRunningVersion: null,
+      }),
+    ).toBeNull()
   })
 
   it('replaces current firmware when a concrete observed running version exists', () => {

@@ -21,6 +21,8 @@ type Connection = {
       tenantId: string
       enabled?: boolean
       tenantName?: string | null
+      tenantType?: string | null
+      domainPrefix?: string | null
       customer?: string | null
       businessUnit?: string | null
       site?: string | null
@@ -47,6 +49,8 @@ type TenantEditor = {
   enabled: boolean
   tenantId: string
   tenantName: string
+  tenantType: string
+  domainPrefix: string
   customer: string
   businessUnit: string
   site: string
@@ -59,6 +63,8 @@ function editorTenant(
     enabled: tenant?.enabled !== false,
     tenantId: tenant?.tenantId ?? '',
     tenantName: tenant?.tenantName ?? '',
+    tenantType: tenant?.tenantType ?? '',
+    domainPrefix: tenant?.domainPrefix ?? '',
     customer: tenant?.customer ?? '',
     businessUnit: tenant?.businessUnit ?? '',
     site: tenant?.site ?? '',
@@ -252,6 +258,8 @@ export function AuvikConnectionManager({
             return saved ?? editorTenant({
               tenantId: tenant.id,
               tenantName: tenant.domainPrefix,
+              tenantType: tenant.tenantType,
+              domainPrefix: tenant.domainPrefix,
               enabled: false,
             })
           }),

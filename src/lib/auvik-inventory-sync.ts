@@ -46,7 +46,13 @@ export function auvikApiRuntimeImporterProfile(input: {
 export function configuredAuvikTenantScopes(
   configuration: AuvikInventoryConnectionConfiguration,
 ) {
-  const enabled = configuration.tenants.filter((tenant) => tenant.enabled !== false)
+  const enabled = configuration.tenants.filter(
+    (tenant) =>
+      tenant.enabled !== false &&
+      !((tenant.tenantType ?? '')
+        .toLocaleLowerCase('en-US')
+        .includes('multi')),
+  )
   if (enabled.length === 0) {
     throw new Error(
       'Configure at least one Auvik tenant scope before synchronizing inventory.',
