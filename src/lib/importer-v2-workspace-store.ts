@@ -431,6 +431,30 @@ function selectionWhere(
   return importerV2WorkspaceWhere(batchId, selection.filters)
 }
 
+/**
+ * Resolve the exact server-side staged selection used by reconciliation.
+ * Publication reuses this instead of trusting a browser-expanded row list.
+ */
+export async function resolveImporterV2PublicationSelection(input: {
+  batchId: string
+  selection: ImporterV2WorkspaceSelection
+}): Promise<number[]> {
+  const rows = await prisma.importerV2WorkspaceRow.findMany({
+    where: selectionWhere(input.batchId, input.selection),
+    orderBy: { rowNumber: 'asc' },
+    select: { rowNumber: true },
+    take: 20_001,
+  })
+
+  if (rows.length > 20_000) {
+    throw new Error(
+      'Publication selection exceeds 20,000 source rows. Narrow the filter.',
+    )
+  }
+
+  return rows.map((row) => row.rowNumber)
+}
+
 async function rowsForSelection(
   batchId: string,
   selection: ImporterV2WorkspaceSelection,
