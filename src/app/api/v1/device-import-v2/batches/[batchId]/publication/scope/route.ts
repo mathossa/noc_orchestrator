@@ -86,10 +86,7 @@ export async function POST(request: Request, context: Context) {
             rowNumber: match.rowNumber,
             sourceName: match.sourceName,
             hostname: match.hostname,
-            sourceId:
-              conflict.stagedConflicts.find(
-                (item) => item.rowNumber === match.rowNumber,
-              )?.sourceId ?? null,
+            sourceId: match.sourceId,
             selectedCanonicalDeviceId:
               match.selectedCanonicalDeviceId,
             matchingIdentifiers: match.matchingIdentifiers,
