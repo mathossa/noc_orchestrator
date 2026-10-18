@@ -20,8 +20,8 @@ const kinds: ReadonlyArray<{
 }> = [
   { kind: 'URGENT', label: 'Urgent', hint: 'Kritieke firmware', accent: 'var(--danger)' },
   { kind: 'TO_PLAN', label: 'Te plannen', hint: 'Nog niet gepland', accent: 'var(--warning)' },
-  { kind: 'BLOCKED', label: 'Geblokkeerd', hint: 'Wacht op akkoord', accent: 'var(--info)' },
-  { kind: 'CHECK', label: 'Te controleren', hint: 'Data of review', accent: 'var(--accent-light)' },
+  { kind: 'BLOCKED', label: 'Geblokkeerd', hint: 'Wacht op akkoord', accent: 'var(--muted-strong)' },
+  { kind: 'CHECK', label: 'Te controleren', hint: 'Data of review', accent: 'var(--info)' },
 ]
 
 const perPage = 5
