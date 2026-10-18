@@ -51,6 +51,18 @@ describe('device detail workspace', () => {
     expect(html).toContain('/devices/customers/customer/sites/site')
   })
 
+  it('replaces the old top breadcrumb with the same compact inventory path', () => {
+    const html = render()
+    expect(html).toContain('aria-label="Inventory exploration steps"')
+    expect(html).not.toContain('aria-label="Breadcrumb"')
+    expect(html).toContain('href="/devices/customers/customer"')
+    expect(html).toContain('href="/devices/customers/customer/sites/site"')
+    expect(html).toContain('href="/devices/customers/customer/sites/site/types/ap"')
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1)
+    expect(html).not.toContain('Select a customer')
+    expect(html).not.toContain('View devices')
+  })
+
   it('links to actual maintenance plans without offering per-device lifecycle actions', () => {
     const html = render(
       deviceDetailFixture({
