@@ -54,10 +54,19 @@ function parsePublishRequest(value: unknown): PublishRequest {
     throw new ImporterV2PublicationValidationError('approvedProposalKeys must be an array of proposal keys.')
   }
 
-  const selection =
-    body.selection === undefined
-      ? undefined
-      : parseImporterV2PublicationSelection(body.selection)
+  let selection: ImporterV2WorkspaceSelection | undefined
+  try {
+    selection =
+      body.selection === undefined
+        ? undefined
+        : parseImporterV2PublicationSelection(body.selection)
+  } catch (error) {
+    throw new ImporterV2PublicationValidationError(
+      error instanceof Error
+        ? error.message
+        : 'Invalid staged publication selection.',
+    )
+  }
 
   if (
     selection &&
