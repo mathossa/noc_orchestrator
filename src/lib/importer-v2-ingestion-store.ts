@@ -379,6 +379,7 @@ async function canonicalValuesForDevices(deviceIds: readonly string[]) {
       managementAddress: true,
       notes: true,
       currentFirmwareRawVersion: true,
+      currentFirmwareRelease: { select: { version: true } },
       customer: { select: { name: true } },
       site: {
         select: {
@@ -415,7 +416,10 @@ async function canonicalValuesForDevices(deviceIds: readonly string[]) {
         serialNumber: device.serialNumber,
         managementAddress: device.managementAddress,
         notes: device.notes,
-        currentFirmware: device.currentFirmwareRawVersion,
+        currentFirmware:
+          device.currentFirmwareRawVersion ??
+          device.currentFirmwareRelease?.version ??
+          null,
       } satisfies Partial<Record<ImporterV2Field, string | null>>,
     ]),
   )
@@ -745,12 +749,62 @@ export async function stageImporterV2NormalizedSource(input: {
   const seedRows: ImporterV2WorkspaceSeedRow[] = evaluation.rows.map((row, index) => {
     const identity = identities[index]
     const repeatItem = repeatByRow.get(row.rowNumber)
+    const canonicalDeviceId =
+      identity.kind === 'MATCH_SUGGESTED'
+        ? identity.candidates[0]?.canonicalDeviceId ?? null
+        : null
+    const canonicalValues = canonicalDeviceId
+      ? canonicalValuesByDeviceId.get(canonicalDeviceId)
+      : undefined
+    const preservedCanonicalFirmware = importerV2PreservedCanonicalFirmware({
+      runningVersion: row.firmware.runningVersion,
+      canonicalRunningVersion: canonicalValues?.currentFirmware,
+    })
+    const activeIssues = preservedCanonicalFirmware
+      ? row.issues.filter(
+          (issue) =>
+            !(
+              issue.severity === 'WARNING' &&
+              issue.code === 'OPTIONAL_FIELD_UNRESOLVED' &&
+              issue.field === 'currentFirmware'
+            ),
+        )
+      : [...row.issues]
+    const currentFirmwareField = preservedCanonicalFirmware
+      ? {
+          ...row.fields.currentFirmware,
+          issues: row.fields.currentFirmware.issues.filter(
+            (issue) =>
+              !(
+                issue.severity === 'WARNING' &&
+                issue.code === 'OPTIONAL_FIELD_UNRESOLVED'
+              ),
+          ),
+        }
+      : row.fields.currentFirmware
     const statuses = new Set<string>(row.statuses)
+    if (
+      preservedCanonicalFirmware &&
+      !activeIssues.some((issue) => issue.severity === 'WARNING')
+    ) {
+      statuses.delete('WARNING')
+    }
     if (row.inclusion !== 'EXCLUDED' && identity.requiresConfirmation) statuses.add('NEEDS_REVIEW')
     if (repeatItem) statuses.add(repeatItem.classification)
     const sourceRow = normalizedRowsByNumber.get(row.rowNumber)
     const evaluated = {
       ...row,
+      fields: {
+        ...row.fields,
+        currentFirmware: currentFirmwareField,
+      },
+      issues: activeIssues,
+      preservedCanonicalFirmware: preservedCanonicalFirmware
+        ? {
+            version: preservedCanonicalFirmware,
+            reason: 'SOURCE_OBSERVATION_MISSING',
+          }
+        : null,
       sourceEvidence: sourceRow?.sourceEvidence ?? {},
     }
     return {
@@ -760,8 +814,8 @@ export async function stageImporterV2NormalizedSource(input: {
       statuses: [...statuses],
       primaryStatus: primaryStatus([...statuses]),
       repeatClassification: repeatItem?.classification ?? 'NEW',
-      issueCount: row.issues.length,
-      hasErrors: row.issues.some((issue) => issue.severity === 'ERROR'),
+      issueCount: activeIssues.length,
+      hasErrors: activeIssues.some((issue) => issue.severity === 'ERROR'),
       sourceName: row.rawValues.deviceName,
       hostname: row.rawValues.hostname,
       customer: row.proposedCanonicalValues.customer?.label ?? row.rawValues.customer,
@@ -776,7 +830,8 @@ export async function stageImporterV2NormalizedSource(input: {
       firmwareEvidencePattern: firmwareEvidencePattern(row),
       rawFirmwareVersion: row.rawValues.firmwareVersion,
       rawSoftwareVersion: row.rawValues.softwareVersion,
-      interpretedFirmware: row.firmware.runningVersion,
+      interpretedFirmware:
+        row.firmware.runningVersion ?? preservedCanonicalFirmware,
       confidence: rowConfidence(row),
       evaluated,
       identityResolution: identity,
