@@ -70,6 +70,24 @@ export async function POST(request: Request, context: Context) {
         eligibleCount: rowNumbers.length,
         skippedCount: matchingRows.length - rowNumbers.length,
         conflictingRowNumbers,
+        identityConflicts: identityConflicts.map((conflict) => ({
+          rowNumber: conflict.rowNumber,
+          sourceName: conflict.sourceName,
+          hostname: conflict.hostname,
+          canonicalConflicts: conflict.conflicts.map((match) => ({
+            canonicalDeviceId: match.canonicalDeviceId,
+            name: match.name,
+            hostname: match.hostname,
+            matchingIdentifiers: match.matchingIdentifiers,
+          })),
+          stagedConflicts: conflict.stagedConflicts.map((match) => ({
+            rowNumber: match.rowNumber,
+            sourceName: match.sourceName,
+            hostname: match.hostname,
+            matchingIdentifiers: match.matchingIdentifiers,
+          })),
+        })),
+        nameConflictRowNumbers: nameConflicts,
       },
     })
   } catch (error) {
