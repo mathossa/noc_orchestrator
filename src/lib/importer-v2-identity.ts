@@ -160,6 +160,35 @@ export function normalizeImporterV2MacAddress(
   return /^[0-9A-F]{12}$/.test(compact) ? compact : null
 }
 
+export type ImporterV2IdentityField =
+  | 'sourceId'
+  | 'serialNumber'
+  | 'macAddress'
+
+/**
+ * A same-provider Source ID is the strongest provider-local identity signal.
+ * Once it uniquely confirms the selected canonical device, a conflicting
+ * serial/MAC reported for another device is treated as a secondary alias
+ * conflict instead of a publication blocker.
+ *
+ * This never relaxes Source ID collisions and never applies to new/unconfirmed
+ * devices.
+ */
+export function importerV2CanYieldSecondaryAliasToConfirmedSourceId(input: {
+  chosenCanonicalDeviceId: string | null
+  sourceIdCanonicalDeviceId: string | null
+  conflictingCanonicalDeviceId: string
+  matchingFields: readonly ImporterV2IdentityField[]
+}) {
+  return Boolean(
+    input.chosenCanonicalDeviceId &&
+      input.sourceIdCanonicalDeviceId === input.chosenCanonicalDeviceId &&
+      input.conflictingCanonicalDeviceId !== input.chosenCanonicalDeviceId &&
+      input.matchingFields.length > 0 &&
+      input.matchingFields.every((field) => field !== 'sourceId'),
+  )
+}
+
 export function normalizeImporterV2Identity(
   identifiers: ImporterV2IdentityIdentifiers,
 ): ImporterV2NormalizedIdentityIdentifiers {
