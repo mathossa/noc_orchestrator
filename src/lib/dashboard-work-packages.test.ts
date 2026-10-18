@@ -79,6 +79,41 @@ describe('dashboard candidate work packages', () => {
     expect(packages[0].href).toBe('/planning/plan-2')
   })
 
+  it('shows proposed and approved plans as planning work with a direct plan action', () => {
+    const packages = buildCandidateWorkPackages([
+      finding({ deviceId: 'a', plan: { id: 'plan-1', state: 'PROPOSED' } }),
+      finding({
+        deviceId: 'b',
+        firmwareKey: '7.6.2',
+        model: { id: 'model-2', name: 'FortiGate 200F' },
+        plan: { id: 'plan-1', state: 'PROPOSED' },
+      }),
+      finding({ deviceId: 'c', plan: { id: 'plan-2', state: 'APPROVED' } }),
+    ])
+    expect(countCandidateWorkPackages(packages).TO_PLAN).toBe(2)
+    const first = packages.find((group) => group.href === '/planning/plan-1')
+    expect(first?.deviceCount).toBe(2)
+    expect(first?.title).toBe('Firmwareplan voorbereiden')
+  })
+
+  it('counts customer approval once per plan and site, even for mixed models', () => {
+    const packages = buildCandidateWorkPackages([
+      finding({ deviceId: 'a', plan: { id: 'plan-1', state: 'AWAITING_CUSTOMER' } }),
+      finding({
+        deviceId: 'b',
+        model: { id: 'model-2', name: 'FortiGate 200F' },
+        plan: { id: 'plan-1', state: 'AWAITING_CUSTOMER' },
+      }),
+      finding({
+        deviceId: 'c',
+        site: { id: 'site-2', name: 'Branch' },
+        plan: { id: 'plan-1', state: 'AWAITING_CUSTOMER' },
+      }),
+    ])
+    expect(countCandidateWorkPackages(packages).BLOCKED).toBe(2)
+    expect(packages.find((group) => group.href === '/planning/plan-1' && group.site?.id === 'site-1')?.deviceCount).toBe(2)
+  })
+
   it('never treats release BLOCKED as a blocked workflow state', () => {
     const packages = buildCandidateWorkPackages([
       finding({ status: 'CRITICAL_ATTENTION', plan: null }),
