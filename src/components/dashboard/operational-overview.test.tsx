@@ -72,12 +72,12 @@ describe('action-driven Werkoverzicht', () => {
     expect(html).not.toContain('Check firmware data ·')
   })
 
-  it('limits initial action list to eight items with working pagination', () => {
+  it('limits initial action list to five items with working pagination', () => {
     const html = render(Array.from({ length: 15 }, (_, i) => finding(i, 'UPDATE_REQUIRED')))
     expect(html).toContain('href="/dashboard?page=2"')
-    expect(html).toContain('1 / 2')
+    expect(html).toContain('1 / 3')
     expect(html).toContain('Firewall 0')
-    expect(html).not.toContain('Firewall 8')
+    expect(html).not.toContain('Firewall 2')
   })
 
   it('does not invent week trends, assignees, CVEs or deadlines', () => {
