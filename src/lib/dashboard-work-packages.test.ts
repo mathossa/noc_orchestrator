@@ -114,6 +114,18 @@ describe('dashboard candidate work packages', () => {
     expect(packages.find((group) => group.href === '/planning/plan-1' && group.site?.id === 'site-1')?.deviceCount).toBe(2)
   })
 
+  it('retains critical firmware attention but does not re-plan an explicit customer decline', () => {
+    const packages = buildCandidateWorkPackages([
+      finding({ deviceId: 'declined-required', workflowState: 'CUSTOMER_DECLINED' }),
+      finding({ deviceId: 'ignored-required', workflowState: 'IGNORED' }),
+      finding({ deviceId: 'declined-critical', workflowState: 'CUSTOMER_DECLINED', status: 'CRITICAL_ATTENTION' }),
+    ])
+    expect(countCandidateWorkPackages(packages)).toEqual({
+      URGENT: 1, TO_PLAN: 0, BLOCKED: 0, CHECK: 0,
+    })
+    expect(packages[0].deviceIds).toEqual(['declined-critical'])
+  })
+
   it('never treats release BLOCKED as a blocked workflow state', () => {
     const packages = buildCandidateWorkPackages([
       finding({ status: 'CRITICAL_ATTENTION', plan: null }),
