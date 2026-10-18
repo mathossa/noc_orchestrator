@@ -42,6 +42,19 @@ export function importerV2CurrentFirmwareReleaseId(input: {
  * interpreted running version, or when an operator explicitly cleared the
  * currentFirmware field in the reconciliation workspace.
  */
+/**
+ * A missing source observation must not turn a known canonical running release
+ * into review noise. Return the canonical value only for display/preservation;
+ * it is not new source evidence and must never advance observed-at timestamps.
+ */
+export function importerV2PreservedCanonicalFirmware(input: {
+  runningVersion: unknown
+  canonicalRunningVersion: unknown
+}) {
+  if (clean(input.runningVersion)) return null
+  return clean(input.canonicalRunningVersion)
+}
+
 export function importerV2ShouldReplaceCurrentFirmware(input: {
   runningVersion: unknown
   decisions: readonly ImporterV2FirmwarePublicationDecision[]
