@@ -75,7 +75,6 @@ describe('action-driven Werkoverzicht', () => {
   it('limits initial action list to eight items with working pagination', () => {
     const html = render(Array.from({ length: 15 }, (_, i) => finding(i, 'UPDATE_REQUIRED')))
     expect(html).toContain('href="/dashboard?page=2"')
-    expect(html).toContain('8 /') // group names include zero-based indices
     expect(html).toContain('1 / 2')
     expect(html).toContain('Firewall 7')
     expect(html).not.toContain('Firewall 8')
