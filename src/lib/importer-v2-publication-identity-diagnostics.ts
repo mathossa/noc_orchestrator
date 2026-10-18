@@ -77,11 +77,6 @@ export type ImporterV2IdentityConflictDiagnostic = {
   }>
 }
 
-function clean(value: string | null | undefined) {
-  const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
-  return normalized || null
-}
-
 function effectiveText(snapshot: EffectiveSnapshot, field: ImporterV2Field) {
   return importerV2WorkspaceEffectiveText(snapshot, field)
 }
