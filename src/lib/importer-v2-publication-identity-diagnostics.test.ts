@@ -130,6 +130,7 @@ describe('Importer v2 publication identity diagnostics', () => {
             rowNumber: 8,
             sourceName: 'switch-b',
             hostname: 'switch-b.local',
+            sourceId: null,
             customer: 'Example customer',
             organizationUnit: null,
             site: 'Zwolle',
