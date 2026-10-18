@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
-import { normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
+import {
+  importerV2CanYieldSecondaryAliasToConfirmedSourceId,
+  normalizeImporterV2Identity,
+} from '@/lib/importer-v2-identity'
 import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
@@ -260,6 +263,29 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
       })
     : []
 
+  const sourceIdOwnerByRow = new Map<number, string | null>()
+  for (const row of rows) {
+    if (!row.normalized.sourceId) {
+      sourceIdOwnerByRow.set(row.rowNumber, null)
+      continue
+    }
+    const owners = [
+      ...new Set(
+        crosswalks
+          .filter(
+            (crosswalk) =>
+              crosswalk.provider === batch.provider &&
+              crosswalk.normalizedSourceId === row.normalized.sourceId,
+          )
+          .map((crosswalk) => crosswalk.canonicalDeviceId),
+      ),
+    ]
+    sourceIdOwnerByRow.set(
+      row.rowNumber,
+      owners.length === 1 ? owners[0] : null,
+    )
+  }
+
   const conflictingDeviceIds = new Set<string>()
   const canonicalMatchesByRow = new Map<number, Array<{
     crosswalk: (typeof crosswalks)[number]
@@ -291,11 +317,21 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
         }
         return { crosswalk, matchingIdentifiers }
       })
-      .filter(
-        ({ crosswalk, matchingIdentifiers }) =>
-          matchingIdentifiers.length > 0 &&
-          crosswalk.canonicalDeviceId !== row.selectedCanonicalDeviceId,
-      )
+      .filter(({ crosswalk, matchingIdentifiers }) => {
+        if (
+          matchingIdentifiers.length === 0 ||
+          crosswalk.canonicalDeviceId === row.selectedCanonicalDeviceId
+        ) {
+          return false
+        }
+        return !importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+          chosenCanonicalDeviceId: row.selectedCanonicalDeviceId,
+          sourceIdCanonicalDeviceId:
+            sourceIdOwnerByRow.get(row.rowNumber) ?? null,
+          conflictingCanonicalDeviceId: crosswalk.canonicalDeviceId,
+          matchingFields: matchingIdentifiers.map((item) => item.field),
+        })
+      })
     canonicalMatchesByRow.set(row.rowNumber, matches)
     for (const match of matches) conflictingDeviceIds.add(match.crosswalk.canonicalDeviceId)
   }
@@ -329,7 +365,27 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
   return rows
     .map((row) => {
       const canonicalMatches = canonicalMatchesByRow.get(row.rowNumber) ?? []
-      const stagedMatches = [...(stagedCollisions.get(row.rowNumber)?.values() ?? [])]
+      const stagedMatches = [
+        ...(stagedCollisions.get(row.rowNumber)?.values() ?? []),
+      ].filter(({ row: other, matchingIdentifiers }) => {
+        const rowOwner = sourceIdOwnerByRow.get(row.rowNumber) ?? null
+        const otherOwner = sourceIdOwnerByRow.get(other.rowNumber) ?? null
+        const rowCanYield =
+          importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+            chosenCanonicalDeviceId: row.selectedCanonicalDeviceId,
+            sourceIdCanonicalDeviceId: rowOwner,
+            conflictingCanonicalDeviceId: otherOwner ?? '',
+            matchingFields: matchingIdentifiers.map((item) => item.field),
+          })
+        const otherCanYield =
+          importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+            chosenCanonicalDeviceId: other.selectedCanonicalDeviceId,
+            sourceIdCanonicalDeviceId: otherOwner,
+            conflictingCanonicalDeviceId: rowOwner ?? '',
+            matchingFields: matchingIdentifiers.map((item) => item.field),
+          })
+        return !(rowCanYield && otherCanYield)
+      })
       if (canonicalMatches.length === 0 && stagedMatches.length === 0) return null
       return {
         rowNumber: row.rowNumber,
