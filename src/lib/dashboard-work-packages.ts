@@ -95,6 +95,16 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
       })
     }
 
+    if (finding.plan?.state === 'PROPOSED' || finding.plan?.state === 'APPROVED') {
+      candidates.push({
+        kind: 'TO_PLAN',
+        label: 'Firmwareplan voorbereiden',
+        findingKey: 'PLAN_READY:' + finding.plan.id,
+        reason: 'Een bestaand firmwareplan wacht op voorbereiding of planning.',
+        href: '/planning/' + encodeURIComponent(finding.plan.id),
+      })
+    }
+
     if (finding.plan?.state === 'AWAITING_CUSTOMER') {
       candidates.push({
         kind: 'BLOCKED',
@@ -116,17 +126,21 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
     }
 
     for (const candidate of candidates) {
+      const savedPlanPackage = candidate.findingKey.startsWith('PLAN:')
+        || candidate.findingKey.startsWith('PLAN_READY:')
       const identity = JSON.stringify([
         candidate.kind,
         candidate.findingKey,
         candidate.reason,
         finding.customer.id,
         finding.site?.id ?? null,
-        finding.vendor.id,
-        finding.model.id,
-        candidate.findingKey === 'MISSING_CONTRACT' ? null : (finding.firmwareKey ?? null),
+        savedPlanPackage ? null : finding.vendor.id,
+        savedPlanPackage ? null : finding.model.id,
+        candidate.findingKey === 'MISSING_CONTRACT' || savedPlanPackage
+          ? null
+          : finding.firmwareKey ?? null,
         finding.managementContractId ?? null,
-        // Separate approval/maintenance scopes even within technically similar releases.
+        // Never combine distinct saved plans, consent or maintenance scopes.
         finding.plan?.id ?? null,
       ])
       let group = byKey.get(identity)
@@ -135,7 +149,7 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
           id: identity,
           kind: candidate.kind,
           findingKey: candidate.findingKey,
-          title: candidate.label + ' · ' + finding.vendor.name + ' ' + finding.model.name,
+          title: savedPlanPackage ? candidate.label : candidate.label + ' · ' + finding.vendor.name + ' ' + finding.model.name,
           reason: candidate.reason,
           customer: finding.customer,
           site: finding.site,
