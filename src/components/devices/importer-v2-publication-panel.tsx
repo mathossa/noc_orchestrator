@@ -150,6 +150,30 @@ type PublicationScopePreview = {
   eligibleCount: number
   skippedCount: number
   conflictingRowNumbers: number[]
+  identityConflicts: Array<{
+    rowNumber: number
+    sourceName: string | null
+    hostname: string | null
+    canonicalConflicts: Array<{
+      canonicalDeviceId: string
+      name: string | null
+      hostname: string | null
+      matchingIdentifiers: Array<{
+        field: 'sourceId' | 'serialNumber' | 'macAddress'
+        value: string
+      }>
+    }>
+    stagedConflicts: Array<{
+      rowNumber: number
+      sourceName: string | null
+      hostname: string | null
+      matchingIdentifiers: Array<{
+        field: 'sourceId' | 'serialNumber' | 'macAddress'
+        value: string
+      }>
+    }>
+  }>
+  nameConflictRowNumbers: number[]
 }
 
 export function ImporterV2PublicationPanel({
@@ -771,7 +795,59 @@ export function ImporterV2PublicationPanel({
             ) : null}
             {selectionEnabled && scoped?.conflictingRowNumbers.length ? (
               <div className="mb-3 rounded-md border border-[#8f4747] bg-[#512b2b] px-3 py-2 text-sm text-[#ffd7d7]">
-                {scoped.conflictingRowNumbers.length.toLocaleString()} selected candidate row(s) still have identity or name conflicts. Resolve those rows or narrow the selection before publishing.
+                <div className="font-semibold">
+                  {scoped.conflictingRowNumbers.length.toLocaleString()} selected candidate row(s) still have publication conflicts.
+                </div>
+                <p className="mt-1 text-xs opacity-90">
+                  These are scope-level identity/name uniqueness checks performed immediately before publication. They can exist even when staging itself has no validation warning.
+                </p>
+                <details className="mt-2 rounded border border-[#9e5a5a] bg-black/10">
+                  <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold">
+                    Show conflicting rows and reasons
+                  </summary>
+                  <div className="max-h-64 space-y-2 overflow-y-auto border-t border-[#9e5a5a] p-2 text-xs">
+                    {scoped.identityConflicts.map((conflict) => (
+                      <div
+                        key={`identity-${conflict.rowNumber}`}
+                        className="rounded border border-[#9e5a5a] bg-black/10 p-2"
+                      >
+                        <div className="font-semibold">
+                          Row #{conflict.rowNumber} · {conflict.sourceName ?? conflict.hostname ?? 'Unnamed device'}
+                        </div>
+                        {conflict.stagedConflicts.map((match) => (
+                          <div
+                            key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
+                            className="mt-1"
+                          >
+                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} on{' '}
+                            {match.matchingIdentifiers
+                              .map((item) => `${item.field}: ${item.value}`)
+                              .join(', ')}
+                          </div>
+                        ))}
+                        {conflict.canonicalConflicts.map((match) => (
+                          <div
+                            key={`canonical-${conflict.rowNumber}-${match.canonicalDeviceId}`}
+                            className="mt-1"
+                          >
+                            Matches canonical device {match.name ?? match.hostname ?? match.canonicalDeviceId} on{' '}
+                            {match.matchingIdentifiers
+                              .map((item) => `${item.field}: ${item.value}`)
+                              .join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    {scoped.nameConflictRowNumbers.length ? (
+                      <div className="rounded border border-[#9e5a5a] bg-black/10 p-2">
+                        <div className="font-semibold">Customer + device-name conflicts</div>
+                        <div className="mt-1">
+                          Rows {scoped.nameConflictRowNumbers.map((row) => `#${row}`).join(', ')}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
               </div>
             ) : null}
 
