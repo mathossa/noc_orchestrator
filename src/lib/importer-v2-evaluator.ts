@@ -45,6 +45,10 @@ export type ImporterV2CanonicalValue = {
   id: string
   label: string
   aliases?: readonly string[]
+  context?: {
+    customerId?: string | null
+    businessUnitId?: string | null
+  }
 }
 
 export type ImporterV2ProposedValue = {
@@ -373,11 +377,48 @@ function ambiguousDecision(layer: string): DecisionResolution {
   }
 }
 
+function contextualCatalogMatches(
+  field: ImporterV2Field,
+  candidates: readonly ImporterV2CanonicalValue[],
+  resolutions: Partial<Record<ImporterV2Field, DecisionResolution>>,
+) {
+  if (field !== 'businessUnit' && field !== 'site') return candidates
+
+  const customerId = resolutions.customer?.proposedValue?.id ?? null
+  if (!customerId) return candidates
+
+  const hasCustomerContext = candidates.some(
+    (candidate) => candidate.context?.customerId,
+  )
+  let scoped = hasCustomerContext
+    ? candidates.filter(
+        (candidate) => candidate.context?.customerId === customerId,
+      )
+    : [...candidates]
+
+  if (field !== 'site') return scoped
+
+  const businessUnitId =
+    resolutions.businessUnit?.proposedValue?.id ?? null
+  if (!businessUnitId) return scoped
+
+  const hasBusinessUnitContext = scoped.some(
+    (candidate) => candidate.context?.businessUnitId,
+  )
+  if (hasBusinessUnitContext) {
+    scoped = scoped.filter(
+      (candidate) => candidate.context?.businessUnitId === businessUnitId,
+    )
+  }
+  return scoped
+}
+
 function resolveField(
   field: ImporterV2Field,
   rowFingerprint: string,
   normalizedValues: Record<ImporterV2Field, string | null>,
   input: ImporterV2EvaluationInput,
+  resolutions: Partial<Record<ImporterV2Field, DecisionResolution>> = {},
 ): DecisionResolution {
   const manual = input.rules.manualOverrides
     .filter(
@@ -474,13 +515,15 @@ function resolveField(
     }
   }
 
-  const catalogMatches = (input.catalog.values[field] ?? [])
-    .filter((candidate) =>
+  const catalogMatches = contextualCatalogMatches(
+    field,
+    (input.catalog.values[field] ?? []).filter((candidate) =>
       [candidate.label, ...(candidate.aliases ?? [])].some(
         (label) => matchKey(label) === valueKey,
       ),
-    )
-    .toSorted((left, right) => left.id.localeCompare(right.id))
+    ),
+    resolutions,
+  ).toSorted((left, right) => left.id.localeCompare(right.id))
   if (new Set(catalogMatches.map((candidate) => candidate.id)).size > 1) {
     return ambiguousDecision('catalog')
   }
@@ -699,6 +742,7 @@ function evaluateRow(
       sourceFingerprint,
       normalizedValues,
       input,
+      resolutions,
     )
   }
   applyCanonicalModelRelations(resolutions, input.catalog, row.topologyRole)
