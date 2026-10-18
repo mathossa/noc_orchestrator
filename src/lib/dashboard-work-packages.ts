@@ -12,6 +12,8 @@ export type WorkPackageFinding = {
   status: InventoryPrimaryStatusCode
   reason: string
   managementContractId: string | null
+  /** Customer workflow decisions do not change technical compliance. */
+  workflowState?: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE' | null
   /** This is the authoritative persisted plan state, never inferred from firmware compliance. */
   plan: { id: string; state: 'PROPOSED' | 'AWAITING_CUSTOMER' | 'APPROVED' | 'SCHEDULED' | 'IN_PROGRESS' } | null
 }
@@ -76,7 +78,9 @@ export function buildCandidateWorkPackages(findings: readonly WorkPackageFinding
       })
     } else if (
       (finding.status === 'UPDATE_REQUIRED' || finding.status === 'UPDATE_RECOMMENDED') &&
-      !finding.plan
+      !finding.plan &&
+      finding.workflowState !== 'IGNORED' &&
+      finding.workflowState !== 'CUSTOMER_DECLINED'
     ) {
       candidates.push({
         kind: 'TO_PLAN',
