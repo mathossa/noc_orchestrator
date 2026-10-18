@@ -47,7 +47,24 @@ describe('selected importer publication scope preview', () => {
       },
     })
     mocked.resolve.mockResolvedValue([14, 20, 92, 104])
-    mocked.identity.mockResolvedValue([{ rowNumber: 92 }])
+    mocked.identity.mockResolvedValue([
+      {
+        rowNumber: 92,
+        sourceName: 'FW-B',
+        hostname: 'fw-b.example',
+        conflicts: [],
+        stagedConflicts: [
+          {
+            rowNumber: 91,
+            sourceName: 'FW-A',
+            hostname: 'fw-a.example',
+            matchingIdentifiers: [
+              { field: 'serialNumber', value: 'SHARED-SERIAL' },
+            ],
+          },
+        ],
+      },
+    ])
     mocked.name.mockResolvedValue([104])
   })
 
@@ -73,6 +90,25 @@ describe('selected importer publication scope preview', () => {
         eligibleCount: 3,
         skippedCount: 1,
         conflictingRowNumbers: [92, 104],
+        identityConflicts: [
+          {
+            rowNumber: 92,
+            sourceName: 'FW-B',
+            hostname: 'fw-b.example',
+            canonicalConflicts: [],
+            stagedConflicts: [
+              {
+                rowNumber: 91,
+                sourceName: 'FW-A',
+                hostname: 'fw-a.example',
+                matchingIdentifiers: [
+                  { field: 'serialNumber', value: 'SHARED-SERIAL' },
+                ],
+              },
+            ],
+          },
+        ],
+        nameConflictRowNumbers: [104],
       },
     })
     expect(mocked.identity).toHaveBeenCalledWith({
