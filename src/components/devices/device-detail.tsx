@@ -19,6 +19,7 @@ import { WorkflowStatusBadge } from '@/components/ui/status-badge'
 import { DeviceEditModal } from './device-edit-modal'
 import { FirmwareComplianceStatus } from './firmware-compliance-status'
 import { InventoryStatusBadge } from './inventory-explorer'
+import { InventoryPath } from './inventory-path'
 import { deviceFirmwareSummary } from '@/lib/device-overview'
 import type { DeviceDetailRecord } from '@/lib/devices'
 
@@ -202,32 +203,24 @@ export function DeviceWorkspace({
 
   return (
     <>
+      <InventoryPath
+        current={3}
+        links={{
+          customers: '/devices',
+          sites: '/devices/customers/' + device.customerId,
+          deviceTypes: sitePath,
+          devices: groupPath,
+        }}
+        selections={{
+          customers: device.customer.name,
+          sites: device.site?.name ?? 'Unassigned devices',
+          deviceTypes: device.deviceModel.deviceType.name,
+          devices: device.name,
+        }}
+      />
       <PageHeader
         title={device.name}
-        eyebrow="Device"
-        breadcrumbs={[
-          { label: 'Devices', href: '/devices' },
-          {
-            label: device.customer.name,
-            href: '/devices/customers/' + device.customerId,
-          },
-          {
-            label: device.site?.name ?? 'Unassigned devices',
-            href: sitePath,
-          },
-          {
-            label: device.deviceModel.deviceType.name,
-            href: groupPath,
-          },
-          { label: device.name },
-        ]}
-        description={
-          device.deviceModel.vendor.name +
-          ' ' +
-          device.deviceModel.model +
-          ' · ' +
-          device.deviceModel.deviceType.name
-        }
+        description={device.deviceModel.vendor.name + ' ' + device.deviceModel.model}
         meta={
           <>
             <InventoryStatusBadge status={device.inventoryStatus} />

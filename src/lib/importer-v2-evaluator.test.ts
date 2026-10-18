@@ -347,6 +347,166 @@ describe('Importer v2 pure staged evaluator', () => {
     expect(requiredRow.statuses).not.toContain('EXCLUDED')
   })
 
+  it('resolves duplicate Site names inside the resolved Customer context', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'site']
+    input.rows = [{
+      rowNumber: 2,
+      rawValues: {
+        customer: 'Customer A',
+        site: 'Deventer',
+      },
+    }]
+    input.catalog.values = {
+      customer: [
+        { id: 'customer-a', label: 'Customer A' },
+        { id: 'customer-b', label: 'Customer B' },
+      ],
+      site: [
+        {
+          id: 'site-a-deventer',
+          label: 'Deventer',
+          context: { customerId: 'customer-a', businessUnitId: null },
+        },
+        {
+          id: 'site-b-deventer',
+          label: 'Deventer',
+          context: { customerId: 'customer-b', businessUnitId: null },
+        },
+      ],
+    }
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.customer.proposedValue?.id).toBe('customer-a')
+    expect(evaluated.fields.site).toMatchObject({
+      proposedValue: { id: 'site-a-deventer', label: 'Deventer' },
+      decision: { source: 'EXACT_CATALOG_MATCH' },
+      issues: [],
+    })
+  })
+
+  it('resolves duplicate Business Unit names inside the resolved Customer context', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'businessUnit']
+    input.rows = [{
+      rowNumber: 2,
+      rawValues: {
+        customer: 'Customer A',
+        businessUnit: 'Operations',
+      },
+    }]
+    input.catalog.values = {
+      customer: [{ id: 'customer-a', label: 'Customer A' }],
+      businessUnit: [
+        {
+          id: 'unit-a',
+          label: 'Operations',
+          context: { customerId: 'customer-a' },
+        },
+        {
+          id: 'unit-b',
+          label: 'Operations',
+          context: { customerId: 'customer-b' },
+        },
+      ],
+    }
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.businessUnit.proposedValue?.id).toBe('unit-a')
+    expect(evaluated.fields.businessUnit.issues).toEqual([])
+  })
+
+  it('uses Business Unit context to disambiguate duplicate Site names within one Customer', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'businessUnit', 'site']
+    input.rows = [{
+      rowNumber: 2,
+      rawValues: {
+        customer: 'Customer A',
+        businessUnit: 'North',
+        site: 'Warehouse',
+      },
+    }]
+    input.catalog.values = {
+      customer: [{ id: 'customer-a', label: 'Customer A' }],
+      businessUnit: [
+        {
+          id: 'unit-north',
+          label: 'North',
+          context: { customerId: 'customer-a' },
+        },
+      ],
+      site: [
+        {
+          id: 'site-north',
+          label: 'Warehouse',
+          context: {
+            customerId: 'customer-a',
+            businessUnitId: 'unit-north',
+          },
+        },
+        {
+          id: 'site-south',
+          label: 'Warehouse',
+          context: {
+            customerId: 'customer-a',
+            businessUnitId: 'unit-south',
+          },
+        },
+      ],
+    }
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.site.proposedValue?.id).toBe('site-north')
+    expect(evaluated.fields.site.issues).toEqual([])
+  })
+
+  it('keeps duplicate Site names reviewable when parent context cannot disambiguate', () => {
+    const input = baseInput()
+    input.profile.requiredFields = ['customer', 'site']
+    input.rows = [{
+      rowNumber: 2,
+      rawValues: {
+        customer: 'Customer A',
+        site: 'Warehouse',
+      },
+    }]
+    input.catalog.values = {
+      customer: [{ id: 'customer-a', label: 'Customer A' }],
+      site: [
+        {
+          id: 'site-north',
+          label: 'Warehouse',
+          context: {
+            customerId: 'customer-a',
+            businessUnitId: 'unit-north',
+          },
+        },
+        {
+          id: 'site-south',
+          label: 'Warehouse',
+          context: {
+            customerId: 'customer-a',
+            businessUnitId: 'unit-south',
+          },
+        },
+      ],
+    }
+
+    const evaluated = evaluateImporterV2(input).rows[0]
+
+    expect(evaluated.fields.site.proposedValue).toBeNull()
+    expect(evaluated.fields.site.issues).toEqual([
+      expect.objectContaining({
+        code: 'AMBIGUOUS_DECISION',
+        severity: 'ERROR',
+      }),
+    ])
+  })
+
   it('derives required vendor and device type from a resolved canonical model', () => {
     const input = baseInput()
     input.profile.requiredFields = ['vendor', 'model', 'deviceType']

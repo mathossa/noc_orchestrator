@@ -171,25 +171,62 @@ export function normalizeImporterV2Identity(
 }
 
 /**
+ * Return the identity fields that were explicitly corrected by a human/rule.
+ * A corrected value supersedes a bad source alias for future durable matching,
+ * but the raw source value remains stored as immutable evidence.
+ */
+export function importerV2ConfirmedIdentityCorrections(
+  decisions: readonly { field: string | null; action: string }[],
+): string[] {
+  const corrected = new Set<string>()
+  const fields = new Set(['sourceId', 'serialNumber', 'macAddress'])
+
+  for (const item of decisions) {
+    if (!item.field || !fields.has(item.field)) continue
+    if (
+      item.action === 'SET_FIELD' ||
+      item.action === 'LINK_FIELD' ||
+      item.action === 'REMEMBER_EXACT' ||
+      item.action === 'CREATE_SCOPED_RULE'
+    ) {
+      corrected.add(item.field)
+    } else if (
+      item.action === 'CLEAR_FIELD' ||
+      item.action === 'IGNORE_FIELD'
+    ) {
+      corrected.delete(item.field)
+    }
+  }
+
+  return [...corrected]
+}
+
+/**
  * Keep durable values reported by the source as crosswalk aliases for ordinary
- * canonical corrections. An explicit IGNORE_FIELD / CLEAR_FIELD decision is
- * different: that source identifier has been declared unreliable for durable
- * identity and must not be reintroduced into the crosswalk from raw evidence.
- * Raw evidence itself remains immutable in the staged snapshot.
+ * canonical corrections. IGNORE_FIELD/CLEAR_FIELD explicitly suppress unusable
+ * source identity. A separately confirmed correction instead makes the
+ * effective value authoritative for durable matching.
+ *
+ * Raw evidence itself remains immutable in the staged/publication snapshot.
  */
 export function importerV2SourceIdentityForCrosswalk(input: {
   rawIdentifiers: ImporterV2IdentityIdentifiers
   effectiveIdentifiers: ImporterV2IdentityIdentifiers
   suppressedSourceFields?: readonly string[]
+  correctedSourceFields?: readonly string[]
 }): { sourceId: string | null; serialNumber: string | null; macAddress: string | null } {
   const suppressed = new Set(input.suppressedSourceFields ?? [])
-  const value = (
-    field: keyof ImporterV2IdentityIdentifiers,
-  ) =>
-    suppressed.has(field)
-      ? null
-      : normalizeText(input.rawIdentifiers[field]) ??
-        normalizeText(input.effectiveIdentifiers[field])
+  const corrected = new Set(input.correctedSourceFields ?? [])
+  const value = (field: keyof ImporterV2IdentityIdentifiers) => {
+    if (suppressed.has(field)) return null
+    if (corrected.has(field)) {
+      return normalizeText(input.effectiveIdentifiers[field])
+    }
+    return (
+      normalizeText(input.rawIdentifiers[field]) ??
+      normalizeText(input.effectiveIdentifiers[field])
+    )
+  }
 
   return {
     sourceId: value('sourceId'),

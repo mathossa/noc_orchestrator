@@ -31,6 +31,8 @@ function tenantScopes(value: unknown): AuvikInventoryTenantScope[] | undefined {
       enabled: item.enabled === undefined ? undefined : item.enabled === true,
       tenantId: item.tenantId,
       tenantName: optionalString(item.tenantName),
+      tenantType: optionalString(item.tenantType),
+      domainPrefix: optionalString(item.domainPrefix),
       customer: optionalString(item.customer),
       businessUnit: optionalString(item.businessUnit),
       site: optionalString(item.site),

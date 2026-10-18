@@ -10,7 +10,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 describe('app shell inventory navigation', () => {
-  it('keeps customer-scoped site routes under Customers', () => {
+  it('keeps customer-scoped site routes under customer management', () => {
     expect(isActivePath('/customers', '/customers')).toBe(true)
     expect(isActivePath('/customers/customer-1', '/customers')).toBe(true)
     expect(isActivePath('/customers/customer-1/sites', '/customers')).toBe(true)
@@ -61,12 +61,12 @@ describe('app shell inventory navigation', () => {
     navigationState.pathname = '/sites'
     const allSitesHtml = renderToStaticMarkup(createElement(NavigationGroups))
     expect(allSitesHtml.match(/aria-current="page"/g)).toHaveLength(1)
-    expect(allSitesHtml).toContain('All sites')
+    expect(allSitesHtml).toContain('Manage sites')
     expect(allSitesHtml).not.toContain('border-l')
 
     navigationState.pathname = '/customers/customer-1/sites/site-1'
     const customerSiteHtml = renderToStaticMarkup(createElement(NavigationGroups))
     expect(customerSiteHtml.match(/aria-current="page"/g)).toHaveLength(1)
-    expect(customerSiteHtml).toContain('Inventory')
+    expect(customerSiteHtml).toContain('Customers &amp; sites')
   })
 })
