@@ -109,6 +109,24 @@ describe('dashboard candidate work packages', () => {
     expect(packages.find((work) => work.site === null)?.href).toContain('/sites/unassigned/')
   })
 
+  it('keeps an 8,000-device / 800-customer workload bounded and traceable', () => {
+    const findings = Array.from({ length: 8_000 }, (_, i) =>
+      finding({
+        deviceId: 'device-' + i,
+        customer: {
+          id: 'customer-' + Math.floor(i / 10),
+          name: 'Customer ' + Math.floor(i / 10),
+        },
+        firmwareKey: '7.4.5',
+      }),
+    )
+    const packages = buildCandidateWorkPackages(findings)
+    expect(packages).toHaveLength(800)
+    expect(packages.reduce((sum, group) => sum + group.deviceCount, 0)).toBe(8_000)
+    expect(packages.every((group) => group.deviceIds.length === 10)).toBe(true)
+    expect(countCandidateWorkPackages(packages).TO_PLAN).toBe(800)
+  })
+
   it('creates no false zeros or packages when the input has no findings', () => {
     expect(buildCandidateWorkPackages([])).toEqual([])
   })
