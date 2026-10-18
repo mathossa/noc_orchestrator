@@ -1,12 +1,62 @@
 import { describe, expect, it } from 'vitest'
 import {
   analyzeImporterV2SourceRowIdentities,
+  importerV2CanYieldSecondaryAliasToConfirmedSourceId,
   importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
   resolveImporterV2Identity,
 } from '@/lib/importer-v2-identity'
 
 describe('Importer v2 stable device identity', () => {
+  it('lets a confirmed provider Source ID outrank a conflicting serial alias', () => {
+    expect(
+      importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+        chosenCanonicalDeviceId: 'device-secondary',
+        sourceIdCanonicalDeviceId: 'device-secondary',
+        conflictingCanonicalDeviceId: 'device-primary',
+        matchingFields: ['serialNumber'],
+      }),
+    ).toBe(true)
+
+    expect(
+      importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+        chosenCanonicalDeviceId: 'device-secondary',
+        sourceIdCanonicalDeviceId: 'device-secondary',
+        conflictingCanonicalDeviceId: 'device-primary',
+        matchingFields: ['macAddress'],
+      }),
+    ).toBe(true)
+  })
+
+  it('never lets a Source ID collision or unconfirmed device yield to a secondary alias', () => {
+    expect(
+      importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+        chosenCanonicalDeviceId: 'device-secondary',
+        sourceIdCanonicalDeviceId: 'device-secondary',
+        conflictingCanonicalDeviceId: 'device-primary',
+        matchingFields: ['sourceId', 'serialNumber'],
+      }),
+    ).toBe(false)
+
+    expect(
+      importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+        chosenCanonicalDeviceId: null,
+        sourceIdCanonicalDeviceId: null,
+        conflictingCanonicalDeviceId: 'device-primary',
+        matchingFields: ['serialNumber'],
+      }),
+    ).toBe(false)
+
+    expect(
+      importerV2CanYieldSecondaryAliasToConfirmedSourceId({
+        chosenCanonicalDeviceId: 'device-secondary',
+        sourceIdCanonicalDeviceId: 'different-device',
+        conflictingCanonicalDeviceId: 'device-primary',
+        matchingFields: ['serialNumber'],
+      }),
+    ).toBe(false)
+  })
+
   it('automatically trusts a unique high-confidence provider source identity', () => {
     const result = resolveImporterV2Identity(
       {
