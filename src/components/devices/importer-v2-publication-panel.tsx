@@ -154,6 +154,8 @@ type PublicationScopePreview = {
     rowNumber: number
     sourceName: string | null
     hostname: string | null
+    sourceId: string | null
+    selectedCanonicalDeviceId: string | null
     canonicalConflicts: Array<{
       canonicalDeviceId: string
       name: string | null
@@ -167,6 +169,8 @@ type PublicationScopePreview = {
       rowNumber: number
       sourceName: string | null
       hostname: string | null
+      sourceId: string | null
+      selectedCanonicalDeviceId: string | null
       matchingIdentifiers: Array<{
         field: 'sourceId' | 'serialNumber' | 'macAddress'
         value: string
@@ -814,12 +818,15 @@ export function ImporterV2PublicationPanel({
                         <div className="font-semibold">
                           Row #{conflict.rowNumber} · {conflict.sourceName ?? conflict.hostname ?? 'Unnamed device'}
                         </div>
+                        <div className="mt-1 opacity-90">
+                          Source ID: {conflict.sourceId ?? '—'} · canonical: {conflict.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'}
+                        </div>
                         {conflict.stagedConflicts.map((match) => (
                           <div
                             key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
                             className="mt-1"
                           >
-                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} on{' '}
+                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
                             {match.matchingIdentifiers
                               .map((item) => `${item.field}: ${item.value}`)
                               .join(', ')}
