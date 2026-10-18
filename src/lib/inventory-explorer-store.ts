@@ -1,4 +1,5 @@
 import { resolveDeviceWorkPlanning } from '@/lib/firmware-work-plan-query-store'
+import type { WorkPackageFinding } from '@/lib/dashboard-work-packages'
 import { firmwarePolicyLabel } from '@/lib/firmware-policy-label'
 import type { Prisma } from '@/generated/prisma/client'
 import { resolveDeviceExceptionSummaries } from '@/lib/device-exception-summary-store'
@@ -36,8 +37,11 @@ type InventoryFact = {
   customerId: string
   siteId: string | null
   deviceModelId: string
-  customer: { id: string; name: string; code?: string | null }
-  site: { id: string; name: string; code?: string | null } | null
+  currentFirmwareReleaseId: string | null
+  currentFirmwareNormalizedVersion: string | null
+  currentFirmwareRawVersion: string | null
+  customer: { id: string; name: string; code?: string | null; contractTypeId?: string | null }
+  site: { id: string; name: string; code?: string | null; contractTypeId?: string | null } | null
   deviceModel: {
     id: string
     model: string
@@ -63,8 +67,11 @@ const factSelect = {
   customerId: true,
   siteId: true,
   deviceModelId: true,
-  customer: { select: { id: true, name: true, code: true } },
-  site: { select: { id: true, name: true, code: true } },
+  currentFirmwareReleaseId: true,
+  currentFirmwareNormalizedVersion: true,
+  currentFirmwareRawVersion: true,
+  customer: { select: { id: true, name: true, code: true, contractTypeId: true } },
+  site: { select: { id: true, name: true, code: true, contractTypeId: true } },
   deviceModel: {
     select: {
       id: true,
@@ -599,6 +606,46 @@ function hierarchyMatches(query: InventoryQuery, facts: InventoryFact[], scope: 
     if (matches.size >= 12) break
   }
   return [...matches.values()].slice(0, 12)
+}
+
+/**
+ * Expose the exact inventory status projection used by the existing explorer
+ * to the operational dashboard. Do not re-implement exception or policy logic.
+ * Query scopes/authorization match the existing inventory read endpoints.
+ */
+export async function getDashboardWorkPackageFindings(
+  query: InventoryQuery,
+): Promise<WorkPackageFinding[]> {
+  const facts = applyDerivedFilters(await loadFacts({}, query), query)
+  if (facts.length === 0) return []
+
+  const planning = await resolveDeviceWorkPlanning(facts.map((fact) => fact.id))
+  return facts.map((fact) => {
+    const active = planning.get(fact.id)?.activePlans ?? []
+    const reference = active.find((plan) => plan.state === 'AWAITING_CUSTOMER') ?? active[0]
+    const plan = reference
+      ? { id: reference.id, state: reference.state }
+      : null
+    return {
+      deviceId: fact.id,
+      customer: { id: fact.customer.id, name: fact.customer.name },
+      site: fact.site ? { id: fact.site.id, name: fact.site.name } : null,
+      deviceTypeId: fact.deviceModel.deviceType.id,
+      vendor: { id: fact.deviceModel.vendor.id, name: fact.deviceModel.vendor.name },
+      model: { id: fact.deviceModel.id, name: fact.deviceModel.model },
+      firmwareKey: fact.currentFirmwareReleaseId ??
+        fact.currentFirmwareNormalizedVersion ??
+        fact.currentFirmwareRawVersion,
+      status: fact.status.code,
+      reason: fact.status.reason,
+      managementContractId: fact.site?.contractTypeId ?? fact.customer.contractTypeId ?? null,
+      plan: plan && [
+        'PROPOSED', 'AWAITING_CUSTOMER', 'APPROVED', 'SCHEDULED', 'IN_PROGRESS',
+      ].includes(plan.state)
+        ? { id: plan.id, state: plan.state as NonNullable<WorkPackageFinding['plan']>['state'] }
+        : null,
+    }
+  })
 }
 
 export async function getInventoryOverview(
