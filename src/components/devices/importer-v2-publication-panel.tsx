@@ -239,32 +239,30 @@ export function ImporterV2PublicationPanel({
     publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
 
   useEffect(() => {
-    if (!qa || !selectionEnabled || !selectedWorkspaceRows) {
-      setScoped(null)
-      setScopedLoading(false)
-      return
-    }
+    if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
 
     let cancelled = false
-    setScopedLoading(true)
-    setError(null)
+    const loadSelectedScope = async () => {
+      setScoped(null)
+      setScopedLoading(true)
+      setError(null)
 
-    void fetch(
-      `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          mode,
-          selection: selectedWorkspaceRows,
-        }),
-      },
-    )
-      .then((response) => responseData<PublicationScopePreview>(response))
-      .then((preview) => {
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode,
+              selection: selectedWorkspaceRows,
+            }),
+          },
+        )
+        const preview =
+          await responseData<PublicationScopePreview>(response)
         if (!cancelled) setScoped(preview)
-      })
-      .catch((scopeError) => {
+      } catch (scopeError) {
         if (!cancelled) {
           setScoped(null)
           setError(
@@ -273,11 +271,12 @@ export function ImporterV2PublicationPanel({
               : 'Unable to preview selected publication scope.',
           )
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setScopedLoading(false)
-      })
+      }
+    }
 
+    void loadSelectedScope()
     return () => {
       cancelled = true
     }
