@@ -26,6 +26,7 @@ import {
 } from '@/lib/importer-v2-identity-store'
 import { evaluateImporterV2DeviceType } from '@/lib/importer-v2-profile-preview'
 import { diffImporterV2RepeatImport } from '@/lib/importer-v2-repeat-diff'
+import { importerV2PreservedCanonicalFirmware } from '@/lib/importer-v2-publication-firmware'
 import { detectImporterV2StackGroups } from '@/lib/importer-v2-stack-topology'
 import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
 import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
