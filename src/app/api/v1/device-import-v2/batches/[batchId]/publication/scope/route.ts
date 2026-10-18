@@ -74,6 +74,8 @@ export async function POST(request: Request, context: Context) {
           rowNumber: conflict.rowNumber,
           sourceName: conflict.sourceName,
           hostname: conflict.hostname,
+          sourceId: conflict.sourceIdentifiers.sourceId,
+          selectedCanonicalDeviceId: conflict.selectedCanonicalDeviceId,
           canonicalConflicts: conflict.conflicts.map((match) => ({
             canonicalDeviceId: match.canonicalDeviceId,
             name: match.name,
@@ -84,6 +86,12 @@ export async function POST(request: Request, context: Context) {
             rowNumber: match.rowNumber,
             sourceName: match.sourceName,
             hostname: match.hostname,
+            sourceId:
+              conflict.stagedConflicts.find(
+                (item) => item.rowNumber === match.rowNumber,
+              )?.sourceId ?? null,
+            selectedCanonicalDeviceId:
+              match.selectedCanonicalDeviceId,
             matchingIdentifiers: match.matchingIdentifiers,
           })),
         })),
