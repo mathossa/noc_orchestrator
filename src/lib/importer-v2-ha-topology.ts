@@ -13,7 +13,7 @@ import {
 
 type DecisionLike = {
   action: string
-  field?: string | null
+  field: string | null
   value?: unknown
 }
 
