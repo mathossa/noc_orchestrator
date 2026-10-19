@@ -1015,18 +1015,30 @@ export async function applyImporterV2WorkspaceAction(input: {
     resolved.contextVersion,
   )
 
-  if (input.action.type === 'CONFIRM_HA_CLUSTER') {
-    if (!resolved.haGroup) {
+  if (
+    input.action.type === 'CONFIRM_HA_CLUSTER' ||
+    input.action.type === 'CONFIRM_HA_CLUSTERS'
+  ) {
+    const groups =
+      input.action.type === 'CONFIRM_HA_CLUSTER'
+        ? resolved.haGroup
+          ? [resolved.haGroup]
+          : []
+        : [...(resolved.haGroups ?? [])]
+    if (groups.length === 0) {
       throw new Error(
         'Confirmed HA topology disappeared after preview.',
       )
     }
-    const decisions = importerV2ConfirmedHaTopologyDecisions({
-      group: resolved.haGroup,
-      rows: resolved.rows,
-      explanation: input.action.explanation,
-      scopeToken: expectedToken,
-    })
+
+    const decisions = groups.flatMap((group) =>
+      importerV2ConfirmedHaTopologyDecisions({
+        group,
+        rows: resolved.rows,
+        explanation: input.action.explanation,
+        scopeToken: expectedToken,
+      }),
+    )
     await prisma.$transaction(async (tx) => {
       await tx.importerV2WorkspaceDecision.createMany({
         data: decisions.map((decision) => ({
@@ -1054,7 +1066,15 @@ export async function applyImporterV2WorkspaceAction(input: {
     return {
       affectedRowCount: resolved.rows.length,
       scopeToken: expectedToken,
-      topology: resolved.haGroup,
+      topology:
+        input.action.type === 'CONFIRM_HA_CLUSTER'
+          ? groups[0]
+          : undefined,
+      topologies:
+        input.action.type === 'CONFIRM_HA_CLUSTERS'
+          ? groups
+          : undefined,
+      rejected: resolved.haRejected ?? [],
     }
   }
 
