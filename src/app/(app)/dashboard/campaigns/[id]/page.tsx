@@ -27,9 +27,21 @@ export function campaignSubset(
   )
 }
 
-function detailHref(id: string, scope: { release: string; customer: string; page: number }, patch: Partial<typeof scope>) {
+type DetailScope = {
+  scopeCustomer: string
+  scopeVendor: string
+  scopeContract: string
+  release: string
+  customer: string
+  page: number
+}
+
+function detailHref(id: string, scope: DetailScope, patch: Partial<DetailScope>) {
   const next = { ...scope, ...patch }
   const params = new URLSearchParams()
+  if (next.scopeCustomer) params.set('scopeCustomer', next.scopeCustomer)
+  if (next.scopeVendor) params.set('scopeVendor', next.scopeVendor)
+  if (next.scopeContract) params.set('scopeContract', next.scopeContract)
   if (next.release) params.set('release', next.release)
   if (next.customer) params.set('customer', next.customer)
   if (next.page > 1) params.set('page', String(next.page))
@@ -47,7 +59,12 @@ export default async function CampaignDetailPage({ params, searchParams }: PageP
   for (const [key, value] of Object.entries(supplied)) {
     if (typeof value === 'string') search.set(key, value)
   }
-  const query = parseInventoryQuery(search)
+  const inventoryParams = new URLSearchParams({
+    customer: search.get('scopeCustomer') ?? '',
+    vendor: search.get('scopeVendor') ?? '',
+    contract: search.get('scopeContract') ?? '',
+  })
+  const query = parseInventoryQuery(inventoryParams)
   const [findings, options] = await Promise.all([
     getDashboardWorkPackageFindings(query),
     getInventoryFilterOptions(),
@@ -58,7 +75,14 @@ export default async function CampaignDetailPage({ params, searchParams }: PageP
   const release = (search.get('release') ?? '').slice(0, 100)
   const customer = (search.get('customer') ?? '').slice(0, 100)
   const page = Math.max(1, Number.parseInt(search.get('page') ?? '1', 10) || 1)
-  const scope = { release, customer, page }
+  const scope: DetailScope = {
+    scopeCustomer: search.get('scopeCustomer') ?? '',
+    scopeVendor: search.get('scopeVendor') ?? '',
+    scopeContract: search.get('scopeContract') ?? '',
+    release,
+    customer,
+    page,
+  }
   const all = campaignSubset(campaign, release, customer)
   const totalPages = Math.max(1, Math.ceil(all.length / maxPerPage))
   const selectedPage = Math.min(page, totalPages)
@@ -66,11 +90,14 @@ export default async function CampaignDetailPage({ params, searchParams }: PageP
   const customers = Array.from(new Map(campaign.findings.map((item) =>
     [item.customer.id, item.customer])).values()).sort((a, b) => a.name.localeCompare(b.name))
   const reportParams = new URLSearchParams()
+  if (scope.scopeCustomer) reportParams.set('scopeCustomer', scope.scopeCustomer)
+  if (scope.scopeVendor) reportParams.set('scopeVendor', scope.scopeVendor)
+  if (scope.scopeContract) reportParams.set('scopeContract', scope.scopeContract)
   if (release) reportParams.set('release', release)
   if (customer) reportParams.set('customer', customer)
   // Export is evaluated against EXACT campaign membership, not an approximate inventory filter.
   const exportHref = '/dashboard/campaigns/' + encodeURIComponent(id) + '/export' +
-    (reportParams.size ? '?' + reportParams : '')
+    (reportParams.size ? '?' + reportParams.toString() : '')
   const contractName = new Map(options.contracts.map((item) => [item.id, item.name]))
 
   return (
