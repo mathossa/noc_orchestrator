@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { compareFirmwareVersions } from '@/lib/firmware-versioning'
 import type { WorkPackageFinding } from '@/lib/dashboard-work-packages'
 
-export type CampaignSeverity = 'BLOCKED_RELEASE' | 'REQUIRED' | 'RECOMMENDED' | 'REVIEW'
+export type CampaignSeverity = 'CRITICAL' | 'REQUIRED' | 'RECOMMENDED' | 'REVIEW'
 export type CampaignRelease = {
   version: string
   deviceCount: number
@@ -66,7 +66,7 @@ function identity(finding: WorkPackageFinding) {
 }
 
 function severityOf(finding: WorkPackageFinding): CampaignSeverity | null {
-  if (finding.status === 'CRITICAL_ATTENTION') return 'BLOCKED_RELEASE'
+  if (finding.status === 'CRITICAL_ATTENTION') return 'CRITICAL'
   if (finding.status === 'UPDATE_REQUIRED') return 'REQUIRED'
   if (finding.status === 'UPDATE_RECOMMENDED') return 'RECOMMENDED'
   if (finding.status === 'REVIEW_REQUIRED' || finding.status === 'UNKNOWN') return 'REVIEW'
@@ -75,7 +75,7 @@ function severityOf(finding: WorkPackageFinding): CampaignSeverity | null {
 }
 
 const priority: Record<CampaignSeverity, number> = {
-  BLOCKED_RELEASE: 4,
+  CRITICAL: 4,
   REQUIRED: 3,
   RECOMMENDED: 2,
   REVIEW: 1,
@@ -114,7 +114,7 @@ export function buildFirmwareCampaigns(findings: readonly WorkPackageFinding[]):
         targetPlatform: normalize(finding.targetPlatform),
         targetTrain: normalize(finding.targetTrain),
         severity,
-        reason: severity === 'BLOCKED_RELEASE'
+        reason: severity === 'CRITICAL'
           ? 'Firmware requires attention under the catalog or compatibility policy.'
           : severity === 'REQUIRED'
             ? 'Firmware is below the accepted policy threshold.'
@@ -147,11 +147,11 @@ export function buildFirmwareCampaigns(findings: readonly WorkPackageFinding[]):
     campaign.deviceCount++
     if (priority[severity] > priority[campaign.severity]) {
       campaign.severity = severity
-      campaign.reason = severity === 'BLOCKED_RELEASE'
+      campaign.reason = severity === 'CRITICAL'
         ? 'Firmware requires attention under the catalog or compatibility policy.'
         : 'Some devices require an update under the configured policy.'
     }
-    if (severity === 'BLOCKED_RELEASE') campaign.criticalCount++
+    if (severity === 'CRITICAL') campaign.criticalCount++
     else if (severity === 'REQUIRED') campaign.requiredCount++
     else if (severity === 'RECOMMENDED') campaign.recommendedCount++
     else campaign.reviewCount++
@@ -173,7 +173,7 @@ export function buildFirmwareCampaigns(findings: readonly WorkPackageFinding[]):
       campaign.releases.push(cohort)
     }
     cohort.deviceCount++
-    if (severity === 'BLOCKED_RELEASE') cohort.criticalCount++
+    if (severity === 'CRITICAL') cohort.criticalCount++
     if (severity === 'REQUIRED') cohort.requiredCount++
     if (finding.compliance === 'ACCEPTED') cohort.acceptedCount++
     const customers = campaign.releaseMembership.get(version) ?? new Set<string>()
@@ -259,7 +259,7 @@ export function countFirmwareCampaigns(campaigns: readonly FirmwareCampaign[]) {
   return {
     campaigns: campaigns.length,
     devices: campaigns.reduce((sum, item) => sum + item.deviceCount, 0),
-    blockedReleaseDevices: campaigns.reduce((sum, item) => sum + item.criticalCount, 0),
+    criticalDevices: campaigns.reduce((sum, item) => sum + item.criticalCount, 0),
     updateRequiredDevices: campaigns.reduce((sum, item) => sum + item.requiredCount, 0),
     recommendedDevices: campaigns.reduce((sum, item) => sum + item.recommendedCount, 0),
     reviewDevices: campaigns.reduce((sum, item) => sum + item.reviewCount, 0),
