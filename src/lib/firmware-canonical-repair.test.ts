@@ -37,6 +37,10 @@ describe('#152 current inventory canonical FortiOS relink', () => {
       candidates: [target], vendorIsFortinet: true,
     }).status).toBe('UNSUPPORTED_MODEL')
   })
+  it('blocks corrections when normalized scan evidence reports another running version', () => {
+    expect(resolveCanonicalFortiosRepair({ source: old, candidates: [target], model,
+      vendorIsFortinet: true, observedNormalizedVersion: '7.4.12' }).status).toBe('EVIDENCE_CONFLICT')
+  })
   it('preserves correct links and refuses inactive target trains', () => {
     expect(match([target], target).status).toBe('ALREADY_CORRECT')
     expect(match([{ ...target, firmwareTrain: { ...target.firmwareTrain!, isActive: false } }]).status).toBe('MISSING_TARGET')
