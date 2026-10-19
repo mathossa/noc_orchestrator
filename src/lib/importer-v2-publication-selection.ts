@@ -16,6 +16,7 @@ const PUBLICATION_FILTERS = new Set([
   'canonicalModel',
   'firmwareEvidencePattern',
   'repeatClassification',
+  'publication',
 ])
 
 /**
@@ -72,6 +73,16 @@ export function parseImporterV2PublicationSelection(
         )
       ) {
         throw new Error('Invalid publication selection filter.')
+      }
+      if (
+        field === 'publication' &&
+        entry !== null &&
+        entry !== undefined &&
+        entry !== 'PENDING' &&
+        entry !== 'PUBLISHED' &&
+        entry !== 'ALL'
+      ) {
+        throw new Error('Invalid publication-state filter.')
       }
     }
 
