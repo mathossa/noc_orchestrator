@@ -73,6 +73,7 @@ export type FirmwareInventoryRepairQuery = {
   q?: string
   vendorId?: string
   customerId?: string
+  linkedPlatform?: string
 }
 
 export async function previewInventoryFirmwareRepairs(input: FirmwareInventoryRepairQuery = {}) {
@@ -80,16 +81,20 @@ export async function previewInventoryFirmwareRepairs(input: FirmwareInventoryRe
   const q = input.q?.trim().slice(0, 100) ?? ''
   const vendorId = input.vendorId?.trim().slice(0, 80) ?? ''
   const customerId = input.customerId?.trim().slice(0, 80) ?? ''
+  const linkedPlatform = input.linkedPlatform?.trim().slice(0, 80) ?? ''
   const where: Prisma.DeviceWhereInput = {
     ...(vendorId ? { deviceModel: { vendorId } } : {}),
     ...(customerId ? { customerId } : {}),
+    ...(linkedPlatform === '__UNLINKED__'
+      ? { currentFirmwareReleaseId: null }
+      : linkedPlatform ? { currentFirmwareRelease: { is: { platform: { equals: linkedPlatform, mode: 'insensitive' } } } } : {}),
     ...(q ? { OR: [
       { name: { contains: q, mode: 'insensitive' } },
       { customer: { name: { contains: q, mode: 'insensitive' } } },
       { deviceModel: { model: { contains: q, mode: 'insensitive' } } },
     ] } : {}),
   }
-  const [total, devices, vendors] = await Promise.all([
+  const [total, devices, vendors, platforms] = await Promise.all([
     prisma.device.count({ where }),
     prisma.device.findMany({
       where,
@@ -100,6 +105,11 @@ export async function previewInventoryFirmwareRepairs(input: FirmwareInventoryRe
     }),
     prisma.vendor.findMany({
       select: { id: true, name: true }, orderBy: { name: 'asc' },
+    }),
+    prisma.firmwareRelease.findMany({
+      distinct: ['platform'],
+      select: { platform: true },
+      orderBy: { platform: 'asc' },
     }),
   ])
   const vendorIds = [...new Set(devices.map((device) => device.deviceModel.vendorId))]
@@ -117,7 +127,7 @@ export async function previewInventoryFirmwareRepairs(input: FirmwareInventoryRe
     return viewRow(device, decision, releaseById.get(decision.targetId ?? '') ?? null)
   })
   return {
-    rows, vendors,
+    rows, vendors, linkedPlatforms: platforms.map((p) => p.platform),
     page,
     pageSize: PAGE_SIZE,
     total,
