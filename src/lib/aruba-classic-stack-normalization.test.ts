@@ -10,7 +10,7 @@ import {
 } from '@/lib/importer-v2-stack-topology'
 import type { ClassicCentralDeviceObservation } from '@/lib/aruba-classic-central-api-client'
 
-const physical=(serial:string,stack:string,name='72switch5',site='Unica - Bodegraven'):
+const physical=(serial:string,stack:string,name='lab-stack-sw01',site='Example Customer - Site A'):
 ClassicCentralDeviceObservation=>({
   kind:'SWITCH',raw:{
     serial,stack_id:stack,name,site,site_id:128,
@@ -19,7 +19,7 @@ ClassicCentralDeviceObservation=>({
 })
 
 describe('Aruba Classic logical stack representation',()=>{
-  it('stages one managed stack and two distinct physical member rows, not two 72switch5 Devices',()=>{
+  it('stages one managed stack and two distinct physical member rows, not two lab-stack-sw01 Devices',()=>{
     const input=[physical('SER-A','STACK-72'),physical('SER-B','STACK-72')]
     const result=prepareClassicCentralStacks(input)
     expect(result).toMatchObject({
@@ -30,16 +30,16 @@ describe('Aruba Classic logical stack representation',()=>{
     })
     const normalized=result.observations.map((row,index)=>
       classicCentralObservationToNormalizedRow(row,index+1,{
-        customer:'Unica Groep',sitesByName:{'Unica - Bodegraven':'Bodegraven'},
+        customer:'Example Customer',sitesByName:{'Example Customer - Site A':'Site A'},
       }))
     expect(normalized.map(row=>row.rawValues.deviceName)).toEqual([
-      '72switch5','72switch5 Member 1','72switch5 Member 2',
+      'lab-stack-sw01','lab-stack-sw01 Member 1','lab-stack-sw01 Member 2',
     ])
     expect(normalized[0]).toMatchObject({
       sourceRecordKey:'aruba-classic-stack:STACK-72',
       rawValues:{
         deviceType:'Stack',sourceId:'aruba-classic-stack:STACK-72',
-        serialNumber:null,macAddress:null,customer:'Unica Groep',site:'Bodegraven',
+        serialNumber:null,macAddress:null,customer:'Example Customer',site:'Site A',
       },
     })
     expect(normalized.slice(1).map(row=>row.rawValues.serialNumber))
@@ -89,20 +89,20 @@ describe('Aruba Classic logical stack representation',()=>{
     const input=[physical('SERA','STACK-A'),physical('SERB','STACK-A')]
     const result=prepareClassicCentralStacks(input)
     expect(result.observations[1].raw).toMatchObject({
-      site:'Unica - Bodegraven',
+      site:'Example Customer - Site A',
       site_id:128,
       serial:'SERA',
-      nocOrchestratorOriginalMemberName:'72switch5',
+      nocOrchestratorOriginalMemberName:'lab-stack-sw01',
     })
-    expect(input[0].raw.name).toBe('72switch5')
+    expect(input[0].raw.name).toBe('lab-stack-sw01')
   })
 
   it('keeps non-stack APs and ordinary switches unmodified',()=>{
     const ap:ClassicCentralDeviceObservation={
-      kind:'AP',raw:{serial:'AP1',name:'AP1',site:'Unica - Bodegraven'},
+      kind:'AP',raw:{serial:'AP1',name:'AP1',site:'Example Customer - Site A'},
     }
     const independent:ClassicCentralDeviceObservation={
-      kind:'SWITCH',raw:{serial:'SW1',name:'SW1',site:'Unica - Bodegraven'},
+      kind:'SWITCH',raw:{serial:'SW1',name:'SW1',site:'Example Customer - Site A'},
     }
     const result=prepareClassicCentralStacks([ap,independent])
     expect(result.observations).toEqual([ap,independent])
@@ -115,7 +115,7 @@ describe('Aruba Classic logical stack representation',()=>{
       {...physical('SERB','STACK-A'),raw:{...physical('SERB','STACK-A').raw,member_id:1}},
     ])
     expect(result.observations.map(item=>item.raw.name)).toEqual([
-      '72switch5','72switch5 Member 1','72switch5 Member 2',
+      'lab-stack-sw01','lab-stack-sw01 Member 1','lab-stack-sw01 Member 2',
     ])
     expect(result.observations[1].raw.serial).toBe('SERB')
     expect(result.observations[1].raw.nocOrchestratorStackPositionSource).toBe('VENDOR_SLOT')

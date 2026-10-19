@@ -92,7 +92,7 @@ describe('Importer v2 synthetic regression fixtures', () => {
     ).toLocaleLowerCase('en-US')
 
     expect(serialized).toContain('synthetic')
-    expect(serialized).not.toMatch(/dhl|unica|leger des heils|working spirit/)
+    expect(serialized).not.toMatch(/production-customer|private-site|real-device-serial/)
     expect(serialized).not.toMatch(
       /\b(?:10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
     )
