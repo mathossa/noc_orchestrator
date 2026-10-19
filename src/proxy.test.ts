@@ -53,7 +53,7 @@ describe('central authentication boundary', () => {
   })
 
   it('fails closed if session resolution throws', async () => {
-    getSession.mockRejectedValue(new Error('synthetic database error'))
+    getSession.mockImplementationOnce(() => { throw new Error('synthetic database error') })
     const response = await proxy(req('/api/v1/customers'))
     expect(response.status).toBe(503)
     expect(await response.text()).not.toContain('synthetic database error')

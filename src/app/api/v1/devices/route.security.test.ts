@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }))
 vi.mock('@/lib/device-query-store', () => ({ queryDevices: mocks.query }))
+// deviceApiError imports database-backed validation classes; this suite tests access control only.
+vi.mock('@/lib/device-api', () => ({ deviceApiError: vi.fn(() => Response.json({ error: { code: 'ERROR' } }, { status: 500 })) }))
 vi.mock('@/lib/device-store', () => ({
   createDevice: mocks.create,
   getDevice: mocks.get,

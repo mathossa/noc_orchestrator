@@ -21,7 +21,7 @@ async function seedUser(email: string, role: 'admin' | 'user') {
     data: {
       userId: user.id,
       providerId: 'credential',
-      issuer: 'credential',
+      issuer: 'local:credential',
       accountId: user.id,
       password: await hashPassword(TEST_PASSWORD),
     },
