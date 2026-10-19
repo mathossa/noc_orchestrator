@@ -273,11 +273,13 @@ export function detectImporterV2ConfirmedHaPairs(input: {
   }
 
   const candidatePairs = new Map<string, [number, number]>()
+  const ambiguousRows = new Set<number>()
   const rejected: ImporterV2HaPairDetection['rejected'] = []
   for (const [identifier, members] of identifierRows) {
     const rows = [...members].sort((left, right) => left - right)
     if (rows.length !== 2) {
       if (rows.length > 2) {
+        for (const rowNumber of rows) ambiguousRows.add(rowNumber)
         rejected.push({
           rowNumbers: rows,
           reason: `${identifier} is shared by ${rows.length} staged rows, so it is not an unambiguous two-member HA candidate.`,
@@ -300,7 +302,13 @@ export function detectImporterV2ConfirmedHaPairs(input: {
   const groups: ImporterV2ConfirmedHaGroup[] = []
   const rejectedPairs = new Set<string>()
   for (const [pairKey, pair] of candidatePairs) {
-    if (pair.some((rowNumber) => (pairsByRow.get(rowNumber)?.size ?? 0) > 1)) {
+    if (
+      pair.some(
+        (rowNumber) =>
+          ambiguousRows.has(rowNumber) ||
+          (pairsByRow.get(rowNumber)?.size ?? 0) > 1,
+      )
+    ) {
       rejectedPairs.add(pairKey)
       continue
     }
@@ -333,7 +341,7 @@ export function detectImporterV2ConfirmedHaPairs(input: {
     rejected.push({
       rowNumbers: pair,
       reason:
-        'At least one row matches more than one possible peer through shared serial/MAC evidence. Review this collision manually.',
+        'At least one row has ambiguous shared identity evidence or matches more than one possible peer. Review this collision manually.',
     })
   }
 
