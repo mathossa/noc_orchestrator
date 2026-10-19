@@ -58,7 +58,10 @@ export function InventoryFirmwareRepairManager() {
   const [query, setQuery] = useState('')
   const [draftQuery, setDraftQuery] = useState('')
   const [vendorId, setVendorId] = useState('')
+  const [draftVendorId, setDraftVendorId] = useState('')
   const [linkedPlatform, setLinkedPlatform] = useState('')
+  const [draftLinkedPlatform, setDraftLinkedPlatform] = useState('')
+  const [searchRevision, setSearchRevision] = useState(0)
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [selected, setSelected] = useState<string[]>([])
   const [lastAuditIds, setLastAuditIds] = useState<string[]>([])
@@ -72,7 +75,7 @@ export function InventoryFirmwareRepairManager() {
     const payload = (await response.json()) as ApiPayload<Preview>
     if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Inventory preview could not be loaded.')
     return payload.data
-  }, [page, query, vendorId, linkedPlatform])
+  }, [page, query, vendorId, linkedPlatform, searchRevision])
 
   const refresh = useCallback(async () => {
     const next = await load()
@@ -155,8 +158,14 @@ export function InventoryFirmwareRepairManager() {
 
   function search(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    setError('')
+    setMessage('')
     setQuery(draftQuery.trim())
+    setVendorId(draftVendorId)
+    setLinkedPlatform(draftLinkedPlatform)
     setPage(1)
+    // Re-run even when the user submits the same filters twice.
+    setSearchRevision((revision) => revision + 1)
   }
 
   return (
@@ -183,7 +192,7 @@ export function InventoryFirmwareRepairManager() {
         {loading ? <p>Loading recorded inventory…</p> : null}
         {error ? <p role="alert" className="text-red-400">{error}</p> : null}
         {message ? <p role="status" className="text-emerald-400">{message}</p> : null}
-        <form onSubmit={search} className="flex flex-wrap items-end gap-3">
+        <form onSubmit={search} role="search" className="flex flex-wrap items-end gap-3">
           <label className="min-w-56 flex-1 text-xs">
             Search devices or customers
             <input type="search" value={draftQuery} onChange={(e) => setDraftQuery(e.target.value)}
@@ -192,7 +201,7 @@ export function InventoryFirmwareRepairManager() {
           </label>
           <label className="min-w-44 text-xs">
             Vendor
-            <select value={vendorId} onChange={(e) => { setVendorId(e.target.value); setPage(1) }}
+            <select value={draftVendorId} onChange={(e) => setDraftVendorId(e.target.value)}
               className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
               <option value="">All vendors</option>
               {preview?.vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -200,7 +209,7 @@ export function InventoryFirmwareRepairManager() {
           </label>
           <label className="min-w-44 text-xs">
             Current canonical platform
-            <select value={linkedPlatform} onChange={(e) => { setLinkedPlatform(e.target.value); setPage(1) }}
+            <select value={draftLinkedPlatform} onChange={(e) => setDraftLinkedPlatform(e.target.value)}
               className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
               <option value="">All platforms / devices</option>
               <option value="__UNLINKED__">Without canonical release</option>
@@ -208,7 +217,10 @@ export function InventoryFirmwareRepairManager() {
                 <option key={platform} value={platform}>{platform}</option>)}
             </select>
           </label>
-          <button type="submit" className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)]">Search</button>
+          <button type="submit" disabled={busy}
+            className="relative z-10 cursor-pointer rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50">
+            Search
+          </button>
           <button type="button" disabled={busy} onClick={() => {
             setBusy(true); setError('')
             void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Refresh failed.'))
@@ -217,6 +229,12 @@ export function InventoryFirmwareRepairManager() {
         </form>
         {preview ? (
           <>
+            <p role="status" className="text-xs text-[var(--muted)]">
+              Showing {preview.total} record(s) matching applied filters
+              {query ? ' · Search: ' + query : ''}
+              {vendorId ? ' · Vendor: ' + (preview.vendors.find((vendor) => vendor.id === vendorId)?.name ?? 'Selected') : ''}
+              {linkedPlatform ? ' · Current platform: ' + (linkedPlatform === '__UNLINKED__' ? 'Unlinked' : linkedPlatform) : ''}
+            </p>
             <p className="text-sm">
               <strong>{preview.total}</strong> devices in filter ·
               {' '}<strong>{preview.matched}</strong> exact correction candidates on this page ·
@@ -236,7 +254,7 @@ export function InventoryFirmwareRepairManager() {
               <button type="button" disabled={busy}
                 onClick={() => setSelected(rows.filter((r) => r.status === 'MATCHED').slice(0, 50).map((r) => r.deviceId))}
                 className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
-                Select exact matches on page
+                Select safe matches on this page
               </button>
               <button type="button" disabled={busy || !selectedRows.length} onClick={() => void apply()}
                 className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
