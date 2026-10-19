@@ -185,6 +185,10 @@ type PublicationScopePreview = {
   nameConflictRowNumbers: number[]
 }
 
+type PublicationScopeResponse = PublicationScopePreview & {
+  qa: ImporterV2PublicationQa
+}
+
 type HaConfirmationPreview = {
   rowNumbers: [number, number]
   scopeToken: string
@@ -311,8 +315,12 @@ export function ImporterV2PublicationPanel({
       const next = await fetchQa(true)
       setQa(next)
       setApproved((current) => {
-        const allowed = new Set(requiredProposalsFor(next, mode).map((item) => item.key))
-        return new Set([...current].filter((key) => allowed.has(key)))
+        const allowed = new Set(
+          requiredProposalsFor(next, mode).map((item) => item.key),
+        )
+        return new Set(
+          [...current].filter((key) => allowed.has(key)),
+        )
       })
     } catch (loadError) {
       setError(
@@ -324,6 +332,72 @@ export function ImporterV2PublicationPanel({
       setLoading(false)
     }
   }, [fetchQa, mode])
+
+  const fetchScopedPublication = useCallback(
+    async (selection: ImporterV2WorkspaceSelection) => {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode,
+            selection,
+          }),
+        },
+      )
+      return responseData<PublicationScopeResponse>(response)
+    },
+    [batchId, mode],
+  )
+
+  const applyScopedPublication = useCallback(
+    (preview: PublicationScopeResponse) => {
+      const { qa: nextQa, ...nextScoped } = preview
+      setQa(nextQa)
+      setScoped(nextScoped)
+      setApproved((current) => {
+        const allowed = new Set(
+          requiredProposalsFor(
+            nextQa,
+            mode,
+            nextScoped.rowNumbers,
+          ).map((item) => item.key),
+        )
+        return new Set(
+          [...current].filter((key) => allowed.has(key)),
+        )
+      })
+    },
+    [mode],
+  )
+
+  const refreshPublicationAfterMutation = useCallback(async () => {
+    if (
+      publicationScope === 'SELECTION' &&
+      selectedWorkspaceRows
+    ) {
+      setScopedLoading(true)
+      setError(null)
+      try {
+        const preview = await fetchScopedPublication(
+          selectedWorkspaceRows,
+        )
+        applyScopedPublication(preview)
+      } finally {
+        setScopedLoading(false)
+      }
+      return
+    }
+
+    await loadQa()
+  }, [
+    applyScopedPublication,
+    fetchScopedPublication,
+    loadQa,
+    publicationScope,
+    selectedWorkspaceRows,
+  ])
 
   const requestHaPreview = useCallback(
     async (leftRow: number, rightRow: number) => {
@@ -399,7 +473,7 @@ export function ImporterV2PublicationPanel({
       setSuccess(
         `Rows #${rows[0]} and #${rows[1]} confirmed as one logical HA cluster.`,
       )
-      await loadQa()
+      await refreshPublicationAfterMutation()
       onPublished?.()
     } catch (applyError) {
       setHaPreview(null)
@@ -411,7 +485,13 @@ export function ImporterV2PublicationPanel({
     } finally {
       setHaBusy(false)
     }
-  }, [batchId, haAction, haPreview, loadQa, onPublished])
+  }, [
+    batchId,
+    haAction,
+    haPreview,
+    onPublished,
+    refreshPublicationAfterMutation,
+  ])
 
   const requestHaBulkPreview = useCallback(
     async (pairs: readonly [number, number][]) => {
@@ -491,7 +571,7 @@ export function ImporterV2PublicationPanel({
       setSuccess(
         `${groupCount} logical HA cluster(s) confirmed atomically.`,
       )
-      await loadQa()
+      await refreshPublicationAfterMutation()
       onPublished?.()
     } catch (applyError) {
       setHaBulkPreview(null)
@@ -507,17 +587,29 @@ export function ImporterV2PublicationPanel({
     batchId,
     haBulkAction,
     haBulkPreview,
-    loadQa,
     onPublished,
+    refreshPublicationAfterMutation,
   ])
 
   useEffect(() => {
     let cancelled = false
-    void fetchQa()
-      .then((next) => {
+
+    const loadInitialPublication = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        if (selectedWorkspaceRows) {
+          setScopedLoading(true)
+          const preview = await fetchScopedPublication(
+            selectedWorkspaceRows,
+          )
+          if (!cancelled) applyScopedPublication(preview)
+          return
+        }
+
+        const next = await fetchQa()
         if (!cancelled) setQa(next)
-      })
-      .catch((loadError) => {
+      } catch (loadError) {
         if (!cancelled) {
           setError(
             loadError instanceof Error
@@ -525,14 +617,24 @@ export function ImporterV2PublicationPanel({
               : 'Unable to load publication QA.',
           )
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setScopedLoading(false)
+        }
+      }
+    }
+
+    void loadInitialPublication()
     return () => {
       cancelled = true
     }
-  }, [fetchQa])
+  }, [
+    applyScopedPublication,
+    fetchQa,
+    fetchScopedPublication,
+    selectedWorkspaceRows,
+  ])
 
   const selectionEnabled =
     publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
@@ -543,28 +645,24 @@ export function ImporterV2PublicationPanel({
 
   useEffect(() => {
     if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
+    if (
+      scoped &&
+      scoped.qaFingerprint === qa.qaFingerprint &&
+      scoped.mode === mode
+    ) {
+      return
+    }
 
     let cancelled = false
     const loadSelectedScope = async () => {
-      setScoped(null)
       setScopedLoading(true)
       setError(null)
 
       try {
-        const response = await fetch(
-          `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              mode,
-              selection: selectedWorkspaceRows,
-            }),
-          },
+        const preview = await fetchScopedPublication(
+          selectedWorkspaceRows,
         )
-        const preview =
-          await responseData<PublicationScopePreview>(response)
-        if (!cancelled) setScoped(preview)
+        if (!cancelled) applyScopedPublication(preview)
       } catch (scopeError) {
         if (!cancelled) {
           setScoped(null)
@@ -584,9 +682,11 @@ export function ImporterV2PublicationPanel({
       cancelled = true
     }
   }, [
-    batchId,
+    applyScopedPublication,
+    fetchScopedPublication,
     mode,
     qa,
+    scoped,
     selectionEnabled,
     selectedWorkspaceRows,
   ])
@@ -763,7 +863,7 @@ export function ImporterV2PublicationPanel({
       setSuccess(
         `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical topology member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
-      await loadQa()
+      await refreshPublicationAfterMutation()
       onPublished?.()
     } catch (publishError) {
       setError(
@@ -1462,7 +1562,7 @@ export function ImporterV2PublicationPanel({
                 {selectionEnabled ? (
                   <div className="mb-1 text-xs text-[var(--muted)]">
                     {scopedLoading
-                      ? 'Checking exact server-side selection…'
+                      ? 'Refreshing QA and exact publication scope…'
                       : scoped
                         ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts · ${scoped.safeCandidateCount.toLocaleString()} safe`
                         : 'Preparing selected scope…'}
