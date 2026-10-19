@@ -26,8 +26,23 @@ describe('Importer v2 reconciliation workspace', () => {
         businessUnit: 'eCom',
         repeatClassification: 'MOVED',
         issue: 'ERROR',
+        publication: 'PENDING',
       }),
     })
+  })
+
+  it('parses explicit published/all workspace views', () => {
+    expect(
+      parseImporterV2WorkspaceQuery(
+        new URLSearchParams({ publication: 'PUBLISHED' }),
+      ).filters.publication,
+    ).toBe('PUBLISHED')
+
+    expect(
+      parseImporterV2WorkspaceQuery(
+        new URLSearchParams({ publication: 'ALL' }),
+      ).filters.publication,
+    ).toBe('ALL')
   })
 
   it('makes preview tokens deterministic regardless of row-version order', () => {
