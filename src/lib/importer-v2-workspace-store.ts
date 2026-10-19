@@ -9,6 +9,11 @@ import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
 import { importerV2RuleKey } from '@/lib/importer-v2-rule-matcher'
 import { previewImporterV2RuleChange } from '@/lib/importer-v2-rule-preview'
 import {
+  importerV2ConfirmedHaTopologyDecisions,
+  validateImporterV2ConfirmedHaPair,
+  type ImporterV2ConfirmedHaGroup,
+} from '@/lib/importer-v2-ha-topology'
+import {
   getActiveImporterV2RuleSet,
   rememberImporterV2ExactMapping,
   replaceImporterV2RuleSet,
@@ -421,6 +426,15 @@ const actionRowSelect = {
   canonicalModel: true,
   interpretedFirmware: true,
   evaluated: true,
+  decisions: {
+    orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+    select: {
+      action: true,
+      field: true,
+      value: true,
+      explanation: true,
+    },
+  },
 } as const
 
 function selectionWhere(
@@ -549,6 +563,7 @@ type ResolvedActionScope = {
   rows: Awaited<ReturnType<typeof allIncludedActionRows>>
   contextVersion: string | null
   confirmationReasons: readonly string[]
+  haGroup?: ImporterV2ConfirmedHaGroup
 }
 
 async function exactMappingActionScope(
@@ -668,6 +683,51 @@ async function resolveActionScope(input: {
   selection: ImporterV2WorkspaceSelection
   action: ImporterV2WorkspaceAction
 }): Promise<ResolvedActionScope> {
+  if (input.action.type === 'CONFIRM_HA_CLUSTER') {
+    if (input.selection.mode !== 'ROWS') {
+      throw new Error(
+        'Confirm HA cluster requires exactly two explicitly selected rows.',
+      )
+    }
+    const rowNumbers = [...new Set(input.selection.rowNumbers)]
+    if (rowNumbers.length !== 2) {
+      throw new Error(
+        'Confirm HA cluster requires exactly two explicitly selected rows.',
+      )
+    }
+    const [batch, rows] = await Promise.all([
+      prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
+        where: { id: input.batchId },
+        select: { provider: true },
+      }),
+      rowsForSelection(input.batchId, {
+        mode: 'ROWS',
+        rowNumbers,
+      }),
+    ])
+    if (rows.length !== 2 || rows.some((row) => row.inclusion !== 'INCLUDED')) {
+      throw new Error(
+        'Confirm HA cluster requires two included staged rows.',
+      )
+    }
+    const haGroup = validateImporterV2ConfirmedHaPair({
+      provider: batch.provider,
+      rows,
+    })
+    const shared = haGroup.sharedIdentifiers
+      .map((field) => (field === 'serialNumber' ? 'serial' : 'MAC'))
+      .join(' + ')
+    return {
+      rows,
+      contextVersion: haGroup.groupKey,
+      haGroup,
+      confirmationReasons: [
+        `The two provider Source IDs are different while the rows share the same ${shared} alias.`,
+        'Customer, subdomain, site, vendor, device type and model resolve to the same canonical context.',
+        'Both physical observations will become peers under one logical HA Device; the publication anchor is not a permanent primary/secondary role.',
+      ],
+    }
+  }
   if (input.action.type === 'REMEMBER_EXACT') {
     return exactMappingActionScope(input.batchId, input.action)
   }
