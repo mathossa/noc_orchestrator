@@ -282,8 +282,7 @@ export function importerV2WorkspaceActionNeedsReevaluation(
 ) {
   return (
     action.type !== 'EXCLUDE_ROW' &&
-    action.type !== 'PRESERVE_EXISTING_FIRMWARE' &&
-    action.type !== 'CONFIRM_HA_CLUSTER'
+    action.type !== 'PRESERVE_EXISTING_FIRMWARE'
   )
 }
 
