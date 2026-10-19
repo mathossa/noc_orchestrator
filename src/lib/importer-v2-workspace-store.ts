@@ -8,6 +8,7 @@ import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
 import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
 import { importerV2RuleKey } from '@/lib/importer-v2-rule-matcher'
 import { previewImporterV2RuleChange } from '@/lib/importer-v2-rule-preview'
+import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
 import {
   importerV2ConfirmedHaTopologyDecisions,
   validateImporterV2ConfirmedHaPair,
@@ -426,6 +427,7 @@ const actionRowSelect = {
   canonicalModel: true,
   interpretedFirmware: true,
   evaluated: true,
+  identityResolution: true,
   decisions: {
     orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
     select: {
@@ -710,6 +712,23 @@ async function resolveActionScope(input: {
         'Confirm HA cluster requires two included staged rows.',
       )
     }
+    const selectedCanonicalDeviceIds = new Set(
+      rows.flatMap((row) => {
+        const review = importerV2WorkspaceIdentityReview({
+          identityResolution: row.identityResolution,
+          decisions: row.decisions,
+        })
+        return review?.selectedCanonicalDeviceId
+          ? [review.selectedCanonicalDeviceId]
+          : []
+      }),
+    )
+    if (selectedCanonicalDeviceIds.size > 1) {
+      throw new Error(
+        'These rows already point to different canonical Devices. Use the explicit HA consolidation/migration workflow instead of confirming a new HA cluster.',
+      )
+    }
+
     const haGroup = validateImporterV2ConfirmedHaPair({
       provider: batch.provider,
       rows,
