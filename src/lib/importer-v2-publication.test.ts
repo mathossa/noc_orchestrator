@@ -322,7 +322,7 @@ describe('Importer v2 final QA and publication selection', () => {
     const result = qa([parent, member])
 
     expect(result.counts.haClusters).toBe(1)
-    expect(result.counts.haMembers).toBe(1)
+    expect(result.counts.haMembers).toBe(2)
     expect(result.topology.haGroups).toEqual([
       expect.objectContaining({
         kind: 'HA',
