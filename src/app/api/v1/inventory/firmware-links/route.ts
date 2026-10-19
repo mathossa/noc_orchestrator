@@ -33,6 +33,7 @@ export async function GET(request: Request) {
         page: requested,
         q: params.get('q') ?? '',
         vendorId: params.get('vendorId') ?? '',
+        linkedPlatform: params.get('linkedPlatform') ?? '',
       }),
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
