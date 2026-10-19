@@ -21,6 +21,7 @@ type RepairRow = {
   targetVersion: string | null
   targetPlatform: string | null
   targetTrain: string | null
+  manualTargets: { id: string; platform: string; version: string; train: string | null }[]
   status: RepairStatus
   updatedAt: string
 }
@@ -89,6 +90,8 @@ export function InventoryFirmwareRepairManager() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [selected, setSelected] = useState<string[]>([])
   const [lastAuditIds, setLastAuditIds] = useState<string[]>([])
+  const [manualFirmwareTarget, setManualFirmwareTarget] = useState('')
+  const [manualFirmwareReview, setManualFirmwareReview] = useState(false)
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page) })
@@ -140,9 +143,12 @@ export function InventoryFirmwareRepairManager() {
     (preview?.rows ?? []).filter((row) => statusFilter === 'ALL' || row.status === statusFilter),
     [preview, statusFilter],
   )
-  const selectedRows = (preview?.rows ?? []).filter((row) =>
-    selected.includes(row.deviceId) && row.status === 'MATCHED' && row.targetReleaseId,
-  )
+  const selectedFirmwareRows = (preview?.rows ?? []).filter((row) => selected.includes(row.deviceId))
+  const selectedRows = selectedFirmwareRows.filter((row) => row.status === 'MATCHED' && row.targetReleaseId)
+  const manualCommonTargets = selectedFirmwareRows.length
+    ? selectedFirmwareRows[0].manualTargets.filter((target) =>
+      selectedFirmwareRows.every((row) => row.manualTargets.some((choice) => choice.id === target.id)))
+    : []
   const recordIds = new Set(recordSelection.map((item) => item.deviceId))
   const needsTarget = ['SET_CUSTOMER', 'SET_SITE', 'SET_MODEL'].includes(bulkOperation)
   const bulkTargetOptions = bulkOperation === 'SET_CUSTOMER'
@@ -204,6 +210,8 @@ export function InventoryFirmwareRepairManager() {
   }
 
   const toggle = (id: string, checked: boolean) => {
+    setManualFirmwareTarget('')
+    setManualFirmwareReview(false)
     setSelected((old) => checked ? [...old.filter((value) => value !== id), id].slice(0, 50) : old.filter((value) => value !== id))
   }
 
@@ -238,6 +246,30 @@ export function InventoryFirmwareRepairManager() {
       await refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Inventory correction failed.')
+    } finally { setBusy(false) }
+  }
+
+  async function applyManualFirmware() {
+    if (!manualFirmwareReview || !manualFirmwareTarget || !manualCommonTargets.some((r) => r.id === manualFirmwareTarget) ||
+      !selectedFirmwareRows.length || !window.confirm(
+        'Relink ' + selectedFirmwareRows.length +
+        ' selected firmware records to the chosen exact release? Observed version and source evidence remain unchanged.',
+      )) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const result = await post({
+        action: 'apply', manual: true, confirmed: true,
+        items: selectedFirmwareRows.map((row) => ({
+          deviceId: row.deviceId, oldReleaseId: row.oldReleaseId,
+          targetReleaseId: manualFirmwareTarget, updatedAt: row.updatedAt,
+        })),
+      })
+      setMessage((result.updated ?? 0) + ' manual canonical firmware link(s) corrected and audited.')
+      setManualFirmwareTarget('')
+      setManualFirmwareReview(false)
+      await refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Manual link correction failed.')
     } finally { setBusy(false) }
   }
 
@@ -280,7 +312,7 @@ export function InventoryFirmwareRepairManager() {
           className={mode === 'devices' ? 'rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 font-semibold' : 'rounded-md border border-[var(--border)] px-3 py-2'}>
           Bulk device changes
         </button>
-        <button type="button" onClick={() => setMode('firmware')}
+        <button type="button" onClick={() => { setMode('firmware'); setSelected([]); setManualFirmwareReview(false) }}
           aria-pressed={mode === 'firmware'}
           className={mode === 'firmware' ? 'rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 font-semibold' : 'rounded-md border border-[var(--border)] px-3 py-2'}>
           Firmware link suggestions
@@ -295,7 +327,7 @@ export function InventoryFirmwareRepairManager() {
       <p className="text-xs text-[var(--muted)]">
         {mode === 'devices'
           ? 'Select any device, even when its firmware is already correct. Available operations: archive/reactivate, reassign customer/site and change model. Only explicitly chosen fields are updated.'
-          : 'Automatic firmware-link suggestions are available only for exact supported matches; existing correct links are not selectable in this mode.'}
+          : 'Select any device for an engineer-reviewed firmware link correction. Proposed automatic fixes require an exact match; manual choices are restricted to the same observed firmware version and model-supported platforms.'}
         {' '}Source identities, observed firmware values/timestamps, desired policy and work planning are never rewritten by these operations.
       </p>
       <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -353,17 +385,66 @@ export function InventoryFirmwareRepairManager() {
                 : <> <strong>{preview.matched}</strong> exact correction candidates on this page · {preview.needsReview} require review on this page</>}
             </p>
             {mode === 'firmware' ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <p className="text-xs text-[var(--muted)]">Only exact automatic corrections may be selected. This is not the manual bulk editor.</p>
-                <button type="button" disabled={busy}
-                  onClick={() => setSelected(rows.filter((r) => r.status === 'MATCHED').map((r) => r.deviceId))}
-                  className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
-                  Select exact suggestions on current page
-                </button>
-                <button type="button" disabled={busy || !selectedRows.length} onClick={() => void apply()}
-                  className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
-                  Confirm {selectedRows.length} suggestion(s)
-                </button>
+              <div className="space-y-3 rounded-md border border-[var(--border)] p-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm">{selectedFirmwareRows.length} selected (current page, up to 50)</span>
+                  <button type="button" disabled={busy} onClick={() => {
+                    setSelected(rows.map((r) => r.deviceId).slice(0, 50))
+                    setManualFirmwareTarget(''); setManualFirmwareReview(false)
+                  }} className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                    Select devices on page
+                  </button>
+                  <button type="button" disabled={!selectedFirmwareRows.length || busy} onClick={() => {
+                    setSelected([]); setManualFirmwareTarget(''); setManualFirmwareReview(false)
+                  }} className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                    Clear selection
+                  </button>
+                  <button type="button" disabled={busy || !selectedFirmwareRows.length ||
+                    selectedRows.length !== selectedFirmwareRows.length}
+                    onClick={() => void apply()}
+                    className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
+                    Apply {selectedRows.length} automatic correction(s)
+                  </button>
+                </div>
+                {selectedFirmwareRows.length ? (
+                  <div className="space-y-2 border-t border-[var(--border)] pt-3">
+                    <label className="block text-xs">Manually choose a canonical release for the selected observed firmware
+                      <select value={manualFirmwareTarget} onChange={(e) => {
+                        setManualFirmwareTarget(e.target.value); setManualFirmwareReview(false)
+                      }} className="mt-1 block min-w-64 max-w-full rounded border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
+                        <option value="">Choose an exact compatible release</option>
+                        {manualCommonTargets.map((target) => (
+                          <option key={target.id} value={target.id}>
+                            {target.platform} / {target.train ?? 'No train'} / {target.version}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!manualCommonTargets.length ? (
+                      <p className="text-xs text-[var(--muted)]">No alternative canonical release fits every selected device's existing firmware evidence. Try selecting a smaller group, or use Bulk device changes to edit customer/site/model/active state.</p>
+                    ) : null}
+                    <button type="button" disabled={!manualFirmwareTarget || busy} onClick={() => setManualFirmwareReview(true)}
+                      className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                      Preview manual relink
+                    </button>
+                    {manualFirmwareReview && manualFirmwareTarget ? (
+                      <section className="space-y-2 rounded border border-[var(--border)] p-3">
+                        <p className="text-sm font-medium">
+                          {selectedFirmwareRows.length} device(s): existing canonical link → {manualCommonTargets.find((item) => item.id === manualFirmwareTarget)?.platform} / {manualCommonTargets.find((item) => item.id === manualFirmwareTarget)?.version}
+                        </p>
+                        <ul className="max-h-44 list-disc overflow-auto pl-5 text-xs">
+                          {selectedFirmwareRows.map((row) => (
+                            <li key={row.deviceId}>{row.deviceName}: {row.currentPlatform ?? 'Unlinked'} / {row.runningVersion ?? 'Unknown'} → {manualCommonTargets.find((item) => item.id === manualFirmwareTarget)?.platform} / {manualCommonTargets.find((item) => item.id === manualFirmwareTarget)?.version}</li>
+                          ))}
+                        </ul>
+                        <button type="button" disabled={busy} onClick={() => void applyManualFirmware()}
+                          className="rounded bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
+                          Confirm manual firmware link correction
+                        </button>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="space-y-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
@@ -450,7 +531,7 @@ export function InventoryFirmwareRepairManager() {
                   <tr key={row.deviceId} className="border-b border-[var(--border)] align-top">
                     <td className="p-2">
                       <input type="checkbox" checked={mode === 'devices' ? recordIds.has(row.deviceId) : selected.includes(row.deviceId)}
-                        disabled={mode === 'devices' ? bulkBusy || (!recordIds.has(row.deviceId) && recordSelection.length >= 50) : busy || row.status !== 'MATCHED'}
+                        disabled={mode === 'devices' ? bulkBusy || (!recordIds.has(row.deviceId) && recordSelection.length >= 50) : busy}
                         onChange={(e) => mode === 'devices' ? toggleRecord(row, e.target.checked) : toggle(row.deviceId, e.target.checked)}
                         aria-label={'Select ' + row.deviceName} />
                     </td>
