@@ -63,6 +63,7 @@ export const workspaces: readonly Workspace[] = [
         label: 'Firmware catalog',
         href: '/firmware',
         children: [
+          { label: 'Firmware link repair', href: '/firmware/repair' },
           { label: 'Models', href: '/models' },
           { label: 'Vendors', href: '/vendors' },
           { label: 'Device types', href: '/device-types' },
