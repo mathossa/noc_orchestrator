@@ -28,7 +28,7 @@ export type ImporterV2IdentitySource = {
 }
 
 export type ImporterV2IdentityEvidence = {
-  kind: 'CANONICAL' | 'CROSSWALK'
+  kind: 'CANONICAL' | 'CROSSWALK' | 'TOPOLOGY_MEMBER'
   provider: string | null
   crosswalkId?: string | null
   lastSeenAt?: string | null
