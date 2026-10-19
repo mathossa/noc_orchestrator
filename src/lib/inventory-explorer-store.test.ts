@@ -55,6 +55,7 @@ vi.mock('@/lib/device-exception-summary-store', () => ({
 
 import {
   getCustomerInventory,
+  getDashboardWorkPackageFindings,
   getDeviceTypeInventory,
   getInventoryExportRecords,
   getInventoryOverview,
@@ -144,6 +145,38 @@ describe('inventory explorer read model', () => {
       async (devices: Array<{ id: string }>) =>
         new Map(devices.map((device) => [device.id, noException()])),
     )
+  })
+
+  it('feeds dashboard work packages from canonical statuses, contract scope and active plans', async () => {
+    const row = {
+      ...fact('critical'),
+      customer: { ...acme, contractTypeId: 'proactive' },
+      site: { ...hq, contractTypeId: 'active-site' },
+      currentFirmwareReleaseId: 'release-1',
+      currentFirmwareNormalizedVersion: null,
+      currentFirmwareRawVersion: null,
+    }
+    mocks.deviceFindMany.mockResolvedValue([row])
+    mocks.compliance.mockResolvedValue(new Map([
+      [row.id, complianceResult({ compliance: 'BLOCKED_RELEASE', recommendation: 'REVIEW_REQUIRED' })],
+    ]))
+    mocks.planning.mockResolvedValue(new Map([
+      [row.id, { activePlans: [{ id: 'plan-1', state: 'AWAITING_CUSTOMER' }] }],
+    ]))
+
+    const findings = await getDashboardWorkPackageFindings(query({ customer: acme.id }))
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({
+      deviceId: row.id,
+      firmwareKey: 'release-1',
+      status: 'CRITICAL_ATTENTION',
+      managementContractId: 'active-site',
+      plan: { id: 'plan-1', state: 'AWAITING_CUSTOMER' },
+    })
+    expect(mocks.deviceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { AND: expect.arrayContaining([{ customerId: acme.id }]) },
+    }))
+    expect(mocks.planning).toHaveBeenCalledWith([row.id])
   })
 
   it('rolls attention from devices to customers and sorts attention first', async () => {
