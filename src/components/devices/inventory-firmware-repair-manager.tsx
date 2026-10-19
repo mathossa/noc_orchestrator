@@ -44,7 +44,7 @@ type BulkRefs = {
   sites: { id: string; name: string; customerId: string; label: string }[]
   models: { id: string; name: string; label: string }[]
 }
-type BulkItem = { deviceId: string; updatedAt: string; name: string }
+type BulkItem = { deviceId: string; updatedAt: string; name: string; customerId: string }
 type BulkPreview = {
   items: { deviceId: string; deviceName: string; customerName: string;
     before: string; after: string; changed: boolean; note: string | null }[]
@@ -151,17 +151,19 @@ export function InventoryFirmwareRepairManager() {
     : []
   const recordIds = new Set(recordSelection.map((item) => item.deviceId))
   const needsTarget = ['SET_CUSTOMER', 'SET_SITE', 'SET_MODEL'].includes(bulkOperation)
+  const selectedCustomerIds = new Set(recordSelection.map((row) => row.customerId))
   const bulkTargetOptions = bulkOperation === 'SET_CUSTOMER'
     ? (bulkRefs?.customers ?? []).map((item) => ({ id: item.id, label: item.name }))
     : bulkOperation === 'SET_SITE'
-      ? (bulkRefs?.sites ?? []).map((item) => ({ id: item.id, label: item.label }))
+      ? (bulkRefs?.sites ?? []).filter((site) => selectedCustomerIds.size === 1 && selectedCustomerIds.has(site.customerId))
+        .map((item) => ({ id: item.id, label: item.label }))
       : (bulkRefs?.models ?? []).map((item) => ({ id: item.id, label: item.label }))
 
   function toggleRecord(row: RepairRow, checked: boolean) {
     setBulkPreview(null)
     setRecordSelection((old) => checked
       ? [...old.filter((item) => item.deviceId !== row.deviceId),
-        { deviceId: row.deviceId, updatedAt: row.updatedAt, name: row.deviceName }].slice(0, 50)
+        { deviceId: row.deviceId, updatedAt: row.updatedAt, name: row.deviceName, customerId: row.customerId }].slice(0, 50)
       : old.filter((item) => item.deviceId !== row.deviceId))
   }
 
@@ -452,7 +454,7 @@ export function InventoryFirmwareRepairManager() {
                   <button type="button" disabled={bulkBusy} onClick={() => {
                     const available = rows.filter((r) => !recordIds.has(r.deviceId)).slice(0, 50 - recordSelection.length)
                     setRecordSelection((old) => [...old, ...available.map((r) => ({
-                      deviceId: r.deviceId, updatedAt: r.updatedAt, name: r.deviceName,
+                      deviceId: r.deviceId, updatedAt: r.updatedAt, name: r.deviceName, customerId: r.customerId,
                     }))])
                     setBulkPreview(null)
                   }} className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
@@ -485,6 +487,9 @@ export function InventoryFirmwareRepairManager() {
                         <option value="">Choose a target</option>
                         {bulkTargetOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                       </select>
+                      {bulkOperation === 'SET_SITE' && selectedCustomerIds.size > 1 ? (
+                        <span className="mt-1 block text-xs text-[var(--muted)]">Choose devices from one customer before assigning a site.</span>
+                      ) : null}
                     </label>
                   ) : null}
                   <button type="button" disabled={bulkBusy || !recordSelection.length || (needsTarget && !bulkTarget)}
