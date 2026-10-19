@@ -232,6 +232,122 @@ export function validateImporterV2ConfirmedHaPair(input: {
   }
 }
 
+export type ImporterV2HaPairDetection = {
+  groups: ImporterV2ConfirmedHaGroup[]
+  rejected: Array<{
+    rowNumbers: number[]
+    reason: string
+  }>
+}
+
+export function detectImporterV2ConfirmedHaPairs(input: {
+  provider: string
+  rows: readonly ImporterV2HaCandidateRow[]
+}): ImporterV2HaPairDetection {
+  const rowByNumber = new Map(
+    input.rows.map((row) => [row.rowNumber, row]),
+  )
+  const identifierRows = new Map<string, Set<number>>()
+
+  for (const row of input.rows) {
+    if (
+      row.inclusion !== 'INCLUDED' ||
+      importerV2TopologyFromDecisions(row.decisions).role !== 'DEVICE'
+    ) {
+      continue
+    }
+    const normalized = normalizeImporterV2Identity({
+      serialNumber: effective(row, 'serialNumber'),
+      macAddress: effective(row, 'macAddress'),
+    })
+    for (const [field, value] of [
+      ['serialNumber', normalized.serialNumber],
+      ['macAddress', normalized.macAddress],
+    ] as const) {
+      if (!value) continue
+      const identifier = `${field}:${value}`
+      const members = identifierRows.get(identifier) ?? new Set<number>()
+      members.add(row.rowNumber)
+      identifierRows.set(identifier, members)
+    }
+  }
+
+  const candidatePairs = new Map<string, [number, number]>()
+  const rejected: ImporterV2HaPairDetection['rejected'] = []
+  for (const [identifier, members] of identifierRows) {
+    const rows = [...members].sort((left, right) => left - right)
+    if (rows.length !== 2) {
+      if (rows.length > 2) {
+        rejected.push({
+          rowNumbers: rows,
+          reason: `${identifier} is shared by ${rows.length} staged rows, so it is not an unambiguous two-member HA candidate.`,
+        })
+      }
+      continue
+    }
+    candidatePairs.set(`${rows[0]}:${rows[1]}`, [rows[0], rows[1]])
+  }
+
+  const pairsByRow = new Map<number, Set<string>>()
+  for (const [pairKey, pair] of candidatePairs) {
+    for (const rowNumber of pair) {
+      const keys = pairsByRow.get(rowNumber) ?? new Set<string>()
+      keys.add(pairKey)
+      pairsByRow.set(rowNumber, keys)
+    }
+  }
+
+  const groups: ImporterV2ConfirmedHaGroup[] = []
+  const rejectedPairs = new Set<string>()
+  for (const [pairKey, pair] of candidatePairs) {
+    if (pair.some((rowNumber) => (pairsByRow.get(rowNumber)?.size ?? 0) > 1)) {
+      rejectedPairs.add(pairKey)
+      continue
+    }
+    const rows = pair.flatMap((rowNumber) => {
+      const row = rowByNumber.get(rowNumber)
+      return row ? [row] : []
+    })
+    if (rows.length !== 2) continue
+    try {
+      groups.push(
+        validateImporterV2ConfirmedHaPair({
+          provider: input.provider,
+          rows,
+        }),
+      )
+    } catch (error) {
+      rejected.push({
+        rowNumbers: pair,
+        reason:
+          error instanceof Error
+            ? error.message
+            : 'The two rows are not a safe HA candidate.',
+      })
+    }
+  }
+
+  for (const pairKey of rejectedPairs) {
+    const pair = candidatePairs.get(pairKey)
+    if (!pair) continue
+    rejected.push({
+      rowNumbers: pair,
+      reason:
+        'At least one row matches more than one possible peer through shared serial/MAC evidence. Review this collision manually.',
+    })
+  }
+
+  return {
+    groups: groups.sort(
+      (left, right) => left.parentRowNumber - right.parentRowNumber,
+    ),
+    rejected: rejected.sort(
+      (left, right) =>
+        (left.rowNumbers[0] ?? 0) - (right.rowNumbers[0] ?? 0),
+    ),
+  }
+}
+
 export function importerV2ConfirmedHaTopologyDecisions(input: {
   group: ImporterV2ConfirmedHaGroup
   rows: readonly ImporterV2HaCandidateRow[]
