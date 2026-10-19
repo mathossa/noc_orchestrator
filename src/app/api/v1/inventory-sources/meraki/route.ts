@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { createMerakiInventoryConnection } from '@/lib/meraki-integration-store'
@@ -44,7 +45,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] {
   })
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     await requireAdminRequest(request)
     const body = object(await request.json())
@@ -70,3 +71,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: { code: 'MERAKI_CONNECTION_CREATE_FAILED', message } }, { status: 400 })
   }
 }
+
+export const POST = withAdmin(POSTHandler)

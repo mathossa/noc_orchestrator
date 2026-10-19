@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { getDeviceModel } from '@/lib/device-model-store'
@@ -6,7 +7,7 @@ import { clearModelDesiredFirmwarePolicy, setModelDesiredFirmwarePolicy, saveMod
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function PUT(request: Request, context: RouteContext) {
+async function PUTHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = (await request.json()) as FirmwarePolicyWriteInput & { firmwareReleaseId?: unknown }
@@ -29,7 +30,7 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(request: Request, context: RouteContext) {
+async function DELETEHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const session = await auth.api.getSession({ headers: request.headers })
@@ -39,3 +40,6 @@ export async function DELETE(request: Request, context: RouteContext) {
     return firmwarePolicyApiError(error)
   }
 }
+
+export const PUT = withAdmin(PUTHandler)
+export const DELETE = withAdmin(DELETEHandler)

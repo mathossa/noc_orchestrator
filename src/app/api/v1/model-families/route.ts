@@ -1,8 +1,9 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { deviceModelFamilyApiError } from '@/lib/model-family-api'
 import { createDeviceModelFamily, listDeviceModelFamilies } from '@/lib/model-family-store'
 
-export async function GET() {
+async function GETHandler() {
   try {
     return NextResponse.json({ data: await listDeviceModelFamilies() })
   } catch (error) {
@@ -10,7 +11,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     return NextResponse.json({ data: await createDeviceModelFamily(body) }, { status: 201 })
@@ -24,3 +25,6 @@ export async function POST(request: Request) {
     return deviceModelFamilyApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)
