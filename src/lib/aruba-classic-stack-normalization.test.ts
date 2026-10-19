@@ -30,7 +30,7 @@ describe('Aruba Classic logical stack representation',()=>{
     })
     const normalized=result.observations.map((row,index)=>
       classicCentralObservationToNormalizedRow(row,index+1,{
-        customer:'Unica Groep',sitesByName:{'Example Customer - Site A':'Bodegraven'},
+        customer:'Example Customer',sitesByName:{'Example Customer - Site A':'Site A'},
       }))
     expect(normalized.map(row=>row.rawValues.deviceName)).toEqual([
       'lab-stack-sw01','lab-stack-sw01 Member 1','lab-stack-sw01 Member 2',
@@ -39,7 +39,7 @@ describe('Aruba Classic logical stack representation',()=>{
       sourceRecordKey:'aruba-classic-stack:STACK-72',
       rawValues:{
         deviceType:'Stack',sourceId:'aruba-classic-stack:STACK-72',
-        serialNumber:null,macAddress:null,customer:'Unica Groep',site:'Bodegraven',
+        serialNumber:null,macAddress:null,customer:'Example Customer',site:'Site A',
       },
     })
     expect(normalized.slice(1).map(row=>row.rawValues.serialNumber))
