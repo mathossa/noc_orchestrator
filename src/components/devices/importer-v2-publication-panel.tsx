@@ -191,6 +191,57 @@ type HaConfirmationPreview = {
   confirmationReasons: string[]
 }
 
+type HaBulkConfirmationPreview = {
+  rowNumbers: number[]
+  scopeToken: string
+  confirmationReasons: string[]
+  haGroups: Array<{
+    groupKey: string
+    parentRowNumber: number
+    memberRows: Array<{
+      rowNumber: number
+      memberIndex: number
+      sourceId: string
+      name: string
+    }>
+    sharedIdentifiers: Array<'serialNumber' | 'macAddress'>
+  }>
+  haRejected: Array<{
+    rowNumbers: number[]
+    reason: string
+  }>
+}
+
+function publicationHaPotentialPairs(
+  scoped: PublicationScopePreview | null,
+) {
+  if (!scoped) return [] as Array<[number, number]>
+  const pairs = new Map<string, [number, number]>()
+  for (const conflict of scoped.identityConflicts) {
+    for (const match of conflict.stagedConflicts) {
+      if (
+        !conflict.sourceId ||
+        !match.sourceId ||
+        conflict.sourceId === match.sourceId ||
+        !match.matchingIdentifiers.some(
+          (item) =>
+            item.field === 'serialNumber' ||
+            item.field === 'macAddress',
+        )
+      ) {
+        continue
+      }
+      const pair = [conflict.rowNumber, match.rowNumber].sort(
+        (left, right) => left - right,
+      ) as [number, number]
+      pairs.set(`${pair[0]}:${pair[1]}`, pair)
+    }
+  }
+  return [...pairs.values()].sort(
+    (left, right) => left[0] - right[0],
+  )
+}
+
 export function ImporterV2PublicationPanel({
   batchId,
   selectedWorkspaceRows = null,
@@ -217,6 +268,8 @@ export function ImporterV2PublicationPanel({
   const [deferConflicts, setDeferConflicts] = useState(false)
   const [haPreview, setHaPreview] =
     useState<HaConfirmationPreview | null>(null)
+  const [haBulkPreview, setHaBulkPreview] =
+    useState<HaBulkConfirmationPreview | null>(null)
   const [haBusy, setHaBusy] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -231,6 +284,14 @@ export function ImporterV2PublicationPanel({
       type: 'CONFIRM_HA_CLUSTER' as const,
       explanation:
         'Engineer confirmed these two provider source objects as physical peers of one logical HA cluster. Active/passive role is not used as durable identity.',
+    }),
+    [],
+  )
+  const haBulkAction = useCallback(
+    () => ({
+      type: 'CONFIRM_HA_CLUSTERS' as const,
+      explanation:
+        'Engineer bulk-confirmed the server-validated unambiguous provider source pairs as physical peers of logical HA clusters. Ambiguous collisions remain staged; active/passive role is not used as durable identity.',
     }),
     [],
   )
@@ -351,6 +412,104 @@ export function ImporterV2PublicationPanel({
     }
   }, [batchId, haAction, haPreview, loadQa, onPublished])
 
+  const requestHaBulkPreview = useCallback(
+    async (pairs: readonly [number, number][]) => {
+      const rowNumbers = [
+        ...new Set(pairs.flatMap((pair) => pair)),
+      ].sort((left, right) => left - right)
+      setHaBusy(true)
+      setHaPreview(null)
+      setError(null)
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/actions`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'PREVIEW',
+              selection: { mode: 'ROWS', rowNumbers },
+              action: haBulkAction(),
+            }),
+          },
+        )
+        const preview = await responseData<{
+          scopeToken: string
+          confirmationReasons: string[]
+          haGroups?: HaBulkConfirmationPreview['haGroups']
+          haRejected?: HaBulkConfirmationPreview['haRejected']
+        }>(response)
+        setHaBulkPreview({
+          rowNumbers,
+          scopeToken: preview.scopeToken,
+          confirmationReasons: preview.confirmationReasons,
+          haGroups: preview.haGroups ?? [],
+          haRejected: preview.haRejected ?? [],
+        })
+      } catch (previewError) {
+        setHaBulkPreview(null)
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : 'Unable to preview HA bulk confirmation.',
+        )
+      } finally {
+        setHaBusy(false)
+      }
+    },
+    [batchId, haBulkAction],
+  )
+
+  const applyHaBulkPreview = useCallback(async () => {
+    if (!haBulkPreview) return
+    setHaBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/actions`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            selection: {
+              mode: 'ROWS',
+              rowNumbers: haBulkPreview.rowNumbers,
+            },
+            action: haBulkAction(),
+            scopeToken: haBulkPreview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const groupCount = haBulkPreview.haGroups.length
+      setHaBulkPreview(null)
+      setScoped(null)
+      setDeferConflicts(false)
+      setApproved(new Set())
+      setSuccess(
+        `${groupCount} logical HA cluster(s) confirmed atomically.`,
+      )
+      await loadQa()
+      onPublished?.()
+    } catch (applyError) {
+      setHaBulkPreview(null)
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : 'Unable to confirm HA clusters.',
+      )
+    } finally {
+      setHaBusy(false)
+    }
+  }, [
+    batchId,
+    haBulkAction,
+    haBulkPreview,
+    loadQa,
+    onPublished,
+  ])
+
   useEffect(() => {
     let cancelled = false
     void fetchQa()
@@ -376,6 +535,10 @@ export function ImporterV2PublicationPanel({
 
   const selectionEnabled =
     publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
+  const haPotentialPairs = useMemo(
+    () => publicationHaPotentialPairs(scoped),
+    [scoped],
+  )
 
   useEffect(() => {
     if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
