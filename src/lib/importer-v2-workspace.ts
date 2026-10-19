@@ -18,6 +18,11 @@ export const IMPORTER_V2_WORKSPACE_GROUPS = [
 ] as const
 
 export type ImporterV2WorkspaceGroup = (typeof IMPORTER_V2_WORKSPACE_GROUPS)[number]
+export type ImporterV2WorkspacePublicationState =
+  | 'PENDING'
+  | 'PUBLISHED'
+  | 'ALL'
+
 export type ImporterV2WorkspaceRepeatClassification =
   | 'NEW'
   | 'CHANGED'
@@ -40,6 +45,7 @@ export type ImporterV2WorkspaceFilters = {
   canonicalModel?: string | null
   firmwareEvidencePattern?: string | null
   repeatClassification?: ImporterV2WorkspaceRepeatClassification | null
+  publication?: ImporterV2WorkspacePublicationState | null
 }
 
 export type ImporterV2WorkspaceQuery = {
@@ -190,6 +196,7 @@ export function parseImporterV2WorkspaceQuery(
     'AMBIGUOUS',
   ])
   const issue = clean(searchParams.get('issue'))
+  const publication = clean(searchParams.get('publication'))
   const filters: ImporterV2WorkspaceFilters = {
     search: clean(searchParams.get('q')),
     status: clean(searchParams.get('status')),
@@ -209,6 +216,10 @@ export function parseImporterV2WorkspaceQuery(
       repeat && allowedRepeat.has(repeat as ImporterV2WorkspaceRepeatClassification)
         ? (repeat as ImporterV2WorkspaceRepeatClassification)
         : null,
+    publication:
+      publication === 'PUBLISHED' || publication === 'ALL'
+        ? publication
+        : 'PENDING',
   }
   const group = clean(searchParams.get('groupBy'))
   return {
