@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import {
@@ -34,7 +35,7 @@ function tenantScopes(value: unknown): AuvikInventoryTenantScope[] {
   })
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     await requireAdminRequest(request)
     const body = object(await request.json())
@@ -84,3 +85,5 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)
