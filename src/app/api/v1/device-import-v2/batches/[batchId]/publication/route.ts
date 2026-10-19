@@ -11,7 +11,9 @@ import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import {
   eligibleImporterV2PublicationRows,
   parseImporterV2PublicationSelection,
+  withoutImporterV2ConflictingRows,
 } from '@/lib/importer-v2-publication-selection'
+import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-publication-name-conflicts'
 import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
 import {
   findImporterV2PublicationIdentityConflicts,
@@ -26,6 +28,7 @@ type PublishRequest = {
   idempotencyKey: string
   approvedProposalKeys: string[]
   selection?: ImporterV2WorkspaceSelection
+  skipConflicts?: boolean
   expectedCandidateRows?: number[]
 }
 
@@ -54,6 +57,15 @@ function parsePublishRequest(value: unknown): PublishRequest {
     throw new ImporterV2PublicationValidationError('approvedProposalKeys must be an array of proposal keys.')
   }
 
+  if (
+    body.skipConflicts !== undefined &&
+    typeof body.skipConflicts !== 'boolean'
+  ) {
+    throw new ImporterV2PublicationValidationError(
+      'skipConflicts must be true or false.',
+    )
+  }
+
   let selection: ImporterV2WorkspaceSelection | undefined
   try {
     selection =
@@ -65,6 +77,12 @@ function parsePublishRequest(value: unknown): PublishRequest {
       error instanceof Error
         ? error.message
         : 'Invalid staged publication selection.',
+    )
+  }
+
+  if (body.skipConflicts && !selection) {
+    throw new ImporterV2PublicationValidationError(
+      'Skipping conflicts requires an explicit staged selection or filter.',
     )
   }
 
@@ -176,29 +194,62 @@ export async function POST(request: Request, context: RouteContext) {
       )
     }
 
+    const [identityConflicts, nameConflicts] = await Promise.all([
+      findImporterV2PublicationIdentityConflicts({
+        batchId,
+        rowNumbers,
+      }),
+      findImporterV2PublicationNameConflicts({
+        batchId,
+        rowNumbers,
+      }),
+    ])
+    const conflictingRowNumbers = [
+      ...new Set([
+        ...identityConflicts.map((conflict) => conflict.rowNumber),
+        ...nameConflicts,
+      ]),
+    ].sort((left, right) => left - right)
+
+    if (conflictingRowNumbers.length > 0 && !body.skipConflicts) {
+      if (identityConflicts.length > 0) {
+        throw new ImporterV2PublicationValidationError(
+          formatImporterV2IdentityConflictMessage(identityConflicts),
+        )
+      }
+      throw new ImporterV2PublicationValidationError(
+        `Device name conflict on ${nameConflicts.length} selected row(s). Review the conflicting rows or leave them staged.`,
+      )
+    }
+
+    const selectedRows = body.skipConflicts
+      ? withoutImporterV2ConflictingRows(
+          rowNumbers,
+          conflictingRowNumbers,
+        )
+      : rowNumbers
+
+    if (selectedRows.length === 0) {
+      throw new ImporterV2PublicationValidationError(
+        'Every selected candidate has an identity or name conflict. Nothing can be safely published.',
+      )
+    }
+
     if (body.selection) {
       const expected = [
         ...new Set(body.expectedCandidateRows ?? []),
       ].sort((left, right) => left - right)
-      const actual = [...rowNumbers].sort((left, right) => left - right)
+      const actual = [...selectedRows].sort(
+        (left, right) => left - right,
+      )
       if (
         expected.length !== actual.length ||
         expected.some((row, index) => row !== actual[index])
       ) {
         throw new ImporterV2PublicationConflictError(
-          'The selected publication scope changed after preview. Review the refreshed selection before publishing.',
+          'The selected publication scope or its conflicts changed after preview. Review the refreshed selection before publishing.',
         )
       }
-    }
-
-    const identityConflicts = await findImporterV2PublicationIdentityConflicts({
-      batchId,
-      rowNumbers,
-    })
-    if (identityConflicts.length > 0) {
-      throw new ImporterV2PublicationValidationError(
-        formatImporterV2IdentityConflictMessage(identityConflicts),
-      )
     }
 
     const session = await auth.api.getSession({ headers: request.headers })
@@ -208,7 +259,7 @@ export async function POST(request: Request, context: RouteContext) {
       qaFingerprint: body.qaFingerprint,
       idempotencyKey: body.idempotencyKey,
       approvedProposalKeys: body.approvedProposalKeys,
-      rowNumbers: body.selection ? rowNumbers : undefined,
+      rowNumbers: body.selection ? selectedRows : undefined,
       actorUserId: session?.user.id ?? null,
     })
     return NextResponse.json({ data: result })
