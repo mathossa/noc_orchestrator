@@ -98,6 +98,8 @@ describe('selected importer publication scope preview', () => {
         eligibleCount: 3,
         skippedCount: 1,
         conflictingRowNumbers: [92, 104],
+        safeCandidateRows: [14],
+        safeCandidateCount: 1,
         identityConflicts: [
           {
             rowNumber: 92,
