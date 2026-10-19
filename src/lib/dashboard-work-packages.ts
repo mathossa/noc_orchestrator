@@ -3,6 +3,15 @@ import type { InventoryPrimaryStatusCode } from '@/lib/inventory-status'
 export type WorkPackageKind = 'URGENT' | 'TO_PLAN' | 'BLOCKED' | 'CHECK'
 export type WorkPackageFinding = {
   deviceId: string
+  deviceName?: string
+  /** Observed release rather than a guessed vulnerable range. */
+  currentFirmwareVersion?: string | null
+  currentPlatform?: string | null
+  currentTrain?: string | null
+  targetVersion?: string | null
+  targetPlatform?: string | null
+  targetTrain?: string | null
+  compliance?: string
   customer: { id: string; name: string }
   site: { id: string; name: string } | null
   deviceTypeId: string
