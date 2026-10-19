@@ -53,3 +53,36 @@ human privacy review is still mandatory.
   references/caches as applicable.
 
 Avoid publishing exact sensitive matches in remediation issue comments.
+
+## Production authentication and credential encryption
+
+- Every business API operation requires a valid Better Auth session with
+  `user.role === 'admin'`; customer data and mutations must never rely solely
+  on the Next.js proxy. Public paths are limited to the health check, Better Auth
+  and the sign-in UI. Microsoft Entra ID remains optional when all three
+  Microsoft provider environment variables are configured.
+- Provision administrator identities deliberately; do not allow public sign-up.
+  Run `npm run auth:create-admin` in an authorized administration environment.
+  Enforce HTTPS, strong admin credentials and a restricted deployment network.
+- Generate independent production secrets, for example
+  `openssl rand -base64 48` for `BETTER_AUTH_SECRET` and
+  `openssl rand -base64 32` for `INVENTORY_SOURCE_SECRET_KEY`.
+  The inventory key must decode to **exactly 32 bytes** and be canonical base64.
+  Never commit values to source control, CI logs, screenshots or issue comments.
+- Supply both secrets to the application process. Supply the *same* inventory
+  encryption key to every app replica and background worker. The production
+  Compose file requires this value for both services and their container
+  entrypoints reject invalid values before starting.
+- Back up the inventory encryption key securely and separately from the DB,
+  using access-controlled secret storage with recoverable historical versions.
+  **Losing the key makes existing saved integration credentials unreadable.**
+  The key is not a password that can simply be reset. Restore tests must verify
+  access to encrypted credentials without exposing them.
+- Rotation of `INVENTORY_SOURCE_SECRET_KEY` requires a coordinated decrypt/
+  re-encrypt migration of saved credentials while the previous key is still
+  available, with a verified rollback and backups. Do not simply replace it
+  with a new key; automated re-encryption tooling is not implemented yet.
+- Treat any suspected disclosure of a credential, session secret or encryption
+  key as a security incident. Rotate affected upstream API credentials and
+  invalidate sessions as needed. The repository's historical privacy review
+  remains tracked in issue #147.

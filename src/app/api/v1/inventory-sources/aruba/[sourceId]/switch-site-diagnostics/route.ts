@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { diagnoseClassicCentralSwitchSites } from '@/lib/aruba-classic-switch-site-diagnostics'
@@ -5,7 +6,7 @@ import { diagnoseClassicCentralSwitchSites } from '@/lib/aruba-classic-switch-si
 type Context = { params: Promise<{ sourceId: string }> }
 
 /** Does NOT stage, import, publish, change site mapping or create jobs. */
-export async function POST(request: Request, context: Context) {
+async function POSTHandler(request: Request, context: Context) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -25,3 +26,5 @@ export async function POST(request: Request, context: Context) {
     }, { status: message.includes('not found') ? 404 : 400 })
   }
 }
+
+export const POST = withAdmin(POSTHandler)

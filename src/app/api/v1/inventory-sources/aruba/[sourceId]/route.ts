@@ -1,9 +1,10 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { updateClassicCentralConnection, type ClassicCentralSiteScope } from '@/lib/aruba-classic-integration-store'
 
 type Context={params:Promise<{sourceId:string}>}
-export async function PATCH(request:Request,context:Context){
+async function PATCHHandler(request:Request,context:Context){
   try{
     await requireAdminRequest(request)
     const {sourceId}=await context.params
@@ -47,3 +48,5 @@ export async function PATCH(request:Request,context:Context){
     return NextResponse.json({error:{code:'ARUBA_UPDATE_FAILED',message}},{status:message.includes('not found')?404:400})
   }
 }
+
+export const PATCH = withAdmin(PATCHHandler)

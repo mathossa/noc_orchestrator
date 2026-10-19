@@ -1,8 +1,9 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { deviceModelApiError } from '@/lib/device-model-api'
 import { createDeviceModel, listDeviceModelReferences, listDeviceModels } from '@/lib/device-model-store'
 
-export async function GET() {
+async function GETHandler() {
   try {
     const [data, references] = await Promise.all([listDeviceModels(), listDeviceModelReferences()])
     return NextResponse.json({ data, references })
@@ -11,7 +12,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     return NextResponse.json({ data: await createDeviceModel(body) }, { status: 201 })
@@ -25,3 +26,6 @@ export async function POST(request: Request) {
     return deviceModelApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

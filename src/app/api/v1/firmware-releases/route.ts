@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { firmwareReleaseApiError } from '@/lib/firmware-release-api'
 import {
@@ -7,7 +8,7 @@ import {
   listFirmwareVendors,
 } from '@/lib/firmware-release-store'
 
-export async function GET() {
+async function GETHandler() {
   try {
     const [releases, vendors, trains] = await Promise.all([
       listFirmwareReleases(),
@@ -20,7 +21,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     const release = await createFirmwareRelease(body)
@@ -29,3 +30,6 @@ export async function POST(request: Request) {
     return firmwareReleaseApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

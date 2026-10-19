@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { IMPORTER_V2_FIELDS, type ImporterV2Field } from '@/lib/importer-v2-evaluator'
@@ -122,7 +123,7 @@ function parseWizard(value: unknown): ImporterV2RuleWizardInput {
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const body = object(await request.json())
@@ -168,3 +169,4 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+export const POST = withAdmin(POSTHandler)

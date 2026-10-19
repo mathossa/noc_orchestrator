@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { deviceModelFamilyApiError } from '@/lib/model-family-api'
 import {
@@ -8,7 +9,7 @@ import {
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     return NextResponse.json({ data: await getDeviceModelFamily(id) })
@@ -17,7 +18,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = await request.json()
@@ -33,7 +34,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+async function DELETEHandler(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     await deleteDeviceModelFamily(id)
@@ -42,3 +43,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return deviceModelFamilyApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { mutateImporterV2ManagedRule } from '@/lib/importer-v2-automation-admin-store'
@@ -6,7 +7,7 @@ type RouteContext = {
   params: Promise<{ ruleBookId: string; ruleId: string }>
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { ruleBookId, ruleId } = await context.params
     const body = (await request.json()) as { action?: unknown }
@@ -46,3 +47,5 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

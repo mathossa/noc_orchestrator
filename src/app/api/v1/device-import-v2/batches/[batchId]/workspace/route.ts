@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { parseImporterV2WorkspaceQuery } from '@/lib/importer-v2-workspace'
 import { queryImporterV2Workspace } from '@/lib/importer-v2-workspace-store'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
-export async function GET(request: Request, context: RouteContext) {
+async function GETHandler(request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const query = parseImporterV2WorkspaceQuery(new URL(request.url).searchParams)
@@ -21,3 +22,5 @@ export async function GET(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)

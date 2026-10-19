@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import {
   FirmwareWorkPlanCandidateError,
   listFirmwareWorkPlanCandidates,
 } from '@/lib/firmware-work-plan-candidates'
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     return NextResponse.json({
@@ -45,3 +46,5 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { previewCanonicalHierarchy, hierarchyInputFromEvaluated } from '@/lib/importer-v2-canonical-hierarchy-store'
 import { NextResponse } from 'next/server'
 import { importerV2WorkspaceEffectiveEvaluated } from '@/lib/importer-v2-workspace-effective-overlay'
@@ -6,7 +7,7 @@ import { getImporterV2WorkspaceRow } from '@/lib/importer-v2-workspace-store'
 
 type RouteContext = { params: Promise<{ batchId: string; rowNumber: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   try {
     const { batchId, rowNumber: rowNumberText } = await context.params
     const rowNumber = Number.parseInt(rowNumberText, 10)
@@ -51,3 +52,5 @@ export async function GET(_request: Request, context: RouteContext) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)

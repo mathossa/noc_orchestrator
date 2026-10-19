@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
@@ -40,7 +41,7 @@ function parseRequest(value: unknown): VerifyRequest {
   return value as unknown as VerifyRequest
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const body = parseRequest(await request.json())
@@ -106,3 +107,5 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

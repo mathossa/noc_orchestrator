@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { annotateDevice } from '@/lib/device-annotations'
 import { deviceApiError } from '@/lib/device-api'
 import { getDevice } from '@/lib/device-store'
 
-export async function POST(
+async function POSTHandler(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -28,3 +29,5 @@ export async function POST(
     return deviceApiError(error)
   }
 }
+
+export const POST = withAdmin(POSTHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { firmwarePolicyApiError } from '@/lib/firmware-policy-api'
@@ -6,7 +7,7 @@ import {
   bulkSetModelDesiredFirmwarePolicies,
 } from '@/lib/firmware-policy-store'
 
-export async function PUT(request: Request) {
+async function PUTHandler(request: Request) {
   try {
     const body = (await request.json()) as { modelIds?: unknown; firmwareReleaseId?: unknown }
     const session = await auth.api.getSession({ headers: request.headers })
@@ -27,7 +28,7 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function DELETEHandler(request: Request) {
   try {
     const body = (await request.json()) as { modelIds?: unknown }
     const session = await auth.api.getSession({ headers: request.headers })
@@ -43,3 +44,6 @@ export async function DELETE(request: Request) {
     return firmwarePolicyApiError(error)
   }
 }
+
+export const PUT = withAdmin(PUTHandler)
+export const DELETE = withAdmin(DELETEHandler)

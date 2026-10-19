@@ -2,7 +2,8 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { authClient } from '@/lib/auth-client'
 import { useState, type ReactNode } from 'react'
 import {
   getWorkspace,
@@ -202,6 +203,7 @@ function MobileNavigation({ workspace, pathname }: { workspace: Workspace; pathn
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname()
+  const router = useRouter()
   const workspace = getWorkspace(pathname)
   const importerWorkspace = pathname.startsWith('/devices/import')
 
@@ -240,6 +242,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
             </div>
             <NavigationGroups />
             <div className="mt-auto flex items-center justify-between border-t border-[var(--border)] px-3 pt-4 text-xs text-[var(--muted)]">
+              <button type="button" onClick={async () => { await authClient.signOut(); router.replace('/sign-in'); router.refresh() }} className="font-medium hover:underline">Sign out</button>
               <span>v0.1.0</span>
               <span className="rounded border border-[var(--accent-muted)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-light)]">
                 MVP

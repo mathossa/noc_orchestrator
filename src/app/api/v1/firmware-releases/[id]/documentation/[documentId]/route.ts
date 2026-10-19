@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { requireAdminRequest } from '@/lib/api-admin'
 import { documentationApiError } from '../../../documentation-api-error'
@@ -5,7 +6,7 @@ import { deleteReleaseDocumentation, updateReleaseDocumentation } from '@/lib/fi
 
 type RouteContext = { params: Promise<{ id: string; documentId: string }> }
 
-export async function PATCH(request: Request, { params }: RouteContext) {
+async function PATCHHandler(request: Request, { params }: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { id, documentId } = await params
@@ -15,7 +16,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 }
 
-export async function DELETE(request: Request, { params }: RouteContext) {
+async function DELETEHandler(request: Request, { params }: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { id, documentId } = await params
@@ -25,3 +26,6 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return documentationApiError(error)
   }
 }
+
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)
