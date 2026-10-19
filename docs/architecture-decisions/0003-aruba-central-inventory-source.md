@@ -151,7 +151,7 @@ single-customer connection scope.
 A real Classic customer tenant returned 21 switches with NO `site` or
 `site_id` fields in its unfiltered `GET /monitoring/v1/switches`
 payload. The selected physical site "Example Customer - Site A" (Central ID 128)
-returned **8 switches** when queried with `?site=Unica%20-%20Bodegraven`.
+returned **8 switches** when queried with `?site=Example%20Customer%20-%20Site%20A`.
 An impossible-site negative-control query returned zero devices. These
 8 were stack members and must not be silently created as eight separate
 logical stacks.
