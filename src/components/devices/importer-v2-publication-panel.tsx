@@ -677,7 +677,7 @@ export function ImporterV2PublicationPanel({
             Review and publish
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
-            Review exceptions and canonical objects this import would create. Logical stacks publish as one managed Device while physical member evidence is retained below them.
+            Review exceptions and canonical objects this import would create. Logical stacks and confirmed HA clusters publish as one managed Device while physical member evidence is retained below them.
           </p>
         </div>
         <Button variant="secondary" onClick={() => void loadQa()} disabled={loading || publishing}>
@@ -694,6 +694,8 @@ export function ImporterV2PublicationPanel({
             <Stat label="Excluded" value={qa.counts.excluded} />
             <Stat label="Stacks" value={qa.counts.stacks} />
             <Stat label="Stack members" value={qa.counts.stackMembers} />
+            <Stat label="HA clusters" value={qa.counts.haClusters} />
+            <Stat label="HA members" value={qa.counts.haMembers} />
             <Stat label="Create" value={qa.counts.create} />
             <Stat label="Update" value={qa.counts.update} />
             <Stat label="Unchanged" value={qa.counts.unchanged} />
@@ -736,6 +738,69 @@ export function ImporterV2PublicationPanel({
                               <td className="px-2 py-1.5">{member.serialNumber ?? '—'}</td>
                               <td className="px-2 py-1.5">{member.model ?? '—'}</td>
                               <td className="px-2 py-1.5">{member.firmware ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {qa.topology.haGroups.length ? (
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                Confirmed logical HA clusters
+              </h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {qa.topology.haGroups.length.toLocaleString()} HA cluster(s) contain {qa.counts.haMembers.toLocaleString()} physical member row(s). Members remain peers; active/passive role is not durable identity.
+              </p>
+              <div className="mt-3 space-y-2">
+                {qa.topology.haGroups.map((group) => (
+                  <details
+                    key={group.groupKey}
+                    className="rounded border border-[var(--border)] bg-[var(--background)]"
+                  >
+                    <summary className="cursor-pointer px-3 py-2 text-sm">
+                      <strong>{group.parentName}</strong>
+                      <span className="ml-2 text-xs text-[var(--muted)]">
+                        logical HA · {group.memberRows.length} member(s)
+                      </span>
+                    </summary>
+                    <div className="overflow-x-auto border-t border-[var(--border)] p-2">
+                      <table className="w-full min-w-[620px] text-left text-xs">
+                        <thead className="text-[var(--muted)]">
+                          <tr>
+                            <th className="px-2 py-1">Member</th>
+                            <th className="px-2 py-1">Source row</th>
+                            <th className="px-2 py-1">Serial</th>
+                            <th className="px-2 py-1">Model</th>
+                            <th className="px-2 py-1">Firmware</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.memberRows.map((member) => (
+                            <tr
+                              key={member.rowNumber}
+                              className="border-t border-[var(--border)]"
+                            >
+                              <td className="px-2 py-1.5">
+                                {member.memberIndex} · {member.name}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                #{member.rowNumber}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.serialNumber ?? '—'}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.model ?? '—'}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.firmware ?? '—'}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -792,7 +857,7 @@ export function ImporterV2PublicationPanel({
                     New canonical data to create
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} managed device(s) across {publicationSourceRows.size.toLocaleString()} source row(s), including stack members. Approve all, approve a category, or inspect individual values.
+                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} managed device(s) across {publicationSourceRows.size.toLocaleString()} source row(s), including topology members. Approve all, approve a category, or inspect individual values.
                   </p>
                 </div>
                 <Button
