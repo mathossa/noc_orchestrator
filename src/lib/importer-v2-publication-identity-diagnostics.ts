@@ -4,6 +4,7 @@ import { normalizeImporterV2Identity } from '@/lib/importer-v2-identity'
 import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
+  importerV2TopologyIsMember,
 } from '@/lib/importer-v2-stack-topology'
 import {
   importerV2WorkspaceEffectiveEvaluated,
@@ -195,7 +196,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
 
   const rows: StagedIdentityRow[] = batch.rows.flatMap((row) => {
     const topology = importerV2TopologyFromDecisions(row.decisions)
-    if (topology.role === 'STACK_MEMBER') return []
+    if (importerV2TopologyIsMember(topology)) return []
 
     const snapshot = importerV2WorkspaceEffectiveEvaluated({
       evaluated: row.evaluated,
