@@ -1,8 +1,9 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { customerApiError } from '@/lib/customer-api'
 import { createCustomer, listCustomerContractTypes, listCustomers } from '@/lib/customer-store'
 
-export async function GET() {
+async function GETHandler() {
   try {
     const [customers, contractTypes] = await Promise.all([listCustomers(), listCustomerContractTypes()])
     return NextResponse.json({ data: customers, contractTypes })
@@ -11,7 +12,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     return NextResponse.json({ data: await createCustomer(body) }, { status: 201 })
@@ -25,3 +26,6 @@ export async function POST(request: Request) {
     return customerApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { auth } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { siteApiError } from '@/lib/site-api'
@@ -6,7 +7,7 @@ import {
   createOrganizationUnit,
 } from '@/lib/organization-unit-store'
 type Context = { params: Promise<{ id: string }> }
-export async function GET(request: Request, context: Context) {
+async function GETHandler(request: Request, context: Context) {
   try {
     const { id } = await context.params
     return NextResponse.json({
@@ -19,7 +20,7 @@ export async function GET(request: Request, context: Context) {
     return siteApiError(error)
   }
 }
-export async function POST(request: Request, context: Context) {
+async function POSTHandler(request: Request, context: Context) {
   try {
     const { id } = await context.params
     return NextResponse.json(
@@ -37,3 +38,6 @@ export async function POST(request: Request, context: Context) {
     return siteApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)
