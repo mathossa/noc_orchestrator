@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { AUDIT_ACTIONS } from '@/lib/audit-events'
 import { resolveCanonicalFortiosRepair, type CanonicalRepairDecision } from '@/lib/firmware-canonical-repair'
 import type { Prisma } from '../generated/prisma/client'
 
 const MAX_APPLY = 50
 const MAX_PREVIEW = 5000
-const ACTION_APPLY = 'CURRENT_FIRMWARE_CANONICAL_RELINK'
-const ACTION_ROLLBACK = 'CURRENT_FIRMWARE_CANONICAL_RELINK_ROLLBACK'
+const ACTION_APPLY = AUDIT_ACTIONS.canonicalFirmwareRelink
+const ACTION_ROLLBACK = AUDIT_ACTIONS.canonicalFirmwareRelinkRollback
 
 export class CanonicalFirmwareRepairError extends Error {
   constructor(message: string, readonly status: 400 | 409 = 400) {
@@ -49,6 +50,7 @@ function resolveForRow(device: RepairDevice, candidates: readonly RepairRelease[
     model: device.deviceModel,
     candidates,
     vendorIsFortinet: isFortinet(source),
+    observedNormalizedVersion: device.currentFirmwareNormalizedVersion,
   })
 }
 
