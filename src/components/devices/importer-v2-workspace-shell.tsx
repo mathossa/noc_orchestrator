@@ -624,6 +624,7 @@ export function ImporterV2WorkspaceShell({
         >
           <option value="PENDING">Pending / staged</option>
           <option value="PUBLISHED">Published</option>
+          <option value="EXCLUDED">Excluded</option>
           <option value="ALL">All source rows</option>
         </SelectInput>
       </div>
