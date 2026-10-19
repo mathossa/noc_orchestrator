@@ -90,6 +90,9 @@ export function InventoryFirmwareRepairManager() {
         setPreview(next)
         setSelected([])
         setError('')
+        if (searchRevision > 0) {
+          setMessage('Search completed: ' + next.total + ' matching device(s).')
+        }
       }
     }).catch((reason: unknown) => {
       if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load inventory.')
@@ -158,6 +161,7 @@ export function InventoryFirmwareRepairManager() {
 
   function search(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    setLoading(true)
     setError('')
     setMessage('')
     setQuery(draftQuery.trim())
@@ -192,6 +196,7 @@ export function InventoryFirmwareRepairManager() {
         {loading ? <p>Loading recorded inventory…</p> : null}
         {error ? <p role="alert" className="text-red-400">{error}</p> : null}
         {message ? <p role="status" className="text-emerald-400">{message}</p> : null}
+        <p className="text-xs text-[var(--muted)]">Choose a vendor, canonical platform or device search term, then click Search to apply the filters.</p>
         <form onSubmit={search} role="search" className="flex flex-wrap items-end gap-3">
           <label className="min-w-56 flex-1 text-xs">
             Search devices or customers
@@ -219,7 +224,7 @@ export function InventoryFirmwareRepairManager() {
           </label>
           <button type="submit" disabled={busy}
             className="relative z-10 cursor-pointer rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50">
-            Search
+            {loading ? 'Searching…' : 'Search'}
           </button>
           <button type="button" disabled={busy} onClick={() => {
             setBusy(true); setError('')
