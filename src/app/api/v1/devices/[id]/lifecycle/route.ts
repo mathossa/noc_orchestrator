@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { firmwareLifecycleApiError } from '@/lib/firmware-lifecycle-api'
@@ -6,7 +7,7 @@ import { getDevice } from '@/lib/device-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function PUT(request: Request, context: RouteContext) {
+async function PUTHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = await request.json()
@@ -23,3 +24,5 @@ export async function PUT(request: Request, context: RouteContext) {
     return firmwareLifecycleApiError(error)
   }
 }
+
+export const PUT = withAdmin(PUTHandler)
