@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   automaticImporterV2KnownHaTopologyDecisions,
+  detectImporterV2ConfirmedHaPairs,
   validateImporterV2ConfirmedHaPair,
 } from '@/lib/importer-v2-ha-topology'
 
@@ -163,6 +164,92 @@ describe('Importer v2 confirmed HA topology', () => {
         ],
       }),
     ).toThrow('share the serial or MAC alias')
+  })
+
+  it('detects multiple independent two-member HA pairs for one bulk confirmation', () => {
+    const result = detectImporterV2ConfirmedHaPairs({
+      provider: 'AUVIK',
+      rows: [
+        row({
+          id: 'a1',
+          rowNumber: 10,
+          sourceId: 'source-a1',
+          name: 'FW-A1',
+          serial: 'SHARED-A',
+        }),
+        row({
+          id: 'a2',
+          rowNumber: 11,
+          sourceId: 'source-a2',
+          name: 'FW-A2',
+          serial: 'SHARED-A',
+        }),
+        row({
+          id: 'b1',
+          rowNumber: 20,
+          sourceId: 'source-b1',
+          name: 'FW-B1',
+          serial: 'SHARED-B',
+        }),
+        row({
+          id: 'b2',
+          rowNumber: 21,
+          sourceId: 'source-b2',
+          name: 'FW-B2',
+          serial: 'SHARED-B',
+        }),
+      ],
+    })
+
+    expect(result.groups).toHaveLength(2)
+    expect(
+      result.groups.map((group) =>
+        group.memberRows.map((member) => member.rowNumber),
+      ),
+    ).toEqual([
+      [10, 11],
+      [20, 21],
+    ])
+    expect(result.rejected).toEqual([])
+  })
+
+  it('keeps ambiguous shared-identifier groups out of bulk HA confirmation', () => {
+    const result = detectImporterV2ConfirmedHaPairs({
+      provider: 'AUVIK',
+      rows: [
+        row({
+          id: 'a',
+          rowNumber: 1,
+          sourceId: 'source-a',
+          name: 'FW-A',
+          serial: 'BAD-SHARED',
+          mac: '00:00:00:00:00:01',
+        }),
+        row({
+          id: 'b',
+          rowNumber: 2,
+          sourceId: 'source-b',
+          name: 'FW-B',
+          serial: 'BAD-SHARED',
+          mac: '00:00:00:00:00:01',
+        }),
+        row({
+          id: 'c',
+          rowNumber: 3,
+          sourceId: 'source-c',
+          name: 'FW-C',
+          serial: 'BAD-SHARED',
+        }),
+      ],
+    })
+
+    expect(result.groups).toEqual([])
+    expect(result.rejected.length).toBeGreaterThan(0)
+    expect(
+      result.rejected.some((item) =>
+        item.rowNumbers.includes(3),
+      ),
+    ).toBe(true)
   })
 
   it('rehydrates a persisted HA topology from member Source IDs on a later sync', () => {
