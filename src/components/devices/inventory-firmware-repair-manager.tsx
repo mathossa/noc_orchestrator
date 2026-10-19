@@ -173,7 +173,7 @@ export function InventoryFirmwareRepairManager() {
         </Link>
       </nav>
       <p className="text-xs text-[var(--muted)]">
-        Correcting other inventory fields, including customer, site, model and archive state, is handled separately through device record maintenance (#112).
+        Bulk corrections of customer, site, model and archive state are being developed separately under #112. They are not part of this firmware-reference operation.
         No firmware version, desired policy, scan timestamp or provider identity is changed here.
       </p>
       <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
