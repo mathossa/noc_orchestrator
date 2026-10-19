@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import {
@@ -130,7 +131,7 @@ async function diagnoseIdentityConflict(
     : null
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
 
@@ -148,7 +149,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   let batchId: string | null = null
   let body: PublishRequest | null = null
 
@@ -322,3 +323,6 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)
