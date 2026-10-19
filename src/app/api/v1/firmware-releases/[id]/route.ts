@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { firmwareReleaseApiError } from '@/lib/firmware-release-api'
 import { deleteFirmwareRelease, getFirmwareRelease, updateFirmwareRelease } from '@/lib/firmware-release-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, { params }: RouteContext) {
+async function GETHandler(_request: Request, { params }: RouteContext) {
   try {
     const { id } = await params
     return NextResponse.json({ data: await getFirmwareRelease(id) })
@@ -13,7 +14,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, { params }: RouteContext) {
+async function PATCHHandler(request: Request, { params }: RouteContext) {
   try {
     const { id } = await params
     const body = await request.json()
@@ -23,7 +24,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: RouteContext) {
+async function DELETEHandler(_request: Request, { params }: RouteContext) {
   try {
     const { id } = await params
     await deleteFirmwareRelease(id)
@@ -32,3 +33,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return firmwareReleaseApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)

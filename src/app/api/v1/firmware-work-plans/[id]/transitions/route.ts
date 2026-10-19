@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import {
@@ -11,7 +12,7 @@ import {
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     const input = parseFirmwareWorkPlanTransition(await request.json())
@@ -39,3 +40,5 @@ export async function POST(request: Request, context: RouteContext) {
     return firmwareWorkPlanApiError(error)
   }
 }
+
+export const POST = withAdmin(POSTHandler)
