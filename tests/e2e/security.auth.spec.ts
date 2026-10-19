@@ -40,11 +40,20 @@ test.describe('anonymous visitor', () => {
   })
 
   test('supports email login and logout using synthetic administrator', async ({ page }) => {
+    const authStatuses: number[] = []
+    page.on('response', (response) => {
+      if (response.url().includes('/api/auth/sign-in/email')) authStatuses.push(response.status())
+    })
     await page.goto('/sign-in')
     await page.getByLabel('Email').fill('playwright-admin@example.invalid')
     await page.getByLabel('Password').fill('Synthetic-e2e-only-password-2026!')
     await page.getByRole('button', { name: 'Sign in' }).click()
-    await expect(page).toHaveURL(/\/dashboard/)
+    try {
+      await expect(page).toHaveURL(/\/dashboard/)
+    } catch {
+      const notices = await page.getByRole('alert').allTextContents()
+      throw new Error('Synthetic interactive login failed: auth status=' + authStatuses.join(',') + '; notices=' + notices.join(' | '))
+    }
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page).toHaveURL(/\/sign-in/)
     await page.goto('/customers')

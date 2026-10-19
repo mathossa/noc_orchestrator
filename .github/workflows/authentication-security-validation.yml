@@ -25,6 +25,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          # Static compilation imports Prisma but must not query a live DB.
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
 
   integration:
     name: Integration suite (12k performance gate tracked in #132)
