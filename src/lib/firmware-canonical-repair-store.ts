@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { AUDIT_ACTIONS } from '@/lib/audit-events'
-import { resolveCanonicalFortiosRepair, type CanonicalRepairRelease, type CanonicalRepairDecision } from '@/lib/firmware-canonical-repair'
+import { resolveCanonicalFortiosRepair, type CanonicalRepairDecision } from '@/lib/firmware-canonical-repair'
 import type { Prisma } from '../generated/prisma/client'
 
 const MAX_APPLY = 50
