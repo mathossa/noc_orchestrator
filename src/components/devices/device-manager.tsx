@@ -260,7 +260,7 @@ export function DeviceManager({
       <PageHeader
         eyebrow="Recorded inventory"
         title="Devices"
-        actions={<><ButtonLink href="/firmware/exceptions">Exceptions</ButtonLink><ButtonLink href="/firmware">Firmware catalog</ButtonLink><Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button></>}
+        actions={<><ButtonLink href="/firmware/exceptions">Exceptions</ButtonLink><ButtonLink href="/devices/manage/repairs">Inventory corrections</ButtonLink><ButtonLink href="/firmware">Firmware catalog</ButtonLink><Button type="button" variant="primary" onClick={formOpen ? closeForm : beginAdd}>{formOpen ? 'Close device form' : 'Add device'}</Button></>}
       />
 
       {message ? <div className="mb-4 rounded-md border border-[#285f48] bg-[#142b22] px-4 py-3 text-sm text-[#a9e8c6]" role="status">{message}</div> : null}
