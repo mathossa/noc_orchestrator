@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+<rect width="1536" height="1024" fill="#10151d"/>
+<style>
+  .t{font-family:Inter,Arial,sans-serif;fill:#f2f4f7}.m{font-family:Inter,Arial,sans-serif;fill:#aab4c2}
+  .h{font-size:28px;font-weight:700}.sh{font-size:18px;font-weight:700}.b{font-size:14px}.s{font-size:12px}
+  .panel{fill:#151b24;stroke:#3a4554;stroke-width:1}.card{fill:#111720;stroke:#303a47;stroke-width:1}
+  .red{fill:#ff5b5b}.orange{fill:#ff9f3d}.green{fill:#4fd08b}.blue{fill:#5aa8ff}
+</style>
+<text x="24" y="38" class="t h">Device Inventory redesign reference</text>
+<text x="24" y="64" class="m b">Attention-driven navigation: dashboard → customer → site → device type → devices → device detail</text>
+
+<!-- Panel 1 -->
+<rect x="24" y="88" width="482" height="370" rx="10" class="panel"/>
+<text x="42" y="120" class="t sh">1. Devices overview</text>
+<text x="42" y="145" class="m s">High-level estate view, focused on attention.</text>
+<rect x="42" y="164" width="420" height="38" rx="6" class="card"/><text x="56" y="188" class="m b">Search all inventory…</text>
+<rect x="42" y="219" width="96" height="82" rx="8" class="card"/><text x="54" y="246" class="t sh">10,284</text><text x="54" y="268" class="m s">Total devices</text>
+<rect x="148" y="219" width="96" height="82" rx="8" class="card"/><text x="160" y="246" class="red sh">438</text><text x="160" y="268" class="m s">Need attention</text>
+<rect x="254" y="219" width="96" height="82" rx="8" class="card"/><text x="266" y="246" class="blue sh">72</text><text x="266" y="268" class="m s">Unknown</text>
+<rect x="360" y="219" width="102" height="82" rx="8" class="card"/><text x="372" y="246" class="orange sh">31</text><text x="372" y="268" class="m s">EOL / Replace</text>
+<text x="42" y="326" class="t b" font-weight="700">Customers</text>
+<text x="42" y="349" class="m s">Customer</text><text x="282" y="349" class="m s">Devices</text><text x="362" y="349" class="m s">Attention</text>
+<text x="42" y="376" class="t s">Leger des Heils</text><text x="290" y="376" class="t s">681</text><text x="370" y="376" class="red s">42</text>
+<text x="42" y="400" class="t s">Bouwmaatschappij Van Mierlo</text><text x="290" y="400" class="t s">193</text><text x="370" y="400" class="red s">17</text>
+<text x="42" y="424" class="t s">Deutsche Post DHL</text><text x="290" y="424" class="t s">412</text><text x="370" y="424" class="orange s">8</text>
+
+<!-- Panel 2 -->
+<rect x="526" y="88" width="482" height="370" rx="10" class="panel"/>
+<text x="544" y="120" class="t sh">2. Customer view</text>
+<text x="544" y="145" class="m s">Sites within one customer; attention rolls up per site.</text>
+<text x="544" y="178" class="t sh">Bouwmaatschappij Van Mierlo</text>
+<text x="544" y="200" class="m s">193 devices · 8 sites · 17 need attention</text>
+<rect x="544" y="216" width="420" height="36" rx="6" class="card"/><text x="557" y="239" class="m b">Search within this customer…</text>
+<text x="544" y="280" class="m s">Site</text><text x="762" y="280" class="m s">Devices</text><text x="842" y="280" class="m s">Attention</text>
+<text x="544" y="309" class="t s">Maasdijk</text><text x="770" y="309" class="t s">48</text><text x="850" y="309" class="red s">9</text>
+<text x="544" y="336" class="t s">Vlijmen Installaties</text><text x="770" y="336" class="t s">31</text><text x="850" y="336" class="red s">5</text>
+<text x="544" y="363" class="t s">Rotterdam</text><text x="770" y="363" class="t s">27</text><text x="850" y="363" class="orange s">3</text>
+<text x="544" y="390" class="t s">Zwolle</text><text x="770" y="390" class="t s">42</text><text x="850" y="390" class="green s">Healthy</text>
+
+<!-- Panel 3 -->
+<rect x="1028" y="88" width="484" height="370" rx="10" class="panel"/>
+<text x="1046" y="120" class="t sh">3. Site view</text>
+<text x="1046" y="145" class="m s">Grouped by device type instead of individual records.</text>
+<text x="1046" y="178" class="t sh">Maasdijk</text><text x="1046" y="200" class="m s">48 devices · 9 need attention</text>
+<rect x="1046" y="218" width="420" height="50" rx="7" class="card"/><text x="1062" y="240" class="t b">Switches · 24</text><text x="1062" y="258" class="red s">6 need attention</text>
+<rect x="1046" y="278" width="420" height="50" rx="7" class="card"/><text x="1062" y="300" class="t b">Access Points · 18</text><text x="1062" y="318" class="orange s">2 need attention</text>
+<rect x="1046" y="338" width="420" height="50" rx="7" class="card"/><text x="1062" y="360" class="t b">Firewalls · 2</text><text x="1062" y="378" class="red s">1 need attention</text>
+<rect x="1046" y="398" width="420" height="42" rx="7" class="card"/><text x="1062" y="423" class="t b">Controllers · 2</text><text x="1356" y="423" class="green s">Healthy</text>
+
+<!-- Panel 4 -->
+<rect x="24" y="480" width="730" height="514" rx="10" class="panel"/>
+<text x="42" y="514" class="t sh">4. Device group view — Switches</text>
+<text x="42" y="539" class="m s">Individual devices appear only after drill-down; problems first.</text>
+<text x="42" y="576" class="t sh">Switches</text><text x="42" y="598" class="m s">24 devices · 6 need attention</text>
+<rect x="42" y="618" width="520" height="36" rx="6" class="card"/><text x="56" y="641" class="m b">Search switches…</text>
+<rect x="576" y="618" width="150" height="36" rx="6" class="card"/><text x="590" y="641" class="m s">Needs attention</text>
+<text x="42" y="689" class="m s">Device</text><text x="220" y="689" class="m s">Model</text><text x="438" y="689" class="m s">Firmware</text><text x="560" y="689" class="m s">Status</text>
+<text x="42" y="722" class="t s">071SWI0004</text><text x="220" y="722" class="t s">WS-C2960X-48FPS-L</text><text x="438" y="722" class="t s">15.2(7)E2</text><text x="560" y="722" class="red s">Update required</text>
+<text x="42" y="755" class="t s">071SWI0005</text><text x="220" y="755" class="t s">WS-C2960X-48FPS-L</text><text x="438" y="755" class="t s">15.2(7)E2</text><text x="560" y="755" class="red s">Update required</text>
+<text x="42" y="788" class="t s">071SWI0201</text><text x="220" y="788" class="t s">WS-C2960X-48FPS-L</text><text x="438" y="788" class="t s">15.2(7)E2</text><text x="560" y="788" class="red s">Update required</text>
+<text x="42" y="821" class="t s">1011SX2-AP002</text><text x="220" y="821" class="t s">Meraki MS390-24P</text><text x="438" y="821" class="t s">MR 32.2.4</text><text x="560" y="821" class="orange s">EOL / Replace</text>
+<text x="42" y="888" class="m b">Export available at customer, site and device-group scope.</text>
+
+<!-- Panel 5 -->
+<rect x="774" y="480" width="738" height="514" rx="10" class="panel"/>
+<text x="792" y="514" class="t sh">5. Device detail</text>
+<text x="792" y="539" class="m s">All detailed domain information lives here, not in the main inventory table.</text>
+<text x="792" y="579" class="t sh">071SWI0004</text><text x="956" y="579" class="red s">Update required</text>
+<text x="792" y="607" class="m s">Overview   Firmware   Planning   Lifecycle   Contract   Source   History</text>
+<rect x="792" y="632" width="338" height="252" rx="8" class="card"/>
+<text x="808" y="658" class="t b" font-weight="700">Device information</text>
+<text x="808" y="686" class="m s">Customer</text><text x="900" y="686" class="t s">Bouwmaatschappij Van Mierlo</text>
+<text x="808" y="711" class="m s">Site</text><text x="900" y="711" class="t s">Maasdijk</text>
+<text x="808" y="736" class="m s">Type</text><text x="900" y="736" class="t s">Switch</text>
+<text x="808" y="761" class="m s">Vendor</text><text x="900" y="761" class="t s">Cisco</text>
+<text x="808" y="786" class="m s">Model</text><text x="900" y="786" class="t s">WS-C2960X-48FPS-L</text>
+<text x="808" y="811" class="m s">Source</text><text x="900" y="811" class="t s">Import</text>
+<rect x="1148" y="632" width="338" height="252" rx="8" class="card"/>
+<text x="1164" y="658" class="t b" font-weight="700">Firmware status</text>
+<text x="1164" y="686" class="m s">Current</text><text x="1260" y="686" class="t s">15.2(7)E2</text>
+<text x="1164" y="711" class="m s">Preferred</text><text x="1260" y="711" class="t s">15.2(7)E10</text>
+<text x="1164" y="736" class="m s">Primary status</text><text x="1260" y="736" class="red s">Update required</text>
+<text x="1164" y="761" class="m s">Reason</text><text x="1260" y="761" class="t s">Below minimum acceptable release</text>
+<text x="792" y="925" class="m b">Inventory answers “what needs attention?”; planning remains a separate workspace.</text>
+</svg>
