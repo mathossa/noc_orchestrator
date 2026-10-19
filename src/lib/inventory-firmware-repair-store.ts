@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
-import { resolveInventoryFirmwareLink, type FirmwareLinkDecision } from '@/lib/inventory-firmware-repair'
+import { resolveInventoryFirmwareLink, manualInventoryFirmwareTargets, type FirmwareLinkDecision, type FirmwareLinkRelease } from '@/lib/inventory-firmware-repair'
 import type { Prisma } from '../generated/prisma/client'
 
 const MAX_APPLY = 50
@@ -46,7 +46,7 @@ function resolveForRow(device: RepairDevice, candidates: readonly RepairRelease[
   })
 }
 
-function viewRow(row: RepairDevice, result: FirmwareLinkDecision, target: RepairRelease | null) {
+function viewRow(row: RepairDevice, result: FirmwareLinkDecision, target: RepairRelease | null, choices: readonly FirmwareLinkRelease[]) {
   return {
     deviceId: row.id,
     deviceName: row.name,
@@ -63,6 +63,10 @@ function viewRow(row: RepairDevice, result: FirmwareLinkDecision, target: Repair
     targetVersion: target?.version ?? null,
     targetPlatform: target?.platform ?? null,
     targetTrain: target?.firmwareTrain?.name ?? null,
+    manualTargets: choices.map((choice) => ({
+      id: choice.id, platform: choice.platform, version: choice.version,
+      train: choice.firmwareTrain?.name ?? null,
+    })),
     status: result.status,
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -124,7 +128,13 @@ export async function previewInventoryFirmwareRepairs(input: FirmwareInventoryRe
   const releaseById = new Map(candidates.map((release) => [release.id, release]))
   const rows = devices.map((device) => {
     const decision = resolveForRow(device, candidates)
-    return viewRow(device, decision, releaseById.get(decision.targetId ?? '') ?? null)
+    const choices = manualInventoryFirmwareTargets({
+      model: device.deviceModel,
+      current: device.currentFirmwareRelease,
+      observedVersion: device.currentFirmwareNormalizedVersion ?? device.currentFirmwareRawVersion,
+      releases: candidates,
+    })
+    return viewRow(device, decision, releaseById.get(decision.targetId ?? '') ?? null, choices)
   })
   return {
     rows, vendors, linkedPlatforms: platforms.map((p) => p.platform),
@@ -161,7 +171,7 @@ function validSelection(value: unknown): value is CanonicalRepairSelection {
  * and audit the change without touching source evidence or observedAt.
  */
 export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId: string) {
-  const request = input as { confirmed?: unknown; items?: unknown } | null
+  const request = input as { confirmed?: unknown; items?: unknown; manual?: unknown } | null
   const items = request?.items
   if (request?.confirmed !== true || !Array.isArray(items) ||
       items.length < 1 || items.length > MAX_APPLY || !items.every(validSelection)) {
@@ -190,7 +200,16 @@ export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId:
         select: sourceSelect,
       })
       const decision = resolveForRow(device, candidates)
-      if (decision.status !== 'MATCHED' || decision.targetId !== item.targetReleaseId) {
+      if (request.manual === true) {
+        const choices = manualInventoryFirmwareTargets({
+          model: device.deviceModel, current: source,
+          observedVersion: device.currentFirmwareNormalizedVersion ?? device.currentFirmwareRawVersion,
+          releases: candidates,
+        })
+        if (!choices.some((choice) => choice.id === item.targetReleaseId)) {
+          throw new CanonicalFirmwareRepairError('Chosen manual firmware link is incompatible, ambiguous or stale. Review again.', 409)
+        }
+      } else if (decision.status !== 'MATCHED' || decision.targetId !== item.targetReleaseId) {
         throw new CanonicalFirmwareRepairError('Firmware matching changed or is ambiguous. Refresh the preview.', 409)
       }
       const updated = await tx.device.updateMany({
@@ -225,7 +244,9 @@ export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId:
             updatedAt: after.updatedAt.toISOString(),
           },
           metadata: {
-            batchId, method: 'EXACT_MODEL_COMPATIBLE_RELEASE_RELINK', sourceVersion: source?.version ?? null,
+            batchId, method: request.manual === true
+              ? 'ENGINEER_REVIEWED_EXACT_FIRMWARE_RELINK' : 'EXACT_MODEL_COMPATIBLE_RELEASE_RELINK',
+            sourceVersion: source?.version ?? null,
             sourceTrain: source?.firmwareTrain?.name ?? null,
             targetTrain: candidates.find((r) => r.id === decision.targetId)?.firmwareTrain?.name ?? null,
             evidenceKept: true, observedAtKept: true, sourceKept: true,
