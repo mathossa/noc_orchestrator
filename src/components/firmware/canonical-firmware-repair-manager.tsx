@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 
-type RepairStatus = 'MATCHED' | 'ALREADY_CORRECT' | 'UNSUPPORTED_MODEL' | 'MISSING_TARGET' | 'AMBIGUOUS' | 'NOT_APPLICABLE'
+type RepairStatus = 'MATCHED' | 'ALREADY_CORRECT' | 'UNSUPPORTED_MODEL' | 'MISSING_TARGET' | 'AMBIGUOUS' | 'EVIDENCE_CONFLICT' | 'NOT_APPLICABLE'
 type RepairRow = {
   deviceId: string
   deviceName: string
@@ -41,6 +41,7 @@ const statusText: Record<RepairStatus, string> = {
   UNSUPPORTED_MODEL: 'Model compatibility missing',
   MISSING_TARGET: 'No exact equivalent',
   AMBIGUOUS: 'Ambiguous release',
+  EVIDENCE_CONFLICT: 'Observed version differs from linked release',
   NOT_APPLICABLE: 'Not applicable',
 }
 
