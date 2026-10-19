@@ -5,6 +5,7 @@ import { findImporterV2PublicationNameConflicts } from '@/lib/importer-v2-public
 import {
   eligibleImporterV2PublicationRows,
   parseImporterV2PublicationSelection,
+  withoutImporterV2ConflictingRows,
 } from '@/lib/importer-v2-publication-selection'
 import type { ImporterV2PublicationMode } from '@/lib/importer-v2-publication'
 import { resolveImporterV2PublicationSelection } from '@/lib/importer-v2-workspace-store'
@@ -60,6 +61,10 @@ export async function POST(request: Request, context: Context) {
     ]
       .filter((rowNumber) => candidateSet.has(rowNumber))
       .sort((left, right) => left - right)
+    const safeCandidateRows = withoutImporterV2ConflictingRows(
+      rowNumbers,
+      conflictingRowNumbers,
+    )
 
     return NextResponse.json({
       data: {
@@ -70,6 +75,8 @@ export async function POST(request: Request, context: Context) {
         eligibleCount: rowNumbers.length,
         skippedCount: matchingRows.length - rowNumbers.length,
         conflictingRowNumbers,
+        safeCandidateRows,
+        safeCandidateCount: safeCandidateRows.length,
         identityConflicts: identityConflicts.map((conflict) => ({
           rowNumber: conflict.rowNumber,
           sourceName: conflict.sourceName,
