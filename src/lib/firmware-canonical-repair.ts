@@ -21,7 +21,7 @@ export type CanonicalRepairModel = {
 }
 
 export type CanonicalRepairDecision = {
-  status: 'MATCHED' | 'ALREADY_CORRECT' | 'UNSUPPORTED_MODEL' | 'MISSING_TARGET' | 'AMBIGUOUS' | 'NOT_APPLICABLE'
+  status: 'MATCHED' | 'ALREADY_CORRECT' | 'UNSUPPORTED_MODEL' | 'MISSING_TARGET' | 'AMBIGUOUS' | 'EVIDENCE_CONFLICT' | 'NOT_APPLICABLE'
   targetId: string | null
   candidateIds: string[]
 }
@@ -40,6 +40,7 @@ export function resolveCanonicalFortiosRepair(input: {
   model: CanonicalRepairModel
   candidates: readonly CanonicalRepairRelease[]
   vendorIsFortinet: boolean
+  observedNormalizedVersion?: string | null
 }): CanonicalRepairDecision {
   const { source, model } = input
   if (!input.vendorIsFortinet || source.vendorId !== model.vendorId) {
@@ -50,6 +51,13 @@ export function resolveCanonicalFortiosRepair(input: {
   }
   if (!equal(source.platform, 'FortiGate')) {
     return { status: 'NOT_APPLICABLE', targetId: null, candidateIds: [] }
+  }
+  // Never overwrite a linked release when the most recent normalized observation
+  // actually reports a different running version. A real version change belongs
+  // to source reconciliation, not this platform-only repair.
+  const observed = normalizedObservedFirmwareVersion(input.observedNormalizedVersion)
+  if (observed && observed !== normalizedObservedFirmwareVersion(source.version)) {
+    return { status: 'EVIDENCE_CONFLICT', targetId: null, candidateIds: [] }
   }
   const supported = supportedFirmwarePlatforms(model.platform)
   const preferred = model.preferredPlatform
