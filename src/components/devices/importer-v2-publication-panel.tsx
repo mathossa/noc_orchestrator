@@ -150,6 +150,8 @@ type PublicationScopePreview = {
   eligibleCount: number
   skippedCount: number
   conflictingRowNumbers: number[]
+  safeCandidateRows: number[]
+  safeCandidateCount: number
   identityConflicts: Array<{
     rowNumber: number
     sourceName: string | null
@@ -203,6 +205,7 @@ export function ImporterV2PublicationPanel({
     null,
   )
   const [scopedLoading, setScopedLoading] = useState(false)
+  const [deferConflicts, setDeferConflicts] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -326,8 +329,16 @@ export function ImporterV2PublicationPanel({
     ) {
       return []
     }
-    return scoped.rowNumbers
-  }, [mode, qa, scoped, selectionEnabled])
+    return deferConflicts
+      ? scoped.safeCandidateRows
+      : scoped.rowNumbers
+  }, [
+    deferConflicts,
+    mode,
+    qa,
+    scoped,
+    selectionEnabled,
+  ])
 
   const publicationSourceRows = useMemo(
     () =>
@@ -361,7 +372,8 @@ export function ImporterV2PublicationPanel({
         (scoped &&
           scoped.qaFingerprint === qa.qaFingerprint &&
           scoped.mode === mode &&
-          scoped.conflictingRowNumbers.length === 0)) &&
+          (scoped.conflictingRowNumbers.length === 0 ||
+            deferConflicts))) &&
       (selectionEnabled ||
         mode === 'VALID_ONLY' ||
         qa.publication.unresolvedRows.length === 0),
@@ -397,6 +409,9 @@ export function ImporterV2PublicationPanel({
           selection: selectionEnabled
             ? selectedWorkspaceRows
             : undefined,
+          skipConflicts: selectionEnabled
+            ? deferConflicts
+            : false,
           expectedCandidateRows: selectionEnabled
             ? candidateRows
             : undefined,
@@ -419,6 +434,7 @@ export function ImporterV2PublicationPanel({
         mode,
         approvedProposalKeys: approvalKeys,
         selection: selectionEnabled ? selectedWorkspaceRows : null,
+        deferConflicts: selectionEnabled ? deferConflicts : false,
         candidateRows: selectionEnabled ? candidateRows : null,
       })
       if (retryRequest.current?.signature !== signature) {
@@ -805,6 +821,22 @@ export function ImporterV2PublicationPanel({
                 <p className="mt-1 text-xs opacity-90">
                   These are scope-level identity/name uniqueness checks performed immediately before publication. They can exist even when staging itself has no validation warning.
                 </p>
+                {scoped.safeCandidateCount > 0 ? (
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={deferConflicts}
+                      onChange={(event) => {
+                        setDeferConflicts(event.target.checked)
+                        setApproved(new Set())
+                        retryRequest.current = null
+                      }}
+                    />
+                    <span>
+                      Leave these {scoped.conflictingRowNumbers.length.toLocaleString()} conflicting row(s) staged and publish the {scoped.safeCandidateCount.toLocaleString()} safe candidate(s) from this selection.
+                    </span>
+                  </label>
+                ) : null}
                 <details className="mt-2 rounded border border-[#9e5a5a] bg-black/10">
                   <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold">
                     Show conflicting rows and reasons
@@ -870,6 +902,7 @@ export function ImporterV2PublicationPanel({
                         setPublicationScope(
                           event.target.value as 'SELECTION' | 'BATCH',
                         )
+                        setDeferConflicts(false)
                         setApproved(new Set())
                         retryRequest.current = null
                       }}
@@ -893,6 +926,7 @@ export function ImporterV2PublicationPanel({
                       setMode(
                         event.target.value as ImporterV2PublicationMode,
                       )
+                      setDeferConflicts(false)
                       setApproved(new Set())
                       retryRequest.current = null
                     }}
@@ -918,7 +952,7 @@ export function ImporterV2PublicationPanel({
                     {scopedLoading
                       ? 'Checking exact server-side selection…'
                       : scoped
-                        ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts`
+                        ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts · ${scoped.safeCandidateCount.toLocaleString()} safe`
                         : 'Preparing selected scope…'}
                   </div>
                 ) : null}
@@ -937,7 +971,9 @@ export function ImporterV2PublicationPanel({
                   {publishing
                     ? 'Publishing…'
                     : selectionEnabled
-                      ? 'Publish selected atomically'
+                      ? deferConflicts
+                        ? 'Publish safe selected rows'
+                        : 'Publish selected atomically'
                       : 'Publish atomically'}
                 </Button>
               </div>
