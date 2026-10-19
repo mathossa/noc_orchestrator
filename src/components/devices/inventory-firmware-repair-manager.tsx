@@ -27,6 +27,7 @@ type RepairRow = {
 type Preview = {
   rows: RepairRow[]
   vendors: { id: string; name: string }[]
+  linkedPlatforms: string[]
   total: number
   page: number
   pageSize: number
@@ -57,6 +58,7 @@ export function InventoryFirmwareRepairManager() {
   const [query, setQuery] = useState('')
   const [draftQuery, setDraftQuery] = useState('')
   const [vendorId, setVendorId] = useState('')
+  const [linkedPlatform, setLinkedPlatform] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [selected, setSelected] = useState<string[]>([])
   const [lastAuditIds, setLastAuditIds] = useState<string[]>([])
@@ -65,11 +67,12 @@ export function InventoryFirmwareRepairManager() {
     const params = new URLSearchParams({ page: String(page) })
     if (query) params.set('q', query)
     if (vendorId) params.set('vendorId', vendorId)
+    if (linkedPlatform) params.set('linkedPlatform', linkedPlatform)
     const response = await fetch('/api/v1/inventory/firmware-links?' + params.toString(), { cache: 'no-store' })
     const payload = (await response.json()) as ApiPayload<Preview>
     if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Inventory preview could not be loaded.')
     return payload.data
-  }, [page, query, vendorId])
+  }, [page, query, vendorId, linkedPlatform])
 
   const refresh = useCallback(async () => {
     const next = await load()
@@ -193,6 +196,16 @@ export function InventoryFirmwareRepairManager() {
               className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
               <option value="">All vendors</option>
               {preview?.vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </label>
+          <label className="min-w-44 text-xs">
+            Current canonical platform
+            <select value={linkedPlatform} onChange={(e) => { setLinkedPlatform(e.target.value); setPage(1) }}
+              className="mt-1 block w-full rounded-md border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
+              <option value="">All platforms / devices</option>
+              <option value="__UNLINKED__">Without canonical release</option>
+              {preview?.linkedPlatforms.map((platform) =>
+                <option key={platform} value={platform}>{platform}</option>)}
             </select>
           </label>
           <button type="submit" className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)]">Search</button>
