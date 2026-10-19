@@ -37,6 +37,23 @@ type Preview = {
   counts: Record<string, number>
 }
 type ApiPayload<T> = { data?: T; error?: { message?: string } }
+type BulkOperation = 'ARCHIVE' | 'ACTIVATE' | 'SET_CUSTOMER' | 'SET_SITE' | 'SET_MODEL'
+type BulkRefs = {
+  customers: { id: string; name: string }[]
+  sites: { id: string; name: string; customerId: string; label: string }[]
+  models: { id: string; name: string; label: string }[]
+}
+type BulkItem = { deviceId: string; updatedAt: string; name: string }
+type BulkPreview = {
+  items: { deviceId: string; deviceName: string; customerName: string;
+    before: string; after: string; changed: boolean; note: string | null }[]
+  changedCount: number
+  skippedCount: number
+  fingerprint: string
+  operation: BulkOperation
+  targetId: string | null
+}
+
 
 const statusText: Record<RepairStatus, string> = {
   MATCHED: 'Exact match — can correct',
@@ -50,6 +67,13 @@ const statusText: Record<RepairStatus, string> = {
 
 export function InventoryFirmwareRepairManager() {
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [mode, setMode] = useState<'firmware' | 'devices'>('devices')
+  const [bulkRefs, setBulkRefs] = useState<BulkRefs | null>(null)
+  const [recordSelection, setRecordSelection] = useState<BulkItem[]>([])
+  const [bulkOperation, setBulkOperation] = useState<BulkOperation>('ARCHIVE')
+  const [bulkTarget, setBulkTarget] = useState('')
+  const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -85,6 +109,18 @@ export function InventoryFirmwareRepairManager() {
 
   useEffect(() => {
     let cancelled = false
+    void fetch('/api/v1/inventory/bulk-maintenance', { cache: 'no-store' }).then(async (response) => {
+      const payload = await response.json() as ApiPayload<BulkRefs>
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Could not load bulk maintenance references.')
+      if (!cancelled) setBulkRefs(payload.data)
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(reason instanceof Error ? reason.message : 'Bulk maintenance setup failed.')
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
     void load().then((next) => {
       if (!cancelled) {
         setPreview(next)
@@ -107,6 +143,65 @@ export function InventoryFirmwareRepairManager() {
   const selectedRows = (preview?.rows ?? []).filter((row) =>
     selected.includes(row.deviceId) && row.status === 'MATCHED' && row.targetReleaseId,
   )
+  const recordIds = new Set(recordSelection.map((item) => item.deviceId))
+  const needsTarget = ['SET_CUSTOMER', 'SET_SITE', 'SET_MODEL'].includes(bulkOperation)
+  const bulkTargetOptions = bulkOperation === 'SET_CUSTOMER'
+    ? (bulkRefs?.customers ?? []).map((item) => ({ id: item.id, label: item.name }))
+    : bulkOperation === 'SET_SITE'
+      ? (bulkRefs?.sites ?? []).map((item) => ({ id: item.id, label: item.label }))
+      : (bulkRefs?.models ?? []).map((item) => ({ id: item.id, label: item.label }))
+
+  function toggleRecord(row: RepairRow, checked: boolean) {
+    setBulkPreview(null)
+    setRecordSelection((old) => checked
+      ? [...old.filter((item) => item.deviceId !== row.deviceId),
+        { deviceId: row.deviceId, updatedAt: row.updatedAt, name: row.deviceName }].slice(0, 50)
+      : old.filter((item) => item.deviceId !== row.deviceId))
+  }
+
+  async function bulkRequest<T>(body: object): Promise<T> {
+    const response = await fetch('/api/v1/inventory/bulk-maintenance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const payload = await response.json() as ApiPayload<T>
+    if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Bulk change failed.')
+    return payload.data
+  }
+
+  async function previewBulk() {
+    if (!recordSelection.length || (needsTarget && !bulkTarget)) return
+    setBulkBusy(true); setError(''); setBulkPreview(null)
+    try {
+      setBulkPreview(await bulkRequest<BulkPreview>({
+        action: 'preview', operation: bulkOperation, targetId: bulkTarget || undefined,
+        items: recordSelection.map(({deviceId,updatedAt}) => ({ deviceId, updatedAt })),
+      }))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not preview changes.')
+    } finally { setBulkBusy(false) }
+  }
+
+  async function applyBulk() {
+    if (!bulkPreview || !bulkPreview.changedCount || !window.confirm(
+      'Apply ' + bulkPreview.changedCount + ' confirmed inventory changes in one atomic transaction?'
+    )) return
+    setBulkBusy(true); setError(''); setMessage('')
+    try {
+      const result = await bulkRequest<{ updated: number; skipped: number }>({
+        action: 'apply', confirmed: true,
+        operation: bulkOperation, targetId: bulkTarget || undefined,
+        items: recordSelection.map(({deviceId,updatedAt}) => ({ deviceId, updatedAt })),
+        fingerprint: bulkPreview.fingerprint,
+      })
+      setMessage(result.updated + ' device(s) updated; ' + result.skipped +
+        ' unchanged. All changes were audited; source evidence and firmware policies were preserved.')
+      setRecordSelection([])
+      setBulkPreview(null)
+      await refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not commit bulk changes.')
+    } finally { setBulkBusy(false) }
+  }
 
   const toggle = (id: string, checked: boolean) => {
     setSelected((old) => checked ? [...old.filter((value) => value !== id), id].slice(0, 50) : old.filter((value) => value !== id))
@@ -177,10 +272,19 @@ export function InventoryFirmwareRepairManager() {
       <PageHeader
         eyebrow="Recorded inventory"
         title="Inventory corrections"
-        description="Review and correct canonical firmware references for devices from any vendor. All changes require an exact, model-compatible match and operator confirmation."
+        description="Select devices for deliberate inventory changes, or review automatically detected canonical firmware-link corrections. Preview and confirm changes before they are applied."
       />
       <nav className="flex flex-wrap gap-3 text-sm">
-        <span className="rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 font-semibold">Firmware references</span>
+        <button type="button" onClick={() => setMode('devices')}
+          aria-pressed={mode === 'devices'}
+          className={mode === 'devices' ? 'rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 font-semibold' : 'rounded-md border border-[var(--border)] px-3 py-2'}>
+          Bulk device changes
+        </button>
+        <button type="button" onClick={() => setMode('firmware')}
+          aria-pressed={mode === 'firmware'}
+          className={mode === 'firmware' ? 'rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 font-semibold' : 'rounded-md border border-[var(--border)] px-3 py-2'}>
+          Firmware link suggestions
+        </button>
         <Link href="/devices/manage" className="rounded-md border border-[var(--border)] px-3 py-2 hover:bg-[var(--surface-muted)]">
           Manage device records
         </Link>
@@ -189,8 +293,10 @@ export function InventoryFirmwareRepairManager() {
         </Link>
       </nav>
       <p className="text-xs text-[var(--muted)]">
-        Bulk corrections of customer, site, model and archive state are being developed separately under #112. They are not part of this firmware-reference operation.
-        No firmware version, desired policy, scan timestamp or provider identity is changed here.
+        {mode === 'devices'
+          ? 'Select any device, even when its firmware is already correct. Available operations: archive/reactivate, reassign customer/site and change model. Only explicitly chosen fields are updated.'
+          : 'Automatic firmware-link suggestions are available only for exact supported matches; existing correct links are not selectable in this mode.'}
+        {' '}Source identities, observed firmware values/timestamps, desired policy and work planning are never rewritten by these operations.
       </p>
       <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         {loading ? <p>Loading recorded inventory…</p> : null}
@@ -242,30 +348,93 @@ export function InventoryFirmwareRepairManager() {
             </p>
             <p className="text-sm">
               <strong>{preview.total}</strong> devices in filter ·
-              {' '}<strong>{preview.matched}</strong> exact correction candidates on this page ·
-              {' '}{preview.needsReview} require review on this page
+              {mode === 'devices'
+                ? <> <strong>{recordSelection.length}</strong> selected across pages (maximum 50)</>
+                : <> <strong>{preview.matched}</strong> exact correction candidates on this page · {preview.needsReview} require review on this page</>}
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs">
-                Decision on this page
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                  className="ml-2 rounded border border-[var(--border)] bg-[var(--background)] p-2 text-sm">
-                  <option value="ALL">All decisions</option>
-                  {Object.entries(statusText).map(([key, label]) => (
-                    <option key={key} value={key}>{label} ({preview.counts[key] ?? 0})</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" disabled={busy}
-                onClick={() => setSelected(rows.filter((r) => r.status === 'MATCHED').slice(0, 50).map((r) => r.deviceId))}
-                className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
-                Select safe matches on this page
-              </button>
-              <button type="button" disabled={busy || !selectedRows.length} onClick={() => void apply()}
-                className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
-                Confirm {selectedRows.length} correction(s)
-              </button>
-            </div>
+            {mode === 'firmware' ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-xs text-[var(--muted)]">Only exact automatic corrections may be selected. This is not the manual bulk editor.</p>
+                <button type="button" disabled={busy}
+                  onClick={() => setSelected(rows.filter((r) => r.status === 'MATCHED').map((r) => r.deviceId))}
+                  className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                  Select exact suggestions on current page
+                </button>
+                <button type="button" disabled={busy || !selectedRows.length} onClick={() => void apply()}
+                  className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
+                  Confirm {selectedRows.length} suggestion(s)
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" disabled={bulkBusy} onClick={() => {
+                    const available = rows.filter((r) => !recordIds.has(r.deviceId)).slice(0, 50 - recordSelection.length)
+                    setRecordSelection((old) => [...old, ...available.map((r) => ({
+                      deviceId: r.deviceId, updatedAt: r.updatedAt, name: r.deviceName,
+                    }))])
+                    setBulkPreview(null)
+                  }} className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                    Select visible devices
+                  </button>
+                  <button type="button" disabled={!recordSelection.length || bulkBusy} onClick={() => {
+                    setRecordSelection([]); setBulkPreview(null)
+                  }} className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
+                    Clear selection ({recordSelection.length})
+                  </button>
+                  <span className="text-xs text-[var(--muted)]">Selection is retained when switching pages and filters, up to 50 devices.</span>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="text-xs">Change selected devices
+                    <select value={bulkOperation} onChange={(e) => {
+                      setBulkOperation(e.target.value as BulkOperation); setBulkTarget(''); setBulkPreview(null)
+                    }} className="mt-1 block rounded border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
+                      <option value="ARCHIVE">Archive</option>
+                      <option value="ACTIVATE">Reactivate</option>
+                      <option value="SET_CUSTOMER">Change customer (clear previous site)</option>
+                      <option value="SET_SITE">Change site within same customer</option>
+                      <option value="SET_MODEL">Change device model</option>
+                    </select>
+                  </label>
+                  {needsTarget ? (
+                    <label className="min-w-64 flex-1 text-xs">New value
+                      <select value={bulkTarget} onChange={(e) => {
+                        setBulkTarget(e.target.value); setBulkPreview(null)
+                      }} className="mt-1 block w-full rounded border border-[var(--border-strong)] bg-[var(--background)] p-2 text-sm">
+                        <option value="">Choose a target</option>
+                        {bulkTargetOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button type="button" disabled={bulkBusy || !recordSelection.length || (needsTarget && !bulkTarget)}
+                    onClick={() => void previewBulk()}
+                    className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
+                    {bulkBusy ? 'Checking…' : 'Preview selected changes'}
+                  </button>
+                </div>
+                {bulkPreview ? (
+                  <section aria-label="Bulk change preview" className="space-y-2 rounded border border-[var(--border)] p-3">
+                    <p className="text-sm"><strong>{bulkPreview.changedCount}</strong> to change · {bulkPreview.skippedCount} already matching target</p>
+                    <div className="max-h-64 overflow-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead><tr><th className="p-1">Device</th><th className="p-1">Before</th><th className="p-1">After</th><th className="p-1">Result / notes</th></tr></thead>
+                        <tbody>{bulkPreview.items.map((item) => (
+                          <tr key={item.deviceId} className="border-t border-[var(--border)]">
+                            <td className="p-1">{item.customerName} · {item.deviceName}</td>
+                            <td className="p-1">{item.before}</td><td className="p-1">{item.after}</td>
+                            <td className="p-1">{item.note ?? (item.changed ? 'Will update' : 'No change')}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                    <button type="button" disabled={bulkBusy || !bulkPreview.changedCount} onClick={() => void applyBulk()}
+                      className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50">
+                      Confirm and apply {bulkPreview.changedCount} changes
+                    </button>
+                  </section>
+                ) : null}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead><tr className="border-b border-[var(--border)]">
@@ -275,13 +444,14 @@ export function InventoryFirmwareRepairManager() {
                   <th scope="col" className="p-2">Observed</th>
                   <th scope="col" className="p-2">Current canonical link</th>
                   <th scope="col" className="p-2">Suggested canonical link</th>
-                  <th scope="col" className="p-2">Decision</th>
+                  <th scope="col" className="p-2">{mode === 'devices' ? 'Edit' : 'Decision'}</th>
                 </tr></thead>
                 <tbody>{rows.map((row) => (
                   <tr key={row.deviceId} className="border-b border-[var(--border)] align-top">
                     <td className="p-2">
-                      <input type="checkbox" checked={selected.includes(row.deviceId)}
-                        disabled={busy || row.status !== 'MATCHED'} onChange={(e) => toggle(row.deviceId, e.target.checked)}
+                      <input type="checkbox" checked={mode === 'devices' ? recordIds.has(row.deviceId) : selected.includes(row.deviceId)}
+                        disabled={mode === 'devices' ? bulkBusy || (!recordIds.has(row.deviceId) && recordSelection.length >= 50) : busy || row.status !== 'MATCHED'}
+                        onChange={(e) => mode === 'devices' ? toggleRecord(row, e.target.checked) : toggle(row.deviceId, e.target.checked)}
                         aria-label={'Select ' + row.deviceName} />
                     </td>
                     <td className="p-2">
@@ -300,7 +470,8 @@ export function InventoryFirmwareRepairManager() {
                       <>{row.targetPlatform} / {row.targetTrain ?? 'No train'} / {row.targetVersion}
                         <div className="text-xs text-[var(--muted)]">{row.targetReleaseId}</div></>
                     ) : '—'}</td>
-                    <td className="p-2">{statusText[row.status]}</td>
+                    <td className="p-2">{mode === 'devices'
+                      ? 'Manual edits available' : statusText[row.status]}</td>
                   </tr>
                 ))}</tbody>
               </table>
