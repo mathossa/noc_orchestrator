@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import {
@@ -54,7 +55,7 @@ function parseBody(value: unknown): RequestBody {
   return body as unknown as RequestBody
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { batchId, rowNumber: rawRowNumber } = await context.params
     const rowNumber = Number.parseInt(rawRowNumber, 10)
@@ -107,3 +108,5 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

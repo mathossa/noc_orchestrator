@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { listImporterV2WorkspaceBatches } from '@/lib/importer-v2-workspace-store'
 import {
@@ -36,7 +37,7 @@ function parseStageConfig(value: FormDataEntryValue | null): ImporterV2XlsxStage
   return parsed as unknown as ImporterV2XlsxStageConfig
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     return NextResponse.json({ data: await listImporterV2WorkspaceBatches() })
   } catch (error) {
@@ -47,7 +48,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
@@ -100,3 +101,6 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)
