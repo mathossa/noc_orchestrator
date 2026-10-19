@@ -1567,10 +1567,12 @@ async function publishTopologyMembers(input: {
     select: { id: true },
   })
 
-  await input.tx.deviceTopologyMember.updateMany({
-    where: { topologyId: topology.id },
-    data: { isActive: false },
-  })
+  if (kind === 'STACK') {
+    await input.tx.deviceTopologyMember.updateMany({
+      where: { topologyId: topology.id },
+      data: { isActive: false },
+    })
+  }
 
   const rowsByNumber = new Map(
     input.batch.rows.map((row) => [
