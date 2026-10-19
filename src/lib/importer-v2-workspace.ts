@@ -21,6 +21,7 @@ export type ImporterV2WorkspaceGroup = (typeof IMPORTER_V2_WORKSPACE_GROUPS)[num
 export type ImporterV2WorkspacePublicationState =
   | 'PENDING'
   | 'PUBLISHED'
+  | 'EXCLUDED'
   | 'ALL'
 
 export type ImporterV2WorkspaceRepeatClassification =
@@ -217,7 +218,9 @@ export function parseImporterV2WorkspaceQuery(
         ? (repeat as ImporterV2WorkspaceRepeatClassification)
         : null,
     publication:
-      publication === 'PUBLISHED' || publication === 'ALL'
+      publication === 'PUBLISHED' ||
+      publication === 'EXCLUDED' ||
+      publication === 'ALL'
         ? publication
         : 'PENDING',
   }
