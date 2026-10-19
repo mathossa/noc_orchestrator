@@ -40,6 +40,12 @@ describe('Importer v2 reconciliation workspace', () => {
 
     expect(
       parseImporterV2WorkspaceQuery(
+        new URLSearchParams({ publication: 'EXCLUDED' }),
+      ).filters.publication,
+    ).toBe('EXCLUDED')
+
+    expect(
+      parseImporterV2WorkspaceQuery(
         new URLSearchParams({ publication: 'ALL' }),
       ).filters.publication,
     ).toBe('ALL')
