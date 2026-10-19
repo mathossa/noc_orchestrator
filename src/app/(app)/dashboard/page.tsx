@@ -1,5 +1,5 @@
-import { OperationalOverview, type DashboardScope } from '@/components/dashboard/operational-overview'
-import { buildCandidateWorkPackages, type WorkPackageKind } from '@/lib/dashboard-work-packages'
+import { FirmwareCampaignOverview, type CampaignFocus, type CampaignScope } from '@/components/dashboard/firmware-campaign-overview'
+import { buildFirmwareCampaigns } from '@/lib/dashboard-firmware-campaigns'
 import { parseInventoryQuery, searchParamsToUrlSearchParams } from '@/lib/inventory-explorer'
 import { getDashboardWorkPackageFindings, getInventoryFilterOptions } from '@/lib/inventory-explorer-store'
 
@@ -9,22 +9,19 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-const validKinds = new Set<WorkPackageKind>(['URGENT', 'TO_PLAN', 'BLOCKED', 'CHECK'])
+const validFocus = new Set<CampaignFocus>(['critical', 'required', 'recommended', 'review'])
 
 export default async function DashboardPage({ searchParams }: PageProps) {
   const params = searchParamsToUrlSearchParams(await searchParams)
+  // Use the same scoped source/filter logic as Inventory. Search lives in Inventory, not here.
+  params.delete('q')
   const query = parseInventoryQuery(params)
-  const requestedKind = params.get('kind') ?? ''
-  const kind = validKinds.has(requestedKind as WorkPackageKind)
-    ? requestedKind as WorkPackageKind
-    : ''
-
-  const scope: DashboardScope = {
-    q: query.q,
+  const focusValue = params.get('focus') ?? ''
+  const scope: CampaignScope = {
     customer: query.customer,
     vendor: query.vendor,
     contract: query.contract,
-    kind,
+    focus: validFocus.has(focusValue as CampaignFocus) ? focusValue as CampaignFocus : '',
     page: query.page,
   }
 
@@ -32,7 +29,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getDashboardWorkPackageFindings(query),
     getInventoryFilterOptions(),
   ])
-  const packages = buildCandidateWorkPackages(findings)
-
-  return <OperationalOverview scope={scope} filters={filters} packages={packages} />
+  return (
+    <FirmwareCampaignOverview
+      scope={scope}
+      filters={filters}
+      campaigns={buildFirmwareCampaigns(findings)}
+    />
+  )
 }
