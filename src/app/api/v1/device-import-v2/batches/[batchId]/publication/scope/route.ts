@@ -68,6 +68,7 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({
       data: {
+        qa,
         qaFingerprint: qa.qaFingerprint,
         mode,
         rowNumbers,

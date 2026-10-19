@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   deviceFindMany: vi.fn(),
+  topologyMemberFindMany: vi.fn(),
   findFirst: vi.fn(),
   transaction: vi.fn(),
   snapshotCreate: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     importerV2DeviceCrosswalk: { findMany: mocks.findMany },
+    deviceTopologyMember: { findMany: mocks.topologyMemberFindMany },
     importerV2SourceSnapshot: { findFirst: mocks.findFirst },
     device: {
       findMany: mocks.deviceFindMany,
@@ -33,6 +35,7 @@ describe('Importer v2 identity persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.deviceFindMany.mockResolvedValue([])
+    mocks.topologyMemberFindMany.mockResolvedValue([])
     mocks.transaction.mockImplementation(async (callback) =>
       callback({
         importerV2SourceSnapshot: { create: mocks.snapshotCreate },
@@ -119,6 +122,64 @@ describe('Importer v2 identity persistence', () => {
         model: 'CX6200-24G',
         softwarePlatform: 'AOS-CX',
       },
+    })
+  })
+
+  it('resolves a physical HA member Source ID to its logical canonical device', async () => {
+    mocks.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    mocks.topologyMemberFindMany.mockResolvedValueOnce([
+      {
+        id: 'member-b',
+        sourceId: 'auvik-member-b',
+        serialNumber: 'COPIED-CLUSTER-SERIAL',
+        macAddress: null,
+        lastSeenAt: new Date('2026-10-19T00:00:00Z'),
+        topology: { deviceId: 'logical-ha-device' },
+      },
+    ])
+    mocks.deviceFindMany.mockResolvedValueOnce([
+      {
+        id: 'logical-ha-device',
+        name: 'FW-CLUSTER',
+        hostname: 'fw-cluster.example',
+        serialNumber: null,
+        customer: { name: 'Example customer' },
+        site: { name: 'Deventer', organizationUnit: null },
+        deviceModel: {
+          model: 'FortiGate-100F',
+          platform: 'FortiOS',
+          vendor: { name: 'Fortinet' },
+          deviceType: { name: 'Firewall' },
+          family: { name: '100F' },
+        },
+      },
+    ])
+
+    const result = await findImporterV2IdentityCandidates({
+      provider: 'AUVIK',
+      sourceAdapterId: 'auvik-api-v2',
+      identifiers: {
+        sourceId: 'auvik-member-b',
+      },
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      canonicalDeviceId: 'logical-ha-device',
+      crosswalkId: null,
+      matchScope: 'SAME_PROVIDER',
+      identifiers: {
+        sourceId: 'auvik-member-b',
+      },
+      evidence: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'TOPOLOGY_MEMBER',
+          provider: 'AUVIK',
+          sourceId: 'auvik-member-b',
+        }),
+      ]),
     })
   })
 

@@ -8,6 +8,13 @@ import { compileImporterV2RuleSet } from '@/lib/importer-v2-rule-compiler'
 import { evaluateImporterV2RuleRows } from '@/lib/importer-v2-rule-engine'
 import { importerV2RuleKey } from '@/lib/importer-v2-rule-matcher'
 import { previewImporterV2RuleChange } from '@/lib/importer-v2-rule-preview'
+import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
+import {
+  detectImporterV2ConfirmedHaPairs,
+  importerV2ConfirmedHaTopologyDecisions,
+  validateImporterV2ConfirmedHaPair,
+  type ImporterV2ConfirmedHaGroup,
+} from '@/lib/importer-v2-ha-topology'
 import {
   getActiveImporterV2RuleSet,
   rememberImporterV2ExactMapping,
@@ -421,7 +428,17 @@ const actionRowSelect = {
   canonicalModel: true,
   interpretedFirmware: true,
   evaluated: true,
-} as const
+  identityResolution: true,
+  decisions: {
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: {
+      action: true,
+      field: true,
+      value: true,
+      explanation: true,
+    },
+  },
+} satisfies Prisma.ImporterV2WorkspaceRowSelect
 
 function selectionWhere(
   batchId: string,
@@ -549,6 +566,12 @@ type ResolvedActionScope = {
   rows: Awaited<ReturnType<typeof allIncludedActionRows>>
   contextVersion: string | null
   confirmationReasons: readonly string[]
+  haGroup?: ImporterV2ConfirmedHaGroup
+  haGroups?: readonly ImporterV2ConfirmedHaGroup[]
+  haRejected?: readonly {
+    rowNumbers: readonly number[]
+    reason: string
+  }[]
 }
 
 async function exactMappingActionScope(
@@ -668,6 +691,158 @@ async function resolveActionScope(input: {
   selection: ImporterV2WorkspaceSelection
   action: ImporterV2WorkspaceAction
 }): Promise<ResolvedActionScope> {
+  if (input.action.type === 'CONFIRM_HA_CLUSTERS') {
+    if (input.selection.mode !== 'ROWS') {
+      throw new Error(
+        'Bulk HA confirmation requires explicit staged conflict rows.',
+      )
+    }
+    const rowNumbers = [...new Set(input.selection.rowNumbers)]
+      .filter((rowNumber) => Number.isInteger(rowNumber) && rowNumber > 0)
+      .sort((left, right) => left - right)
+    if (rowNumbers.length < 2) {
+      throw new Error(
+        'Bulk HA confirmation requires at least two staged conflict rows.',
+      )
+    }
+
+    const [batch, rows] = await Promise.all([
+      prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
+        where: { id: input.batchId },
+        select: { provider: true },
+      }),
+      rowsForSelection(input.batchId, {
+        mode: 'ROWS',
+        rowNumbers,
+      }),
+    ])
+
+    const detected = detectImporterV2ConfirmedHaPairs({
+      provider: batch.provider,
+      rows,
+    })
+    const rejected = [...detected.rejected]
+    const groups = detected.groups.filter((group) => {
+      const memberRows = new Set(
+        group.memberRows.map((member) => member.rowNumber),
+      )
+      const canonicalDeviceIds = new Set(
+        rows
+          .filter((row) => memberRows.has(row.rowNumber))
+          .flatMap((row) => {
+            const review = importerV2WorkspaceIdentityReview({
+              identityResolution: row.identityResolution,
+              decisions: row.decisions,
+            })
+            return review?.selectedCanonicalDeviceId
+              ? [review.selectedCanonicalDeviceId]
+              : []
+          }),
+      )
+      if (canonicalDeviceIds.size <= 1) return true
+      rejected.push({
+        rowNumbers: [...memberRows].sort((left, right) => left - right),
+        reason:
+          'The pair already points to two different canonical Devices and requires explicit consolidation/migration review.',
+      })
+      return false
+    })
+
+    if (groups.length === 0) {
+      throw new Error(
+        'No unambiguous two-member HA candidates were found in these publication conflicts.',
+      )
+    }
+
+    const affectedNumbers = new Set(
+      groups.flatMap((group) =>
+        group.memberRows.map((member) => member.rowNumber),
+      ),
+    )
+    const affectedRows = rows.filter((row) =>
+      affectedNumbers.has(row.rowNumber),
+    )
+    return {
+      rows: affectedRows,
+      contextVersion: groups
+        .map((group) => group.groupKey)
+        .sort()
+        .join('|'),
+      haGroups: groups,
+      haRejected: rejected,
+      confirmationReasons: [
+        `${groups.length} unambiguous two-member HA cluster(s) passed the same server-side checks used by individual confirmation.`,
+        `${affectedRows.length} physical source row(s) will become peers under ${groups.length} logical managed Device(s).`,
+        rejected.length > 0
+          ? `${rejected.length} ambiguous or structurally unsafe collision(s) will remain staged for separate review.`
+          : 'No ambiguous HA collisions were found in this candidate set.',
+        'This confirmation is atomic: either all listed safe HA groups are recorded, or none are.',
+      ],
+    }
+  }
+
+  if (input.action.type === 'CONFIRM_HA_CLUSTER') {
+    if (input.selection.mode !== 'ROWS') {
+      throw new Error(
+        'Confirm HA cluster requires exactly two explicitly selected rows.',
+      )
+    }
+    const rowNumbers = [...new Set(input.selection.rowNumbers)]
+    if (rowNumbers.length !== 2) {
+      throw new Error(
+        'Confirm HA cluster requires exactly two explicitly selected rows.',
+      )
+    }
+    const [batch, rows] = await Promise.all([
+      prisma.importerV2WorkspaceBatch.findUniqueOrThrow({
+        where: { id: input.batchId },
+        select: { provider: true },
+      }),
+      rowsForSelection(input.batchId, {
+        mode: 'ROWS',
+        rowNumbers,
+      }),
+    ])
+    if (rows.length !== 2 || rows.some((row) => row.inclusion !== 'INCLUDED')) {
+      throw new Error(
+        'Confirm HA cluster requires two included staged rows.',
+      )
+    }
+    const selectedCanonicalDeviceIds = new Set(
+      rows.flatMap((row) => {
+        const review = importerV2WorkspaceIdentityReview({
+          identityResolution: row.identityResolution,
+          decisions: row.decisions,
+        })
+        return review?.selectedCanonicalDeviceId
+          ? [review.selectedCanonicalDeviceId]
+          : []
+      }),
+    )
+    if (selectedCanonicalDeviceIds.size > 1) {
+      throw new Error(
+        'These rows already point to different canonical Devices. Use the explicit HA consolidation/migration workflow instead of confirming a new HA cluster.',
+      )
+    }
+
+    const haGroup = validateImporterV2ConfirmedHaPair({
+      provider: batch.provider,
+      rows,
+    })
+    const shared = haGroup.sharedIdentifiers
+      .map((field) => (field === 'serialNumber' ? 'serial' : 'MAC'))
+      .join(' + ')
+    return {
+      rows,
+      contextVersion: haGroup.groupKey,
+      haGroup,
+      confirmationReasons: [
+        `The two provider Source IDs are different while the rows share the same ${shared} alias.`,
+        'Customer, subdomain, site, vendor, device type and model resolve to the same canonical context.',
+        'Both physical observations will become peers under one logical HA Device; the publication anchor is not a permanent primary/secondary role.',
+      ],
+    }
+  }
   if (input.action.type === 'REMEMBER_EXACT') {
     return exactMappingActionScope(input.batchId, input.action)
   }
@@ -723,6 +898,8 @@ export async function previewImporterV2WorkspaceAction(input: {
     commonValues: importerV2WorkspaceCommonValues(resolved.rows),
     confirmationReasons: resolved.confirmationReasons,
     contextVersion: resolved.contextVersion,
+    haGroups: resolved.haGroups,
+    haRejected: resolved.haRejected,
   }
 }
 
@@ -837,6 +1014,69 @@ export async function applyImporterV2WorkspaceAction(input: {
     actorUserId,
     resolved.contextVersion,
   )
+
+  if (
+    input.action.type === 'CONFIRM_HA_CLUSTER' ||
+    input.action.type === 'CONFIRM_HA_CLUSTERS'
+  ) {
+    const groups =
+      input.action.type === 'CONFIRM_HA_CLUSTER'
+        ? resolved.haGroup
+          ? [resolved.haGroup]
+          : []
+        : [...(resolved.haGroups ?? [])]
+    if (groups.length === 0) {
+      throw new Error(
+        'Confirmed HA topology disappeared after preview.',
+      )
+    }
+
+    const decisions = groups.flatMap((group) =>
+      importerV2ConfirmedHaTopologyDecisions({
+        group,
+        rows: resolved.rows,
+        explanation: input.action.explanation,
+        scopeToken: expectedToken,
+      }),
+    )
+    await prisma.$transaction(async (tx) => {
+      await tx.importerV2WorkspaceDecision.createMany({
+        data: decisions.map((decision) => ({
+          batchId: input.batchId,
+          rowId: decision.rowId,
+          rowNumber: decision.rowNumber,
+          field: decision.field,
+          action: decision.action,
+          value: jsonValue(decision.value),
+          explanation: decision.explanation,
+          scopeToken: decision.scopeToken,
+          actorUserId,
+        })),
+      })
+      await tx.importerV2WorkspaceRow.updateMany({
+        where: { id: { in: resolved.rows.map((row) => row.id) } },
+        data: {
+          reviewRevision: { increment: 1 },
+          statuses: ['RECHECK_REQUIRED'],
+          primaryStatus: 'RECHECK_REQUIRED',
+          needsReevaluation: true,
+        },
+      })
+    })
+    return {
+      affectedRowCount: resolved.rows.length,
+      scopeToken: expectedToken,
+      topology:
+        input.action.type === 'CONFIRM_HA_CLUSTER'
+          ? groups[0]
+          : undefined,
+      topologies:
+        input.action.type === 'CONFIRM_HA_CLUSTERS'
+          ? groups
+          : undefined,
+      rejected: resolved.haRejected ?? [],
+    }
+  }
 
   const rowUpdate: Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput =
     input.action.type === 'EXCLUDE_ROW'
