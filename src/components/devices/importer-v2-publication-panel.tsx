@@ -104,9 +104,12 @@ function publicationSourceRowsFor(
   const rows = new Set(
     selectedCandidateRows ?? candidateRowsFor(qa, mode),
   )
-  for (const stack of qa.topology.stackGroups) {
-    if (!rows.has(stack.parentRowNumber)) continue
-    for (const member of stack.memberRows) rows.add(member.rowNumber)
+  for (const group of [
+    ...qa.topology.stackGroups,
+    ...qa.topology.haGroups,
+  ]) {
+    if (!rows.has(group.parentRowNumber)) continue
+    for (const member of group.memberRows) rows.add(member.rowNumber)
   }
   return rows
 }
@@ -182,6 +185,12 @@ type PublicationScopePreview = {
   nameConflictRowNumbers: number[]
 }
 
+type HaConfirmationPreview = {
+  rowNumbers: [number, number]
+  scopeToken: string
+  confirmationReasons: string[]
+}
+
 export function ImporterV2PublicationPanel({
   batchId,
   selectedWorkspaceRows = null,
@@ -206,6 +215,9 @@ export function ImporterV2PublicationPanel({
   )
   const [scopedLoading, setScopedLoading] = useState(false)
   const [deferConflicts, setDeferConflicts] = useState(false)
+  const [haPreview, setHaPreview] =
+    useState<HaConfirmationPreview | null>(null)
+  const [haBusy, setHaBusy] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -213,6 +225,15 @@ export function ImporterV2PublicationPanel({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const retryRequest = useRef<RetryRequest | null>(null)
+
+  const haAction = useCallback(
+    () => ({
+      type: 'CONFIRM_HA_CLUSTER' as const,
+      explanation:
+        'Engineer confirmed these two provider source objects as physical peers of one logical HA cluster. Active/passive role is not used as durable identity.',
+    }),
+    [],
+  )
 
   const fetchQa = useCallback(async (refresh = false) => {
     const response = await fetchImporterV2Read(
