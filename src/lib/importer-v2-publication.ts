@@ -410,8 +410,10 @@ export function buildImporterV2PublicationQa(input: {
     const isTopologyMember = importerV2TopologyIsMember(topology)
     if (topology.role === 'STACK') counts.stacks += 1
     if (topology.role === 'STACK_MEMBER') counts.stackMembers += 1
-    if (topology.role === 'HA') counts.haClusters += 1
-    if (topology.role === 'HA_MEMBER') counts.haMembers += 1
+    if (topology.role === 'HA') {
+      counts.haClusters += 1
+      counts.haMembers += topology.memberRows.length
+    }
 
     rowTopology.set(row.rowNumber, {
       topology,
