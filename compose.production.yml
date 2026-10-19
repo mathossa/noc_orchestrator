@@ -53,5 +53,17 @@ services:
       retries: 10
       start_period: 10s
 
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL using postgres as the database host}
+      INVENTORY_SOURCE_SECRET_KEY: ${INVENTORY_SOURCE_SECRET_KEY:?Set INVENTORY_SOURCE_SECRET_KEY (base64 32-byte key)}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   noc-orchestrator-postgres-data:
