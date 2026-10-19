@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { AUDIT_ACTIONS } from '@/lib/audit-events'
-import { resolveInventoryFirmwareLink, manualInventoryFirmwareTargets, type FirmwareLinkDecision } from '@/lib/inventory-firmware-repair'
+import { resolveInventoryFirmwareLink, manualInventoryFirmwareTargets, type FirmwareLinkDecision, type FirmwareLinkRelease } from '@/lib/inventory-firmware-repair'
 import type { Prisma } from '../generated/prisma/client'
 
 const MAX_APPLY = 50
@@ -46,7 +46,7 @@ function resolveForRow(device: RepairDevice, candidates: readonly RepairRelease[
   })
 }
 
-function viewRow(row: RepairDevice, result: FirmwareLinkDecision, target: RepairRelease | null, choices: readonly RepairRelease[]) {
+function viewRow(row: RepairDevice, result: FirmwareLinkDecision, target: RepairRelease | null, choices: readonly FirmwareLinkRelease[]) {
   return {
     deviceId: row.id,
     deviceName: row.name,
