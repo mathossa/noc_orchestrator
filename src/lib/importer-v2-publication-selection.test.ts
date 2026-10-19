@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   eligibleImporterV2PublicationRows,
   parseImporterV2PublicationSelection,
+  withoutImporterV2ConflictingRows,
 } from '@/lib/importer-v2-publication-selection'
 
 describe('scoped publication selection safety', () => {
@@ -37,6 +38,19 @@ describe('scoped publication selection safety', () => {
         matchingRows: [11, 107, 125, 1900],
       }),
     ).toEqual([11, 107, 1900])
+  })
+
+  it('defers every conflicting sibling and preserves the remaining selected rows', () => {
+    expect(
+      withoutImporterV2ConflictingRows(
+        [2, 7, 8, 22, 100],
+        [7, 8],
+      ),
+    ).toEqual([2, 22, 100])
+
+    expect(
+      withoutImporterV2ConflictingRows([7, 8], [7, 8]),
+    ).toEqual([])
   })
 
   it('rejects arbitrary query keys, nested values and invalid explicit rows', () => {
