@@ -4,6 +4,7 @@ const mocked = vi.hoisted(() => ({
   getQa: vi.fn(),
   resolve: vi.fn(),
   identity: vi.fn(),
+  name: vi.fn(),
   publish: vi.fn(),
   getSession: vi.fn(),
 }))
@@ -24,6 +25,9 @@ vi.mock('@/lib/importer-v2-publication-identity-diagnostics', () => ({
   findImporterV2PublicationIdentityConflicts: mocked.identity,
   formatImporterV2IdentityConflictMessage: () =>
     'Selected rows contain a durable identity conflict.',
+}))
+vi.mock('@/lib/importer-v2-publication-name-conflicts', () => ({
+  findImporterV2PublicationNameConflicts: mocked.name,
 }))
 
 import { POST } from './route'
@@ -69,6 +73,7 @@ describe('selected importer publication', () => {
     })
     mocked.resolve.mockResolvedValue([11, 50])
     mocked.identity.mockResolvedValue([])
+    mocked.name.mockResolvedValue([])
     mocked.getSession.mockResolvedValue({
       user: { id: 'admin-1' },
     })
@@ -98,6 +103,45 @@ describe('selected importer publication', () => {
         qaFingerprint: 'qa-1',
       }),
     )
+  })
+
+  it('publishes the safe subset and leaves selected conflicts staged', async () => {
+    mocked.resolve.mockResolvedValue([11, 20, 50])
+    mocked.identity.mockResolvedValue([{ rowNumber: 20 }])
+
+    const response = await POST(
+      request(
+        body({
+          skipConflicts: true,
+          expectedCandidateRows: [11, 50],
+        }),
+      ),
+      context,
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocked.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowNumbers: [11, 50],
+      }),
+    )
+  })
+
+  it('does not silently skip conflicts unless the engineer opted in', async () => {
+    mocked.resolve.mockResolvedValue([11, 20, 50])
+    mocked.identity.mockResolvedValue([{ rowNumber: 20 }])
+
+    const response = await POST(
+      request(
+        body({
+          expectedCandidateRows: [11, 20, 50],
+        }),
+      ),
+      context,
+    )
+
+    expect(response.status).toBe(400)
+    expect(mocked.publish).not.toHaveBeenCalled()
   })
 
   it('rejects publication when the exact previewed row set changed', async () => {
