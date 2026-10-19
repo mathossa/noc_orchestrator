@@ -67,12 +67,12 @@ describe('Importer v2 publication identity diagnostics', () => {
         evaluated: {
           rawValues: {
             sourceId,
-            serialNumber: 'CNJMK9T1SV',
+            serialNumber: 'SYNTH00001',
             macAddress: null,
           },
           proposedCanonicalValues: {
             sourceId: { id: null, label: sourceId },
-            serialNumber: { id: null, label: 'CNJMK9T1SV' },
+            serialNumber: { id: null, label: 'SYNTH00001' },
             macAddress: null,
           },
           issues: [],
@@ -91,8 +91,8 @@ describe('Importer v2 publication identity diagnostics', () => {
     const ap01 = effectiveAp('auvik-ap01')
     const ap02 = effectiveAp('auvik-ap02')
 
-    expect(ap01.rawValues?.serialNumber).toBe('CNJMK9T1SV')
-    expect(ap02.rawValues?.serialNumber).toBe('CNJMK9T1SV')
+    expect(ap01.rawValues?.serialNumber).toBe('SYNTH00001')
+    expect(ap02.rawValues?.serialNumber).toBe('SYNTH00001')
 
     const collisions = findImporterV2StagedIdentityCollisions([
       row({
@@ -130,6 +130,7 @@ describe('Importer v2 publication identity diagnostics', () => {
             rowNumber: 8,
             sourceName: 'switch-b',
             hostname: 'switch-b.local',
+            sourceId: null,
             customer: 'Example customer',
             organizationUnit: null,
             site: 'Zwolle',

@@ -5,6 +5,7 @@ import { fetchImporterV2Read } from '@/lib/importer-v2-client-request'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { importerV2CatalogProposalRequiresApproval } from '@/lib/importer-v2-publication-approval'
+import type { ImporterV2WorkspaceSelection } from '@/lib/importer-v2-workspace'
 import type {
   ImporterV2CatalogProposal,
   ImporterV2CatalogProposalField,
@@ -98,8 +99,11 @@ function candidateRowsFor(qa: ImporterV2PublicationQa, mode: ImporterV2Publicati
 function publicationSourceRowsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = new Set(candidateRowsFor(qa, mode))
+  const rows = new Set(
+    selectedCandidateRows ?? candidateRowsFor(qa, mode),
+  )
   for (const stack of qa.topology.stackGroups) {
     if (!rows.has(stack.parentRowNumber)) continue
     for (const member of stack.memberRows) rows.add(member.rowNumber)
@@ -110,8 +114,13 @@ function publicationSourceRowsFor(
 function requiredProposalsFor(
   qa: ImporterV2PublicationQa,
   mode: ImporterV2PublicationMode,
+  selectedCandidateRows?: readonly number[],
 ) {
-  const rows = publicationSourceRowsFor(qa, mode)
+  const rows = publicationSourceRowsFor(
+    qa,
+    mode,
+    selectedCandidateRows,
+  )
   return qa.catalogProposals
     .filter((proposal) =>
       proposal.rowNumbers.some((rowNumber) => rows.has(rowNumber)),
@@ -133,15 +142,70 @@ type PublicationResult = {
   batchStatus: string
 }
 
+type PublicationScopePreview = {
+  qaFingerprint: string
+  mode: ImporterV2PublicationMode
+  rowNumbers: number[]
+  matchedCount: number
+  eligibleCount: number
+  skippedCount: number
+  conflictingRowNumbers: number[]
+  safeCandidateRows: number[]
+  safeCandidateCount: number
+  identityConflicts: Array<{
+    rowNumber: number
+    sourceName: string | null
+    hostname: string | null
+    sourceId: string | null
+    selectedCanonicalDeviceId: string | null
+    canonicalConflicts: Array<{
+      canonicalDeviceId: string
+      name: string | null
+      hostname: string | null
+      matchingIdentifiers: Array<{
+        field: 'sourceId' | 'serialNumber' | 'macAddress'
+        value: string
+      }>
+    }>
+    stagedConflicts: Array<{
+      rowNumber: number
+      sourceName: string | null
+      hostname: string | null
+      sourceId: string | null
+      selectedCanonicalDeviceId: string | null
+      matchingIdentifiers: Array<{
+        field: 'sourceId' | 'serialNumber' | 'macAddress'
+        value: string
+      }>
+    }>
+  }>
+  nameConflictRowNumbers: number[]
+}
+
 export function ImporterV2PublicationPanel({
   batchId,
+  selectedWorkspaceRows = null,
+  onPublished,
   embedded = false,
 }: {
   batchId: string
+  selectedWorkspaceRows?: ImporterV2WorkspaceSelection | null
+  onPublished?: () => void
   embedded?: boolean
 }) {
   const [qa, setQa] = useState<ImporterV2PublicationQa | null>(null)
-  const [mode, setMode] = useState<ImporterV2PublicationMode>('ALL_RESOLVED')
+  const [mode, setMode] = useState<ImporterV2PublicationMode>(
+    selectedWorkspaceRows ? 'VALID_ONLY' : 'ALL_RESOLVED',
+  )
+  const [publicationScope, setPublicationScope] =
+    useState<'BATCH' | 'SELECTION'>(
+      selectedWorkspaceRows ? 'SELECTION' : 'BATCH',
+    )
+  const [scoped, setScoped] = useState<PublicationScopePreview | null>(
+    null,
+  )
+  const [scopedLoading, setScopedLoading] = useState(false)
+  const [deferConflicts, setDeferConflicts] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -202,17 +266,93 @@ export function ImporterV2PublicationPanel({
     }
   }, [fetchQa])
 
-  const candidateRows = useMemo(
-    () => (qa ? candidateRowsFor(qa, mode) : []),
-    [mode, qa],
-  )
+  const selectionEnabled =
+    publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
+
+  useEffect(() => {
+    if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
+
+    let cancelled = false
+    const loadSelectedScope = async () => {
+      setScoped(null)
+      setScopedLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode,
+              selection: selectedWorkspaceRows,
+            }),
+          },
+        )
+        const preview =
+          await responseData<PublicationScopePreview>(response)
+        if (!cancelled) setScoped(preview)
+      } catch (scopeError) {
+        if (!cancelled) {
+          setScoped(null)
+          setError(
+            scopeError instanceof Error
+              ? scopeError.message
+              : 'Unable to preview selected publication scope.',
+          )
+        }
+      } finally {
+        if (!cancelled) setScopedLoading(false)
+      }
+    }
+
+    void loadSelectedScope()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    batchId,
+    mode,
+    qa,
+    selectionEnabled,
+    selectedWorkspaceRows,
+  ])
+
+  const candidateRows = useMemo(() => {
+    if (!qa) return []
+    if (!selectionEnabled) return candidateRowsFor(qa, mode)
+    if (
+      !scoped ||
+      scoped.qaFingerprint !== qa.qaFingerprint ||
+      scoped.mode !== mode
+    ) {
+      return []
+    }
+    return deferConflicts
+      ? scoped.safeCandidateRows
+      : scoped.rowNumbers
+  }, [
+    deferConflicts,
+    mode,
+    qa,
+    scoped,
+    selectionEnabled,
+  ])
+
   const publicationSourceRows = useMemo(
-    () => (qa ? publicationSourceRowsFor(qa, mode) : new Set<number>()),
-    [mode, qa],
+    () =>
+      qa
+        ? publicationSourceRowsFor(qa, mode, candidateRows)
+        : new Set<number>(),
+    [mode, qa, candidateRows],
   )
   const requiredProposals = useMemo(
-    () => (qa ? requiredProposalsFor(qa, mode) : []),
-    [mode, qa],
+    () =>
+      qa
+        ? requiredProposalsFor(qa, mode, candidateRows)
+        : [],
+    [mode, qa, candidateRows],
   )
   const groups = useMemo(() => proposalGroups(requiredProposals), [requiredProposals])
   const requiredKeys = useMemo(
@@ -228,7 +368,15 @@ export function ImporterV2PublicationPanel({
     qa &&
       candidateRows.length > 0 &&
       allProposalsApproved &&
-      (mode === 'VALID_ONLY' || qa.publication.unresolvedRows.length === 0),
+      (!selectionEnabled ||
+        (scoped &&
+          scoped.qaFingerprint === qa.qaFingerprint &&
+          scoped.mode === mode &&
+          (scoped.conflictingRowNumbers.length === 0 ||
+            deferConflicts))) &&
+      (selectionEnabled ||
+        mode === 'VALID_ONLY' ||
+        qa.publication.unresolvedRows.length === 0),
   )
 
   const approveKeys = (keys: string[], checked: boolean) => {
@@ -258,6 +406,15 @@ export function ImporterV2PublicationPanel({
           qaFingerprint: currentQa.qaFingerprint,
           idempotencyKey,
           approvedProposalKeys: approvalKeys,
+          selection: selectionEnabled
+            ? selectedWorkspaceRows
+            : undefined,
+          skipConflicts: selectionEnabled
+            ? deferConflicts
+            : false,
+          expectedCandidateRows: selectionEnabled
+            ? candidateRows
+            : undefined,
         }),
       },
     )
@@ -276,6 +433,9 @@ export function ImporterV2PublicationPanel({
         qaFingerprint: qa.qaFingerprint,
         mode,
         approvedProposalKeys: approvalKeys,
+        selection: selectionEnabled ? selectedWorkspaceRows : null,
+        deferConflicts: selectionEnabled ? deferConflicts : false,
+        candidateRows: selectionEnabled ? candidateRows : null,
       })
       if (retryRequest.current?.signature !== signature) {
         retryRequest.current = {
@@ -297,6 +457,15 @@ export function ImporterV2PublicationPanel({
         }
 
         const freshQa = await fetchQa(true)
+        setQa(freshQa)
+        retryRequest.current = null
+
+        if (selectionEnabled) {
+          throw new Error(
+            'The staged QA or selected scope changed while this dialog was open. Review the refreshed selected scope and publish again.',
+          )
+        }
+
         const freshRequired = requiredProposalsFor(freshQa, mode)
         const freshRequiredKeys = new Set(freshRequired.map((item) => item.key))
         const stillApproved = approvalKeys.filter((key) => freshRequiredKeys.has(key))
@@ -306,9 +475,7 @@ export function ImporterV2PublicationPanel({
           stillApproved.length === freshRequired.length &&
           (mode === 'VALID_ONLY' || freshQa.publication.unresolvedRows.length === 0)
 
-        setQa(freshQa)
         setApproved(new Set(stillApproved))
-        retryRequest.current = null
 
         if (!mayRetry) {
           throw new Error(
@@ -325,6 +492,7 @@ export function ImporterV2PublicationPanel({
         `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
       await loadQa()
+      onPublished?.()
     } catch (publishError) {
       setError(
         publishError instanceof Error
@@ -471,7 +639,7 @@ export function ImporterV2PublicationPanel({
             </div>
           ) : null}
 
-          {qa.publication.unresolvedRows.length ? (
+          {!selectionEnabled && qa.publication.unresolvedRows.length ? (
             <div className="rounded-md border border-[#8f4747] bg-[#512b2b] p-3 text-sm text-[#ffd7d7]">
               <div className="font-semibold">
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
@@ -645,28 +813,168 @@ export function ImporterV2PublicationPanel({
                 {success}
               </div>
             ) : null}
+            {selectionEnabled && scoped?.conflictingRowNumbers.length ? (
+              <div className="mb-3 rounded-md border border-[#8f4747] bg-[#512b2b] px-3 py-2 text-sm text-[#ffd7d7]">
+                <div className="font-semibold">
+                  {scoped.conflictingRowNumbers.length.toLocaleString()} selected candidate row(s) still have publication conflicts.
+                </div>
+                <p className="mt-1 text-xs opacity-90">
+                  These are scope-level identity/name uniqueness checks performed immediately before publication. They can exist even when staging itself has no validation warning.
+                </p>
+                {scoped.safeCandidateCount > 0 ? (
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={deferConflicts}
+                      onChange={(event) => {
+                        setDeferConflicts(event.target.checked)
+                        setApproved(new Set())
+                        retryRequest.current = null
+                      }}
+                    />
+                    <span>
+                      Leave these {scoped.conflictingRowNumbers.length.toLocaleString()} conflicting row(s) staged and publish the {scoped.safeCandidateCount.toLocaleString()} safe candidate(s) from this selection.
+                    </span>
+                  </label>
+                ) : null}
+                <details className="mt-2 rounded border border-[#9e5a5a] bg-black/10">
+                  <summary className="cursor-pointer px-2 py-1.5 text-xs font-semibold">
+                    Show conflicting rows and reasons
+                  </summary>
+                  <div className="max-h-64 space-y-2 overflow-y-auto border-t border-[#9e5a5a] p-2 text-xs">
+                    {scoped.identityConflicts.map((conflict) => (
+                      <div
+                        key={`identity-${conflict.rowNumber}`}
+                        className="rounded border border-[#9e5a5a] bg-black/10 p-2"
+                      >
+                        <div className="font-semibold">
+                          Row #{conflict.rowNumber} · {conflict.sourceName ?? conflict.hostname ?? 'Unnamed device'}
+                        </div>
+                        <div className="mt-1 opacity-90">
+                          Source ID: {conflict.sourceId ?? '—'} · canonical: {conflict.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'}
+                        </div>
+                        {conflict.stagedConflicts.map((match) => (
+                          <div
+                            key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
+                            className="mt-1"
+                          >
+                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
+                            {match.matchingIdentifiers
+                              .map((item) => `${item.field}: ${item.value}`)
+                              .join(', ')}
+                          </div>
+                        ))}
+                        {conflict.canonicalConflicts.map((match) => (
+                          <div
+                            key={`canonical-${conflict.rowNumber}-${match.canonicalDeviceId}`}
+                            className="mt-1"
+                          >
+                            Matches canonical device {match.name ?? match.hostname ?? match.canonicalDeviceId} on{' '}
+                            {match.matchingIdentifiers
+                              .map((item) => `${item.field}: ${item.value}`)
+                              .join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    {scoped.nameConflictRowNumbers.length ? (
+                      <div className="rounded border border-[#9e5a5a] bg-black/10 p-2">
+                        <div className="font-semibold">Customer + device-name conflicts</div>
+                        <div className="mt-1">
+                          Rows {scoped.nameConflictRowNumbers.map((row) => `#${row}`).join(', ')}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <label className="text-sm font-medium text-[var(--foreground)]">
-                Publication scope
-                <select
-                  value={mode}
-                  onChange={(event) => {
-                    setMode(event.target.value as ImporterV2PublicationMode)
-                    setApproved(new Set())
-                    retryRequest.current = null
-                  }}
-                  className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
-                >
-                  <option value="ALL_RESOLVED">Publish entire resolved batch</option>
-                  <option value="VALID_ONLY">Publish only currently valid devices</option>
-                </select>
-              </label>
+              <div className="flex flex-wrap items-end gap-3">
+                {selectedWorkspaceRows ? (
+                  <label className="text-sm font-medium text-[var(--foreground)]">
+                    Publish rows
+                    <select
+                      aria-label="Publication row selection"
+                      value={publicationScope}
+                      onChange={(event) => {
+                        setPublicationScope(
+                          event.target.value as 'SELECTION' | 'BATCH',
+                        )
+                        setDeferConflicts(false)
+                        setApproved(new Set())
+                        retryRequest.current = null
+                      }}
+                      className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                    >
+                      <option value="SELECTION">
+                        {selectedWorkspaceRows.mode === 'QUERY'
+                          ? 'Selected / filtered matching rows'
+                          : `Only ${selectedWorkspaceRows.rowNumbers.length} selected row(s)`}
+                      </option>
+                      <option value="BATCH">Entire batch</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                <label className="text-sm font-medium text-[var(--foreground)]">
+                  Eligibility
+                  <select
+                    value={mode}
+                    onChange={(event) => {
+                      setMode(
+                        event.target.value as ImporterV2PublicationMode,
+                      )
+                      setDeferConflicts(false)
+                      setApproved(new Set())
+                      retryRequest.current = null
+                    }}
+                    className="mt-1 block rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                  >
+                    <option value="VALID_ONLY">
+                      {selectionEnabled
+                        ? 'Valid devices within selected scope'
+                        : 'Only currently valid devices'}
+                    </option>
+                    <option value="ALL_RESOLVED">
+                      {selectionEnabled
+                        ? 'All resolved devices within selected scope'
+                        : 'Entire resolved batch'}
+                    </option>
+                  </select>
+                </label>
+              </div>
+
               <div className="text-right">
+                {selectionEnabled ? (
+                  <div className="mb-1 text-xs text-[var(--muted)]">
+                    {scopedLoading
+                      ? 'Checking exact server-side selection…'
+                      : scoped
+                        ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts · ${scoped.safeCandidateCount.toLocaleString()} safe`
+                        : 'Preparing selected scope…'}
+                  </div>
+                ) : null}
                 <div className="mb-1 text-xs text-[var(--muted)]">
                   {candidateRows.length.toLocaleString()} managed device(s) · {publicationSourceRows.size.toLocaleString()} source row(s) · {approvedRequiredCount}/{requiredProposals.length} proposal approvals
                 </div>
-                <Button onClick={() => void publish()} disabled={!canPublish || publishing || loading}>
-                  {publishing ? 'Publishing…' : 'Publish atomically'}
+                <Button
+                  onClick={() => void publish()}
+                  disabled={
+                    !canPublish ||
+                    publishing ||
+                    loading ||
+                    (selectionEnabled && scopedLoading)
+                  }
+                >
+                  {publishing
+                    ? 'Publishing…'
+                    : selectionEnabled
+                      ? deferConflicts
+                        ? 'Publish safe selected rows'
+                        : 'Publish selected atomically'
+                      : 'Publish atomically'}
                 </Button>
               </div>
             </div>

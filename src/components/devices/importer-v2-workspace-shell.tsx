@@ -45,6 +45,7 @@ const EMPTY_FILTERS: ImporterV2WorkspaceFilters = {
   canonicalModel: null,
   firmwareEvidencePattern: null,
   repeatClassification: null,
+  publication: 'PENDING',
 }
 
 type BulkVerificationResult = {
@@ -216,10 +217,23 @@ function workspaceSearchParams(
   if (filters.repeatClassification) {
     params.set('repeat', filters.repeatClassification)
   }
+  if (filters.publication) {
+    params.set('publication', filters.publication)
+  }
   return params
 }
 
-export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: string; revision?: number }) {
+export function ImporterV2WorkspaceShell({
+  batchId,
+  revision = 0,
+  onSelectionChange,
+}: {
+  batchId: string
+  revision?: number
+  onSelectionChange?: (
+    selection: ImporterV2WorkspaceSelection | null,
+  ) => void
+}) {
   const [filters, setFilters] =
     useState<ImporterV2WorkspaceFilters>(EMPTY_FILTERS)
   const [groupBy, setGroupBy] =
@@ -273,11 +287,19 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
     () => [...selectedRows].sort((left, right) => left - right),
     [selectedRows],
   )
-  const selection: ImporterV2WorkspaceSelection | null = querySelection
-    ? { mode: 'QUERY', filters: querySelection }
-    : explicitSelection.length
-      ? { mode: 'ROWS', rowNumbers: explicitSelection }
-      : null
+  const selection: ImporterV2WorkspaceSelection | null = useMemo(
+    () =>
+      querySelection
+        ? { mode: 'QUERY' as const, filters: querySelection }
+        : explicitSelection.length
+          ? { mode: 'ROWS' as const, rowNumbers: explicitSelection }
+          : null,
+    [querySelection, explicitSelection],
+  )
+
+  useEffect(() => {
+    onSelectionChange?.(selection)
+  }, [selection, onSelectionChange])
   const selectedCount = querySelection
     ? (data?.total ?? 0)
     : explicitSelection.length
@@ -521,7 +543,7 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
         ) : null}
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:grid-cols-[minmax(240px,1fr)_180px_180px_180px]">
+      <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_180px_180px_180px_180px]">
         <TextInput
           aria-label="Search all staged devices"
           placeholder="Search device, customer, model or firmware…"
@@ -587,6 +609,23 @@ export function ImporterV2WorkspaceShell({ batchId, revision = 0 }: { batchId: s
           <option value="ERROR">Errors</option>
           <option value="WARNING">Warnings</option>
           <option value="NONE">No issues</option>
+        </SelectInput>
+        <SelectInput
+          aria-label="Publication state"
+          value={filters.publication ?? 'PENDING'}
+          onChange={(event) => {
+            updateFilters({
+              publication:
+                event.target.value as ImporterV2WorkspaceFilters['publication'],
+            })
+            setSelectedRows(new Set())
+            setQuerySelection(null)
+          }}
+        >
+          <option value="PENDING">Pending / staged</option>
+          <option value="PUBLISHED">Published</option>
+          <option value="EXCLUDED">Excluded</option>
+          <option value="ALL">All source rows</option>
         </SelectInput>
       </div>
 

@@ -148,13 +148,13 @@ single-customer connection scope.
 
 ## Verified Classic switch site membership fallback
 
-In a sanitized Classic Central reproduction, several switches lacked
-`site` and `site_id` in the unfiltered `GET /monitoring/v1/switches`
-payload. The fictitious selected site "Sample Site A" (synthetic ID)
-returned a subset when queried with `?site=Sample%20Site%20A`.
+A real Classic customer tenant returned 21 switches with NO `site` or
+`site_id` fields in its unfiltered `GET /monitoring/v1/switches`
+payload. The selected physical site "Example Customer - Site A" (Central ID 128)
+returned **8 switches** when queried with `?site=Example%20Customer%20-%20Site%20A`.
 An impossible-site negative-control query returned zero devices. These
-sample records were stack members and must not be silently created as
-separate logical stacks.
+8 were stack members and must not be silently created as eight separate
+logical stacks.
 
 The sync now recovers site-less switch evidence using strict requirements:
 

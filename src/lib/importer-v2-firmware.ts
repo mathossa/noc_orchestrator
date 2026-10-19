@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 export const IMPORTER_V2_FIRMWARE_INTERPRETER_ID =
   'importer-v2-firmware-interpreter'
-export const IMPORTER_V2_FIRMWARE_INTERPRETER_VERSION = '1.0.0'
+export const IMPORTER_V2_FIRMWARE_INTERPRETER_VERSION = '1.0.1'
 
 export type ImporterV2FirmwareConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 
@@ -197,8 +197,8 @@ function canonicalPlatform(value: string | null | undefined) {
     arubaos8: 'AOS-8',
     aos10: 'AOS-10',
     arubaos10: 'AOS-10',
-    fortigate: 'FortiGate',
-    fortios: 'FortiGate',
+    fortigate: 'FortiOS',
+    fortios: 'FortiOS',
     fortiswitch: 'FortiSwitch',
     fortiswitchos: 'FortiSwitch',
     fortiap: 'FortiAP',
@@ -322,7 +322,7 @@ function explicitPlatformFromEvidence(
     inferred = 'IOS'
     source = 'VERSION_EVIDENCE'
   } else if (/\bfortigate\b|\bfortios\b/.test(text)) {
-    inferred = 'FortiGate'
+    inferred = 'FortiOS'
     source = 'SOURCE_DEVICE_TYPE'
   } else if (/\bfortiswitch(?:os)?\b/.test(text)) {
     inferred = 'FortiSwitch'
@@ -378,7 +378,7 @@ function explicitPlatformFromEvidence(
   const sourceTypePlatform = canonicalPlatform(evidence.sourceDeviceType)
   if (
     sourceTypePlatform &&
-    ['FortiGate', 'FortiSwitch', 'FortiAP'].includes(sourceTypePlatform)
+    ['FortiOS', 'FortiSwitch', 'FortiAP'].includes(sourceTypePlatform)
   ) {
     return {
       platform: sourceTypePlatform,

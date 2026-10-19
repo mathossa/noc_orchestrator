@@ -45,6 +45,14 @@ export function importerV2WorkspaceWhere(
   filters: ImporterV2WorkspaceFilters,
 ): Prisma.ImporterV2WorkspaceRowWhereInput {
   const where: Prisma.ImporterV2WorkspaceRowWhereInput = { batchId }
+  if (filters.publication === 'PENDING' || !filters.publication) {
+    where.inclusion = 'INCLUDED'
+    where.publishedAt = null
+  } else if (filters.publication === 'PUBLISHED') {
+    where.publishedAt = { not: null }
+  } else if (filters.publication === 'EXCLUDED') {
+    where.inclusion = 'EXCLUDED'
+  }
   if (filters.status) where.statuses = { has: filters.status }
   if (filters.customer) where.customer = filters.customer
   if (filters.businessUnit) where.businessUnit = filters.businessUnit
@@ -429,6 +437,30 @@ function selectionWhere(
     return { batchId, rowNumber: { in: rowNumbers } }
   }
   return importerV2WorkspaceWhere(batchId, selection.filters)
+}
+
+/**
+ * Resolve the exact server-side staged selection used by reconciliation.
+ * Publication reuses this instead of trusting a browser-expanded row list.
+ */
+export async function resolveImporterV2PublicationSelection(input: {
+  batchId: string
+  selection: ImporterV2WorkspaceSelection
+}): Promise<number[]> {
+  const rows = await prisma.importerV2WorkspaceRow.findMany({
+    where: selectionWhere(input.batchId, input.selection),
+    orderBy: { rowNumber: 'asc' },
+    select: { rowNumber: true },
+    take: 20_001,
+  })
+
+  if (rows.length > 20_000) {
+    throw new Error(
+      'Publication selection exceeds 20,000 source rows. Narrow the filter.',
+    )
+  }
+
+  return rows.map((row) => row.rowNumber)
 }
 
 async function rowsForSelection(

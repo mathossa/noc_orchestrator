@@ -1,0 +1,13 @@
+title = "NOC Orchestrator secret scanning"
+
+[extend]
+useDefault = true
+
+# A clearly synthetic, non-credential identifier in a test was classified
+# as generic-api-key. Exempt only this exact value for this one rule.
+[[rules]]
+id = "generic-api-key"
+  [[rules.allowlists]]
+  description = "Explicit synthetic import fixture identifier"
+  regexTarget = "secret"
+  regexes = [ '''^SYNTH-MERAKI-01$''' ]

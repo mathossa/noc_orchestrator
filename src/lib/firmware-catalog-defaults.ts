@@ -170,8 +170,48 @@ export type TrainFallbackCandidate = {
 }
 
 export type TrainFallbackResolution =
-  | { status: 'RESOLVED'; train: TrainFallbackCandidate; source: 'EXPLICIT_OVERRIDE' | 'PLATFORM_PREFERRED' | 'ACCEPTED_FALLBACK'; explanation: string }
+  | { status: 'RESOLVED'; train: TrainFallbackCandidate; source: 'EXPLICIT_OVERRIDE' | 'CURRENT_ACCEPTED_TRAIN' | 'PLATFORM_PREFERRED' | 'ACCEPTED_FALLBACK'; explanation: string }
   | { status: 'REVIEW_REQUIRED' | 'NO_COMPATIBLE_TRAIN'; train: null; source: null; explanation: string }
+
+export function resolveCatalogTrainForDevice(input: {
+  vendorKey: string
+  platform: string
+  trains: readonly TrainFallbackCandidate[]
+  currentTrainId?: string | null
+  explicitOverrideTrainId?: string | null
+}): TrainFallbackResolution {
+  if (input.explicitOverrideTrainId) {
+    return resolveCatalogTrainForModel(input)
+  }
+
+  if (input.currentTrainId) {
+    const current = input.trains.find(
+      (train) =>
+        train.id === input.currentTrainId &&
+        train.state !== 'DEPRECATED',
+    )
+    const preferred = current?.preferredRelease ?? null
+    if (
+      current &&
+      preferred &&
+      preferred.decision === 'ALLOWED' &&
+      preferred.isActive !== false &&
+      current.compatibility === 'COMPATIBLE'
+    ) {
+      return {
+        status: 'RESOLVED',
+        train: current,
+        source: 'CURRENT_ACCEPTED_TRAIN',
+        explanation:
+          current.state === 'PREFERRED'
+            ? `The device is already on platform preferred train ${current.name}; retaining that train.`
+            : `The device is already on accepted train ${current.name}; retaining the accepted train and targeting its preferred release.`,
+      }
+    }
+  }
+
+  return resolveCatalogTrainForModel(input)
+}
 
 export function resolveCatalogTrainForModel(input: {
   vendorKey: string

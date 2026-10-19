@@ -89,7 +89,7 @@ describe('Importer v2 stable device identity', () => {
       importerV2SourceIdentityForCrosswalk({
         rawIdentifiers: {
           sourceId: 'auvik-ap01',
-          serialNumber: 'CNJMK9T1SV',
+          serialNumber: 'SYNTH00001',
           macAddress: null,
         },
         effectiveIdentifiers: {
