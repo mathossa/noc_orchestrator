@@ -1026,17 +1026,97 @@ export function ImporterV2PublicationPanel({
                         <div className="mt-1 opacity-90">
                           Source ID: {conflict.sourceId ?? '—'} · canonical: {conflict.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'}
                         </div>
-                        {conflict.stagedConflicts.map((match) => (
-                          <div
-                            key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
-                            className="mt-1"
-                          >
-                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
-                            {match.matchingIdentifiers
-                              .map((item) => `${item.field}: ${item.value}`)
-                              .join(', ')}
-                          </div>
-                        ))}
+                        {conflict.stagedConflicts.map((match) => {
+                          const pair = [
+                            conflict.rowNumber,
+                            match.rowNumber,
+                          ].sort(
+                            (left, right) => left - right,
+                          ) as [number, number]
+                          const canReviewAsHa =
+                            conflict.rowNumber < match.rowNumber &&
+                            Boolean(conflict.sourceId) &&
+                            Boolean(match.sourceId) &&
+                            conflict.sourceId !== match.sourceId &&
+                            match.matchingIdentifiers.some(
+                              (item) =>
+                                item.field === 'serialNumber' ||
+                                item.field === 'macAddress',
+                            )
+                          const previewingPair =
+                            haPreview?.rowNumbers[0] === pair[0] &&
+                            haPreview?.rowNumbers[1] === pair[1]
+
+                          return (
+                            <div
+                              key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
+                              className="mt-1"
+                            >
+                              Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
+                              {match.matchingIdentifiers
+                                .map(
+                                  (item) =>
+                                    `${item.field}: ${item.value}`,
+                                )
+                                .join(', ')}
+                              {canReviewAsHa ? (
+                                <div className="mt-2 rounded border border-[#9e5a5a] bg-black/10 p-2">
+                                  {previewingPair && haPreview ? (
+                                    <>
+                                      <div className="font-semibold">
+                                        HA confirmation preview
+                                      </div>
+                                      <ul className="mt-1 list-disc space-y-1 pl-4 opacity-90">
+                                        {haPreview.confirmationReasons.map(
+                                          (reason) => (
+                                            <li key={reason}>{reason}</li>
+                                          ),
+                                        )}
+                                      </ul>
+                                      <div className="mt-2 flex gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          disabled={haBusy}
+                                          onClick={() =>
+                                            setHaPreview(null)
+                                          }
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          variant="primary"
+                                          disabled={haBusy}
+                                          onClick={() =>
+                                            void applyHaPreview()
+                                          }
+                                        >
+                                          {haBusy
+                                            ? 'Confirming…'
+                                            : 'Confirm HA cluster'}
+                                        </Button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <Button
+                                      variant="secondary"
+                                      disabled={haBusy}
+                                      onClick={() =>
+                                        void requestHaPreview(
+                                          pair[0],
+                                          pair[1],
+                                        )
+                                      }
+                                    >
+                                      {haBusy
+                                        ? 'Checking…'
+                                        : 'Review as HA cluster'}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          )
+                        })}
                         {conflict.canonicalConflicts.map((match) => (
                           <div
                             key={`canonical-${conflict.rowNumber}-${match.canonicalDeviceId}`}
