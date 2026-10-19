@@ -93,6 +93,10 @@ export type ImporterV2WorkspaceAction =
       explanation: string
     }
   | {
+      type: 'CONFIRM_HA_CLUSTERS'
+      explanation: string
+    }
+  | {
       type: 'REMEMBER_EXACT'
       field: ImporterV2Field
       normalizedInput: string
@@ -171,6 +175,21 @@ export type ImporterV2WorkspaceActionPreview = {
   commonValues: Partial<Record<ImporterV2Field, string | null | 'MIXED'>>
   confirmationReasons: readonly string[]
   contextVersion: string | null
+  haGroups?: readonly {
+    groupKey: string
+    parentRowNumber: number
+    memberRows: readonly {
+      rowNumber: number
+      memberIndex: number
+      sourceId: string
+      name: string
+    }[]
+    sharedIdentifiers: readonly ('serialNumber' | 'macAddress')[]
+  }[]
+  haRejected?: readonly {
+    rowNumbers: readonly number[]
+    reason: string
+  }[]
 }
 
 function positiveInteger(value: string | null, fallback: number, max: number) {
