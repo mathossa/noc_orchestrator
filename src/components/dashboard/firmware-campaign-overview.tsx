@@ -28,9 +28,9 @@ export function campaignDashboardHref(scope: CampaignScope, patch: Partial<Campa
 
 export function campaignDetailHref(id: string, scope: Pick<CampaignScope, 'customer' | 'vendor' | 'contract'>) {
   const params = new URLSearchParams()
-  if (scope.customer) params.set('customer', scope.customer)
-  if (scope.vendor) params.set('vendor', scope.vendor)
-  if (scope.contract) params.set('contract', scope.contract)
+  if (scope.customer) params.set('scopeCustomer', scope.customer)
+  if (scope.vendor) params.set('scopeVendor', scope.vendor)
+  if (scope.contract) params.set('scopeContract', scope.contract)
   const query = params.toString()
   return '/dashboard/campaigns/' + encodeURIComponent(id) + (query ? '?' + query : '')
 }
