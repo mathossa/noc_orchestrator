@@ -80,6 +80,7 @@ export function parseImporterV2PublicationSelection(
         entry !== undefined &&
         entry !== 'PENDING' &&
         entry !== 'PUBLISHED' &&
+        entry !== 'EXCLUDED' &&
         entry !== 'ALL'
       ) {
         throw new Error('Invalid publication-state filter.')
