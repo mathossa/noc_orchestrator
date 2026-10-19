@@ -26,5 +26,5 @@ export function withAdmin<T extends (...args: never[]) => Response | Promise<Res
     response.headers.set('Cache-Control', 'private, no-store')
     return response
   }
-  return protectedHandler as T
+  return protectedHandler as unknown as T
 }

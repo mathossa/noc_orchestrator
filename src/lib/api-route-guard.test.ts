@@ -3,7 +3,7 @@ const getSession = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/auth', () => ({ auth: { api: { getSession } } }))
 import { withAdmin } from './api-route-guard'
 
-const handler = vi.fn(async () => Response.json({ data: ['synthetic-customer'] }))
+const handler = vi.fn(async (_request: Request) => Response.json({ data: ['synthetic-customer'] }))
 const protectedGet = withAdmin(handler)
 const request = () => new Request('https://noc.example.test/api/v1/customers')
 
