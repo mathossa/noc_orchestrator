@@ -45,6 +45,7 @@ const EMPTY_FILTERS: ImporterV2WorkspaceFilters = {
   canonicalModel: null,
   firmwareEvidencePattern: null,
   repeatClassification: null,
+  publication: 'PENDING',
 }
 
 type BulkVerificationResult = {
@@ -215,6 +216,9 @@ function workspaceSearchParams(
   }
   if (filters.repeatClassification) {
     params.set('repeat', filters.repeatClassification)
+  }
+  if (filters.publication) {
+    params.set('publication', filters.publication)
   }
   return params
 }
@@ -539,7 +543,7 @@ export function ImporterV2WorkspaceShell({
         ) : null}
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:grid-cols-[minmax(240px,1fr)_180px_180px_180px]">
+      <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_180px_180px_180px_180px]">
         <TextInput
           aria-label="Search all staged devices"
           placeholder="Search device, customer, model or firmware…"
@@ -605,6 +609,22 @@ export function ImporterV2WorkspaceShell({
           <option value="ERROR">Errors</option>
           <option value="WARNING">Warnings</option>
           <option value="NONE">No issues</option>
+        </SelectInput>
+        <SelectInput
+          aria-label="Publication state"
+          value={filters.publication ?? 'PENDING'}
+          onChange={(event) => {
+            updateFilters({
+              publication:
+                event.target.value as ImporterV2WorkspaceFilters['publication'],
+            })
+            setSelectedRows(new Set())
+            setQuerySelection(null)
+          }}
+        >
+          <option value="PENDING">Pending / staged</option>
+          <option value="PUBLISHED">Published</option>
+          <option value="ALL">All source rows</option>
         </SelectInput>
       </div>
 
