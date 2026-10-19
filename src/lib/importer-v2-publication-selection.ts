@@ -91,3 +91,16 @@ export function eligibleImporterV2PublicationRows(input: {
   const selected = new Set(input.matchingRows)
   return input.candidates.filter((rowNumber) => selected.has(rowNumber))
 }
+
+/**
+ * Leave conflicting source rows staged while publishing the rest of an
+ * explicitly selected scope. All sides of a collision are deferred; no row is
+ * chosen as an arbitrary winner.
+ */
+export function withoutImporterV2ConflictingRows(
+  candidates: readonly number[],
+  conflictedRowNumbers: readonly number[],
+) {
+  const blocked = new Set(conflictedRowNumbers)
+  return candidates.filter((rowNumber) => !blocked.has(rowNumber))
+}
