@@ -89,6 +89,10 @@ export type ImporterV2WorkspaceAction =
       explanation: string
     }
   | {
+      type: 'CONFIRM_HA_CLUSTER'
+      explanation: string
+    }
+  | {
       type: 'REMEMBER_EXACT'
       field: ImporterV2Field
       normalizedInput: string
@@ -278,7 +282,8 @@ export function importerV2WorkspaceActionNeedsReevaluation(
 ) {
   return (
     action.type !== 'EXCLUDE_ROW' &&
-    action.type !== 'PRESERVE_EXISTING_FIRMWARE'
+    action.type !== 'PRESERVE_EXISTING_FIRMWARE' &&
+    action.type !== 'CONFIRM_HA_CLUSTER'
   )
 }
 
