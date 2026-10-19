@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { Suspense, useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 
@@ -8,7 +8,7 @@ function SignInForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedNext = searchParams.get('next')
-  const destination = requestedNext?.startsWith('/') && !requestedNext.startsWith('//') && !requestedNext.startsWith('/sign-in') ? requestedNext : '/dashboard'
+  const destination = requestedNext?.startsWith('/') && !requestedNext.startsWith('//') && !requestedNext.includes('\\\\') && !requestedNext.startsWith('/sign-in') ? requestedNext : '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -85,8 +85,6 @@ function SignInForm() {
   )
 }
 
-
-import { Suspense } from 'react'
 
 export default function SignInPage() {
   return <Suspense fallback={<main className="min-h-screen p-6">Loading sign-in…</main>}><SignInForm /></Suspense>
