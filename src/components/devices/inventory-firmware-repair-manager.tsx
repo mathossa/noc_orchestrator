@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 
 type RepairStatus = 'MATCHED' | 'CORRECT' | 'UNSUPPORTED_MODEL' | 'NO_OBSERVATION' | 'MISSING_TARGET' | 'AMBIGUOUS' | 'EVIDENCE_CONFLICT'
@@ -87,7 +87,6 @@ export function InventoryFirmwareRepairManager() {
   const [linkedPlatform, setLinkedPlatform] = useState('')
   const [draftLinkedPlatform, setDraftLinkedPlatform] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
-  const [statusFilter, setStatusFilter] = useState('ALL')
   const [selected, setSelected] = useState<string[]>([])
   const [lastAuditIds, setLastAuditIds] = useState<string[]>([])
   const [manualFirmwareTarget, setManualFirmwareTarget] = useState('')
@@ -95,6 +94,7 @@ export function InventoryFirmwareRepairManager() {
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page) })
+    if (searchRevision > 0) params.set('refresh', String(searchRevision))
     if (query) params.set('q', query)
     if (vendorId) params.set('vendorId', vendorId)
     if (linkedPlatform) params.set('linkedPlatform', linkedPlatform)
@@ -137,12 +137,9 @@ export function InventoryFirmwareRepairManager() {
       if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load inventory.')
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [load])
+  }, [load, searchRevision])
 
-  const rows = useMemo(() =>
-    (preview?.rows ?? []).filter((row) => statusFilter === 'ALL' || row.status === statusFilter),
-    [preview, statusFilter],
-  )
+  const rows = preview?.rows ?? []
   const selectedFirmwareRows = (preview?.rows ?? []).filter((row) => selected.includes(row.deviceId))
   const selectedRows = selectedFirmwareRows.filter((row) => row.status === 'MATCHED' && row.targetReleaseId)
   const manualCommonTargets = selectedFirmwareRows.length
@@ -423,7 +420,7 @@ export function InventoryFirmwareRepairManager() {
                       </select>
                     </label>
                     {!manualCommonTargets.length ? (
-                      <p className="text-xs text-[var(--muted)]">No alternative canonical release fits every selected device's existing firmware evidence. Try selecting a smaller group, or use Bulk device changes to edit customer/site/model/active state.</p>
+                      <p className="text-xs text-[var(--muted)]">No alternative canonical release fits every selected device&apos;s existing firmware evidence. Try selecting a smaller group, or use Bulk device changes to edit customer/site/model/active state.</p>
                     ) : null}
                     <button type="button" disabled={!manualFirmwareTarget || busy} onClick={() => setManualFirmwareReview(true)}
                       className="rounded border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">
