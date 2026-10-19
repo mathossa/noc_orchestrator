@@ -429,7 +429,7 @@ const actionRowSelect = {
   evaluated: true,
   identityResolution: true,
   decisions: {
-    orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: {
       action: true,
       field: true,
@@ -437,7 +437,7 @@ const actionRowSelect = {
       explanation: true,
     },
   },
-} as const
+} satisfies Prisma.ImporterV2WorkspaceRowSelect
 
 function selectionWhere(
   batchId: string,
