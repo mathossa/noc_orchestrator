@@ -67,6 +67,7 @@ export type ImporterV2IdentityConflictDiagnostic = {
     rowNumber: number
     sourceName: string | null
     hostname: string | null
+    sourceId: string | null
     customer: string | null
     organizationUnit: string | null
     site: string | null
@@ -75,11 +76,6 @@ export type ImporterV2IdentityConflictDiagnostic = {
     selectedCanonicalDeviceId: string | null
     matchingIdentifiers: MatchingIdentifier[]
   }>
-}
-
-function clean(value: string | null | undefined) {
-  const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
-  return normalized || null
 }
 
 function effectiveText(snapshot: EffectiveSnapshot, field: ImporterV2Field) {
@@ -334,7 +330,9 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
   return rows
     .map((row) => {
       const canonicalMatches = canonicalMatchesByRow.get(row.rowNumber) ?? []
-      const stagedMatches = [...(stagedCollisions.get(row.rowNumber)?.values() ?? [])]
+      const stagedMatches = [
+        ...(stagedCollisions.get(row.rowNumber)?.values() ?? []),
+      ]
       if (canonicalMatches.length === 0 && stagedMatches.length === 0) return null
       return {
         rowNumber: row.rowNumber,
@@ -363,6 +361,7 @@ export async function findImporterV2PublicationIdentityConflicts(input: {
           rowNumber: other.rowNumber,
           sourceName: other.sourceName,
           hostname: other.hostname,
+          sourceId: other.sourceIdentifiers.sourceId,
           customer: other.customer,
           organizationUnit: other.organizationUnit,
           site: other.site,
