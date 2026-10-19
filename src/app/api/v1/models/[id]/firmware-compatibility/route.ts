@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import {
   clearFirmwareCompatibilityOverride,
@@ -21,7 +22,7 @@ function compatibilityApiError(error: unknown) {
   return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Firmware compatibility could not be updated.' } }, { status: 500 })
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     return NextResponse.json({ data: await getModelFirmwareCompatibilityView(id) })
@@ -30,7 +31,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function PUT(request: Request, context: RouteContext) {
+async function PUTHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = (await request.json()) as { firmwareReleaseId?: unknown; decision?: unknown; reason?: unknown }
@@ -55,7 +56,7 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(request: Request, context: RouteContext) {
+async function DELETEHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = (await request.json()) as { firmwareReleaseId?: unknown }
@@ -71,3 +72,7 @@ export async function DELETE(request: Request, context: RouteContext) {
     return compatibilityApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PUT = withAdmin(PUTHandler)
+export const DELETE = withAdmin(DELETEHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { auth } from '@/lib/auth'
 import {
   parseInventoryQuery,
@@ -12,7 +13,7 @@ import { inventoryReportXlsx } from '@/lib/inventory-report-xlsx'
 
 export const runtime = 'nodejs'
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   // These workbook exports include confidential cross-customer inventory.
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session) {
@@ -47,3 +48,5 @@ export async function GET(request: Request) {
     },
   })
 }
+
+export const GET = withAdmin(GETHandler)

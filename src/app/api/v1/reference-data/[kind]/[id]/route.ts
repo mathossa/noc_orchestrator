@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { referenceApiError } from '@/lib/reference-data-api'
 import {
@@ -8,7 +9,7 @@ import {
 
 type RouteContext = { params: Promise<{ kind: string; id: string }> }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   const { kind: rawKind, id } = await context.params
   const kind = parseReferenceKind(rawKind)
 
@@ -33,7 +34,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+async function DELETEHandler(_request: Request, context: RouteContext) {
   const { kind: rawKind, id } = await context.params
   const kind = parseReferenceKind(rawKind)
 
@@ -51,3 +52,6 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return referenceApiError(error)
   }
 }
+
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)
