@@ -279,6 +279,70 @@ describe('Importer v2 final QA and publication selection', () => {
     ).toEqual([5, 6])
   })
 
+  it('publishes a confirmed HA pair as one logical device with both physical source rows', () => {
+    const parent = row(15, {
+      decisions: [
+        ...row(15).decisions,
+        {
+          field: null,
+          action: 'TOPOLOGY_HA_PARENT',
+          value: {
+            role: 'HA',
+            groupKey: 'auvik|member-a|member-b',
+            parentRowNumber: 15,
+            memberIndex: null,
+            memberRows: [
+              { rowNumber: 15, memberIndex: 1 },
+              { rowNumber: 16, memberIndex: 2 },
+            ],
+            source: 'ENGINEER_CONFIRMED',
+          },
+        },
+      ],
+    })
+    const member = row(16, {
+      statuses: ['HA_MEMBER'],
+      primaryStatus: 'HA_MEMBER',
+      decisions: [
+        {
+          field: null,
+          action: 'TOPOLOGY_HA_MEMBER',
+          value: {
+            role: 'HA_MEMBER',
+            groupKey: 'auvik|member-a|member-b',
+            parentRowNumber: 15,
+            memberIndex: 2,
+            memberRows: [],
+            source: 'ENGINEER_CONFIRMED',
+          },
+        },
+      ],
+    })
+
+    const result = qa([parent, member])
+
+    expect(result.counts.haClusters).toBe(1)
+    expect(result.counts.haMembers).toBe(1)
+    expect(result.topology.haGroups).toEqual([
+      expect.objectContaining({
+        kind: 'HA',
+        parentRowNumber: 15,
+        memberRows: [
+          expect.objectContaining({ rowNumber: 15, memberIndex: 1 }),
+          expect.objectContaining({ rowNumber: 16, memberIndex: 2 }),
+        ],
+      }),
+    ])
+    expect(selectImporterV2PublicationRows(result, 'ALL_RESOLVED')).toEqual([
+      15,
+    ])
+    expect(
+      [...importerV2PublicationRowsIncludingStackMembers(result, [15])].sort(
+        (left, right) => left - right,
+      ),
+    ).toEqual([15, 16])
+  })
+
   it('blocks the logical stack when a physical member still has a field error', () => {
     const parent = row(5, {
       decisions: [
