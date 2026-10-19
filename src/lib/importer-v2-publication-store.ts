@@ -28,6 +28,9 @@ import {
 import {
   importerV2PublicationIdentityFields,
   importerV2TopologyFromDecisions,
+  importerV2TopologyIsLogicalDevice,
+  importerV2TopologyIsMember,
+  importerV2TopologyKind,
 } from '@/lib/importer-v2-stack-topology'
 import {
   importerV2WorkspaceEffectiveEvaluated,
@@ -1496,19 +1499,24 @@ function snapshotValues(snapshot: EffectiveSnapshot) {
   return result
 }
 
-function assertSameStackContext(parent: EffectiveSnapshot, member: EffectiveSnapshot, rowNumber: number) {
+function assertSameTopologyContext(
+  parent: EffectiveSnapshot,
+  member: EffectiveSnapshot,
+  rowNumber: number,
+  kind: 'STACK' | 'HA',
+) {
   for (const field of ['customer', 'businessUnit', 'site'] as const) {
     const parentValue = effectiveText(parent, field)?.toLocaleLowerCase('en-US') ?? null
     const memberValue = effectiveText(member, field)?.toLocaleLowerCase('en-US') ?? null
     if (parentValue !== memberValue) {
       throw new ImporterV2PublicationConflictError(
-        `Stack member row ${rowNumber} no longer shares the parent stack ${field} context. Re-run importer automation before publishing.`,
+        `${kind} member row ${rowNumber} no longer shares the logical device ${field} context. Review the topology before publishing.`,
       )
     }
   }
 }
 
-async function publishStackMembers(input: {
+async function publishTopologyMembers(input: {
   tx: PublicationTx
   batch: NonNullable<Awaited<ReturnType<typeof loadBatchForQa>>>
   parentRow: ImporterV2PublicationQaRowInput
@@ -1518,11 +1526,14 @@ async function publishStackMembers(input: {
   publishedAt: Date
   approvals: Set<string>
 }): Promise<PublishedSourceRow[]> {
-  const topologyState = importerV2TopologyFromDecisions(input.parentRow.decisions)
-  if (topologyState.role !== 'STACK') return []
-  if (!topologyState.groupKey) {
+  const topologyState = importerV2TopologyFromDecisions(
+    input.parentRow.decisions,
+  )
+  if (!importerV2TopologyIsLogicalDevice(topologyState)) return []
+  const kind = importerV2TopologyKind(topologyState)
+  if (!kind || !topologyState.groupKey) {
     throw new ImporterV2PublicationConflictError(
-      `Logical stack row ${input.parentRow.rowNumber} has no stable topology group key.`,
+      `Logical topology row ${input.parentRow.rowNumber} has no stable topology group key.`,
     )
   }
 
@@ -1530,7 +1541,7 @@ async function publishStackMembers(input: {
     where: { deviceId: input.canonicalDeviceId },
     create: {
       deviceId: input.canonicalDeviceId,
-      kind: 'STACK',
+      kind,
       provider: input.batch.provider,
       sourceAdapterId: input.batch.sourceAdapterId,
       sourceGroupKey: topologyState.groupKey,
@@ -1542,7 +1553,7 @@ async function publishStackMembers(input: {
       lastSeenAt: input.publishedAt,
     },
     update: {
-      kind: 'STACK',
+      kind,
       provider: input.batch.provider,
       sourceAdapterId: input.batch.sourceAdapterId,
       sourceGroupKey: topologyState.groupKey,
@@ -1573,32 +1584,46 @@ async function publishStackMembers(input: {
     const memberRow = rowsByNumber.get(memberReference.rowNumber)
     if (!memberRow) {
       throw new ImporterV2PublicationConflictError(
-        `Stack member row ${memberReference.rowNumber} disappeared before publication.`,
+        `${kind} member row ${memberReference.rowNumber} disappeared before publication.`,
       )
     }
     if (memberRow.inclusion !== 'INCLUDED' || memberRow.publishedAt) {
       throw new ImporterV2PublicationConflictError(
-        `Stack member row ${memberReference.rowNumber} is no longer an unpublished included row.`,
+        `${kind} member row ${memberReference.rowNumber} is no longer an unpublished included row.`,
       )
     }
-    const memberTopology = importerV2TopologyFromDecisions(memberRow.decisions)
+    const memberTopology = importerV2TopologyFromDecisions(
+      memberRow.decisions,
+    )
+    const isHaAnchor =
+      kind === 'HA' &&
+      memberReference.rowNumber === input.parentRow.rowNumber
+    const expectedMemberRole =
+      kind === 'STACK' ? 'STACK_MEMBER' : 'HA_MEMBER'
     if (
-      memberTopology.role !== 'STACK_MEMBER' ||
-      memberTopology.parentRowNumber !== input.parentRow.rowNumber ||
-      memberTopology.memberIndex !== memberReference.memberIndex
+      (!isHaAnchor &&
+        (memberTopology.role !== expectedMemberRole ||
+          memberTopology.parentRowNumber !== input.parentRow.rowNumber ||
+          memberTopology.memberIndex !== memberReference.memberIndex)) ||
+      (isHaAnchor && topologyState.role !== 'HA')
     ) {
       throw new ImporterV2PublicationConflictError(
-        `Stack member row ${memberReference.rowNumber} no longer belongs to logical stack row ${input.parentRow.rowNumber}. Re-run importer automation.`,
+        `${kind} member row ${memberReference.rowNumber} no longer belongs to logical ${kind.toLowerCase()} row ${input.parentRow.rowNumber}. Review the topology before publishing.`,
       )
     }
 
     const memberSnapshot = effectiveSnapshot(memberRow)
-    assertSameStackContext(input.parentSnapshot, memberSnapshot, memberRow.rowNumber)
+    assertSameTopologyContext(
+      input.parentSnapshot,
+      memberSnapshot,
+      memberRow.rowNumber,
+      kind,
+    )
     const memberName =
       effectiveText(memberSnapshot, 'deviceName') ?? effectiveText(memberSnapshot, 'hostname')
     if (!memberName) {
       throw new ImporterV2PublicationValidationError(
-        `Stack member row ${memberRow.rowNumber} has no publishable member name.`,
+        `${kind} member row ${memberRow.rowNumber} has no publishable member name.`,
       )
     }
 
@@ -1661,6 +1686,7 @@ async function publishStackMembers(input: {
           batchId: input.batch.id,
           sourceRowNumber: memberRow.rowNumber,
           groupKey: topologyState.groupKey,
+          topologyKind: kind,
         }),
         isActive: true,
         lastSeenAt: input.publishedAt,
@@ -1725,16 +1751,16 @@ async function publishRow(input: {
   const { tx, batch, row, publicationAttemptId, publishedAt, approvals } = input
   const snapshot = effectiveSnapshot(row)
   const topology = importerV2TopologyFromDecisions(row.decisions)
-  if (topology.role === 'STACK_MEMBER') {
+  if (importerV2TopologyIsMember(topology)) {
     throw new ImporterV2PublicationConflictError(
-      `Stack member row ${row.rowNumber} cannot publish as a separate managed Device.`,
+      `${importerV2TopologyKind(topology) ?? 'Topology'} member row ${row.rowNumber} cannot publish as a separate managed Device.`,
     )
   }
 
   const sourceIdentifiers = publicationIdentifiers(row, snapshot)
-  if (topology.role === 'STACK' && !sourceIdentifiers.sourceId) {
+  if (importerV2TopologyIsLogicalDevice(topology) && !sourceIdentifiers.sourceId) {
     throw new ImporterV2PublicationValidationError(
-      `Logical stack row ${row.rowNumber} requires a provider Source ID. The copied member serial/MAC cannot identify the stack.`,
+      `Logical ${importerV2TopologyKind(topology)?.toLowerCase() ?? 'topology'} row ${row.rowNumber} requires a provider Source ID. Physical member serial/MAC evidence cannot identify the logical device.`,
     )
   }
   const identityDeviceId = identityDecision(row)
@@ -1862,7 +1888,9 @@ async function publishRow(input: {
           deviceName: name,
           hostname: effectiveText(snapshot, 'hostname'),
           serialNumber:
-            topology.role === 'STACK' ? null : effectiveText(snapshot, 'serialNumber'),
+            importerV2TopologyIsLogicalDevice(topology)
+              ? null
+              : effectiveText(snapshot, 'serialNumber'),
           managementAddress: effectiveText(snapshot, 'managementAddress'),
           notes: effectiveText(snapshot, 'notes'),
         },
@@ -1890,7 +1918,9 @@ async function publishRow(input: {
         name,
         hostname: effectiveText(snapshot, 'hostname'),
         serialNumber:
-          topology.role === 'STACK' ? null : effectiveText(snapshot, 'serialNumber'),
+          importerV2TopologyIsLogicalDevice(topology)
+              ? null
+              : effectiveText(snapshot, 'serialNumber'),
         managementAddress: effectiveText(snapshot, 'managementAddress'),
         notes: effectiveText(snapshot, 'notes'),
         currentFirmwareReleaseId,
@@ -1963,7 +1993,7 @@ async function publishRow(input: {
     },
   })
 
-  const memberRows = await publishStackMembers({
+  const memberRows = await publishTopologyMembers({
     tx,
     batch,
     parentRow: row,
