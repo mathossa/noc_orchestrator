@@ -45,6 +45,11 @@ export function importerV2WorkspaceWhere(
   filters: ImporterV2WorkspaceFilters,
 ): Prisma.ImporterV2WorkspaceRowWhereInput {
   const where: Prisma.ImporterV2WorkspaceRowWhereInput = { batchId }
+  if (filters.publication === 'PENDING' || !filters.publication) {
+    where.publishedAt = null
+  } else if (filters.publication === 'PUBLISHED') {
+    where.publishedAt = { not: null }
+  }
   if (filters.status) where.statuses = { has: filters.status }
   if (filters.customer) where.customer = filters.customer
   if (filters.businessUnit) where.businessUnit = filters.businessUnit
