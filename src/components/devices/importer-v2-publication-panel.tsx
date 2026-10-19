@@ -597,7 +597,7 @@ export function ImporterV2PublicationPanel({
       retryRequest.current = null
       const memberCount = result.publishedStackMemberRowCount ?? 0
       setSuccess(
-        `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
+        `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical topology member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
       await loadQa()
       onPublished?.()
@@ -818,7 +818,7 @@ export function ImporterV2PublicationPanel({
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
               </div>
               <p className="mt-1 text-xs opacity-90">
-                Incomplete standalone devices can be given a Source ID / serial / MAC or explicitly excluded as stale. Stack members are resolved through their logical parent but still need valid model/catalog evidence.
+                Incomplete standalone devices can be given a Source ID / serial / MAC or explicitly excluded as stale. Topology members are resolved through their logical parent but still need valid model/catalog evidence.
               </p>
               <div className="mt-3 space-y-2">
                 {qa.publication.unresolvedRows.slice(0, 20).map((row) => (
