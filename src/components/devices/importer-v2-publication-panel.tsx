@@ -282,6 +282,7 @@ export function ImporterV2PublicationPanel({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const retryRequest = useRef<RetryRequest | null>(null)
+  const initialLoadStarted = useRef(false)
 
   const haAction = useCallback(
     () => ({
@@ -373,24 +374,32 @@ export function ImporterV2PublicationPanel({
   )
 
   const refreshPublicationAfterMutation = useCallback(async () => {
-    if (
-      publicationScope === 'SELECTION' &&
-      selectedWorkspaceRows
-    ) {
-      setScopedLoading(true)
-      setError(null)
-      try {
-        const preview = await fetchScopedPublication(
-          selectedWorkspaceRows,
-        )
-        applyScopedPublication(preview)
-      } finally {
-        setScopedLoading(false)
+    try {
+      if (
+        publicationScope === 'SELECTION' &&
+        selectedWorkspaceRows
+      ) {
+        setScopedLoading(true)
+        setError(null)
+        try {
+          const preview = await fetchScopedPublication(
+            selectedWorkspaceRows,
+          )
+          applyScopedPublication(preview)
+        } finally {
+          setScopedLoading(false)
+        }
+        return
       }
-      return
-    }
 
-    await loadQa()
+      await loadQa()
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error
+          ? `Change was applied, but Final QA could not refresh automatically: ${refreshError.message}`
+          : 'Change was applied, but Final QA could not refresh automatically. Use Refresh QA.',
+      )
+    }
   }, [
     applyScopedPublication,
     fetchScopedPublication,
@@ -592,6 +601,9 @@ export function ImporterV2PublicationPanel({
   ])
 
   useEffect(() => {
+    if (initialLoadStarted.current) return
+    initialLoadStarted.current = true
+
     let cancelled = false
 
     const loadInitialPublication = async () => {
