@@ -67,9 +67,9 @@ describe('firmware remediation campaigns', () => {
       finding('recommended', { currentTrain: '7.6', status: 'UPDATE_RECOMMENDED', compliance: 'ACCEPTED' }),
       finding('unknown', { currentTrain: '7.0', status: 'UNKNOWN', compliance: 'NO_POLICY' }),
     ])
-    expect(campaigns.map((c) => c.severity)).toEqual(['BLOCKED_RELEASE', 'REQUIRED', 'RECOMMENDED', 'REVIEW'])
+    expect(campaigns.map((c) => c.severity)).toEqual(['CRITICAL', 'REQUIRED', 'RECOMMENDED', 'REVIEW'])
     expect(countFirmwareCampaigns(campaigns)).toMatchObject({
-      blockedReleaseDevices: 1, updateRequiredDevices: 1,
+      criticalDevices: 1, updateRequiredDevices: 1,
       recommendedDevices: 1, reviewDevices: 1,
     })
   })
