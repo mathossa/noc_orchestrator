@@ -264,6 +264,93 @@ export function ImporterV2PublicationPanel({
     }
   }, [fetchQa, mode])
 
+  const requestHaPreview = useCallback(
+    async (leftRow: number, rightRow: number) => {
+      const rowNumbers = [leftRow, rightRow].sort(
+        (left, right) => left - right,
+      ) as [number, number]
+      setHaBusy(true)
+      setError(null)
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/actions`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'PREVIEW',
+              selection: { mode: 'ROWS', rowNumbers },
+              action: haAction(),
+            }),
+          },
+        )
+        const preview = await responseData<{
+          scopeToken: string
+          confirmationReasons: string[]
+        }>(response)
+        setHaPreview({
+          rowNumbers,
+          scopeToken: preview.scopeToken,
+          confirmationReasons: preview.confirmationReasons,
+        })
+      } catch (previewError) {
+        setHaPreview(null)
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : 'Unable to preview HA confirmation.',
+        )
+      } finally {
+        setHaBusy(false)
+      }
+    },
+    [batchId, haAction],
+  )
+
+  const applyHaPreview = useCallback(async () => {
+    if (!haPreview) return
+    setHaBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/actions`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            selection: {
+              mode: 'ROWS',
+              rowNumbers: haPreview.rowNumbers,
+            },
+            action: haAction(),
+            scopeToken: haPreview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const rows = haPreview.rowNumbers
+      setHaPreview(null)
+      setScoped(null)
+      setDeferConflicts(false)
+      setApproved(new Set())
+      setSuccess(
+        `Rows #${rows[0]} and #${rows[1]} confirmed as one logical HA cluster.`,
+      )
+      await loadQa()
+      onPublished?.()
+    } catch (applyError) {
+      setHaPreview(null)
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : 'Unable to confirm HA cluster.',
+      )
+    } finally {
+      setHaBusy(false)
+    }
+  }, [batchId, haAction, haPreview, loadQa, onPublished])
+
   useEffect(() => {
     let cancelled = false
     void fetchQa()
