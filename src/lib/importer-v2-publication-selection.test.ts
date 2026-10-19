@@ -53,6 +53,31 @@ describe('scoped publication selection safety', () => {
     ).toEqual([])
   })
 
+  it('preserves the pending publication state in select-all-matching filters', () => {
+    expect(
+      parseImporterV2PublicationSelection({
+        mode: 'QUERY',
+        filters: {
+          vendor: 'Fortinet',
+          publication: 'PENDING',
+        },
+      }),
+    ).toEqual({
+      mode: 'QUERY',
+      filters: {
+        vendor: 'Fortinet',
+        publication: 'PENDING',
+      },
+    })
+
+    expect(() =>
+      parseImporterV2PublicationSelection({
+        mode: 'QUERY',
+        filters: { publication: 'SOMETHING_ELSE' },
+      }),
+    ).toThrow()
+  })
+
   it('rejects arbitrary query keys, nested values and invalid explicit rows', () => {
     expect(() =>
       parseImporterV2PublicationSelection({
