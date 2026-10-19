@@ -39,6 +39,25 @@ function normalize(value: string | null | undefined): string | null {
   return value?.normalize('NFKC').trim() || null
 }
 
+/**
+ * Treat historical Fortinet "FortiGate" software labels as FortiOS, but only
+ * for Fortinet firmware campaigns. Other Fortinet families such as FortiSwitch,
+ * FortiAP and FortiManager remain different firmware/platform domains.
+ *
+ * Keep this as a read-model normalization: never rewrite the source catalog
+ * or treat coincidentally identical version numbers as proof of compatibility.
+ */
+export function normalizedCampaignPlatform(vendorName: string, rawPlatform: string | null | undefined): string {
+  const value = normalize(rawPlatform)
+  if (!value) return 'Onbekend platform'
+  const folded = value.toLocaleLowerCase('en-US')
+  if (vendorName.trim().toLocaleLowerCase('en-US') === 'fortinet' &&
+      (folded === 'fortigate' || folded === 'fortios')) {
+    return 'FortiOS'
+  }
+  return value
+}
+
 function derivedNumericTrain(version: string | null | undefined): string | null {
   const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
   return match ? match[1] + '.' + match[2] : null
@@ -50,18 +69,22 @@ function identity(finding: WorkPackageFinding) {
   const sourceTrain = normalize(finding.currentTrain) ??
     derivedNumericTrain(version) ??
     'Onbekende train'
-  const platform = normalize(finding.currentPlatform) ?? 'Onbekend platform'
+  const platform = normalizedCampaignPlatform(finding.vendor.name, finding.currentPlatform)
+  const targetPlatform = normalize(finding.targetPlatform)
+    ? normalizedCampaignPlatform(finding.vendor.name, finding.targetPlatform)
+    : null
   return {
     key: JSON.stringify([
       finding.vendor.id,
       platform,
       sourceTrain,
-      normalize(finding.targetPlatform),
+      targetPlatform,
       normalize(finding.targetTrain),
       normalize(finding.targetVersion),
     ]),
     sourceTrain,
     platform,
+    targetPlatform,
   }
 }
 
@@ -111,7 +134,7 @@ export function buildFirmwareCampaigns(findings: readonly WorkPackageFinding[]):
         platform: keyParts.platform,
         sourceTrain: keyParts.sourceTrain,
         targetVersion: normalize(finding.targetVersion),
-        targetPlatform: normalize(finding.targetPlatform),
+        targetPlatform: keyParts.targetPlatform,
         targetTrain: normalize(finding.targetTrain),
         severity,
         reason: severity === 'CRITICAL'
