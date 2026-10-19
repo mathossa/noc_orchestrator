@@ -4,7 +4,6 @@ import { normalizedFirmwarePlatform } from '@/lib/firmware-releases'
 import { deriveFirmwareReleaseIdentity } from '@/lib/firmware-versioning'
 import type { Prisma } from '../generated/prisma/client'
 import {
-  importerV2CanYieldSecondaryAliasToConfirmedSourceId,
   importerV2ConfirmedIdentityCorrections,
   importerV2SourceIdentityForCrosswalk,
   normalizeImporterV2Identity,
@@ -1464,57 +1463,11 @@ async function assertIdentityStillUnique(
   }
   const matches = await tx.importerV2DeviceCrosswalk.findMany({
     where: { OR },
-    select: {
-      provider: true,
-      canonicalDeviceId: true,
-      normalizedSourceId: true,
-      normalizedSerialNumber: true,
-      normalizedMacAddress: true,
-    },
+    select: { canonicalDeviceId: true },
   })
-
-  const sourceIdOwners = normalized.sourceId
-    ? [
-        ...new Set(
-          matches
-            .filter(
-              (item) =>
-                item.provider === provider &&
-                item.normalizedSourceId === normalized.sourceId,
-            )
-            .map((item) => item.canonicalDeviceId),
-        ),
-      ]
-    : []
-  const sourceIdCanonicalDeviceId =
-    sourceIdOwners.length === 1 ? sourceIdOwners[0] : null
-
-  const conflicting = matches.filter((item) => {
-    if (item.canonicalDeviceId === chosenDeviceId) return false
-    const matchingFields = [
-      ...(normalized.sourceId &&
-      item.provider === provider &&
-      item.normalizedSourceId === normalized.sourceId
-        ? (['sourceId'] as const)
-        : []),
-      ...(normalized.serialNumber &&
-      item.normalizedSerialNumber === normalized.serialNumber
-        ? (['serialNumber'] as const)
-        : []),
-      ...(normalized.macAddress &&
-      item.normalizedMacAddress === normalized.macAddress
-        ? (['macAddress'] as const)
-        : []),
-    ]
-
-    return !importerV2CanYieldSecondaryAliasToConfirmedSourceId({
-      chosenCanonicalDeviceId: chosenDeviceId,
-      sourceIdCanonicalDeviceId,
-      conflictingCanonicalDeviceId: item.canonicalDeviceId,
-      matchingFields,
-    })
-  })
-
+  const conflicting = [...new Set(matches.map((item) => item.canonicalDeviceId))].filter(
+    (id) => id !== chosenDeviceId,
+  )
   if (conflicting.length > 0) {
     throw new ImporterV2PublicationConflictError(
       'Durable source identity is now associated with another canonical device.',
