@@ -331,6 +331,7 @@ export function ImporterV2PublicationPanel({
         (left, right) => left - right,
       ) as [number, number]
       setHaBusy(true)
+      setHaBulkPreview(null)
       setError(null)
       try {
         const response = await fetch(
@@ -1157,6 +1158,97 @@ export function ImporterV2PublicationPanel({
                 <p className="mt-1 text-xs opacity-90">
                   These are scope-level identity/name uniqueness checks performed immediately before publication. They can exist even when staging itself has no validation warning.
                 </p>
+                {haPotentialPairs.length > 1 ? (
+                  <div className="mt-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
+                    {haBulkPreview ? (
+                      <>
+                        <div className="font-semibold">
+                          Bulk HA preview · {haBulkPreview.haGroups.length.toLocaleString()} safe cluster(s)
+                        </div>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 opacity-90">
+                          {haBulkPreview.confirmationReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-[#9e5a5a] bg-black/10 p-2">
+                          {haBulkPreview.haGroups.map((group) => (
+                            <div key={group.groupKey}>
+                              <strong>
+                                {group.memberRows
+                                  .map(
+                                    (member) =>
+                                      `#${member.rowNumber} ${member.name}`,
+                                  )
+                                  .join(' + ')}
+                              </strong>
+                              <span className="ml-1 opacity-80">
+                                · shared{' '}
+                                {group.sharedIdentifiers
+                                  .map((field) =>
+                                    field === 'serialNumber'
+                                      ? 'serial'
+                                      : 'MAC',
+                                  )
+                                  .join(' + ')}
+                              </span>
+                            </div>
+                          ))}
+                          {haBulkPreview.haRejected.map((rejected, index) => (
+                            <div
+                              key={`rejected-${index}-${rejected.rowNumbers.join('-')}`}
+                              className="text-amber-100"
+                            >
+                              Left for manual review: rows{' '}
+                              {rejected.rowNumbers
+                                .map((row) => `#${row}`)
+                                .join(', ')}
+                              {' · '}
+                              {rejected.reason}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            variant="ghost"
+                            disabled={haBusy}
+                            onClick={() => setHaBulkPreview(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="primary"
+                            disabled={
+                              haBusy ||
+                              haBulkPreview.haGroups.length === 0
+                            }
+                            onClick={() => void applyHaBulkPreview()}
+                          >
+                            {haBusy
+                              ? 'Confirming…'
+                              : `Confirm ${haBulkPreview.haGroups.length} HA cluster(s)`}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span>
+                          {haPotentialPairs.length.toLocaleString()} possible two-member HA pair(s) can be reviewed together. The server will exclude ambiguous or structurally unsafe pairs.
+                        </span>
+                        <Button
+                          variant="secondary"
+                          disabled={haBusy}
+                          onClick={() =>
+                            void requestHaBulkPreview(haPotentialPairs)
+                          }
+                        >
+                          {haBusy
+                            ? 'Checking…'
+                            : `Review ${haPotentialPairs.length} HA candidate clusters`}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
                 {scoped.safeCandidateCount > 0 ? (
                   <label className="mt-2 flex cursor-pointer items-start gap-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
                     <input
@@ -1319,6 +1411,8 @@ export function ImporterV2PublicationPanel({
                           event.target.value as 'SELECTION' | 'BATCH',
                         )
                         setDeferConflicts(false)
+                        setHaPreview(null)
+                        setHaBulkPreview(null)
                         setApproved(new Set())
                         retryRequest.current = null
                       }}
@@ -1343,6 +1437,8 @@ export function ImporterV2PublicationPanel({
                         event.target.value as ImporterV2PublicationMode,
                       )
                       setDeferConflicts(false)
+                      setHaPreview(null)
+                      setHaBulkPreview(null)
                       setApproved(new Set())
                       retryRequest.current = null
                     }}
