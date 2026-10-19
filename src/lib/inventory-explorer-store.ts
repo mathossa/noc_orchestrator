@@ -38,6 +38,7 @@ type InventoryFact = {
   siteId: string | null
   deviceModelId: string
   currentFirmwareReleaseId: string | null
+  currentFirmwareRelease?: { version: string; platform: string; firmwareTrain: { name: string } | null } | null
   currentFirmwareNormalizedVersion: string | null
   currentFirmwareRawVersion: string | null
   lifecycle?: { state: 'PLANNED' | 'IGNORED' | 'CUSTOMER_DECLINED' | 'DONE' } | null
@@ -69,6 +70,7 @@ const factSelect = {
   siteId: true,
   deviceModelId: true,
   currentFirmwareReleaseId: true,
+  currentFirmwareRelease: { select: { version: true, platform: true, firmwareTrain: { select: { name: true } } } },
   currentFirmwareNormalizedVersion: true,
   currentFirmwareRawVersion: true,
   lifecycle: { select: { state: true } },
@@ -630,6 +632,16 @@ export async function getDashboardWorkPackageFindings(
       : null
     return {
       deviceId: fact.id,
+      deviceName: fact.name,
+      currentFirmwareVersion: fact.currentFirmwareRelease?.version ??
+        fact.currentFirmwareNormalizedVersion ??
+        fact.currentFirmwareRawVersion,
+      currentPlatform: fact.currentFirmwareRelease?.platform ?? fact.targetPlatform,
+      currentTrain: fact.currentFirmwareRelease?.firmwareTrain?.name ?? null,
+      targetVersion: fact.effectiveTarget,
+      targetPlatform: fact.targetPlatform,
+      targetTrain: fact.targetTrain,
+      compliance: fact.compliance,
       customer: { id: fact.customer.id, name: fact.customer.name },
       site: fact.site ? { id: fact.site.id, name: fact.site.name } : null,
       deviceTypeId: fact.deviceModel.deviceType.id,
