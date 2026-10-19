@@ -170,6 +170,11 @@ export function validateImporterV2ConfirmedHaPair(input: {
       sourceId,
       normalized,
       name: rowName(row),
+      hasFirmware: Boolean(
+        effective(row, 'currentFirmware') ??
+          effective(row, 'firmwareVersion') ??
+          effective(row, 'softwareVersion'),
+      ),
     }
   })
 
@@ -203,9 +208,11 @@ export function validateImporterV2ConfirmedHaPair(input: {
 
   const ordered = [...members].sort(
     (left, right) =>
+      Number(right.hasFirmware) - Number(left.hasFirmware) ||
       (left.normalized.sourceId ?? '').localeCompare(
         right.normalized.sourceId ?? '',
-      ) || left.row.rowNumber - right.row.rowNumber,
+      ) ||
+      left.row.rowNumber - right.row.rowNumber,
   )
   const sourceIds = ordered.map(
     (member) => member.normalized.sourceId ?? member.sourceId,
