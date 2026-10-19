@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 
-export default function SignInPage() {
+function SignInForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedNext = searchParams.get('next')
+  const destination = requestedNext?.startsWith('/') && !requestedNext.startsWith('//') && !requestedNext.startsWith('/sign-in') ? requestedNext : '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -21,7 +24,7 @@ export default function SignInPage() {
         setError('Sign-in failed. Check your credentials.')
         return
       }
-      router.replace('/dashboard')
+      router.replace(destination)
       router.refresh()
     } catch {
       setError('Sign-in is temporarily unavailable.')
@@ -42,8 +45,7 @@ export default function SignInPage() {
             Administrator access is required to view network inventory.
           </p>
         </div>
-        {typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).get('error') === 'forbidden' ? (
+        {searchParams.get('error') === 'forbidden' ? (
           <p role="alert" className="text-sm text-red-500">
             Your account does not have administrator access.
           </p>
@@ -81,4 +83,11 @@ export default function SignInPage() {
       </form>
     </main>
   )
+}
+
+
+import { Suspense } from 'react'
+
+export default function SignInPage() {
+  return <Suspense fallback={<main className="min-h-screen p-6">Loading sign-in…</main>}><SignInForm /></Suspense>
 }
