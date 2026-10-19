@@ -898,6 +898,49 @@ export async function applyImporterV2WorkspaceAction(input: {
     resolved.contextVersion,
   )
 
+  if (input.action.type === 'CONFIRM_HA_CLUSTER') {
+    if (!resolved.haGroup) {
+      throw new Error(
+        'Confirmed HA topology disappeared after preview.',
+      )
+    }
+    const decisions = importerV2ConfirmedHaTopologyDecisions({
+      group: resolved.haGroup,
+      rows: resolved.rows,
+      explanation: input.action.explanation,
+      scopeToken: expectedToken,
+    })
+    await prisma.$transaction(async (tx) => {
+      await tx.importerV2WorkspaceDecision.createMany({
+        data: decisions.map((decision) => ({
+          batchId: input.batchId,
+          rowId: decision.rowId,
+          rowNumber: decision.rowNumber,
+          field: decision.field,
+          action: decision.action,
+          value: jsonValue(decision.value),
+          explanation: decision.explanation,
+          scopeToken: decision.scopeToken,
+          actorUserId,
+        })),
+      })
+      await tx.importerV2WorkspaceRow.updateMany({
+        where: { id: { in: resolved.rows.map((row) => row.id) } },
+        data: {
+          reviewRevision: { increment: 1 },
+          statuses: ['RECHECK_REQUIRED'],
+          primaryStatus: 'RECHECK_REQUIRED',
+          needsReevaluation: false,
+        },
+      })
+    })
+    return {
+      affectedRowCount: resolved.rows.length,
+      scopeToken: expectedToken,
+      topology: resolved.haGroup,
+    }
+  }
+
   const rowUpdate: Prisma.ImporterV2WorkspaceRowUpdateManyMutationInput =
     input.action.type === 'EXCLUDE_ROW'
       ? {
