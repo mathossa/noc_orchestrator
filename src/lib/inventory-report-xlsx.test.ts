@@ -106,6 +106,45 @@ describe('multi-sheet Excel inventory report', () => {
     expect(managed).not.toContain('hidden-device')
   })
 
+  it('creates one filterable Excel table per Customer block', () => {
+    const parts = inventoryWorkbookParts(
+      [
+        device('fg-a1', 'Acme', 'Managed', true),
+        device('fg-a2', 'Acme', 'Managed', true),
+        device('fg-b1', 'Beta', 'Managed', true),
+      ],
+      generated,
+      'Vendor: Fortinet',
+      [{ name: 'Managed', showInReport: true }],
+    )
+
+    const sheet = parts.find((part) => part.name === 'xl/worksheets/sheet1.xml')!.content
+    const rels = parts.find(
+      (part) => part.name === 'xl/worksheets/_rels/sheet1.xml.rels',
+    )!.content
+    const table1 = parts.find((part) => part.name === 'xl/tables/table1.xml')!.content
+    const table2 = parts.find((part) => part.name === 'xl/tables/table2.xml')!.content
+    const contentTypes = parts.find((part) => part.name === '[Content_Types].xml')!.content
+
+    expect(sheet).toContain('<tableParts count="2">')
+    expect(sheet).toContain('<tablePart r:id="rId1"/>')
+    expect(sheet).toContain('<tablePart r:id="rId2"/>')
+    expect(rels).toContain('Target="../tables/table1.xml"')
+    expect(rels).toContain('Target="../tables/table2.xml"')
+
+    // Customer heading row stays outside each table. Filters/sorts are bounded
+    // to the rows belonging to that one customer.
+    expect(table1).toContain('ref="A6:H8"')
+    expect(table1).toContain('<autoFilter ref="A6:H8"/>')
+    expect(table2).toContain('ref="A11:H12"')
+    expect(table2).toContain('<autoFilter ref="A11:H12"/>')
+    expect(table1).toContain('name="Running firmware"')
+    expect(table1).toContain('name="Site"')
+    expect(table2).toContain('name="Running firmware"')
+    expect(contentTypes).toContain('/xl/tables/table1.xml')
+    expect(contentTypes).toContain('/xl/tables/table2.xml')
+  })
+
   it('sanitizes dynamic Contract Type names for Excel while keeping them unique', () => {
     const names = excelSheetNames([
       'Managed / Premium',

@@ -9,6 +9,7 @@ import type { InventoryExportRecord } from '@/lib/inventory-explorer-store'
 
 const spreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const relationshipNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+const packageRelationshipNs = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
 function xml(value: string | number) {
   // Spreadsheet cells have a 32,767-character limit; remove invalid XML 1.0 controls.
@@ -43,6 +44,14 @@ const columns = [
   ['H', 'Status', 28],
 ] as const
 
+type InventoryWorksheetTable = {
+  id: number
+  name: string
+  ref: string
+  relationshipId: string
+  xml: string
+}
+
 function excelSheetNameBase(title: string) {
   // Excel limits worksheet names to 31 chars and rejects \ / * ? : [ ].
   const cleaned = title
@@ -69,18 +78,43 @@ export function excelSheetNames(titles: string[]) {
   })
 }
 
-export function inventoryWorksheetXml(
+function customerTableXml(input: {
+  id: number
+  name: string
+  ref: string
+}) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="${spreadsheetNs}" id="${input.id}" name="${input.name}" displayName="${input.name}" ref="${input.ref}" totalsRowShown="0">
+  <autoFilter ref="${input.ref}"/>
+  <tableColumns count="${columns.length}">
+    ${columns.map(([, label], index) => `<tableColumn id="${index + 1}" name="${xml(label)}"/>`).join('')}
+  </tableColumns>
+  <tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/>
+</table>`
+}
+
+function worksheetRelationshipsXml(tables: InventoryWorksheetTable[]) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${packageRelationshipNs}">
+${tables.map((table) => `<Relationship Id="${table.relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table${table.id}.xml"/>`).join('')}
+</Relationships>`
+}
+
+function buildInventoryWorksheet(
   devices: InventoryExportRecord[],
   category: string,
   generatedAt: string,
   scopeDescription: string,
-): string {
+  firstTableId = 1,
+) {
   // The caller provides the rows for exactly one configured report section.
   const report = buildInventoryReport(devices)
 
   let rowNumber = 0
+  let nextTableId = firstTableId
   const rows: string[] = []
   const merges: string[] = []
+  const tables: InventoryWorksheetTable[] = []
   const line = (cells: string[], style?: { height?: number }) => {
     rowNumber++
     rows.push(`<row r="${rowNumber}"${style?.height ? ` ht="${style.height}" customHeight="1"` : ''}>${cells.join('')}</row>`)
@@ -115,11 +149,30 @@ export function inventoryWorksheetXml(
         line(columns.map(([column], i) => cell(column, n, values[i])), { height: 22 })
       }
     }
+
+    const lastDataRow = rowNumber
+    if (lastDataRow > headerRow) {
+      const id = nextTableId++
+      const name = `InventoryTable${id}`
+      const ref = `A${headerRow}:H${lastDataRow}`
+      const relationshipId = `rId${tables.length + 1}`
+      tables.push({
+        id,
+        name,
+        ref,
+        relationshipId,
+        xml: customerTableXml({ id, name, ref }),
+      })
+    }
     line([])
   }
 
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="${spreadsheetNs}">
+  const tableParts = tables.length
+    ? `<tableParts count="${tables.length}">${tables.map((table) => `<tablePart r:id="${table.relationshipId}"/>`).join('')}</tableParts>`
+    : ''
+
+  const worksheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="${spreadsheetNs}" xmlns:r="${relationshipNs}">
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>${columns.map(([, , width], i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>
@@ -127,7 +180,24 @@ export function inventoryWorksheetXml(
   <mergeCells count="${merges.length}">${merges.join('')}</mergeCells>
   <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+  ${tableParts}
 </worksheet>`
+
+  return { xml: worksheetXml, tables, nextTableId }
+}
+
+export function inventoryWorksheetXml(
+  devices: InventoryExportRecord[],
+  category: string,
+  generatedAt: string,
+  scopeDescription: string,
+): string {
+  return buildInventoryWorksheet(
+    devices,
+    category,
+    generatedAt,
+    scopeDescription,
+  ).xml
 }
 
 function workbookStylesXml() {
@@ -167,17 +237,27 @@ export function inventoryWorkbookParts(
 ) {
   const sections = buildContractReportSections(devices, configuredContracts)
   const safeNames = excelSheetNames(sections.map((section) => section.title))
-  const sheets = sections.map((section, index) => ({
-    name: safeNames[index],
-    title: section.title,
-    file: `xl/worksheets/sheet${index + 1}.xml`,
-    xml: inventoryWorksheetXml(
+  let nextTableId = 1
+  const sheets = sections.map((section, index) => {
+    const worksheet = buildInventoryWorksheet(
       section.report.devices,
       section.title,
       generatedAt,
       scopeDescription,
-    ),
-  }))
+      nextTableId,
+    )
+    nextTableId = worksheet.nextTableId
+    return {
+      name: safeNames[index],
+      title: section.title,
+      file: `xl/worksheets/sheet${index + 1}.xml`,
+      relationshipFile: `xl/worksheets/_rels/sheet${index + 1}.xml.rels`,
+      xml: worksheet.xml,
+      tables: worksheet.tables,
+    }
+  })
+  const tables = sheets.flatMap((sheet) => sheet.tables)
+
   const types = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -185,9 +265,10 @@ export function inventoryWorkbookParts(
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   ${sheets.map((sheet, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+  ${tables.map((table) => `<Override PartName="/xl/tables/table${table.id}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`).join('')}
 </Types>`
   const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationships xmlns="${packageRelationshipNs}">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -195,7 +276,7 @@ export function inventoryWorkbookParts(
 <sheets>${sheets.map((sheet, i) => `<sheet name="${xml(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
 </workbook>`
   const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationships xmlns="${packageRelationshipNs}">
 ${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}
 <Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`
@@ -205,7 +286,19 @@ ${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.open
     { name: 'xl/workbook.xml', content: workbook },
     { name: 'xl/_rels/workbook.xml.rels', content: workbookRels },
     { name: 'xl/styles.xml', content: workbookStylesXml() },
-    ...sheets.map((sheet) => ({ name: sheet.file, content: sheet.xml })),
+    ...sheets.flatMap((sheet) => [
+      { name: sheet.file, content: sheet.xml },
+      ...(sheet.tables.length
+        ? [{
+            name: sheet.relationshipFile,
+            content: worksheetRelationshipsXml(sheet.tables),
+          }]
+        : []),
+    ]),
+    ...tables.map((table) => ({
+      name: `xl/tables/table${table.id}.xml`,
+      content: table.xml,
+    })),
   ]
 }
 
