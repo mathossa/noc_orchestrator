@@ -1,9 +1,10 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError,requireAdminRequest } from '@/lib/api-admin'
 import { ArubaCentralApiError } from '@/lib/aruba-central-api-client'
 import { runClassicCentralInventorySync } from '@/lib/aruba-classic-inventory-sync'
 type Context={params:Promise<{sourceId:string}>}
-export async function POST(request:Request,context:Context){
+async function POSTHandler(request:Request,context:Context){
   try{
     await requireAdminRequest(request)
     const result=await runClassicCentralInventorySync((await context.params).sourceId)
@@ -19,3 +20,5 @@ export async function POST(request:Request,context:Context){
       ...(error instanceof ArubaCentralApiError?{providerStatus:error.status,retryable:error.retryable}:{})}},{status:message.includes('not found')?404:400})
   }
 }
+
+export const POST = withAdmin(POSTHandler)

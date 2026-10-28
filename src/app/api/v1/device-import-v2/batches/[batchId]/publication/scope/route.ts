@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { getImporterV2PublicationQa } from '@/lib/importer-v2-publication-store'
 import { findImporterV2PublicationIdentityConflicts } from '@/lib/importer-v2-publication-identity-diagnostics'
@@ -17,7 +18,7 @@ function publicationMode(value: unknown): ImporterV2PublicationMode {
   throw new Error('Unsupported publication mode.')
 }
 
-export async function POST(request: Request, context: Context) {
+async function POSTHandler(request: Request, context: Context) {
   try {
     const { batchId } = await context.params
     const raw = (await request.json()) as {
@@ -122,3 +123,5 @@ export async function POST(request: Request, context: Context) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

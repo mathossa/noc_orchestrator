@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import {
@@ -7,7 +8,7 @@ import {
 
 type RouteContext = { params: Promise<{ sourceId: string }> }
 
-export async function GET(request: Request, context: RouteContext) {
+async function GETHandler(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -30,7 +31,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -75,3 +76,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)

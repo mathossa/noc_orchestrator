@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { firmwareDrilldownApiError } from '@/lib/firmware-drilldown-api'
 import { getContractDrilldown } from '@/lib/firmware-drilldown-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, { params }: RouteContext) {
+async function GETHandler(_request: Request, { params }: RouteContext) {
   try {
     const { id } = await params
     return NextResponse.json({ data: await getContractDrilldown(id) })
@@ -12,3 +13,5 @@ export async function GET(_request: Request, { params }: RouteContext) {
     return firmwareDrilldownApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)

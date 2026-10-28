@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { deviceApiError } from '@/lib/device-api'
@@ -5,7 +6,7 @@ import { parseDeviceQuery } from '@/lib/device-query'
 import { queryDevices } from '@/lib/device-query-store'
 import { createDevice } from '@/lib/device-store'
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const query = parseDeviceQuery(new URL(request.url).searchParams)
     return NextResponse.json(await queryDevices(query))
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = await request.json()
     const session = await auth.api.getSession({ headers: request.headers })
@@ -29,3 +30,6 @@ export async function POST(request: Request) {
     return deviceApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

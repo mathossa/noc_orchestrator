@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { auth } from '@/lib/auth'
 import { inventoryExportCsv } from '@/lib/inventory-export'
 import { filterInventoryReportRows } from '@/lib/inventory-report'
@@ -37,7 +38,7 @@ function exportScope(params: URLSearchParams): InventoryExportScope | null {
   return null
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   // Reports can expose inventory and internal contract data across customers.
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session) {
@@ -82,3 +83,5 @@ export async function GET(request: Request) {
     },
   })
 }
+
+export const GET = withAdmin(GETHandler)

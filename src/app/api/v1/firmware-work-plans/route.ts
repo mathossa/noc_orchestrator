@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import {
@@ -19,7 +20,7 @@ function requestBody(value: unknown) {
   return value as Record<string, unknown>
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const query = parseFirmwareWorkPlanQuery(
       new URL(request.url).searchParams,
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = requestBody(await request.json())
 
@@ -66,3 +67,6 @@ export async function POST(request: Request) {
     return firmwareWorkPlanApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

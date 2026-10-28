@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { updateMerakiInventoryConnection } from '@/lib/meraki-integration-store'
@@ -30,7 +31,7 @@ function organizationScopes(value: unknown): MerakiOrganizationScope[] | undefin
   })
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -53,3 +54,5 @@ export async function PATCH(request: Request, context: RouteContext) {
     return NextResponse.json({ error: { code: 'MERAKI_CONNECTION_UPDATE_FAILED', message } }, { status: message.includes('not found') ? 404 : 400 })
   }
 }
+
+export const PATCH = withAdmin(PATCHHandler)

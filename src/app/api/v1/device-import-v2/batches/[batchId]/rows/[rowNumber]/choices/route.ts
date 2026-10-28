@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { IMPORTER_V2_FIELDS, type ImporterV2Field } from '@/lib/importer-v2-evaluator'
 import { listImporterV2CanonicalChoices } from '@/lib/importer-v2-canonical-choices'
@@ -6,7 +7,7 @@ type RouteContext = {
   params: Promise<{ batchId: string; rowNumber: string }>
 }
 
-export async function GET(request: Request, context: RouteContext) {
+async function GETHandler(request: Request, context: RouteContext) {
   try {
     const { batchId, rowNumber: rawRowNumber } = await context.params
     const rowNumber = Number.parseInt(rawRowNumber, 10)
@@ -44,3 +45,5 @@ export async function GET(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const GET = withAdmin(GETHandler)

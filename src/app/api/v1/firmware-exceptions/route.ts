@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { FirmwareExceptionError } from '@/lib/firmware-exceptions'
@@ -43,7 +44,7 @@ function errorResponse(error: unknown) {
   )
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const url = new URL(request.url)
     return NextResponse.json({
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const session = await auth.api.getSession({ headers: request.headers })
     const actorUserId = session?.user.id ?? null
@@ -109,3 +110,6 @@ export async function POST(request: Request) {
     return errorResponse(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

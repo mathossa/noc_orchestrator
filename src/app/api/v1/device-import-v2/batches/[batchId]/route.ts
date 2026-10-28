@@ -1,9 +1,10 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { deleteImporterV2WorkspaceBatch } from '@/lib/importer-v2-workspace-maintenance'
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+async function DELETEHandler(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const data = await deleteImporterV2WorkspaceBatch(batchId)
@@ -27,3 +28,5 @@ export async function DELETE(_request: Request, context: RouteContext) {
     )
   }
 }
+
+export const DELETE = withAdmin(DELETEHandler)

@@ -1,9 +1,10 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { getReleaseModelCompatibilityView } from '@/lib/firmware-compatibility-view'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const data = await getReleaseModelCompatibilityView(id)
@@ -14,3 +15,5 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message: 'Firmware compatibility could not be loaded.' } }, { status: 500 })
   }
 }
+
+export const GET = withAdmin(GETHandler)

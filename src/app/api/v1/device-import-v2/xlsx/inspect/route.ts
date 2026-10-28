@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { inspectImporterV2Xlsx } from '@/lib/importer-v2-ingestion-store'
 import { XlsxImportError } from '@/lib/xlsx-reader'
@@ -6,7 +7,7 @@ function text(value: FormDataEntryValue | null) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
@@ -33,3 +34,5 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)
