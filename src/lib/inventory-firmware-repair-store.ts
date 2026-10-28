@@ -212,13 +212,21 @@ export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId:
       } else if (decision.status !== 'MATCHED' || decision.targetId !== item.targetReleaseId) {
         throw new CanonicalFirmwareRepairError('Firmware matching changed or is ambiguous. Refresh the preview.', 409)
       }
+      // Manual relink may intentionally choose a different safe candidate from
+      // the automatic decision (which can be CORRECT or AMBIGUOUS). Persist the
+      // transaction-revalidated operator choice, never the automatic target.
+      const targetReleaseId = request.manual === true ? item.targetReleaseId : decision.targetId
+      const targetRelease = candidates.find((release) => release.id === targetReleaseId)
+      if (!targetReleaseId || !targetRelease) {
+        throw new CanonicalFirmwareRepairError('The selected canonical release is no longer available. Refresh and review.', 409)
+      }
       const updated = await tx.device.updateMany({
         where: {
           id: device.id,
           currentFirmwareReleaseId: item.oldReleaseId,
           updatedAt: device.updatedAt,
         },
-        data: { currentFirmwareReleaseId: decision.targetId },
+        data: { currentFirmwareReleaseId: targetReleaseId },
       })
       if (updated.count !== 1) {
         throw new CanonicalFirmwareRepairError('Concurrent inventory change detected; no repairs committed.', 409)
@@ -238,9 +246,9 @@ export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId:
             version: source?.version ?? null, updatedAt: device.updatedAt.toISOString(),
           },
           after: {
-            firmwareReleaseId: decision.targetId,
-            platform: candidates.find((r) => r.id === decision.targetId)?.platform ?? null,
-            version: candidates.find((r) => r.id === decision.targetId)?.version ?? null,
+            firmwareReleaseId: targetReleaseId,
+            platform: targetRelease.platform,
+            version: targetRelease.version,
             updatedAt: after.updatedAt.toISOString(),
           },
           metadata: {
@@ -248,7 +256,7 @@ export async function applyCanonicalFirmwareRepairs(input: unknown, actorUserId:
               ? 'ENGINEER_REVIEWED_EXACT_FIRMWARE_RELINK' : 'EXACT_MODEL_COMPATIBLE_RELEASE_RELINK',
             sourceVersion: source?.version ?? null,
             sourceTrain: source?.firmwareTrain?.name ?? null,
-            targetTrain: candidates.find((r) => r.id === decision.targetId)?.firmwareTrain?.name ?? null,
+            targetTrain: targetRelease.firmwareTrain?.name ?? null,
             evidenceKept: true, observedAtKept: true, sourceKept: true,
           },
         },
