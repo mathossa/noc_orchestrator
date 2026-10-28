@@ -79,3 +79,34 @@ export function resolveInventoryFirmwareLink(input: {
     candidateIds: candidates.map((candidate) => candidate.id),
   }
 }
+
+/**
+ * Engineer-reviewed manual target options for a recorded observation.
+ * A correction may change the canonical release link, NOT the observed version.
+ * The model-supported software platforms and exact image/variant evidence limit
+ * the choices; operators may deliberately resolve an ambiguous safe candidate.
+ */
+export function manualInventoryFirmwareTargets(input: {
+  model: FirmwareLinkModel
+  current: FirmwareLinkRelease | null
+  observedVersion: string | null
+  releases: readonly FirmwareLinkRelease[]
+}): FirmwareLinkRelease[] {
+  const { current, model } = input
+  const version = normalizedObservedFirmwareVersion(input.observedVersion)
+  if (!version || (current && (current.vendorId !== model.vendorId ||
+    normalizedObservedFirmwareVersion(current.version) !== version))) return []
+  const supported = new Set(supportedFirmwarePlatforms(model.platform).map(normalizedFirmwarePlatform))
+  if (supported.size === 0) return []
+  return input.releases.filter((release) =>
+    release.isActive && release.id !== current?.id &&
+    release.vendorId === model.vendorId &&
+    supported.has(normalizedFirmwarePlatform(release.platform)) &&
+    normalizedObservedFirmwareVersion(release.version) === version &&
+    (!current || (same(current.variant, release.variant) && same(current.imageCode, release.imageCode))) &&
+    (!release.firmwareTrain ||
+      (release.firmwareTrain.isActive && same(release.firmwareTrain.platform, release.platform))) &&
+    (!current?.firmwareTrain || !release.firmwareTrain ||
+      same(current.firmwareTrain.name, release.firmwareTrain.name)),
+  )
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveInventoryFirmwareLink, type FirmwareLinkRelease } from '@/lib/inventory-firmware-repair'
+import { resolveInventoryFirmwareLink, manualInventoryFirmwareTargets, type FirmwareLinkRelease } from '@/lib/inventory-firmware-repair'
 
 const linked: FirmwareLinkRelease = {
   id: 'old', vendorId: 'vendor-1', platform: 'Device hardware family', version: '7.4.11',
@@ -34,6 +34,20 @@ describe('#152 vendor-neutral recorded inventory firmware linking', () => {
   })
   it('can link a previously unmatched device with genuine version evidence', () => {
     expect(check([canonical], null).targetId).toBe('approved')
+  })
+  it('provides optional manual targets for a properly observed current device', () => {
+    expect(manualInventoryFirmwareTargets({
+      model, current: linked, observedVersion: '7.4.11',
+      releases: [canonical],
+    }).map((release) => release.id)).toEqual(['approved'])
+  })
+  it('does not fabricate manual choices for a different observed version, image or vendor', () => {
+    const run = (releases: FirmwareLinkRelease[], observedVersion = '7.4.11') =>
+      manualInventoryFirmwareTargets({ model, current: linked, observedVersion, releases })
+    expect(run([{ ...canonical, version: '7.4.12' }])).toEqual([])
+    expect(run([{ ...canonical, imageCode: 'different' }])).toEqual([])
+    expect(run([{ ...canonical, vendorId: 'different' }])).toEqual([])
+    expect(run([canonical], '7.4.12')).toEqual([])
   })
   it('keeps a canonical link already supported by the model', () => {
     expect(check([canonical], canonical).status).toBe('CORRECT')
