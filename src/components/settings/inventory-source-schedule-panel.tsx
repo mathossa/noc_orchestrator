@@ -20,15 +20,24 @@ export type InventorySourceSyncRun = {
   errorMessage: string | null
   startedAt: string
   finishedAt: string | null
-  metadata?: {
-    progress?: {
-      phase: string
-      tenantsCompleted: number
-      tenantsTotal: number
-      tenantsFailed: number
-      updatedAt: string
-    }
-  } | null
+  metadata?: unknown
+}
+
+function SyncProgressLabel({ metadata }: { metadata: unknown }) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const progress = (metadata as Record<string, unknown>).progress
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) return null
+  const value = progress as Record<string, unknown>
+  if (typeof value.phase !== 'string' ||
+      typeof value.tenantsCompleted !== 'number' ||
+      typeof value.tenantsTotal !== 'number' ||
+      typeof value.tenantsFailed !== 'number') return null
+  return (
+    <div className="mt-1 text-xs text-[var(--accent-light)]" role="status">
+      {value.phase} · {value.tenantsCompleted.toLocaleString()}/{value.tenantsTotal.toLocaleString()}
+      {' '}tenants checked · {value.tenantsFailed.toLocaleString()} failed
+    </div>
+  )
 }
 
 type ScheduleStatus = {
@@ -188,13 +197,7 @@ export function InventorySourceSchedulePanel({
                 <span className="font-semibold">{run.reviewRequiredCount}</span>{' '}
                 {run.trigger === 'SCHEDULED' ? 'skipped (unattended)' : 'review'} ·{' '}
                 <span className="font-semibold">{run.errorCount}</span> errors
-                {run.status === 'RUNNING' && run.metadata?.progress ? (
-                  <div className="mt-1 text-xs text-[var(--accent-light)]" role="status">
-                    {run.metadata.progress.phase} · {run.metadata.progress.tenantsCompleted.toLocaleString()}
-                    /{run.metadata.progress.tenantsTotal.toLocaleString()} tenants checked ·
-                    {' '}{run.metadata.progress.tenantsFailed.toLocaleString()} failed
-                  </div>
-                ) : null}
+                {run.status === 'RUNNING' ? <SyncProgressLabel metadata={run.metadata} /> : null}
                 {run.errorMessage ? <div className="mt-1 text-xs text-[var(--danger)]">{run.errorMessage}</div> : null}
                 {run.batchId && run.reviewRequiredCount > 0 ? (
                   <Link href={`/devices/import/${run.batchId}`} className="mt-1 block text-xs text-[var(--accent-light)] hover:underline">
