@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { siteApiError } from '@/lib/site-api'
 import { createSite, listSiteContractTypes, listSitesForCustomer } from '@/lib/site-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const [sites, contractTypes] = await Promise.all([
@@ -17,7 +18,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   const { id } = await context.params
   try {
     const body = await request.json()
@@ -32,3 +33,6 @@ export async function POST(request: Request, context: RouteContext) {
     return siteApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

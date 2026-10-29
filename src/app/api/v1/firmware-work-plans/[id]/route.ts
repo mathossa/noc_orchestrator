@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import {
@@ -12,7 +13,7 @@ import {
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     const plan = await getFirmwareWorkPlan(id)
@@ -27,7 +28,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     const input = parseFirmwareWorkPlanProposalAmendment(await request.json())
@@ -42,3 +43,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     return firmwareWorkPlanApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)

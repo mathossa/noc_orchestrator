@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import {
@@ -40,7 +41,7 @@ function tenantScopes(value: unknown): AuvikInventoryTenantScope[] | undefined {
   })
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -95,3 +96,5 @@ export async function PATCH(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const PATCH = withAdmin(PATCHHandler)

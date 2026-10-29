@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { AuvikApiError } from '@/lib/auvik-api-client'
@@ -7,7 +8,7 @@ type RouteContext = {
   params: Promise<{ sourceId: string }>
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { sourceId } = await context.params
@@ -49,3 +50,5 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

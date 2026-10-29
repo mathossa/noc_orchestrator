@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Business-case unit tests exercise handlers without the shared boundary.
+// Access-denial behavior is covered independently by api-route-guard.test.ts.
+vi.mock('@/lib/api-route-guard', () => ({ withAdmin: <T,>(handler: T): T => handler }))
+
 const mocks = vi.hoisted(() => ({
   listCandidates: vi.fn(),
 }))

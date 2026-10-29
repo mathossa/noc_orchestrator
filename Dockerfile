@@ -35,9 +35,10 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+COPY --chown=nextjs:nodejs scripts/validate-production-secrets.mjs ./validate-production-secrets.mjs
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "node validate-production-secrets.mjs app && exec node server.js"]
 
 FROM node:24-alpine AS worker
 WORKDIR /app
@@ -50,5 +51,6 @@ COPY --from=deps --chown=worker:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=worker:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=worker:nodejs /app/.worker-dist ./.worker-dist
 
+COPY --chown=worker:nodejs scripts/validate-production-secrets.mjs ./validate-production-secrets.mjs
 USER worker
-CMD ["node", ".worker-dist/scripts/background-worker.js"]
+CMD ["sh", "-c", "node validate-production-secrets.mjs worker && exec node .worker-dist/scripts/background-worker.js"]

@@ -1,10 +1,11 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { firmwareTrainApiError } from '@/lib/firmware-train-api'
 import { deleteFirmwareTrain, getFirmwareTrain, updateFirmwareTrain } from '@/lib/firmware-train-store'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_: Request, context: RouteContext) {
+async function GETHandler(_: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     return NextResponse.json({ data: await getFirmwareTrain(id) })
@@ -13,7 +14,7 @@ export async function GET(_: Request, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     const body = await request.json()
@@ -23,7 +24,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_: Request, context: RouteContext) {
+async function DELETEHandler(_: Request, context: RouteContext) {
   try {
     const { id } = await context.params
     await deleteFirmwareTrain(id)
@@ -32,3 +33,7 @@ export async function DELETE(_: Request, context: RouteContext) {
     return firmwareTrainApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)

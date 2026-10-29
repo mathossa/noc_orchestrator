@@ -201,7 +201,7 @@ describe('Classic Central shared inventory sync',()=>{
         configuration:{
           ...connection.connection.configuration,
           sites:[
-            {siteId:'128',siteName:'Unica - Bodegraven',enabled:true,site:'Main Site'},
+            {siteId:'128',siteName:'Example Customer - Site A',enabled:true,site:'Main Site'},
             {siteId:'129',siteName:'Other',enabled:false,site:'Other'},
           ],
         },
@@ -220,10 +220,10 @@ describe('Classic Central shared inventory sync',()=>{
     }))
     mocks.listDevices.mockImplementation(async(input:{switchSite?:string})=>{
       if(!input.switchSite)return [
-        {kind:'AP',raw:{serial:'AP01',site:'Unica - Bodegraven'}},
+        {kind:'AP',raw:{serial:'AP01',site:'Example Customer - Site A'}},
         ...eight,...thirteen,
       ]
-      if(input.switchSite==='Unica - Bodegraven')return eight
+      if(input.switchSite==='Example Customer - Site A')return eight
       return []
     })
     mocks.publish.mockResolvedValueOnce({

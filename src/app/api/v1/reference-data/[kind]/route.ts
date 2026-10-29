@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { referenceApiError } from '@/lib/reference-data-api'
 import {
@@ -8,7 +9,7 @@ import {
 
 type RouteContext = { params: Promise<{ kind: string }> }
 
-export async function GET(_request: Request, context: RouteContext) {
+async function GETHandler(_request: Request, context: RouteContext) {
   const { kind: rawKind } = await context.params
   const kind = parseReferenceKind(rawKind)
 
@@ -26,7 +27,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   const { kind: rawKind } = await context.params
   const kind = parseReferenceKind(rawKind)
 
@@ -51,3 +52,6 @@ export async function POST(request: Request, context: RouteContext) {
     return referenceApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

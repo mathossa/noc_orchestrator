@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { requireAdminRequest } from '@/lib/api-admin'
 import { documentationApiError } from '../../documentation-api-error'
@@ -5,7 +6,7 @@ import { createReleaseDocumentation, listReleaseDocumentation } from '@/lib/firm
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(_request: Request, { params }: RouteContext) {
+async function GETHandler(_request: Request, { params }: RouteContext) {
   try {
     const { id } = await params
     return NextResponse.json(await listReleaseDocumentation(id))
@@ -14,7 +15,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   }
 }
 
-export async function POST(request: Request, { params }: RouteContext) {
+async function POSTHandler(request: Request, { params }: RouteContext) {
   try {
     await requireAdminRequest(request)
     const { id } = await params
@@ -24,3 +25,6 @@ export async function POST(request: Request, { params }: RouteContext) {
     return documentationApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const POST = withAdmin(POSTHandler)

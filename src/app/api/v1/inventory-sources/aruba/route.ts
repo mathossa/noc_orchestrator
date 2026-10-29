@@ -1,8 +1,9 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { createClassicCentralConnection } from '@/lib/aruba-classic-integration-store'
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     await requireAdminRequest(request)
     const body = await request.json() as Record<string,unknown>
@@ -29,3 +30,5 @@ export async function POST(request: Request) {
     return NextResponse.json({error:{code:'ARUBA_CREATE_FAILED',message:error instanceof Error?error.message:'Unable to create Aruba connection.'}},{status:400})
   }
 }
+
+export const POST = withAdmin(POSTHandler)

@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import {
   initializeImporterV2WorkspaceAutomation,
@@ -8,7 +9,7 @@ import { ensureImporterV2DerivedAuvikStandaloneIdentities } from '@/lib/importer
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
-export async function POST(_request: Request, context: RouteContext) {
+async function POSTHandler(_request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const automation = await initializeImporterV2WorkspaceAutomation(batchId)
@@ -45,3 +46,5 @@ export async function POST(_request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

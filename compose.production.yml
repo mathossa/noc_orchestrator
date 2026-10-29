@@ -40,6 +40,7 @@ services:
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      INVENTORY_SOURCE_SECRET_KEY: ${INVENTORY_SOURCE_SECRET_KEY:?Set INVENTORY_SOURCE_SECRET_KEY (base64 32-byte key)}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -51,6 +52,18 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL using postgres as the database host}
+      INVENTORY_SOURCE_SECRET_KEY: ${INVENTORY_SOURCE_SECRET_KEY:?Set INVENTORY_SOURCE_SECRET_KEY (base64 32-byte key)}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   noc-orchestrator-postgres-data:

@@ -22,6 +22,8 @@ export const AUDIT_ACTIONS = {
   desiredFirmwareChanged: 'DESIRED_FIRMWARE_CHANGED',
   desiredFirmwareCleared: 'DESIRED_FIRMWARE_CLEARED',
   currentFirmwareChanged: 'CURRENT_FIRMWARE_CHANGED',
+  canonicalFirmwareRelink: 'CURRENT_FIRMWARE_CANONICAL_RELINK',
+  canonicalFirmwareRelinkRollback: 'CURRENT_FIRMWARE_CANONICAL_RELINK_ROLLBACK',
   firmwareCompatibilityOverrideChanged: 'FIRMWARE_COMPATIBILITY_OVERRIDE_CHANGED',
   firmwareCompatibilityOverrideCleared: 'FIRMWARE_COMPATIBILITY_OVERRIDE_CLEARED',
   lifecyclePlanned: 'FIRMWARE_LIFECYCLE_PLANNED',
@@ -41,6 +43,10 @@ export function auditActionLabel(action: string) {
       return 'Desired firmware cleared'
     case AUDIT_ACTIONS.currentFirmwareChanged:
       return 'Current firmware changed'
+    case AUDIT_ACTIONS.canonicalFirmwareRelink:
+      return 'Canonical firmware reference corrected'
+    case AUDIT_ACTIONS.canonicalFirmwareRelinkRollback:
+      return 'Canonical firmware reference correction undone'
     case AUDIT_ACTIONS.firmwareCompatibilityOverrideChanged:
       return 'Firmware compatibility override changed'
     case AUDIT_ACTIONS.firmwareCompatibilityOverrideCleared:

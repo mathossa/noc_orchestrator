@@ -3,11 +3,11 @@ import { recoverClassicSwitchSitesFromVerifiedQueries } from '@/lib/aruba-classi
 import type { ClassicCentralDeviceObservation } from '@/lib/aruba-classic-central-api-client'
 
 const sites=[
-  {siteId:'128',siteName:'Unica - Bodegraven',enabled:true,site:'Unica Bodegraven'},
+  {siteId:'128',siteName:'Example Customer - Site A',enabled:true,site:'Example Customer Site A'},
   {siteId:'129',siteName:'Other site',enabled:false,site:'Other'},
 ]
 const inventory:ClassicCentralDeviceObservation[]=[
-  {kind:'AP',raw:{serial:'AP01',site:'Unica - Bodegraven'}},
+  {kind:'AP',raw:{serial:'AP01',site:'Example Customer - Site A'}},
   {kind:'SWITCH',raw:{serial:'CX01',stack_id:'STACK-1',firmware_version:'10.13.1040'}},
   {kind:'SWITCH',raw:{serial:'CX02',stack_id:'STACK-1',firmware_version:'10.13.1040'}},
   {kind:'SWITCH',raw:{serial:'SW03',site:'Other site',site_id:129}},
@@ -28,7 +28,7 @@ describe('Aruba Classic switch site recovery',()=>{
       ...Array.from({length:12},(_,i)=>switchRecord(`OTHER${i}`)),
     ]
     const read=vi.fn(async(siteName:string)=>{
-      if(siteName==='Unica - Bodegraven')return eight
+      if(siteName==='Example Customer - Site A')return eight
       return []
     })
     const result=await recoverClassicSwitchSitesFromVerifiedQueries({
@@ -44,7 +44,7 @@ describe('Aruba Classic switch site recovery',()=>{
     expect(result.observations.find(row=>row.raw.serial==='SW03')?.raw.site).toBe('Other site')
     expect(result.observations.find(row=>row.raw.serial==='OTHER0')?.raw.site).toBeUndefined()
     expect(result.observations.find(row=>row.raw.serial==='CX01')?.raw).toMatchObject({
-      site:'Unica - Bodegraven',
+      site:'Example Customer - Site A',
       site_id:'128',
       firmware_version:'10.13.1040',
       stack_id:'STACK-1',
@@ -69,7 +69,7 @@ describe('Aruba Classic switch site recovery',()=>{
   it('rejects a filtered switch that reports a contradictory physical site',async()=>{
     const result=await recoverClassicSwitchSitesFromVerifiedQueries({
       observations:inventory,selectedSites:sites,
-      readSwitchesForSite:async(site)=>site==='Unica - Bodegraven'
+      readSwitchesForSite:async(site)=>site==='Example Customer - Site A'
         ?[switchRecord('CX01',{site:'Other site',site_id:129})]:[],
       impossibleSiteName:'nonexistent-control',
     })
@@ -81,7 +81,7 @@ describe('Aruba Classic switch site recovery',()=>{
     const result=await recoverClassicSwitchSitesFromVerifiedQueries({
       observations:[...inventory,switchRecord('CX01')],
       selectedSites:sites,
-      readSwitchesForSite:async(site)=>site==='Unica - Bodegraven'
+      readSwitchesForSite:async(site)=>site==='Example Customer - Site A'
         ?[switchRecord('CX01'),switchRecord('NOT_IN_GLOBAL')]:[],
       impossibleSiteName:'nonexistent-control',
     })

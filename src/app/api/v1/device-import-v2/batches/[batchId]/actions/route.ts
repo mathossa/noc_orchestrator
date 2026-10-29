@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import type {
@@ -118,7 +119,7 @@ function parseActionRequest(value: unknown): ActionRequest {
   return value as unknown as ActionRequest
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function POSTHandler(request: Request, context: RouteContext) {
   try {
     const { batchId } = await context.params
     const body = parseActionRequest(await request.json())
@@ -200,3 +201,5 @@ export async function POST(request: Request, context: RouteContext) {
     )
   }
 }
+
+export const POST = withAdmin(POSTHandler)

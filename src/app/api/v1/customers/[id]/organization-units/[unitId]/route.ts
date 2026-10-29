@@ -1,3 +1,4 @@
+import { withAdmin } from '@/lib/api-route-guard'
 import { auth } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { siteApiError } from '@/lib/site-api'
@@ -7,7 +8,7 @@ import {
   deleteOrganizationUnit,
 } from '@/lib/organization-unit-store'
 type Context = { params: Promise<{ id: string; unitId: string }> }
-export async function GET(_request: Request, context: Context) {
+async function GETHandler(_request: Request, context: Context) {
   try {
     const { id, unitId } = await context.params
     return NextResponse.json({ data: await getOrganizationUnit(id, unitId) })
@@ -15,7 +16,7 @@ export async function GET(_request: Request, context: Context) {
     return siteApiError(error)
   }
 }
-export async function PATCH(request: Request, context: Context) {
+async function PATCHHandler(request: Request, context: Context) {
   try {
     const { id, unitId } = await context.params
     return NextResponse.json({
@@ -31,7 +32,7 @@ export async function PATCH(request: Request, context: Context) {
     return siteApiError(error)
   }
 }
-export async function DELETE(_request: Request, context: Context) {
+async function DELETEHandler(_request: Request, context: Context) {
   try {
     const { id, unitId } = await context.params
     await deleteOrganizationUnit(id, unitId)
@@ -40,3 +41,7 @@ export async function DELETE(_request: Request, context: Context) {
     return siteApiError(error)
   }
 }
+
+export const GET = withAdmin(GETHandler)
+export const PATCH = withAdmin(PATCHHandler)
+export const DELETE = withAdmin(DELETEHandler)
