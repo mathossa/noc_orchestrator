@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -101,6 +101,32 @@ export function AuvikConnectionManager({
   const [message, setMessage] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [syncRuns, setSyncRuns] = useState<InventorySourceSyncRun[]>(initialSyncRuns)
+  const hasRunningSync = syncRuns.some((run) => run.status === 'RUNNING')
+
+  useEffect(() => {
+    if (busy !== 'sync' && !hasRunningSync) return
+    let cancelled = false
+    let fetching = false
+    const refreshRuns = async () => {
+      if (fetching) return
+      fetching = true
+      try {
+        const response = await fetch(
+          `/api/v1/inventory-sources/auvik/${connection.id}/sync`,
+          { cache: 'no-store' },
+        )
+        const runs = (await responseData(response)) as InventorySourceSyncRun[]
+        if (!cancelled) setSyncRuns(runs)
+      } catch {
+        // Do not disrupt the running sync on a transient status request failure.
+      } finally {
+        fetching = false
+      }
+    }
+    void refreshRuns()
+    const timer = setInterval(() => { void refreshRuns() }, 5_000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [busy, hasRunningSync, connection.id])
 
   const updateTenant = (
     index: number,
