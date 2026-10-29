@@ -11,7 +11,11 @@ import { getActiveImporterV2RuleSet } from '@/lib/importer-v2-rule-store'
 import {
   automaticImporterV2StackTopologyDecisions,
   importerV2TopologyFromDecisions,
+  importerV2TopologyIsMember,
 } from '@/lib/importer-v2-stack-topology'
+import {
+  automaticImporterV2KnownHaTopologyDecisions,
+} from '@/lib/importer-v2-ha-topology'
 import {
   importerV2WorkspaceEffectiveEvaluated,
   importerV2WorkspaceIssueState,
@@ -327,6 +331,8 @@ export async function recomputeImporterV2WorkspaceRows(input: {
   let excluded = 0
   let stackMembers = 0
   let stacks = 0
+  let haMembers = 0
+  let haClusters = 0
 
   // Keyset pages bound evaluation JSON and decision history in server memory.
   // A revision guard leaves concurrent corrections pending for the next recheck.
@@ -353,13 +359,13 @@ export async function recomputeImporterV2WorkspaceRows(input: {
             decisions: row.decisions,
           })
           const topology = importerV2TopologyFromDecisions(row.decisions)
-          const isStackMember = topology.role === 'STACK_MEMBER'
+          const isTopologyMember = importerV2TopologyIsMember(topology)
 
           const excludedByDecision = row.decisions.some(
             (decision) => decision.action === 'EXCLUDE_ROW',
           )
           const isExcluded = row.inclusion === 'EXCLUDED' || excludedByDecision
-          const identityNeedsReview = isStackMember
+          const identityNeedsReview = isTopologyMember
             ? false
             : importerV2WorkspaceIdentityNeedsReview({
                 identityResolution: row.identityResolution,
@@ -367,7 +373,7 @@ export async function recomputeImporterV2WorkspaceRows(input: {
               })
           const suggestionNeedsReview = decisionRequiresManualReview(snapshot)
           const repeatAmbiguous =
-            !isStackMember && row.repeatClassification === 'AMBIGUOUS'
+            !isTopologyMember && row.repeatClassification === 'AMBIGUOUS'
 
           let primaryStatus: string
           if (isExcluded) {
@@ -379,8 +385,8 @@ export async function recomputeImporterV2WorkspaceRows(input: {
             repeatAmbiguous
           ) {
             primaryStatus = 'NEEDS_REVIEW'
-          } else if (isStackMember) {
-            primaryStatus = 'STACK_MEMBER'
+          } else if (isTopologyMember) {
+            primaryStatus = topology.role
           } else if (issueState.activeWarningCount > 0) {
             primaryStatus = 'WARNING'
           } else {
@@ -390,11 +396,13 @@ export async function recomputeImporterV2WorkspaceRows(input: {
           const statuses = [primaryStatus]
           if (topology.role === 'STACK' && !statuses.includes('STACK'))
             statuses.push('STACK')
-          if (isStackMember && issueState.activeWarningCount > 0)
+          if (topology.role === 'HA' && !statuses.includes('HA'))
+            statuses.push('HA')
+          if (isTopologyMember && issueState.activeWarningCount > 0)
             statuses.push('WARNING')
           if (
             row.repeatClassification &&
-            !isStackMember &&
+            !isTopologyMember &&
             row.repeatClassification !== primaryStatus &&
             row.repeatClassification !== 'AMBIGUOUS'
           ) {
@@ -430,9 +438,11 @@ export async function recomputeImporterV2WorkspaceRows(input: {
           checked += updated.count
           if (updated.count) {
             if (topology.role === 'STACK') stacks += 1
+            if (topology.role === 'HA') haClusters += 1
             if (primaryStatus === 'EXCLUDED') excluded += 1
             else if (primaryStatus === 'NEEDS_REVIEW') review += 1
             else if (primaryStatus === 'STACK_MEMBER') stackMembers += 1
+            else if (primaryStatus === 'HA_MEMBER') haMembers += 1
             else if (primaryStatus === 'WARNING') warning += 1
             else valid += 1
           }
@@ -449,7 +459,17 @@ export async function recomputeImporterV2WorkspaceRows(input: {
     })
   }
 
-  return { checked, valid, warning, review, excluded, stacks, stackMembers }
+  return {
+    checked,
+    valid,
+    warning,
+    review,
+    excluded,
+    stacks,
+    stackMembers,
+    haClusters,
+    haMembers,
+  }
 }
 
 export async function initializeImporterV2WorkspaceAutomation(
@@ -515,8 +535,46 @@ export async function initializeImporterV2WorkspaceAutomation(
     provider: batch.provider,
     rows,
   })
+  const knownHaTopologies = await prisma.deviceTopology.findMany({
+    where: {
+      kind: 'HA',
+      provider: batch.provider,
+    },
+    select: {
+      sourceGroupKey: true,
+      members: {
+        where: {
+          isActive: true,
+          provider: batch.provider,
+        },
+        orderBy: { position: 'asc' },
+        select: {
+          position: true,
+          sourceId: true,
+        },
+      },
+    },
+  })
+  const knownHa = automaticImporterV2KnownHaTopologyDecisions({
+    rows: rows.map((row) => ({
+      ...row,
+      inclusion: 'INCLUDED',
+      decisions: [],
+    })),
+    topologies: knownHaTopologies.flatMap((item) =>
+      item.sourceGroupKey
+        ? [
+            {
+              sourceGroupKey: item.sourceGroupKey,
+              members: item.members,
+            },
+          ]
+        : [],
+    ),
+  })
   const proposed: WorkspaceDecisionInput[] = [
     ...topology.decisions,
+    ...knownHa.decisions,
     ...rows.flatMap(automaticCatalogProposalDecisions),
     ...(await activeRuleDecisions({
       batch: {
@@ -599,11 +657,18 @@ export async function initializeImporterV2WorkspaceAutomation(
     ...result,
     automaticDecisionsApplied: fresh.length,
     automaticRuleDecisionsRemoved: staleRuleDecisions.length,
-    topologyDecisionsApplied: fresh.filter((decision) =>
-      decision.action.startsWith('TOPOLOGY_STACK_'),
+    topologyDecisionsApplied: fresh.filter(
+      (decision) =>
+        decision.action.startsWith('TOPOLOGY_STACK_') ||
+        decision.action.startsWith('TOPOLOGY_HA_'),
     ).length,
     detectedStackGroups: topology.groups.length,
     detectedStackMembers: topology.groups.reduce(
+      (count, group) => count + group.memberRows.length,
+      0,
+    ),
+    detectedHaGroups: knownHa.groups.length,
+    detectedHaMembers: knownHa.groups.reduce(
       (count, group) => count + group.memberRows.length,
       0,
     ),

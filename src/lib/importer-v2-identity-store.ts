@@ -261,8 +261,29 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
   }
   const matchingCrosswalks = [...matchingCrosswalksById.values()]
 
+  const topologyMembers = sourceIds.length
+    ? await prisma.deviceTopologyMember.findMany({
+        where: {
+          provider: input.provider,
+          isActive: true,
+          sourceId: { in: sourceIds },
+        },
+        select: {
+          id: true,
+          sourceId: true,
+          serialNumber: true,
+          macAddress: true,
+          lastSeenAt: true,
+          topology: { select: { deviceId: true } },
+        },
+      })
+    : []
+
   const crosswalkCandidateIds = [
     ...new Set(matchingCrosswalks.map((record) => record.canonicalDeviceId)),
+  ]
+  const topologyCandidateIds = [
+    ...new Set(topologyMembers.map((member) => member.topology.deviceId)),
   ]
   // Canonical serial is intentionally part of cross-provider discovery. Load
   // serial-bearing devices once when serial evidence exists, then fetch any
@@ -275,9 +296,9 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
     })
     for (const device of serialDevices) devicesById.set(device.id, device)
   }
-  const missingContextIds = crosswalkCandidateIds.filter(
-    (id) => !devicesById.has(id),
-  )
+  const missingContextIds = [
+    ...new Set([...crosswalkCandidateIds, ...topologyCandidateIds]),
+  ].filter((id) => !devicesById.has(id))
   for (const part of chunks(missingContextIds)) {
     const contextDevices: IdentityCandidateDevice[] = await prisma.device.findMany({
       where: { id: { in: part } },
@@ -294,7 +315,10 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
     addCandidateIndex(canonicalSerials, serial, device.id)
   }
 
-  const candidateDeviceIds = new Set<string>(crosswalkCandidateIds)
+  const candidateDeviceIds = new Set<string>([
+    ...crosswalkCandidateIds,
+    ...topologyCandidateIds,
+  ])
   for (const serialNumber of serialNumbers) {
     for (const id of canonicalSerials.get(serialNumber) ?? []) {
       candidateDeviceIds.add(id)
@@ -317,6 +341,10 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
   const allCrosswalks = [...allCrosswalksById.values()]
 
   const crosswalksByDevice = new Map<string, IdentityCandidateCrosswalk[]>()
+  const topologyMembersByDevice = new Map<
+    string,
+    typeof topologyMembers
+  >()
   const providerSourceIds = new Map<string, Set<string>>()
   const crosswalkSerials = new Map<string, Set<string>>()
   const crosswalkMacs = new Map<string, Set<string>>()
@@ -341,6 +369,19 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
       crosswalkMacs,
       crosswalk.normalizedMacAddress,
       crosswalk.canonicalDeviceId,
+    )
+  }
+
+  for (const member of topologyMembers) {
+    const canonicalDeviceId = member.topology.deviceId
+    topologyMembersByDevice.set(canonicalDeviceId, [
+      ...(topologyMembersByDevice.get(canonicalDeviceId) ?? []),
+      member,
+    ])
+    addCandidateIndex(
+      providerSourceIds,
+      normalizeImporterV2Identity({ sourceId: member.sourceId }).sourceId,
+      canonicalDeviceId,
     )
   }
 
@@ -372,12 +413,21 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
       .map((canonicalDeviceId): ImporterV2IdentityCandidate => {
         const device = devicesById.get(canonicalDeviceId)
         const crosswalks = crosswalksByDevice.get(canonicalDeviceId) ?? []
+        const topologyDeviceMembers =
+          topologyMembersByDevice.get(canonicalDeviceId) ?? []
         const sameProvider = crosswalks.find(
           (crosswalk) => crosswalk.provider === input.provider,
         )
+        const matchedTopologyMember = topologyDeviceMembers.find(
+          (member) =>
+            normalizeImporterV2Identity({ sourceId: member.sourceId })
+              .sourceId === normalized.sourceId,
+        )
         const providerSourceMatch = Boolean(
           normalized.sourceId &&
-            sameProvider?.normalizedSourceId === normalized.sourceId,
+            providerSourceIds
+              .get(normalized.sourceId)
+              ?.has(canonicalDeviceId),
         )
         const sameProviderAliasMatch = Boolean(
           sameProvider &&
@@ -409,13 +459,19 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
               : ('CANONICAL' as const)
 
         const candidateIdentifiers =
-          matchScope === 'SAME_PROVIDER' && sameProvider
+          matchScope === 'SAME_PROVIDER' && matchedTopologyMember
             ? {
-                sourceId: sameProvider.sourceId,
-                serialNumber: sameProvider.serialNumber,
-                macAddress: sameProvider.macAddress,
+                sourceId: matchedTopologyMember.sourceId,
+                serialNumber: matchedTopologyMember.serialNumber,
+                macAddress: matchedTopologyMember.macAddress,
               }
-            : {
+            : matchScope === 'SAME_PROVIDER' && sameProvider
+              ? {
+                  sourceId: sameProvider.sourceId,
+                  serialNumber: sameProvider.serialNumber,
+                  macAddress: sameProvider.macAddress,
+                }
+              : {
                 sourceId: null,
                 serialNumber:
                   canonicalSerialMatch ||
@@ -438,7 +494,9 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
         return {
           canonicalDeviceId,
           crosswalkId:
-            matchScope === 'SAME_PROVIDER' ? sameProvider?.id ?? null : null,
+            matchScope === 'SAME_PROVIDER' && !matchedTopologyMember
+              ? sameProvider?.id ?? null
+              : null,
           matchScope,
           identifiers: candidateIdentifiers,
           context: candidateContext(device),
@@ -472,6 +530,17 @@ export async function buildImporterV2IdentityCandidateResolver(input: {
               macAddressState:
                 crosswalk.macAddressEvidenceState ??
                 (crosswalk.macAddress ? 'ACCEPTED' : null),
+            })),
+            ...topologyDeviceMembers.map((member) => ({
+              kind: 'TOPOLOGY_MEMBER' as const,
+              provider: input.provider,
+              lastSeenAt: member.lastSeenAt.toISOString(),
+              sourceId: member.sourceId,
+              serialNumber: member.serialNumber,
+              macAddress: member.macAddress,
+              sourceIdState: member.sourceId ? 'ACCEPTED' : null,
+              serialNumberState: member.serialNumber ? 'OBSERVED' : null,
+              macAddressState: member.macAddress ? 'OBSERVED' : null,
             })),
           ],
           hasConflictingDurableEvidence:

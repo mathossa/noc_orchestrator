@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { ImporterV2Field, ImporterV2FieldIssue } from '@/lib/importer-v2-evaluator'
-import { importerV2TopologyFromDecisions } from '@/lib/importer-v2-stack-topology'
+import {
+  importerV2TopologyFromDecisions,
+  importerV2TopologyIsLogicalDevice,
+  importerV2TopologyIsMember,
+  importerV2TopologyKind,
+} from '@/lib/importer-v2-stack-topology'
 import {
   importerV2WorkspaceEffectiveEvaluated,
   importerV2WorkspaceEffectiveText,
@@ -55,7 +60,8 @@ export type ImporterV2CatalogProposal = {
   rowNumbers: number[]
 }
 
-export type ImporterV2StackQaGroup = {
+export type ImporterV2TopologyQaGroup = {
+  kind: 'STACK' | 'HA'
   groupKey: string
   parentRowNumber: number
   parentName: string
@@ -97,6 +103,8 @@ export type ImporterV2PublicationQa = {
     pending: number
     stacks: number
     stackMembers: number
+    haClusters: number
+    haMembers: number
   }
   fieldErrors: Array<{
     rowNumber: number
@@ -113,7 +121,8 @@ export type ImporterV2PublicationQa = {
     candidateDeviceIds: string[]
   }>
   topology: {
-    stackGroups: ImporterV2StackQaGroup[]
+    stackGroups: ImporterV2TopologyQaGroup[]
+    haGroups: ImporterV2TopologyQaGroup[]
   }
   evidence: {
     decisionSources: Array<{
@@ -296,10 +305,12 @@ function rowBlockers(input: {
   if (row.needsReevaluation) reasons.push('Re-evaluation is required after a staged correction.')
   if (activeErrorCount > 0) reasons.push(`${activeErrorCount} unresolved validation error(s) remain.`)
 
-  if (topology.role === 'STACK_MEMBER') return reasons
+  if (importerV2TopologyIsMember(topology)) return reasons
 
-  if (topology.role === 'STACK' && !input.sourceId) {
-    reasons.push('Logical stack requires a provider Source ID; member serial/MAC values cannot identify the stack itself.')
+  if (importerV2TopologyIsLogicalDevice(topology) && !input.sourceId) {
+    reasons.push(
+      `Logical ${importerV2TopologyKind(topology)?.toLowerCase() ?? 'topology'} device requires a provider Source ID; physical member serial/MAC values cannot identify the logical device itself.`,
+    )
   }
 
   const identity = importerV2WorkspaceIdentityReview({
@@ -348,6 +359,8 @@ export function buildImporterV2PublicationQa(input: {
     pending: 0,
     stacks: 0,
     stackMembers: 0,
+    haClusters: 0,
+    haMembers: 0,
   }
   const fieldErrors: ImporterV2PublicationQa['fieldErrors'] = []
   const identityConflicts: ImporterV2PublicationQa['identityConflicts'] = []
@@ -394,9 +407,13 @@ export function buildImporterV2PublicationQa(input: {
     })
     const snapshot = effective.evaluated as EvaluatedSnapshot
     const topology = importerV2TopologyFromDecisions(row.decisions)
-    const isStackMember = topology.role === 'STACK_MEMBER'
+    const isTopologyMember = importerV2TopologyIsMember(topology)
     if (topology.role === 'STACK') counts.stacks += 1
-    if (isStackMember) counts.stackMembers += 1
+    if (topology.role === 'STACK_MEMBER') counts.stackMembers += 1
+    if (topology.role === 'HA') {
+      counts.haClusters += 1
+      counts.haMembers += topology.memberRows.length
+    }
 
     rowTopology.set(row.rowNumber, {
       topology,
@@ -406,7 +423,7 @@ export function buildImporterV2PublicationQa(input: {
       firmware: effectiveText(snapshot, 'currentFirmware'),
     })
 
-    if (!isStackMember) {
+    if (!isTopologyMember) {
       if (row.primaryStatus === 'VALID') counts.valid += 1
       else if (row.primaryStatus === 'WARNING') counts.warning += 1
       else counts.needsReview += 1
@@ -436,7 +453,7 @@ export function buildImporterV2PublicationQa(input: {
       })
     }
 
-    if (!isStackMember) {
+    if (!isTopologyMember) {
       const identity = importerV2WorkspaceIdentityReview({
         identityResolution: row.identityResolution,
         decisions: row.decisions,
@@ -459,7 +476,7 @@ export function buildImporterV2PublicationQa(input: {
     if (blockers.length > 0) {
       counts.conflict += 1
       if (!row.publishedAt) unresolvedRows.push({ rowNumber: row.rowNumber, reasons: blockers })
-    } else if (!row.publishedAt && !isStackMember) {
+    } else if (!row.publishedAt && !isTopologyMember) {
       allResolvedCandidateRows.push(row.rowNumber)
       if (row.primaryStatus === 'VALID') validOnlyCandidateRows.push(row.rowNumber)
     }
@@ -528,13 +545,21 @@ export function buildImporterV2PublicationQa(input: {
     addSample(evidencePatterns, row.firmwareEvidencePattern || '(unclassified)', row.rowNumber)
   }
 
-  const stackGroups: ImporterV2StackQaGroup[] = []
+  const topologyGroups: ImporterV2TopologyQaGroup[] = []
   const unresolvedNumbers = new Set(unresolvedRows.map((row) => row.rowNumber))
   for (const [rowNumber, parent] of rowTopology) {
-    if (parent.topology.role !== 'STACK') continue
+    const kind = importerV2TopologyKind(parent.topology)
+    if (!kind || !importerV2TopologyIsLogicalDevice(parent.topology)) continue
+    const expectedMemberRole =
+      kind === 'STACK' ? 'STACK_MEMBER' : 'HA_MEMBER'
     const members = parent.topology.memberRows.flatMap((reference) => {
       const member = rowTopology.get(reference.rowNumber)
-      if (!member || member.topology.role !== 'STACK_MEMBER') return []
+      if (!member) return []
+      const isHaAnchor =
+        kind === 'HA' && reference.rowNumber === rowNumber
+      if (!isHaAnchor && member.topology.role !== expectedMemberRole) {
+        return []
+      }
       return [{
         rowNumber: reference.rowNumber,
         memberIndex: reference.memberIndex,
@@ -544,8 +569,11 @@ export function buildImporterV2PublicationQa(input: {
         firmware: member.firmware,
       }]
     })
-    stackGroups.push({
-      groupKey: parent.topology.groupKey ?? `stack-row-${rowNumber}`,
+    topologyGroups.push({
+      kind,
+      groupKey:
+        parent.topology.groupKey ??
+        `${kind.toLowerCase()}-row-${rowNumber}`,
       parentRowNumber: rowNumber,
       parentName: parent.name,
       source: parent.topology.source,
@@ -553,12 +581,18 @@ export function buildImporterV2PublicationQa(input: {
     })
 
     const unresolvedMembers = members
-      .filter((member) => unresolvedNumbers.has(member.rowNumber))
+      .filter(
+        (member) =>
+          member.rowNumber !== rowNumber &&
+          unresolvedNumbers.has(member.rowNumber),
+      )
       .map((member) => member.rowNumber)
     if (unresolvedMembers.length > 0 && !unresolvedNumbers.has(rowNumber)) {
       unresolvedRows.push({
         rowNumber,
-        reasons: [`Stack member row(s) #${unresolvedMembers.join(', #')} still require review before this logical stack can publish.`],
+        reasons: [
+          `${kind} member row(s) #${unresolvedMembers.join(', #')} still require review before this logical ${kind.toLowerCase()} device can publish.`,
+        ],
       })
       unresolvedNumbers.add(rowNumber)
       counts.conflict += 1
@@ -604,7 +638,12 @@ export function buildImporterV2PublicationQa(input: {
     catalogProposals: [...proposals.values()].sort((a, b) => a.field.localeCompare(b.field) || a.label.localeCompare(b.label)),
     identityConflicts,
     topology: {
-      stackGroups: stackGroups.sort((a, b) => a.parentRowNumber - b.parentRowNumber),
+      stackGroups: topologyGroups
+        .filter((group) => group.kind === 'STACK')
+        .sort((a, b) => a.parentRowNumber - b.parentRowNumber),
+      haGroups: topologyGroups
+        .filter((group) => group.kind === 'HA')
+        .sort((a, b) => a.parentRowNumber - b.parentRowNumber),
     },
     evidence: {
       decisionSources: [...decisionSources.entries()].map(([source, value]) => ({ source, ...value })).sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)),
@@ -660,7 +699,10 @@ export function importerV2PublicationRowsIncludingStackMembers(
   rowNumbers: readonly number[],
 ) {
   const rows = new Set(rowNumbers)
-  for (const group of qa.topology.stackGroups) {
+  for (const group of [
+    ...qa.topology.stackGroups,
+    ...qa.topology.haGroups,
+  ]) {
     if (!rows.has(group.parentRowNumber)) continue
     for (const member of group.memberRows) rows.add(member.rowNumber)
   }

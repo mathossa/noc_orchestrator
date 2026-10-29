@@ -4,6 +4,10 @@ import {
   importerV2WorkspaceEffectiveText,
 } from '@/lib/importer-v2-workspace-effective-overlay'
 import { importerV2WorkspaceIdentityReview } from '@/lib/importer-v2-workspace-identity-state'
+import {
+  importerV2TopologyFromDecisions,
+  importerV2TopologyIsMember,
+} from '@/lib/importer-v2-stack-topology'
 
 type Evaluated = {
   proposedCanonicalValues?: {
@@ -47,6 +51,9 @@ export async function findImporterV2PublicationNameConflicts(input: {
   })
   if (!batch) return []
   const proposed = batch.rows.flatMap(row => {
+    const topology = importerV2TopologyFromDecisions(row.decisions)
+    if (importerV2TopologyIsMember(topology)) return []
+
     const identity = importerV2WorkspaceIdentityReview({
       identityResolution: row.identityResolution,
       decisions: row.decisions,

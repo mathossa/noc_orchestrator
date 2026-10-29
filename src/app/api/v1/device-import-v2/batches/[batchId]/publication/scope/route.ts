@@ -69,6 +69,7 @@ async function POSTHandler(request: Request, context: Context) {
 
     return NextResponse.json({
       data: {
+        qa,
         qaFingerprint: qa.qaFingerprint,
         mode,
         rowNumbers,

@@ -2,8 +2,15 @@ import type { ImporterV2Field } from '@/lib/importer-v2-evaluator'
 
 export const IMPORTER_V2_STACK_PARENT_ACTION = 'TOPOLOGY_STACK_PARENT'
 export const IMPORTER_V2_STACK_MEMBER_ACTION = 'TOPOLOGY_STACK_MEMBER'
+export const IMPORTER_V2_HA_PARENT_ACTION = 'TOPOLOGY_HA_PARENT'
+export const IMPORTER_V2_HA_MEMBER_ACTION = 'TOPOLOGY_HA_MEMBER'
 
-export type ImporterV2TopologyRole = 'DEVICE' | 'STACK' | 'STACK_MEMBER'
+export type ImporterV2TopologyRole =
+  | 'DEVICE'
+  | 'STACK'
+  | 'STACK_MEMBER'
+  | 'HA'
+  | 'HA_MEMBER'
 
 export type ImporterV2TopologyState = {
   role: ImporterV2TopologyRole
@@ -53,7 +60,11 @@ export type ImporterV2TopologyDecisionInput = {
   rowId: string
   rowNumber: number
   field: null
-  action: typeof IMPORTER_V2_STACK_PARENT_ACTION | typeof IMPORTER_V2_STACK_MEMBER_ACTION
+  action:
+    | typeof IMPORTER_V2_STACK_PARENT_ACTION
+    | typeof IMPORTER_V2_STACK_MEMBER_ACTION
+    | typeof IMPORTER_V2_HA_PARENT_ACTION
+    | typeof IMPORTER_V2_HA_MEMBER_ACTION
   value: ImporterV2TopologyState
   explanation: string
   scopeToken: string
@@ -281,14 +292,23 @@ export function importerV2TopologyFromDecisions(
     if (
       !decision ||
       (decision.action !== IMPORTER_V2_STACK_PARENT_ACTION &&
-        decision.action !== IMPORTER_V2_STACK_MEMBER_ACTION)
+        decision.action !== IMPORTER_V2_STACK_MEMBER_ACTION &&
+        decision.action !== IMPORTER_V2_HA_PARENT_ACTION &&
+        decision.action !== IMPORTER_V2_HA_MEMBER_ACTION)
     ) {
       continue
     }
     const value = object(decision.value)
     if (!value) continue
     const role = value.role
-    if (role !== 'STACK' && role !== 'STACK_MEMBER') continue
+    if (
+      role !== 'STACK' &&
+      role !== 'STACK_MEMBER' &&
+      role !== 'HA' &&
+      role !== 'HA_MEMBER'
+    ) {
+      continue
+    }
     const rawMembers = Array.isArray(value.memberRows) ? value.memberRows : []
     const memberRows = rawMembers.flatMap((item) => {
       const entry = object(item)
@@ -316,13 +336,37 @@ export function importerV2TopologyFromDecisions(
   }
 }
 
+export function importerV2TopologyKind(
+  topology: ImporterV2TopologyState,
+): 'STACK' | 'HA' | null {
+  if (topology.role === 'STACK' || topology.role === 'STACK_MEMBER') {
+    return 'STACK'
+  }
+  if (topology.role === 'HA' || topology.role === 'HA_MEMBER') {
+    return 'HA'
+  }
+  return null
+}
+
+export function importerV2TopologyIsLogicalDevice(
+  topology: ImporterV2TopologyState,
+) {
+  return topology.role === 'STACK' || topology.role === 'HA'
+}
+
+export function importerV2TopologyIsMember(
+  topology: ImporterV2TopologyState,
+) {
+  return topology.role === 'STACK_MEMBER' || topology.role === 'HA_MEMBER'
+}
+
 export function importerV2PublicationIdentityFields(input: {
   topology: ImporterV2TopologyState
   sourceId: string | null
   serialNumber: string | null
   macAddress: string | null
 }) {
-  if (input.topology.role !== 'STACK') {
+  if (!importerV2TopologyIsLogicalDevice(input.topology)) {
     return {
       sourceId: input.sourceId,
       serialNumber: input.serialNumber,
@@ -330,9 +374,8 @@ export function importerV2PublicationIdentityFields(input: {
     }
   }
 
-  // A logical stack must not claim Member 1's copied serial/MAC as its own.
-  // The provider source ID is the durable identity of the logical stack; member
-  // serial/MAC values are published into DeviceTopologyMember instead.
+  // A logical topology target must not claim a physical member's serial/MAC
+  // as its own. Physical member evidence belongs in DeviceTopologyMember.
   return {
     sourceId: input.sourceId,
     serialNumber: null,

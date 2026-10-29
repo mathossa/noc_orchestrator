@@ -52,6 +52,8 @@ function targetFromAction(action: ImporterV2WorkspaceAction) {
     case 'CHANGE_SET':
     case 'EXCLUDE_ROW':
     case 'PRESERVE_EXISTING_FIRMWARE':
+    case 'CONFIRM_HA_CLUSTER':
+    case 'CONFIRM_HA_CLUSTERS':
       return undefined
   }
 }
@@ -326,7 +328,9 @@ export function importerV2WorkspaceDirectOverlay(
   if (
     action.type === 'EXCLUDE_ROW' ||
     action.type === 'IGNORE_FIELD' ||
-    action.type === 'PRESERVE_EXISTING_FIRMWARE'
+    action.type === 'PRESERVE_EXISTING_FIRMWARE' ||
+    action.type === 'CONFIRM_HA_CLUSTER' ||
+    action.type === 'CONFIRM_HA_CLUSTERS'
   ) {
     return null
   }
@@ -424,6 +428,12 @@ export function importerV2WorkspacePreviewChangeReason(
   }
   if (action.type === 'PRESERVE_EXISTING_FIRMWARE') {
     return 'Change: Missing source firmware acknowledged · existing canonical firmware is preserved when present.'
+  }
+  if (action.type === 'CONFIRM_HA_CLUSTER') {
+    return 'Change: Two physical source rows → one logical HA Device with two topology members.'
+  }
+  if (action.type === 'CONFIRM_HA_CLUSTERS') {
+    return 'Change: Safe physical HA pairs → logical HA Devices with peer topology members.'
   }
   if (action.type === 'CHANGE_SET') {
     return `Changes: ${action.changes

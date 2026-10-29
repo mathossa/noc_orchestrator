@@ -95,6 +95,13 @@ describe('selected importer publication scope preview', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       data: {
+        qa: {
+          qaFingerprint: 'qa-1',
+          publication: {
+            validOnlyCandidateRows: [14, 92, 104, 151],
+            allResolvedCandidateRows: [14, 20, 92, 104, 151],
+          },
+        },
         qaFingerprint: 'qa-1',
         mode: 'VALID_ONLY',
         rowNumbers: [14, 92, 104],

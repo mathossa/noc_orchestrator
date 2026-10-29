@@ -104,9 +104,12 @@ function publicationSourceRowsFor(
   const rows = new Set(
     selectedCandidateRows ?? candidateRowsFor(qa, mode),
   )
-  for (const stack of qa.topology.stackGroups) {
-    if (!rows.has(stack.parentRowNumber)) continue
-    for (const member of stack.memberRows) rows.add(member.rowNumber)
+  for (const group of [
+    ...qa.topology.stackGroups,
+    ...qa.topology.haGroups,
+  ]) {
+    if (!rows.has(group.parentRowNumber)) continue
+    for (const member of group.memberRows) rows.add(member.rowNumber)
   }
   return rows
 }
@@ -182,6 +185,67 @@ type PublicationScopePreview = {
   nameConflictRowNumbers: number[]
 }
 
+type PublicationScopeResponse = PublicationScopePreview & {
+  qa: ImporterV2PublicationQa
+}
+
+type HaConfirmationPreview = {
+  rowNumbers: [number, number]
+  scopeToken: string
+  confirmationReasons: string[]
+}
+
+type HaBulkConfirmationPreview = {
+  rowNumbers: number[]
+  scopeToken: string
+  confirmationReasons: string[]
+  haGroups: Array<{
+    groupKey: string
+    parentRowNumber: number
+    memberRows: Array<{
+      rowNumber: number
+      memberIndex: number
+      sourceId: string
+      name: string
+    }>
+    sharedIdentifiers: Array<'serialNumber' | 'macAddress'>
+  }>
+  haRejected: Array<{
+    rowNumbers: number[]
+    reason: string
+  }>
+}
+
+function publicationHaPotentialPairs(
+  scoped: PublicationScopePreview | null,
+) {
+  if (!scoped) return [] as Array<[number, number]>
+  const pairs = new Map<string, [number, number]>()
+  for (const conflict of scoped.identityConflicts) {
+    for (const match of conflict.stagedConflicts) {
+      if (
+        !conflict.sourceId ||
+        !match.sourceId ||
+        conflict.sourceId === match.sourceId ||
+        !match.matchingIdentifiers.some(
+          (item) =>
+            item.field === 'serialNumber' ||
+            item.field === 'macAddress',
+        )
+      ) {
+        continue
+      }
+      const pair = [conflict.rowNumber, match.rowNumber].sort(
+        (left, right) => left - right,
+      ) as [number, number]
+      pairs.set(`${pair[0]}:${pair[1]}`, pair)
+    }
+  }
+  return [...pairs.values()].sort(
+    (left, right) => left[0] - right[0],
+  )
+}
+
 export function ImporterV2PublicationPanel({
   batchId,
   selectedWorkspaceRows = null,
@@ -206,6 +270,11 @@ export function ImporterV2PublicationPanel({
   )
   const [scopedLoading, setScopedLoading] = useState(false)
   const [deferConflicts, setDeferConflicts] = useState(false)
+  const [haPreview, setHaPreview] =
+    useState<HaConfirmationPreview | null>(null)
+  const [haBulkPreview, setHaBulkPreview] =
+    useState<HaBulkConfirmationPreview | null>(null)
+  const [haBusy, setHaBusy] = useState(false)
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
@@ -213,6 +282,24 @@ export function ImporterV2PublicationPanel({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const retryRequest = useRef<RetryRequest | null>(null)
+  const initialLoadStarted = useRef(false)
+
+  const haAction = useCallback(
+    () => ({
+      type: 'CONFIRM_HA_CLUSTER' as const,
+      explanation:
+        'Engineer confirmed these two provider source objects as physical peers of one logical HA cluster. Active/passive role is not used as durable identity.',
+    }),
+    [],
+  )
+  const haBulkAction = useCallback(
+    () => ({
+      type: 'CONFIRM_HA_CLUSTERS' as const,
+      explanation:
+        'Engineer bulk-confirmed the server-validated unambiguous provider source pairs as physical peers of logical HA clusters. Ambiguous collisions remain staged; active/passive role is not used as durable identity.',
+    }),
+    [],
+  )
 
   const fetchQa = useCallback(async (refresh = false) => {
     const response = await fetchImporterV2Read(
@@ -229,8 +316,12 @@ export function ImporterV2PublicationPanel({
       const next = await fetchQa(true)
       setQa(next)
       setApproved((current) => {
-        const allowed = new Set(requiredProposalsFor(next, mode).map((item) => item.key))
-        return new Set([...current].filter((key) => allowed.has(key)))
+        const allowed = new Set(
+          requiredProposalsFor(next, mode).map((item) => item.key),
+        )
+        return new Set(
+          [...current].filter((key) => allowed.has(key)),
+        )
       })
     } catch (loadError) {
       setError(
@@ -243,13 +334,294 @@ export function ImporterV2PublicationPanel({
     }
   }, [fetchQa, mode])
 
-  useEffect(() => {
-    let cancelled = false
-    void fetchQa()
-      .then((next) => {
-        if (!cancelled) setQa(next)
+  const fetchScopedPublication = useCallback(
+    async (selection: ImporterV2WorkspaceSelection) => {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode,
+            selection,
+          }),
+        },
+      )
+      return responseData<PublicationScopeResponse>(response)
+    },
+    [batchId, mode],
+  )
+
+  const applyScopedPublication = useCallback(
+    (preview: PublicationScopeResponse) => {
+      const { qa: nextQa, ...nextScoped } = preview
+      setQa(nextQa)
+      setScoped(nextScoped)
+      setApproved((current) => {
+        const allowed = new Set(
+          requiredProposalsFor(
+            nextQa,
+            mode,
+            nextScoped.rowNumbers,
+          ).map((item) => item.key),
+        )
+        return new Set(
+          [...current].filter((key) => allowed.has(key)),
+        )
       })
-      .catch((loadError) => {
+    },
+    [mode],
+  )
+
+  const refreshPublicationAfterMutation = useCallback(async () => {
+    try {
+      if (
+        publicationScope === 'SELECTION' &&
+        selectedWorkspaceRows
+      ) {
+        setScopedLoading(true)
+        setError(null)
+        try {
+          const preview = await fetchScopedPublication(
+            selectedWorkspaceRows,
+          )
+          applyScopedPublication(preview)
+        } finally {
+          setScopedLoading(false)
+        }
+        return
+      }
+
+      await loadQa()
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error
+          ? `Change was applied, but Final QA could not refresh automatically: ${refreshError.message}`
+          : 'Change was applied, but Final QA could not refresh automatically. Use Refresh QA.',
+      )
+    }
+  }, [
+    applyScopedPublication,
+    fetchScopedPublication,
+    loadQa,
+    publicationScope,
+    selectedWorkspaceRows,
+  ])
+
+  const requestHaPreview = useCallback(
+    async (leftRow: number, rightRow: number) => {
+      const rowNumbers = [leftRow, rightRow].sort(
+        (left, right) => left - right,
+      ) as [number, number]
+      setHaBusy(true)
+      setHaBulkPreview(null)
+      setError(null)
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/actions`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'PREVIEW',
+              selection: { mode: 'ROWS', rowNumbers },
+              action: haAction(),
+            }),
+          },
+        )
+        const preview = await responseData<{
+          scopeToken: string
+          confirmationReasons: string[]
+        }>(response)
+        setHaPreview({
+          rowNumbers,
+          scopeToken: preview.scopeToken,
+          confirmationReasons: preview.confirmationReasons,
+        })
+      } catch (previewError) {
+        setHaPreview(null)
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : 'Unable to preview HA confirmation.',
+        )
+      } finally {
+        setHaBusy(false)
+      }
+    },
+    [batchId, haAction],
+  )
+
+  const applyHaPreview = useCallback(async () => {
+    if (!haPreview) return
+    setHaBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/actions`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            selection: {
+              mode: 'ROWS',
+              rowNumbers: haPreview.rowNumbers,
+            },
+            action: haAction(),
+            scopeToken: haPreview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const rows = haPreview.rowNumbers
+      setHaPreview(null)
+      setScoped(null)
+      setDeferConflicts(false)
+      setApproved(new Set())
+      setSuccess(
+        `Rows #${rows[0]} and #${rows[1]} confirmed as one logical HA cluster.`,
+      )
+      await refreshPublicationAfterMutation()
+      onPublished?.()
+    } catch (applyError) {
+      setHaPreview(null)
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : 'Unable to confirm HA cluster.',
+      )
+    } finally {
+      setHaBusy(false)
+    }
+  }, [
+    batchId,
+    haAction,
+    haPreview,
+    onPublished,
+    refreshPublicationAfterMutation,
+  ])
+
+  const requestHaBulkPreview = useCallback(
+    async (pairs: readonly [number, number][]) => {
+      const rowNumbers = [
+        ...new Set(pairs.flatMap((pair) => pair)),
+      ].sort((left, right) => left - right)
+      setHaBusy(true)
+      setHaPreview(null)
+      setError(null)
+      try {
+        const response = await fetch(
+          `/api/v1/device-import-v2/batches/${batchId}/actions`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'PREVIEW',
+              selection: { mode: 'ROWS', rowNumbers },
+              action: haBulkAction(),
+            }),
+          },
+        )
+        const preview = await responseData<{
+          scopeToken: string
+          confirmationReasons: string[]
+          haGroups?: HaBulkConfirmationPreview['haGroups']
+          haRejected?: HaBulkConfirmationPreview['haRejected']
+        }>(response)
+        setHaBulkPreview({
+          rowNumbers,
+          scopeToken: preview.scopeToken,
+          confirmationReasons: preview.confirmationReasons,
+          haGroups: preview.haGroups ?? [],
+          haRejected: preview.haRejected ?? [],
+        })
+      } catch (previewError) {
+        setHaBulkPreview(null)
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : 'Unable to preview HA bulk confirmation.',
+        )
+      } finally {
+        setHaBusy(false)
+      }
+    },
+    [batchId, haBulkAction],
+  )
+
+  const applyHaBulkPreview = useCallback(async () => {
+    if (!haBulkPreview) return
+    setHaBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/v1/device-import-v2/batches/${batchId}/actions`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'APPLY',
+            selection: {
+              mode: 'ROWS',
+              rowNumbers: haBulkPreview.rowNumbers,
+            },
+            action: haBulkAction(),
+            scopeToken: haBulkPreview.scopeToken,
+          }),
+        },
+      )
+      await responseData(response)
+      const groupCount = haBulkPreview.haGroups.length
+      setHaBulkPreview(null)
+      setScoped(null)
+      setDeferConflicts(false)
+      setApproved(new Set())
+      setSuccess(
+        `${groupCount} logical HA cluster(s) confirmed atomically.`,
+      )
+      await refreshPublicationAfterMutation()
+      onPublished?.()
+    } catch (applyError) {
+      setHaBulkPreview(null)
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : 'Unable to confirm HA clusters.',
+      )
+    } finally {
+      setHaBusy(false)
+    }
+  }, [
+    batchId,
+    haBulkAction,
+    haBulkPreview,
+    onPublished,
+    refreshPublicationAfterMutation,
+  ])
+
+  useEffect(() => {
+    if (initialLoadStarted.current) return
+    initialLoadStarted.current = true
+
+    let cancelled = false
+
+    const loadInitialPublication = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        if (selectedWorkspaceRows) {
+          setScopedLoading(true)
+          const preview = await fetchScopedPublication(
+            selectedWorkspaceRows,
+          )
+          if (!cancelled) applyScopedPublication(preview)
+          return
+        }
+
+        const next = await fetchQa()
+        if (!cancelled) setQa(next)
+      } catch (loadError) {
         if (!cancelled) {
           setError(
             loadError instanceof Error
@@ -257,42 +629,52 @@ export function ImporterV2PublicationPanel({
               : 'Unable to load publication QA.',
           )
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setScopedLoading(false)
+        }
+      }
+    }
+
+    void loadInitialPublication()
     return () => {
       cancelled = true
     }
-  }, [fetchQa])
+  }, [
+    applyScopedPublication,
+    fetchQa,
+    fetchScopedPublication,
+    selectedWorkspaceRows,
+  ])
 
   const selectionEnabled =
     publicationScope === 'SELECTION' && Boolean(selectedWorkspaceRows)
+  const haPotentialPairs = useMemo(
+    () => publicationHaPotentialPairs(scoped),
+    [scoped],
+  )
 
   useEffect(() => {
     if (!qa || !selectionEnabled || !selectedWorkspaceRows) return
+    if (
+      scoped &&
+      scoped.qaFingerprint === qa.qaFingerprint &&
+      scoped.mode === mode
+    ) {
+      return
+    }
 
     let cancelled = false
     const loadSelectedScope = async () => {
-      setScoped(null)
       setScopedLoading(true)
       setError(null)
 
       try {
-        const response = await fetch(
-          `/api/v1/device-import-v2/batches/${batchId}/publication/scope`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              mode,
-              selection: selectedWorkspaceRows,
-            }),
-          },
+        const preview = await fetchScopedPublication(
+          selectedWorkspaceRows,
         )
-        const preview =
-          await responseData<PublicationScopePreview>(response)
-        if (!cancelled) setScoped(preview)
+        if (!cancelled) applyScopedPublication(preview)
       } catch (scopeError) {
         if (!cancelled) {
           setScoped(null)
@@ -312,9 +694,11 @@ export function ImporterV2PublicationPanel({
       cancelled = true
     }
   }, [
-    batchId,
+    applyScopedPublication,
+    fetchScopedPublication,
     mode,
     qa,
+    scoped,
     selectionEnabled,
     selectedWorkspaceRows,
   ])
@@ -489,9 +873,9 @@ export function ImporterV2PublicationPanel({
       retryRequest.current = null
       const memberCount = result.publishedStackMemberRowCount ?? 0
       setSuccess(
-        `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical stack member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
+        `${result.publishedRows.length.toLocaleString()} managed device(s) published atomically${memberCount ? ` with ${memberCount.toLocaleString()} physical topology member row(s)` : ''}. ${result.remainingIncludedRows.toLocaleString()} included source row(s) remain staged.`,
       )
-      await loadQa()
+      await refreshPublicationAfterMutation()
       onPublished?.()
     } catch (publishError) {
       setError(
@@ -569,7 +953,7 @@ export function ImporterV2PublicationPanel({
             Review and publish
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
-            Review exceptions and canonical objects this import would create. Logical stacks publish as one managed Device while physical member evidence is retained below them.
+            Review exceptions and canonical objects this import would create. Logical stacks and confirmed HA clusters publish as one managed Device while physical member evidence is retained below them.
           </p>
         </div>
         <Button variant="secondary" onClick={() => void loadQa()} disabled={loading || publishing}>
@@ -586,6 +970,8 @@ export function ImporterV2PublicationPanel({
             <Stat label="Excluded" value={qa.counts.excluded} />
             <Stat label="Stacks" value={qa.counts.stacks} />
             <Stat label="Stack members" value={qa.counts.stackMembers} />
+            <Stat label="HA clusters" value={qa.counts.haClusters} />
+            <Stat label="HA members" value={qa.counts.haMembers} />
             <Stat label="Create" value={qa.counts.create} />
             <Stat label="Update" value={qa.counts.update} />
             <Stat label="Unchanged" value={qa.counts.unchanged} />
@@ -639,13 +1025,76 @@ export function ImporterV2PublicationPanel({
             </div>
           ) : null}
 
+          {qa.topology.haGroups.length ? (
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                Confirmed logical HA clusters
+              </h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {qa.topology.haGroups.length.toLocaleString()} HA cluster(s) contain {qa.counts.haMembers.toLocaleString()} physical member row(s). Members remain peers; active/passive role is not durable identity.
+              </p>
+              <div className="mt-3 space-y-2">
+                {qa.topology.haGroups.map((group) => (
+                  <details
+                    key={group.groupKey}
+                    className="rounded border border-[var(--border)] bg-[var(--background)]"
+                  >
+                    <summary className="cursor-pointer px-3 py-2 text-sm">
+                      <strong>{group.parentName}</strong>
+                      <span className="ml-2 text-xs text-[var(--muted)]">
+                        logical HA · {group.memberRows.length} member(s)
+                      </span>
+                    </summary>
+                    <div className="overflow-x-auto border-t border-[var(--border)] p-2">
+                      <table className="w-full min-w-[620px] text-left text-xs">
+                        <thead className="text-[var(--muted)]">
+                          <tr>
+                            <th className="px-2 py-1">Member</th>
+                            <th className="px-2 py-1">Source row</th>
+                            <th className="px-2 py-1">Serial</th>
+                            <th className="px-2 py-1">Model</th>
+                            <th className="px-2 py-1">Firmware</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.memberRows.map((member) => (
+                            <tr
+                              key={member.rowNumber}
+                              className="border-t border-[var(--border)]"
+                            >
+                              <td className="px-2 py-1.5">
+                                {member.memberIndex} · {member.name}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                #{member.rowNumber}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.serialNumber ?? '—'}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.model ?? '—'}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {member.firmware ?? '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {!selectionEnabled && qa.publication.unresolvedRows.length ? (
             <div className="rounded-md border border-[#8f4747] bg-[#512b2b] p-3 text-sm text-[#ffd7d7]">
               <div className="font-semibold">
                 {qa.publication.unresolvedRows.length.toLocaleString()} included row(s) still require review.
               </div>
               <p className="mt-1 text-xs opacity-90">
-                Incomplete standalone devices can be given a Source ID / serial / MAC or explicitly excluded as stale. Stack members are resolved through their logical parent but still need valid model/catalog evidence.
+                Incomplete standalone devices can be given a Source ID / serial / MAC or explicitly excluded as stale. Topology members are resolved through their logical parent but still need valid model/catalog evidence.
               </p>
               <div className="mt-3 space-y-2">
                 {qa.publication.unresolvedRows.slice(0, 20).map((row) => (
@@ -684,7 +1133,7 @@ export function ImporterV2PublicationPanel({
                     New canonical data to create
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} managed device(s) across {publicationSourceRows.size.toLocaleString()} source row(s), including stack members. Approve all, approve a category, or inspect individual values.
+                    {requiredProposals.length.toLocaleString()} distinct proposal(s) are required by {candidateRows.length.toLocaleString()} managed device(s) across {publicationSourceRows.size.toLocaleString()} source row(s), including topology members. Approve all, approve a category, or inspect individual values.
                   </p>
                 </div>
                 <Button
@@ -821,6 +1270,97 @@ export function ImporterV2PublicationPanel({
                 <p className="mt-1 text-xs opacity-90">
                   These are scope-level identity/name uniqueness checks performed immediately before publication. They can exist even when staging itself has no validation warning.
                 </p>
+                {haPotentialPairs.length > 1 ? (
+                  <div className="mt-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
+                    {haBulkPreview ? (
+                      <>
+                        <div className="font-semibold">
+                          Bulk HA preview · {haBulkPreview.haGroups.length.toLocaleString()} safe cluster(s)
+                        </div>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 opacity-90">
+                          {haBulkPreview.confirmationReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-[#9e5a5a] bg-black/10 p-2">
+                          {haBulkPreview.haGroups.map((group) => (
+                            <div key={group.groupKey}>
+                              <strong>
+                                {group.memberRows
+                                  .map(
+                                    (member) =>
+                                      `#${member.rowNumber} ${member.name}`,
+                                  )
+                                  .join(' + ')}
+                              </strong>
+                              <span className="ml-1 opacity-80">
+                                · shared{' '}
+                                {group.sharedIdentifiers
+                                  .map((field) =>
+                                    field === 'serialNumber'
+                                      ? 'serial'
+                                      : 'MAC',
+                                  )
+                                  .join(' + ')}
+                              </span>
+                            </div>
+                          ))}
+                          {haBulkPreview.haRejected.map((rejected, index) => (
+                            <div
+                              key={`rejected-${index}-${rejected.rowNumbers.join('-')}`}
+                              className="text-amber-100"
+                            >
+                              Left for manual review: rows{' '}
+                              {rejected.rowNumbers
+                                .map((row) => `#${row}`)
+                                .join(', ')}
+                              {' · '}
+                              {rejected.reason}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            variant="ghost"
+                            disabled={haBusy}
+                            onClick={() => setHaBulkPreview(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="primary"
+                            disabled={
+                              haBusy ||
+                              haBulkPreview.haGroups.length === 0
+                            }
+                            onClick={() => void applyHaBulkPreview()}
+                          >
+                            {haBusy
+                              ? 'Confirming…'
+                              : `Confirm ${haBulkPreview.haGroups.length} HA cluster(s)`}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span>
+                          {haPotentialPairs.length.toLocaleString()} possible two-member HA pair(s) can be reviewed together. The server will exclude ambiguous or structurally unsafe pairs.
+                        </span>
+                        <Button
+                          variant="secondary"
+                          disabled={haBusy}
+                          onClick={() =>
+                            void requestHaBulkPreview(haPotentialPairs)
+                          }
+                        >
+                          {haBusy
+                            ? 'Checking…'
+                            : `Review ${haPotentialPairs.length} HA candidate clusters`}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
                 {scoped.safeCandidateCount > 0 ? (
                   <label className="mt-2 flex cursor-pointer items-start gap-2 rounded border border-[#9e5a5a] bg-black/10 p-2 text-xs">
                     <input
@@ -853,17 +1393,97 @@ export function ImporterV2PublicationPanel({
                         <div className="mt-1 opacity-90">
                           Source ID: {conflict.sourceId ?? '—'} · canonical: {conflict.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'}
                         </div>
-                        {conflict.stagedConflicts.map((match) => (
-                          <div
-                            key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
-                            className="mt-1"
-                          >
-                            Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
-                            {match.matchingIdentifiers
-                              .map((item) => `${item.field}: ${item.value}`)
-                              .join(', ')}
-                          </div>
-                        ))}
+                        {conflict.stagedConflicts.map((match) => {
+                          const pair = [
+                            conflict.rowNumber,
+                            match.rowNumber,
+                          ].sort(
+                            (left, right) => left - right,
+                          ) as [number, number]
+                          const canReviewAsHa =
+                            conflict.rowNumber < match.rowNumber &&
+                            Boolean(conflict.sourceId) &&
+                            Boolean(match.sourceId) &&
+                            conflict.sourceId !== match.sourceId &&
+                            match.matchingIdentifiers.some(
+                              (item) =>
+                                item.field === 'serialNumber' ||
+                                item.field === 'macAddress',
+                            )
+                          const previewingPair =
+                            haPreview?.rowNumbers[0] === pair[0] &&
+                            haPreview?.rowNumbers[1] === pair[1]
+
+                          return (
+                            <div
+                              key={`staged-${conflict.rowNumber}-${match.rowNumber}`}
+                              className="mt-1"
+                            >
+                              Matches staged row #{match.rowNumber} · {match.sourceName ?? match.hostname ?? 'Unnamed device'} · Source ID: {match.sourceId ?? '—'} · canonical: {match.selectedCanonicalDeviceId ?? 'CREATE_NEW / unresolved'} · on{' '}
+                              {match.matchingIdentifiers
+                                .map(
+                                  (item) =>
+                                    `${item.field}: ${item.value}`,
+                                )
+                                .join(', ')}
+                              {canReviewAsHa ? (
+                                <div className="mt-2 rounded border border-[#9e5a5a] bg-black/10 p-2">
+                                  {previewingPair && haPreview ? (
+                                    <>
+                                      <div className="font-semibold">
+                                        HA confirmation preview
+                                      </div>
+                                      <ul className="mt-1 list-disc space-y-1 pl-4 opacity-90">
+                                        {haPreview.confirmationReasons.map(
+                                          (reason) => (
+                                            <li key={reason}>{reason}</li>
+                                          ),
+                                        )}
+                                      </ul>
+                                      <div className="mt-2 flex gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          disabled={haBusy}
+                                          onClick={() =>
+                                            setHaPreview(null)
+                                          }
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          variant="primary"
+                                          disabled={haBusy}
+                                          onClick={() =>
+                                            void applyHaPreview()
+                                          }
+                                        >
+                                          {haBusy
+                                            ? 'Confirming…'
+                                            : 'Confirm HA cluster'}
+                                        </Button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <Button
+                                      variant="secondary"
+                                      disabled={haBusy}
+                                      onClick={() =>
+                                        void requestHaPreview(
+                                          pair[0],
+                                          pair[1],
+                                        )
+                                      }
+                                    >
+                                      {haBusy
+                                        ? 'Checking…'
+                                        : 'Review as HA cluster'}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          )
+                        })}
                         {conflict.canonicalConflicts.map((match) => (
                           <div
                             key={`canonical-${conflict.rowNumber}-${match.canonicalDeviceId}`}
@@ -903,6 +1523,8 @@ export function ImporterV2PublicationPanel({
                           event.target.value as 'SELECTION' | 'BATCH',
                         )
                         setDeferConflicts(false)
+                        setHaPreview(null)
+                        setHaBulkPreview(null)
                         setApproved(new Set())
                         retryRequest.current = null
                       }}
@@ -927,6 +1549,8 @@ export function ImporterV2PublicationPanel({
                         event.target.value as ImporterV2PublicationMode,
                       )
                       setDeferConflicts(false)
+                      setHaPreview(null)
+                      setHaBulkPreview(null)
                       setApproved(new Set())
                       retryRequest.current = null
                     }}
@@ -950,7 +1574,7 @@ export function ImporterV2PublicationPanel({
                 {selectionEnabled ? (
                   <div className="mb-1 text-xs text-[var(--muted)]">
                     {scopedLoading
-                      ? 'Checking exact server-side selection…'
+                      ? 'Refreshing QA and exact publication scope…'
                       : scoped
                         ? `${scoped.matchedCount.toLocaleString()} matching · ${scoped.eligibleCount.toLocaleString()} eligible · ${scoped.skippedCount.toLocaleString()} skipped · ${scoped.conflictingRowNumbers.length.toLocaleString()} conflicts · ${scoped.safeCandidateCount.toLocaleString()} safe`
                         : 'Preparing selected scope…'}

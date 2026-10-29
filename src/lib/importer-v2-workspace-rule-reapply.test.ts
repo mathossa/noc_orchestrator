@@ -11,10 +11,12 @@ const mocks = vi.hoisted(() => ({
   ensureRuleBook: vi.fn(),
   getActiveRuleSet: vi.fn(),
   topology: vi.fn(),
+  deviceTopologyFindMany: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    deviceTopology: { findMany: mocks.deviceTopologyFindMany },
     importerV2WorkspaceBatch: {
       findUniqueOrThrow: mocks.batchFind,
       update: mocks.batchUpdate,
@@ -112,6 +114,7 @@ describe('Importer v2 saved-rule reapply', () => {
     ])
     mocks.decisionDeleteMany.mockResolvedValue({ count: 1 })
     mocks.decisionCreateMany.mockResolvedValue({ count: 0 })
+    mocks.deviceTopologyFindMany.mockResolvedValue([])
   })
 
   it('removes obsolete automatic rule decisions but leaves manual decisions alone', async () => {

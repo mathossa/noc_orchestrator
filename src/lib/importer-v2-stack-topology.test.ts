@@ -99,6 +99,75 @@ describe('Importer v2 stack topology', () => {
     })
   })
 
+  it('parses confirmed HA parent/member decisions without treating a role as permanent identity', () => {
+    const parent = importerV2TopologyFromDecisions([
+      {
+        action: 'TOPOLOGY_HA_PARENT',
+        value: {
+          role: 'HA',
+          groupKey: 'auvik|source-a|source-b',
+          parentRowNumber: 20,
+          memberIndex: null,
+          memberRows: [
+            { rowNumber: 20, memberIndex: 1 },
+            { rowNumber: 21, memberIndex: 2 },
+          ],
+          source: 'ENGINEER_CONFIRMED',
+        },
+      },
+    ])
+    const member = importerV2TopologyFromDecisions([
+      {
+        action: 'TOPOLOGY_HA_MEMBER',
+        value: {
+          role: 'HA_MEMBER',
+          groupKey: 'auvik|source-a|source-b',
+          parentRowNumber: 20,
+          memberIndex: 2,
+          memberRows: [],
+          source: 'ENGINEER_CONFIRMED',
+        },
+      },
+    ])
+
+    expect(parent).toMatchObject({
+      role: 'HA',
+      parentRowNumber: 20,
+      memberRows: [
+        { rowNumber: 20, memberIndex: 1 },
+        { rowNumber: 21, memberIndex: 2 },
+      ],
+    })
+    expect(member).toMatchObject({
+      role: 'HA_MEMBER',
+      parentRowNumber: 20,
+      memberIndex: 2,
+    })
+  })
+
+  it('uses only provider source ID as logical HA identity', () => {
+    expect(importerV2PublicationIdentityFields({
+      topology: {
+        role: 'HA',
+        groupKey: 'auvik|source-a|source-b',
+        parentRowNumber: 20,
+        memberIndex: null,
+        memberRows: [
+          { rowNumber: 20, memberIndex: 1 },
+          { rowNumber: 21, memberIndex: 2 },
+        ],
+        source: 'ENGINEER_CONFIRMED',
+      },
+      sourceId: 'auvik-member-a',
+      serialNumber: 'COPIED-CLUSTER-SERIAL',
+      macAddress: '001122334455',
+    })).toEqual({
+      sourceId: 'auvik-member-a',
+      serialNumber: null,
+      macAddress: null,
+    })
+  })
+
   it('uses only provider source ID as logical stack identity', () => {
     expect(importerV2PublicationIdentityFields({
       topology: {
