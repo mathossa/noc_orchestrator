@@ -20,6 +20,7 @@ import {
   beginInventorySyncRun,
   completeInventorySyncRun,
   failInventorySyncRun,
+  updateInventorySyncRunProgress,
   type InventorySyncTrigger,
 } from '@/lib/inventory-sync-run-store'
 
@@ -42,6 +43,16 @@ export function auvikApiRuntimeImporterProfile(input: {
     exactValueAliases: [],
   }
 }
+
+export type AuvikSyncProgress = {
+  phase: 'FETCHING' | 'NORMALIZING' | 'STAGING' | 'AUTOMATION' | 'PUBLISHING'
+  tenantsCompleted: number
+  tenantsTotal: number
+  tenantsFailed: number
+}
+
+/** Bound Auvik fan-out to protect the provider's shared MSP API quota. */
+const MAX_PARALLEL_AUVIK_TENANTS = 4
 
 export function configuredAuvikTenantScopes(
   configuration: AuvikInventoryConnectionConfiguration,
@@ -66,6 +77,7 @@ async function runAuvikInventorySyncCore(
   options: {
     fetchImpl?: typeof fetch
     signal?: AbortSignal
+    onProgress?: (progress: AuvikSyncProgress) => Promise<void>
   } = {},
 ) {
   const { connection, credentials } =
@@ -82,29 +94,67 @@ async function runAuvikInventorySyncCore(
   }
   const tenantScopes = configuredAuvikTenantScopes(connection.configuration)
 
-  const tenants = []
-  const failures: Array<{ tenantId: string; error: string }> = []
-  for (const context of tenantScopes) {
-    try {
-      const devices = await listAuvikDevicesV2({
-        region: connection.configuration.region,
-        credentials,
-        tenantId: context.tenantId,
-        fetchImpl: options.fetchImpl,
-        signal: options.signal,
-      })
-      tenants.push({ context, devices })
-    } catch (error) {
-      failures.push({
-        tenantId: context.tenantId,
-        error: error instanceof Error ? error.message : 'Auvik tenant inventory failed.',
-      })
+  // Reserve fixed slots to preserve configured tenant ordering across
+  // concurrent requests (and therefore deterministic staged row identity).
+  const successful: Array<{
+    context: (typeof tenantScopes)[number]
+    devices: Awaited<ReturnType<typeof listAuvikDevicesV2>>
+  } | null> = Array.from({ length: tenantScopes.length }, () => null)
+  const errors: Array<{ tenantId: string; error: string } | null> =
+    Array.from({ length: tenantScopes.length }, () => null)
+  let nextIndex = 0
+  let completed = 0
+  let failed = 0
+  await options.onProgress?.({
+    phase: 'FETCHING', tenantsCompleted: 0,
+    tenantsTotal: tenantScopes.length, tenantsFailed: 0,
+  })
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++
+      if (index >= tenantScopes.length) return
+      const context = tenantScopes[index]
+      try {
+        const devices = await listAuvikDevicesV2({
+          region: connection.configuration.region,
+          credentials,
+          tenantId: context.tenantId,
+          fetchImpl: options.fetchImpl,
+          signal: options.signal,
+        })
+        successful[index] = { context, devices }
+      } catch (error) {
+        errors[index] = {
+          tenantId: context.tenantId,
+          error: error instanceof Error ? error.message : 'Auvik tenant inventory failed.',
+        }
+        failed += 1
+      }
+      completed += 1
+      if (completed % 10 === 0 || completed === tenantScopes.length) {
+        await options.onProgress?.({
+          phase: 'FETCHING', tenantsCompleted: completed,
+          tenantsTotal: tenantScopes.length, tenantsFailed: failed,
+        })
+      }
     }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(MAX_PARALLEL_AUVIK_TENANTS, tenantScopes.length) }, () => worker()),
+  )
+  const tenants = successful.filter((item): item is NonNullable<typeof item> => item !== null)
+  const failures = errors.filter((item): item is NonNullable<typeof item> => item !== null)
   if (tenants.length === 0 && failures.length > 0) {
     throw new Error(`Auvik inventory failed for all enabled tenants: ${failures.map((failure) => failure.tenantId).join(', ')}.`)
   }
 
+  const reportPhase = async (phase: AuvikSyncProgress['phase']) => {
+    await options.onProgress?.({
+      phase, tenantsCompleted: completed,
+      tenantsTotal: tenantScopes.length, tenantsFailed: failed,
+    })
+  }
+  await reportPhase('NORMALIZING')
   const source = normalizeInventorySourceDefinition({
     id: connection.id,
     provider: AUVIK_API_PROVIDER,
@@ -122,6 +172,7 @@ async function runAuvikInventorySyncCore(
     input: { tenants },
   })
 
+  await reportPhase('STAGING')
   const result = await stageImporterV2NormalizedSource({
     source: normalized.source,
     profile: auvikApiRuntimeImporterProfile({
@@ -131,9 +182,11 @@ async function runAuvikInventorySyncCore(
     directHierarchyFields: ['customer', 'businessUnit', 'site'],
     isFullInventoryExport: failures.length === 0,
   })
+  await reportPhase('AUTOMATION')
   const automation = await initializeImporterV2WorkspaceAutomation(
     result.batch.id,
   )
+  await reportPhase('PUBLISHING')
   const autoPublication = await autoPublishImporterV2SafeValidRows(
     result.batch.id,
   )
@@ -165,7 +218,10 @@ export async function runAuvikInventorySync(
 ) {
   const run = await beginInventorySyncRun(sourceId, options.trigger ?? 'MANUAL')
   try {
-    const result = await runAuvikInventorySyncCore(sourceId, options)
+    const result = await runAuvikInventorySyncCore(sourceId, {
+      ...options,
+      onProgress: (progress) => updateInventorySyncRunProgress(run.id, progress),
+    })
     const syncRun = await completeInventorySyncRun({
       runId: run.id,
       status: result.source.partial ? 'PARTIAL' : 'SUCCEEDED',
