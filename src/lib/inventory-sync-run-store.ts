@@ -36,6 +36,35 @@ export async function beginInventorySyncRun(
   })
 }
 
+/**
+ * Persist lightweight progress without inventing completed device counts.
+ * Only a still-running execution may update its own progress record.
+ */
+export async function updateInventorySyncRunProgress(
+  runId: string,
+  progress: {
+    phase: string
+    tenantsCompleted: number
+    tenantsTotal: number
+    tenantsFailed: number
+  },
+) {
+  const updated = await prisma.inventorySyncRun.updateMany({
+    where: { id: runId, status: 'RUNNING' },
+    data: {
+      metadata: {
+        progress: {
+          ...progress,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    },
+  })
+  if (updated.count !== 1) {
+    throw new Error('Inventory sync execution is no longer active.')
+  }
+}
+
 export async function completeInventorySyncRun(input: {
   runId: string
   status: Exclude<InventorySyncRunStatus, 'RUNNING'>

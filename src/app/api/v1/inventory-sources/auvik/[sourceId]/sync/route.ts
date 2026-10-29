@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { AdminAccessError, requireAdminRequest } from '@/lib/api-admin'
 import { AuvikApiError } from '@/lib/auvik-api-client'
 import { runAuvikInventorySync } from '@/lib/auvik-inventory-sync'
+import { listInventorySyncRuns } from '@/lib/inventory-sync-run-store'
 
 type RouteContext = {
   params: Promise<{ sourceId: string }>
@@ -51,4 +52,28 @@ async function POSTHandler(request: Request, context: RouteContext) {
   }
 }
 
+async function GETHandler(request: Request, context: RouteContext) {
+  try {
+    await requireAdminRequest(request)
+    const { sourceId } = await context.params
+    const runs = await listInventorySyncRuns(sourceId)
+    return NextResponse.json({
+      data: runs.map((run) => ({
+        ...run,
+        startedAt: run.startedAt.toISOString(),
+        finishedAt: run.finishedAt?.toISOString() ?? null,
+      })),
+    }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    if (error instanceof AdminAccessError) {
+      return NextResponse.json({ error: { message: error.message } }, { status: error.status })
+    }
+    return NextResponse.json(
+      { error: { message: 'Unable to read sync progress.' } },
+      { status: 500 },
+    )
+  }
+}
+
+export const GET = withAdmin(GETHandler)
 export const POST = withAdmin(POSTHandler)

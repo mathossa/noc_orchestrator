@@ -282,6 +282,12 @@ async function auvikGet(input: {
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    // Never let an unresponsive upstream connection suspend a full MSP sync
+    // indefinitely. Keep the caller's cancellation signal authoritative.
+    const deadline = AbortSignal.timeout(30_000)
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, deadline])
+      : deadline
     const response = await input.fetchImpl(input.url, {
       method: 'GET',
       headers: {
@@ -289,7 +295,7 @@ async function auvikGet(input: {
         Authorization: auvikBasicAuthorization(input.credentials),
       },
       redirect: 'manual',
-      signal: input.signal,
+      signal,
     })
 
     if (response.status === 308) {
