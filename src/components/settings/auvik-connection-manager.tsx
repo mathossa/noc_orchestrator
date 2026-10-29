@@ -310,10 +310,19 @@ export function AuvikConnectionManager({
       )
       const result = await responseData(response)
       if (result.syncRun) {
-        setSyncRuns((current) => [
-          { ...result.syncRun, startedAt: new Date(result.syncRun.startedAt).toISOString(), finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null },
-          ...current,
-        ].slice(0, 20))
+        setSyncRuns((current) => {
+          const completedRun: InventorySourceSyncRun = {
+            ...result.syncRun,
+            startedAt: new Date(result.syncRun.startedAt).toISOString(),
+            finishedAt: result.syncRun.finishedAt ? new Date(result.syncRun.finishedAt).toISOString() : null,
+          }
+          // Polling may have already inserted this RUNNING run. Replace it
+          // with the completed snapshot rather than rendering duplicate keys.
+          return [
+            completedRun,
+            ...current.filter((run) => run.id !== completedRun.id),
+          ].slice(0, 20)
+        })
       }
       const autoPublication = result.autoPublication as {
         status: 'PUBLISHED' | 'REVIEW_REQUIRED' | 'NOTHING_TO_PUBLISH'
