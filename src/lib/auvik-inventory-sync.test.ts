@@ -9,12 +9,14 @@ const mocks = vi.hoisted(() => ({
   beginRun: vi.fn(),
   completeRun: vi.fn(),
   failRun: vi.fn(),
+  progressRun: vi.fn(),
 }))
 
 vi.mock('@/lib/inventory-sync-run-store', () => ({
   beginInventorySyncRun: mocks.beginRun,
   completeInventorySyncRun: mocks.completeRun,
   failInventorySyncRun: mocks.failRun,
+  updateInventorySyncRunProgress: mocks.progressRun,
 }))
 
 vi.mock('@/lib/auvik-integration-store', () => ({
@@ -43,6 +45,7 @@ describe('Auvik inventory sync orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.beginRun.mockResolvedValue({ id: 'run-1' })
+    mocks.progressRun.mockResolvedValue(undefined)
     mocks.completeRun.mockResolvedValue({ id: 'run-1', status: 'SUCCEEDED', trigger: 'MANUAL' })
     mocks.getConnectionCredentials.mockResolvedValue({
       connection: {
@@ -198,6 +201,58 @@ describe('Auvik inventory sync orchestration', () => {
     expect(mocks.beginRun).toHaveBeenCalledWith('source-1', 'MANUAL')
     expect(mocks.completeRun).toHaveBeenCalledWith(expect.objectContaining({
       runId: 'run-1', status: 'SUCCEEDED', autoPublishedCount: 2,
+    }))
+  })
+
+  it('limits concurrent tenant calls to four, retains configured order, and records progress', async () => {
+    const existing = await mocks.getConnectionCredentials()
+    mocks.getConnectionCredentials.mockResolvedValueOnce({
+      ...existing,
+      connection: {
+        ...existing.connection,
+        configuration: {
+          ...existing.connection.configuration,
+          tenants: Array.from({ length: 12 }, (_, index) => ({
+            tenantId: `synthetic-tenant-${index}`,
+            enabled: true,
+            customer: 'Synthetic Customer',
+            site: `Site ${index}`,
+          })),
+        },
+      },
+    })
+    let inflight = 0
+    let maximumInflight = 0
+    mocks.listDevices.mockImplementation(async ({ tenantId }: { tenantId: string }) => {
+      inflight += 1
+      maximumInflight = Math.max(maximumInflight, inflight)
+      // Force out-of-order completion; insertion order must still be deterministic.
+      await new Promise((resolve) => setTimeout(resolve, tenantId.endsWith('-0') ? 12 : 0))
+      inflight -= 1
+      return [{
+        type: 'device',
+        id: `device-${tenantId}`,
+        attributes: {
+          deviceName: `SW-${tenantId}`,
+          make: 'Cisco',
+          model: 'C9300-24P',
+          deviceTypeDescription: 'Switch',
+        },
+      }]
+    })
+    await runAuvikInventorySync('source-1')
+    expect(maximumInflight).toBe(4)
+    const staging = mocks.stageNormalized.mock.calls[0][0]
+    expect(staging.rows).toHaveLength(12)
+    expect(staging.rows.map((row: { rawValues: { sourceId: string } }) =>
+      row.rawValues.sourceId)).toEqual(
+      Array.from({ length: 12 }, (_, index) => `device-synthetic-tenant-${index}`),
+    )
+    expect(mocks.progressRun).toHaveBeenCalledWith('run-1', expect.objectContaining({
+      phase: 'FETCHING', tenantsCompleted: 12, tenantsTotal: 12, tenantsFailed: 0,
+    }))
+    expect(mocks.progressRun).toHaveBeenCalledWith('run-1', expect.objectContaining({
+      phase: 'PUBLISHING', tenantsCompleted: 12, tenantsTotal: 12,
     }))
   })
 
